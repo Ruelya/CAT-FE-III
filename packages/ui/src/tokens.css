@@ -1,0 +1,77 @@
+/*
+ * INSTRUMENT design tokens.
+ *
+ * Cold instrument grays with one deep-blue accent. No purple, no glass,
+ * no amber, no warm paper. Surfaces are flat; hierarchy comes from cool
+ * gray steps and hairline borders, not shadows.
+ */
+
+:root {
+  /* Cold gray scale (blue-tinted neutrals). */
+  --tl-gray-0: #ffffff;
+  --tl-gray-1: #f7f8fa;
+  --tl-gray-2: #eef0f4;
+  --tl-gray-3: #e2e5eb;
+  --tl-gray-4: #cdd2da;
+  --tl-gray-5: #aab1bd;
+  --tl-gray-6: #7d8595;
+  --tl-gray-7: #555d6d;
+  --tl-gray-8: #333a48;
+  --tl-gray-9: #1b202b;
+
+  /* The single accent: deep instrument blue. */
+  --tl-blue-accent: #1743ae;
+  --tl-blue-accent-strong: #113487;
+  --tl-blue-accent-soft: #dbe3f7;
+  --tl-blue-accent-faint: #edf1fb;
+
+  /* Semantic status colors (calibrated, low-saturation). */
+  --tl-status-ok: #1e6f4c;
+  --tl-status-ok-soft: #ddefe6;
+  --tl-status-warn: #8a5a00;
+  --tl-status-warn-soft: #f4ead3;
+  --tl-status-danger: #a4302a;
+  --tl-status-danger-soft: #f6e2e0;
+
+  /* Surfaces. */
+  --tl-color-bg: var(--tl-gray-2);
+  --tl-color-surface: var(--tl-gray-1);
+  --tl-color-surface-raised: var(--tl-gray-0);
+  --tl-color-sunken: var(--tl-gray-3);
+  --tl-color-border: var(--tl-gray-4);
+  --tl-color-border-strong: var(--tl-gray-5);
+  --tl-color-text: var(--tl-gray-9);
+  --tl-color-text-muted: var(--tl-gray-7);
+  --tl-color-text-faint: var(--tl-gray-6);
+  --tl-color-accent: var(--tl-blue-accent);
+  --tl-color-accent-strong: var(--tl-blue-accent-strong);
+  --tl-color-accent-soft: var(--tl-blue-accent-soft);
+  --tl-color-accent-faint: var(--tl-blue-accent-faint);
+  --tl-color-on-accent: #ffffff;
+
+  /* Typography. */
+  --tl-font-ui:
+    "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --tl-font-mono:
+    "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+  --tl-text-xs: 11px;
+  --tl-text-sm: 12px;
+  --tl-text-md: 13px;
+  --tl-text-lg: 15px;
+  --tl-text-xl: 18px;
+
+  /* Geometry: instruments are squared-off. */
+  --tl-radius-sm: 2px;
+  --tl-radius-md: 4px;
+  --tl-space-1: 2px;
+  --tl-space-2: 4px;
+  --tl-space-3: 8px;
+  --tl-space-4: 12px;
+  --tl-space-5: 16px;
+  --tl-space-6: 24px;
+
+  /* Focus and overlays. */
+  --tl-focus-ring:
+    0 0 0 2px var(--tl-color-accent-soft), 0 0 0 3px var(--tl-color-accent);
+  --tl-shadow-overlay: 0 4px 16px rgba(27, 32, 43, 0.18);
+}

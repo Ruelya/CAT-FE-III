@@ -54,6 +54,7 @@ pub mod notifications {
 
 /// A `{ params, result }` pair for one method. Only used for schema export.
 #[derive(JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MethodContract<Params, Result> {
     pub params: Params,
     pub result: Result,
@@ -62,6 +63,7 @@ pub struct MethodContract<Params, Result> {
 /// Method-name-keyed catalog. Field renames must match [`methods`] constants;
 /// the test below keeps them honest.
 #[derive(JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RpcMethodCatalog {
     #[serde(rename = "engine.initialize")]
     pub engine_initialize: MethodContract<InitializeParams, InitializeResult>,
@@ -103,6 +105,7 @@ pub struct RpcMethodCatalog {
 
 /// Notification-name-keyed catalog for the reserved notification frames.
 #[derive(JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NotificationCatalog {
     #[serde(rename = "notify.engine.ready")]
     pub engine_ready: EngineReadyNotification,
@@ -111,11 +114,17 @@ pub struct NotificationCatalog {
 }
 
 /// Root schema exported for the TypeScript contracts package.
+///
+/// The runtime stdout frame is `EngineFrame` (an internally tagged enum); its
+/// constituent parts are exported here individually so the generated
+/// TypeScript keeps their full field lists.
 #[derive(JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProtocolCatalog {
     pub request: RpcRequest,
-    pub frame: EngineFrame,
+    pub response: RpcResponse,
+    pub notification: RpcNotification,
+    pub error: RpcError,
     pub methods: RpcMethodCatalog,
     pub notifications: NotificationCatalog,
 }

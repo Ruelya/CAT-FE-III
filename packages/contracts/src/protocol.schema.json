@@ -1,0 +1,1805 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProtocolCatalog",
+  "description": "Root schema exported for the TypeScript contracts package.\n\nThe runtime stdout frame is `EngineFrame` (an internally tagged enum); its\nconstituent parts are exported here individually so the generated\nTypeScript keeps their full field lists.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "$ref": "#/$defs/RpcError"
+    },
+    "methods": {
+      "$ref": "#/$defs/RpcMethodCatalog"
+    },
+    "notification": {
+      "$ref": "#/$defs/RpcNotification"
+    },
+    "notifications": {
+      "$ref": "#/$defs/NotificationCatalog"
+    },
+    "request": {
+      "$ref": "#/$defs/RpcRequest"
+    },
+    "response": {
+      "$ref": "#/$defs/RpcResponse"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "request",
+    "response",
+    "notification",
+    "error",
+    "methods",
+    "notifications"
+  ],
+  "$defs": {
+    "AgentRunParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxSegments": {
+          "description": "Upper bound on segments the agent may translate in one run.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "AgentRunResult": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "failedSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "openQaIssues": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/AgentRunStatus"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentStep"
+          }
+        },
+        "translatedSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "runId",
+        "documentId",
+        "status",
+        "steps",
+        "translatedSegments",
+        "failedSegments",
+        "openQaIssues"
+      ]
+    },
+    "AgentRunStatus": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "completedWithIssues",
+        "failed"
+      ]
+    },
+    "AgentStep": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentStepKind"
+        },
+        "segmentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/AgentStepStatus"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "status",
+        "detail"
+      ]
+    },
+    "AgentStepKind": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "translate",
+        "qa",
+        "summary"
+      ]
+    },
+    "AgentStepNotification": {
+      "description": "Payload for the reserved `notify.ai.agent.step` frame emitted while a run\nis in flight.",
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "step": {
+          "$ref": "#/$defs/AgentStep"
+        }
+      },
+      "required": [
+        "runId",
+        "documentId",
+        "step"
+      ]
+    },
+    "AgentStepStatus": {
+      "type": "string",
+      "enum": [
+        "done",
+        "failed",
+        "skipped"
+      ]
+    },
+    "AiAssistAction": {
+      "oneOf": [
+        {
+          "description": "Draft a translation for the segment source.",
+          "type": "string",
+          "const": "translate"
+        },
+        {
+          "description": "Improve the segment's current target.",
+          "type": "string",
+          "const": "refine"
+        }
+      ]
+    },
+    "AiAssistParams": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/AiAssistAction"
+        },
+        "instruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "action"
+      ]
+    },
+    "AiAssistResult": {
+      "type": "object",
+      "properties": {
+        "draftTarget": {
+          "type": "string"
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        }
+      },
+      "required": [
+        "draftTarget",
+        "provider",
+        "model",
+        "elapsedMs"
+      ]
+    },
+    "AiConfigureParams": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "description": "Held in engine memory only; never persisted to disk.",
+          "type": "string"
+        },
+        "baseUrl": {
+          "description": "Overrides the provider's default base URL. Required for\n`openaiCompatible`, optional otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "apiKey"
+      ]
+    },
+    "AiProviderKind": {
+      "type": "string",
+      "enum": [
+        "openai",
+        "anthropic",
+        "gemini",
+        "deepl",
+        "deepseek",
+        "qwen",
+        "glm",
+        "kimi",
+        "volcengine",
+        "openaiCompatible"
+      ]
+    },
+    "AiStatusParams": {
+      "type": "object"
+    },
+    "AiStatusResult": {
+      "type": "object",
+      "properties": {
+        "configured": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiProviderKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "configured"
+      ]
+    },
+    "DegradationFinding": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/DegradationSeverity"
+        },
+        "structuralPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ]
+    },
+    "DegradationSeverity": {
+      "type": "string",
+      "enum": [
+        "warning",
+        "error"
+      ]
+    },
+    "Document": {
+      "type": "object",
+      "properties": {
+        "currentVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "degradation": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DegradationFinding"
+          }
+        },
+        "filterId": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "importedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "name": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sourceSha256": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/DocumentStatus"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "projectId",
+        "name",
+        "relativePath",
+        "format",
+        "filterId",
+        "sourceSha256",
+        "currentVersion",
+        "status",
+        "revision",
+        "segmentCount",
+        "degradation",
+        "importedAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "DocumentExportParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "outputPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "outputPath"
+      ]
+    },
+    "DocumentExportResult": {
+      "type": "object",
+      "properties": {
+        "degradation": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DegradationFinding"
+          }
+        },
+        "outputPath": {
+          "type": "string"
+        },
+        "translatedSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "outputPath",
+        "translatedSegments",
+        "degradation"
+      ]
+    },
+    "DocumentImportParams": {
+      "type": "object",
+      "properties": {
+        "filterId": {
+          "description": "Explicit filter id. When omitted, the engine probes registered filters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "sourcePath"
+      ]
+    },
+    "DocumentImportResult": {
+      "type": "object",
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/Document"
+        },
+        "segmentCount": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "document",
+        "segmentCount"
+      ]
+    },
+    "DocumentListParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "DocumentListResult": {
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Document"
+          }
+        }
+      },
+      "required": [
+        "documents"
+      ]
+    },
+    "DocumentStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "failed",
+        "superseded"
+      ]
+    },
+    "EditorPreferences": {
+      "type": "object",
+      "properties": {
+        "autocomplete": {
+          "type": "boolean"
+        },
+        "cjkSpacing": {
+          "type": "boolean"
+        },
+        "punctuationAssistance": {
+          "type": "boolean"
+        },
+        "shortcuts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "showNonprinting": {
+          "type": "boolean"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "zoom": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "theme",
+        "zoom",
+        "showNonprinting",
+        "autocomplete",
+        "cjkSpacing",
+        "punctuationAssistance",
+        "shortcuts"
+      ]
+    },
+    "EngineCapabilities": {
+      "type": "object",
+      "properties": {
+        "aiAgent": {
+          "type": "boolean"
+        },
+        "aiAssist": {
+          "type": "boolean"
+        },
+        "filters": {
+          "description": "Registered document filter ids, e.g. `builtin.docx`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notifications": {
+          "description": "Whether the engine emits notification frames.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "filters",
+        "aiAssist",
+        "aiAgent",
+        "notifications"
+      ]
+    },
+    "EngineReadyNotification": {
+      "description": "Payload for the reserved `notify.engine.ready` frame emitted on startup.",
+      "type": "object",
+      "properties": {
+        "engineName": {
+          "type": "string"
+        },
+        "engineVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "engineName",
+        "engineVersion",
+        "protocolVersion"
+      ]
+    },
+    "InitializeParams": {
+      "type": "object",
+      "properties": {
+        "clientName": {
+          "type": "string"
+        },
+        "clientVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "clientName",
+        "clientVersion"
+      ]
+    },
+    "InitializeResult": {
+      "type": "object",
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/EngineCapabilities"
+        },
+        "engineName": {
+          "type": "string"
+        },
+        "engineVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "engineName",
+        "engineVersion",
+        "capabilities"
+      ]
+    },
+    "MethodContract": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/InitializeParams"
+        },
+        "result": {
+          "$ref": "#/$defs/InitializeResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract10": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/SegmentUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SegmentUpdateResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract11": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/SegmentConfirmParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SegmentConfirmResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract12": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TmLookupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmLookupResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract13": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaRunParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaRunResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract14": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract15": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConfigureParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiStatusResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract16": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiStatusResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract17": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract18": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentRunParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract2": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ShutdownResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract3": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Project"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract4": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/ProjectListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract5": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/ProjectGetParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Project"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract6": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DocumentImportResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract7": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DocumentListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract8": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/DocumentExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/DocumentExportResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract9": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/SegmentListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SegmentListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "NotificationCatalog": {
+      "description": "Notification-name-keyed catalog for the reserved notification frames.",
+      "type": "object",
+      "properties": {
+        "notify.ai.agent.step": {
+          "$ref": "#/$defs/AgentStepNotification"
+        },
+        "notify.engine.ready": {
+          "$ref": "#/$defs/EngineReadyNotification"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "notify.engine.ready",
+        "notify.ai.agent.step"
+      ]
+    },
+    "NumberEvidence": {
+      "type": "object",
+      "properties": {
+        "sourceNumbers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetNumbers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "sourceNumbers",
+        "targetNumbers"
+      ]
+    },
+    "Project": {
+      "type": "object",
+      "properties": {
+        "archivedAtMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "default": null
+        },
+        "configuration": {
+          "$ref": "#/$defs/ProjectConfiguration"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/ProjectLifecycle"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sourceLocale",
+        "targetLocale",
+        "domain",
+        "lifecycle",
+        "revision",
+        "configuration",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "ProjectConfiguration": {
+      "type": "object",
+      "properties": {
+        "aiProfileIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "analysisProfileId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "editorDefaults": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EditorPreferences"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "engineAllowlist": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "pipelineId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "qaProfileId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "taskPackage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPackageProjectReference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "templateId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "ProjectCreateParams": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sourceLocale",
+        "targetLocale"
+      ]
+    },
+    "ProjectGetParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "ProjectLifecycle": {
+      "type": "string",
+      "enum": [
+        "active",
+        "archived",
+        "trash"
+      ]
+    },
+    "ProjectListParams": {
+      "type": "object"
+    },
+    "ProjectListResult": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Project"
+          }
+        }
+      },
+      "required": [
+        "projects"
+      ]
+    },
+    "QaIssue": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "evidence": {
+          "$ref": "#/$defs/NumberEvidence"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/QaSeverity"
+        },
+        "status": {
+          "$ref": "#/$defs/QaIssueStatus"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "segmentId",
+        "ruleId",
+        "severity",
+        "status",
+        "message",
+        "fingerprint",
+        "evidence",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "QaIssueStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved"
+      ]
+    },
+    "QaListParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "QaListResult": {
+      "type": "object",
+      "properties": {
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QaIssue"
+          }
+        }
+      },
+      "required": [
+        "issues"
+      ]
+    },
+    "QaRunParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "QaRunResult": {
+      "type": "object",
+      "properties": {
+        "checkedSegments": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QaIssue"
+          }
+        },
+        "openIssues": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "checkedSegments",
+        "openIssues",
+        "issues"
+      ]
+    },
+    "QaSeverity": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warning",
+        "info"
+      ]
+    },
+    "RpcError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/RpcErrorCode"
+        },
+        "data": true,
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "RpcErrorCode": {
+      "type": "string",
+      "enum": [
+        "invalidRequest",
+        "methodNotFound",
+        "invalidParams",
+        "notFound",
+        "conflict",
+        "filterFailed",
+        "exportBlocked",
+        "aiNotConfigured",
+        "aiFailed",
+        "io",
+        "internal"
+      ]
+    },
+    "RpcMethodCatalog": {
+      "description": "Method-name-keyed catalog. Field renames must match [`methods`] constants;\nthe test below keeps them honest.",
+      "type": "object",
+      "properties": {
+        "ai.agent.run": {
+          "$ref": "#/$defs/MethodContract18"
+        },
+        "ai.assist": {
+          "$ref": "#/$defs/MethodContract17"
+        },
+        "ai.configure": {
+          "$ref": "#/$defs/MethodContract15"
+        },
+        "ai.status": {
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "document.export": {
+          "$ref": "#/$defs/MethodContract8"
+        },
+        "document.import": {
+          "$ref": "#/$defs/MethodContract6"
+        },
+        "document.list": {
+          "$ref": "#/$defs/MethodContract7"
+        },
+        "engine.initialize": {
+          "$ref": "#/$defs/MethodContract"
+        },
+        "engine.shutdown": {
+          "$ref": "#/$defs/MethodContract2"
+        },
+        "project.create": {
+          "$ref": "#/$defs/MethodContract3"
+        },
+        "project.get": {
+          "$ref": "#/$defs/MethodContract5"
+        },
+        "project.list": {
+          "$ref": "#/$defs/MethodContract4"
+        },
+        "qa.list": {
+          "$ref": "#/$defs/MethodContract14"
+        },
+        "qa.run": {
+          "$ref": "#/$defs/MethodContract13"
+        },
+        "segment.confirm": {
+          "$ref": "#/$defs/MethodContract11"
+        },
+        "segment.list": {
+          "$ref": "#/$defs/MethodContract9"
+        },
+        "segment.update": {
+          "$ref": "#/$defs/MethodContract10"
+        },
+        "tm.lookup": {
+          "$ref": "#/$defs/MethodContract12"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "engine.initialize",
+        "engine.shutdown",
+        "project.create",
+        "project.list",
+        "project.get",
+        "document.import",
+        "document.list",
+        "document.export",
+        "segment.list",
+        "segment.update",
+        "segment.confirm",
+        "tm.lookup",
+        "qa.run",
+        "qa.list",
+        "ai.configure",
+        "ai.status",
+        "ai.assist",
+        "ai.agent.run"
+      ]
+    },
+    "RpcNotification": {
+      "description": "Reserved notification frame: engine-initiated, no request id, never awaited.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "method"
+      ]
+    },
+    "RpcRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "method"
+      ]
+    },
+    "RpcResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "result": true
+      }
+    },
+    "Segment": {
+      "type": "object",
+      "properties": {
+        "contextHash": {
+          "type": "string"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceHash": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/SegmentState"
+        },
+        "structuralPath": {
+          "type": "string"
+        },
+        "targetText": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "documentId",
+        "ordinal",
+        "structuralPath",
+        "sourceText",
+        "targetText",
+        "state",
+        "revision",
+        "sourceHash",
+        "contextHash",
+        "updatedAtMs"
+      ]
+    },
+    "SegmentConfirmParams": {
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "baseRevision"
+      ]
+    },
+    "SegmentConfirmResult": {
+      "type": "object",
+      "properties": {
+        "propagated": {
+          "description": "Sibling segments auto-filled from the confirmed translation.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        },
+        "segment": {
+          "$ref": "#/$defs/Segment"
+        },
+        "tmEntry": {
+          "description": "The translation-memory entry written by the confirmation.",
+          "$ref": "#/$defs/TmEntry"
+        }
+      },
+      "required": [
+        "segment",
+        "tmEntry",
+        "propagated"
+      ]
+    },
+    "SegmentListParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "SegmentListResult": {
+      "type": "object",
+      "properties": {
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        }
+      },
+      "required": [
+        "segments"
+      ]
+    },
+    "SegmentState": {
+      "type": "string",
+      "enum": [
+        "untranslated",
+        "draft",
+        "confirmed"
+      ]
+    },
+    "SegmentUpdateParams": {
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "description": "Optimistic concurrency: must match the segment's current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "targetText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "segmentId",
+        "targetText",
+        "baseRevision"
+      ]
+    },
+    "SegmentUpdateResult": {
+      "type": "object",
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/Segment"
+        }
+      },
+      "required": [
+        "segment"
+      ]
+    },
+    "ShutdownResult": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    },
+    "TaskPackageProjectReference": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "type": "string",
+          "default": ""
+        },
+        "originProjectId": {
+          "type": "string"
+        },
+        "packageId": {
+          "type": "string"
+        },
+        "parentPackageId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "packageId",
+        "originProjectId"
+      ]
+    },
+    "TmEntry": {
+      "type": "object",
+      "properties": {
+        "confirmedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "type": "string"
+        },
+        "memoryId": {
+          "type": "string"
+        },
+        "originDocumentId": {
+          "type": "string"
+        },
+        "originProjectId": {
+          "type": "string"
+        },
+        "originSegmentId": {
+          "type": "string"
+        },
+        "sourceHash": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "targetText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "memoryId",
+        "sourceText",
+        "targetText",
+        "sourceHash",
+        "originProjectId",
+        "originDocumentId",
+        "originSegmentId",
+        "confirmedAtMs"
+      ]
+    },
+    "TmLookupParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "sourceText"
+      ]
+    },
+    "TmLookupResult": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TmMatchItem"
+          }
+        }
+      },
+      "required": [
+        "matches"
+      ]
+    },
+    "TmMatchGrade": {
+      "oneOf": [
+        {
+          "description": "Normalized source text matches exactly.",
+          "type": "string",
+          "const": "exact"
+        },
+        {
+          "description": "Exact source and matching neighbour context. Reserved for later phases.",
+          "type": "string",
+          "const": "inContext"
+        }
+      ]
+    },
+    "TmMatchItem": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/TmEntry"
+        },
+        "grade": {
+          "$ref": "#/$defs/TmMatchGrade"
+        },
+        "score": {
+          "description": "0..=100.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entry",
+        "score",
+        "grade"
+      ]
+    }
+  }
+}
