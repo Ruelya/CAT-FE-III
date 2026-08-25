@@ -606,6 +606,32 @@ fn tm_import_export_roundtrip_and_pretranslate() {
         ),
         "exportBlocked"
     );
+
+    // An explicit overwrite replaces the blocked file and still yields a
+    // parseable TMX.
+    let overwritten = harness.call(
+        "tm.export",
+        json!({ "projectId": project_id, "path": tmx_path, "overwrite": true }),
+    );
+    assert_eq!(overwritten["exported"], 2);
+    let file = std::fs::File::open(&tmx_path).expect("open overwritten TMX");
+    let units = tl_asset::parse_tmx(file, "en-US", "zh-CN").expect("parse overwritten TMX");
+    assert_eq!(units.len(), 2);
+
+    // Even with overwrite, a destination inside the engine's own data
+    // directory is refused: project state lives there.
+    let managed_path = harness.path_of("data/engine.sqlite");
+    assert!(
+        std::path::Path::new(&managed_path).is_file(),
+        "managed database exists"
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.export",
+            json!({ "projectId": project_id, "path": managed_path, "overwrite": true }),
+        ),
+        "exportBlocked"
+    );
 }
 
 #[test]
@@ -972,6 +998,22 @@ fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
         assert_eq!(forbidden.len(), 1, "{format} forbidden count");
         assert_eq!(forbidden[0]["term"], "作动器");
     }
+
+    // Re-exporting to an existing path is refused, then an explicit
+    // overwrite replaces the file in place.
+    let export_path = harness.path_of("terms.csv");
+    assert_eq!(
+        harness.call_err(
+            "termbase.export",
+            json!({ "termbaseId": termbase_id, "path": export_path }),
+        ),
+        "exportBlocked"
+    );
+    let overwritten = harness.call(
+        "termbase.export",
+        json!({ "termbaseId": termbase_id, "path": export_path, "overwrite": true }),
+    );
+    assert_eq!(overwritten["exported"], 1);
 }
 
 #[test]

@@ -182,6 +182,12 @@ pub struct TermbaseExportParams {
     pub path: String,
     #[serde(default)]
     pub format: Option<TermExchangeFormat>,
+    /// Replace an existing destination file (staged sibling temp + atomic
+    /// rename). Defaults to false: the export is refused with `exportBlocked`
+    /// when the path exists. Even with overwrite, the engine refuses paths
+    /// inside its own managed data directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
