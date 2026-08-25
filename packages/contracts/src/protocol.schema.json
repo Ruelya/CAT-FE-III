@@ -271,6 +271,17 @@
         }
       ]
     },
+    "AiAssistCancelParams": {
+      "type": "object",
+      "properties": {
+        "assistId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assistId"
+      ]
+    },
     "AiAssistParams": {
       "type": "object",
       "properties": {
@@ -320,6 +331,99 @@
         "model",
         "elapsedMs",
         "tagCheck"
+      ]
+    },
+    "AiAssistRunStatus": {
+      "description": "Lifecycle of one asynchronous assist request. `ai.assist.start` validates\nand returns immediately; the provider call runs off the RPC thread and the\nclient polls `ai.assist.status` until the run turns terminal. Assist never\nwrites to the segment: a `done` run only carries a proposal for a human.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "running"
+          ]
+        },
+        {
+          "description": "The provider answered; `result` carries the proposal and tag verdict.",
+          "type": "string",
+          "const": "done"
+        },
+        {
+          "description": "The provider call failed; `errorMessage` says why. Never fabricated.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Cancellation was requested and honored; any late result is discarded.",
+          "type": "string",
+          "const": "canceled"
+        }
+      ]
+    },
+    "AiAssistRunView": {
+      "description": "The observable state of one assist request.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/AiAssistAction"
+        },
+        "assistId": {
+          "type": "string"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "errorMessage": {
+          "description": "Present exactly when `status` is `failed`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {
+          "description": "Present exactly when `status` is `done`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiAssistResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/AiAssistRunStatus"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "assistId",
+        "segmentId",
+        "action",
+        "status",
+        "cancelRequested",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "AiAssistStatusParams": {
+      "type": "object",
+      "properties": {
+        "assistId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assistId"
       ]
     },
     "AiConfigureParams": {
@@ -1264,7 +1368,7 @@
           "$ref": "#/$defs/AiAssistParams"
         },
         "result": {
-          "$ref": "#/$defs/AiAssistResult"
+          "$ref": "#/$defs/AiAssistRunView"
         }
       },
       "additionalProperties": false,
@@ -1278,10 +1382,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentStartParams"
+          "$ref": "#/$defs/AiAssistStatusParams"
         },
         "result": {
-          "$ref": "#/$defs/AgentRunView"
+          "$ref": "#/$defs/AiAssistRunView"
         }
       },
       "additionalProperties": false,
@@ -1295,10 +1399,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentStatusParams"
+          "$ref": "#/$defs/AiAssistCancelParams"
         },
         "result": {
-          "$ref": "#/$defs/AgentRunView"
+          "$ref": "#/$defs/AiAssistRunView"
         }
       },
       "additionalProperties": false,
@@ -1312,7 +1416,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentCancelParams"
+          "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
           "$ref": "#/$defs/AgentRunView"
@@ -1333,6 +1437,40 @@
         },
         "result": {
           "$ref": "#/$defs/ProjectListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract40": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract41": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -1881,16 +2019,22 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract39"
+          "$ref": "#/$defs/MethodContract41"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract37"
+          "$ref": "#/$defs/MethodContract39"
         },
         "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract40"
+        },
+        "ai.assist.cancel": {
           "$ref": "#/$defs/MethodContract38"
         },
-        "ai.assist": {
+        "ai.assist.start": {
           "$ref": "#/$defs/MethodContract36"
+        },
+        "ai.assist.status": {
+          "$ref": "#/$defs/MethodContract37"
         },
         "ai.configure": {
           "$ref": "#/$defs/MethodContract34"
@@ -2035,7 +2179,9 @@
         "qa.list",
         "ai.configure",
         "ai.status",
-        "ai.assist",
+        "ai.assist.start",
+        "ai.assist.status",
+        "ai.assist.cancel",
         "ai.agent.start",
         "ai.agent.status",
         "ai.agent.cancel"

@@ -31,6 +31,13 @@ export type AiProviderKind =
   | "kimi"
   | "volcengine"
   | "openaiCompatible";
+/**
+ * Lifecycle of one asynchronous assist request. `ai.assist.start` validates
+ * and returns immediately; the provider call runs off the RPC thread and the
+ * client polls `ai.assist.status` until the run turns terminal. Assist never
+ * writes to the segment: a `done` run only carries a proposal for a human.
+ */
+export type AiAssistRunStatus = "running" | "done" | "failed" | "canceled";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
 export type ProjectLifecycle = "active" | "archived" | "trash";
@@ -68,10 +75,12 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract39;
-  "ai.agent.start": MethodContract37;
-  "ai.agent.status": MethodContract38;
-  "ai.assist": MethodContract36;
+  "ai.agent.cancel": MethodContract41;
+  "ai.agent.start": MethodContract39;
+  "ai.agent.status": MethodContract40;
+  "ai.assist.cancel": MethodContract38;
+  "ai.assist.start": MethodContract36;
+  "ai.assist.status": MethodContract37;
   "ai.configure": MethodContract34;
   "ai.status": MethodContract35;
   "document.export": MethodContract10;
@@ -111,7 +120,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract39 {
+export interface MethodContract41 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -151,7 +160,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract37 {
+export interface MethodContract39 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -167,7 +176,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract38 {
+export interface MethodContract40 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -178,14 +187,33 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract36 {
-  params: AiAssistParams;
-  result: AiAssistResult;
+export interface MethodContract38 {
+  params: AiAssistCancelParams;
+  result: AiAssistRunView;
 }
-export interface AiAssistParams {
+export interface AiAssistCancelParams {
+  assistId: string;
+  [k: string]: unknown;
+}
+/**
+ * The observable state of one assist request.
+ */
+export interface AiAssistRunView {
   action: AiAssistAction;
-  instruction?: string | null;
+  assistId: string;
+  cancelRequested: boolean;
+  createdAtMs: number;
+  /**
+   * Present exactly when `status` is `failed`.
+   */
+  errorMessage?: string | null;
+  /**
+   * Present exactly when `status` is `done`.
+   */
+  result?: AiAssistResult | null;
   segmentId: string;
+  status: AiAssistRunStatus;
+  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface AiAssistResult {
@@ -203,6 +231,30 @@ export interface TagIntegrityReport {
   extra?: string[];
   missing?: string[];
   ok: boolean;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract36 {
+  params: AiAssistParams;
+  result: AiAssistRunView;
+}
+export interface AiAssistParams {
+  action: AiAssistAction;
+  instruction?: string | null;
+  segmentId: string;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract37 {
+  params: AiAssistStatusParams;
+  result: AiAssistRunView;
+}
+export interface AiAssistStatusParams {
+  assistId: string;
   [k: string]: unknown;
 }
 /**

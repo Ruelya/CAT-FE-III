@@ -64,11 +64,15 @@ export function AgentPanel({
 }: AgentPanelProps) {
   const { configured } = useAiStatus();
   const [instruction, setInstruction] = useState("");
-  const [run, setRun] = useState<AgentRunView | null>(null);
+  // The engine allows concurrent runs on different documents; track the
+  // latest run per document so switching documents neither hides a live run
+  // nor blocks starting one elsewhere.
+  const [runs, setRuns] = useState<Record<string, AgentRunView>>({});
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedRuns = useRef<Set<string>>(new Set());
 
+  const run = documentId ? (runs[documentId] ?? null) : null;
   const running = run?.status === "running";
 
   const finishRun = useCallback(
@@ -91,49 +95,66 @@ export function AgentPanel({
     [onCompleted, onStatusMessage],
   );
 
-  // Live step feed from the engine's reserved notification frames.
+  // Live step feed from the engine's reserved notification frames. Steps
+  // carry the run id, so concurrent runs never cross wires.
   useEffect(() => {
     return window.tl.onNotification((notification) => {
       if (notification.method !== "notify.ai.agent.step") {
         return;
       }
       const payload = notification.params as AgentStepNotification;
-      setRun((current) => {
-        if (!current || current.runId !== payload.runId) {
+      setRuns((current) => {
+        const existing = current[payload.documentId];
+        if (!existing || existing.runId !== payload.runId) {
           return current;
         }
-        const steps = current.steps.some(
+        const steps = existing.steps.some(
           (step) => step.index === payload.step.index,
         )
-          ? current.steps
-          : [...current.steps, payload.step];
-        return { ...current, status: payload.runStatus, steps };
+          ? existing.steps
+          : [...existing.steps, payload.step];
+        return {
+          ...current,
+          [payload.documentId]: {
+            ...existing,
+            status: payload.runStatus,
+            steps,
+          },
+        };
       });
     });
   }, []);
 
-  // Poll run status while running: counts and terminal transitions arrive
-  // even if a notification frame is missed.
+  // Poll every running run, not just the visible one: counts and terminal
+  // transitions arrive even if a notification frame is missed or the user
+  // switched documents.
   useEffect(() => {
-    if (!run || run.status !== "running") {
+    const active = Object.values(runs).filter(
+      (view) => view.status === "running",
+    );
+    if (active.length === 0) {
       return;
     }
     const timer = setInterval(() => {
-      void callEngine("ai.agent.status", { runId: run.runId })
-        .then((view) => {
-          setRun((current) =>
-            current && current.runId === view.runId ? view : current,
-          );
-          if (view.status !== "running") {
-            finishRun(view);
-          }
-        })
-        .catch(() => {
-          // Engine unreachable; keep the last known view.
-        });
+      for (const target of active) {
+        void callEngine("ai.agent.status", { runId: target.runId })
+          .then((view) => {
+            setRuns((current) =>
+              current[view.documentId]?.runId === view.runId
+                ? { ...current, [view.documentId]: view }
+                : current,
+            );
+            if (view.status !== "running") {
+              finishRun(view);
+            }
+          })
+          .catch(() => {
+            // Engine unreachable; keep the last known view.
+          });
+      }
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [run, finishRun]);
+  }, [runs, finishRun]);
 
   const start = useCallback(async () => {
     if (!documentId || !configured) {
@@ -147,7 +168,7 @@ export function AgentPanel({
         instruction: instruction.trim() ? instruction.trim() : null,
         maxSegments: null,
       });
-      setRun(view);
+      setRuns((current) => ({ ...current, [view.documentId]: view }));
       onStatusMessage(
         `Agent 任务单已创建：${view.plannedSegments} 个未翻译句段，TM 预翻 ${view.tmApplied} 个`,
       );
@@ -173,7 +194,7 @@ export function AgentPanel({
     }
     try {
       const view = await callEngine("ai.agent.cancel", { runId: run.runId });
-      setRun(view);
+      setRuns((current) => ({ ...current, [view.documentId]: view }));
       onStatusMessage("已请求取消 Agent 运行");
     } catch (cancelError) {
       setError(`取消失败：${describeError(cancelError)}`);
