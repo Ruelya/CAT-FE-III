@@ -34,10 +34,7 @@ test.beforeAll(async () => {
   tmExportPath = join(workDir, "project-tm.tmx");
   // Exchange-file fixtures for the TM / termbase import channels.
   tmImportPath = join(workDir, "external-tm.csv");
-  writeFileSync(
-    tmImportPath,
-    "source,target\nExternal segment.,外部句段。\n",
-  );
+  writeFileSync(tmImportPath, "source,target\nExternal segment.,外部句段。\n");
   termImportPath = join(workDir, "external-terms.csv");
   writeFileSync(termImportPath, "sourceTerm,targetTerm\nretention,保留\n");
   mkdirSync(shotsDir, { recursive: true });
@@ -201,9 +198,7 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await expect(page.locator(".preview__docx")).toContainText(
     "保留期为 30 天。",
   );
-  await expect(page.locator(".tl-dialog")).toContainText(
-    "已回填 2 个已译单元",
-  );
+  await expect(page.locator(".tl-dialog")).toContainText("已回填 2 个已译单元");
   await shot("10b-preview-docx.png");
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);

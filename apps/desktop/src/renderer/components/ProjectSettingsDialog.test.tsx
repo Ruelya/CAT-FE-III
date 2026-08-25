@@ -110,9 +110,7 @@ describe("ProjectSettingsDialog", () => {
       { chooseTmFile: vi.fn().mockResolvedValue("/tmp/memory.tmx") },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "导入外部 TM…" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
     await waitFor(() => {
       expect(
         screen.getByText(/TM 导入完成：读取 3 条，新增 2，更新 1/),
@@ -137,9 +135,7 @@ describe("ProjectSettingsDialog", () => {
       { chooseTmFile: vi.fn().mockResolvedValue(null) },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "导入外部 TM…" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
     expect(calls.some(([method]) => method === "tm.import")).toBe(false);
   });
 

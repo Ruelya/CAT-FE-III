@@ -77,7 +77,13 @@ export function ProjectSettingsDialog({
         setNewTermbaseName("");
         await refreshTermbases();
       }),
-    [runAction, newTermbaseName, project.id, project.sourceLocale, refreshTermbases],
+    [
+      runAction,
+      newTermbaseName,
+      project.id,
+      project.sourceLocale,
+      refreshTermbases,
+    ],
   );
 
   const attachExisting = useCallback(
