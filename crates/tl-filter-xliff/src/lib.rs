@@ -1180,6 +1180,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: std::slice::from_mut(&mut segment),
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         let result = fs::read_to_string(&output).expect("read");
@@ -1215,6 +1216,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: std::slice::from_ref(&segment),
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         let result = fs::read_to_string(&output).expect("read");
@@ -1303,6 +1305,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: std::slice::from_ref(&segment),
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         let result = fs::read_to_string(&output).expect("read");
@@ -1343,6 +1346,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: std::slice::from_ref(&segment),
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         let result = fs::read_to_string(&output).expect("read");

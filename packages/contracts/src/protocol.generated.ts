@@ -244,6 +244,12 @@ export interface MethodContract8 {
 export interface DocumentExportParams {
   documentId: string;
   outputPath: string;
+  /**
+   * Embed per-paragraph grid-segment anchors into the exported artifact so
+   * a layout preview can map clicks back to segments. Preview aid; filters
+   * without anchor support ignore it. Defaults to a plain export.
+   */
+  segmentAnchors?: boolean | null;
   [k: string]: unknown;
 }
 export interface DocumentExportResult {

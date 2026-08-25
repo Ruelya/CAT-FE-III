@@ -1711,6 +1711,7 @@ dependencies = [
  "tl-filter-core",
  "tl-filter-docx",
  "tl-filter-html",
+ "tl-filter-office",
  "tl-filter-pptx",
  "tl-filter-text",
  "tl-filter-xliff",

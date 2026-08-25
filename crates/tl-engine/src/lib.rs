@@ -468,6 +468,21 @@ impl Engine {
             .iter()
             .filter_map(|id| self.state.segments.get(id).cloned())
             .collect();
+        // Preview-only anchors: structural path → first grid segment on that
+        // path, covering untranslated paths too, so a layout click anywhere
+        // jumps to the paragraph's first segment. Off by default: plain user
+        // exports stay byte-identical to the pre-anchor pipeline.
+        let segment_anchors: BTreeMap<String, String> = if params.segment_anchors.unwrap_or(false) {
+            let mut anchors = BTreeMap::new();
+            for segment in &segments {
+                anchors
+                    .entry(segment.structural_path.clone())
+                    .or_insert_with(|| segment.id.clone());
+            }
+            anchors
+        } else {
+            BTreeMap::new()
+        };
         let merged = export::merge_for_export(&segments, &record.segment_leading);
         let filter = self.registry.resolve(&record.document.filter_id)?;
         let source = PathBuf::from(&record.managed_source_path);
@@ -475,6 +490,7 @@ impl Engine {
             source: &source,
             output: &output,
             segments: &merged,
+            segment_anchors,
         })?;
         Ok(DocumentExportResult {
             output_path: report.output_path,

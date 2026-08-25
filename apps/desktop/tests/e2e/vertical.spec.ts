@@ -194,9 +194,23 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
     "保留期为 30 天。",
   );
   await expect(page.locator(".tl-dialog")).toContainText("已回填 2 个已译单元");
+  await expect(page.locator(".tl-dialog")).toContainText(
+    "点击段落可跳转到编辑网格",
+  );
   await shot("10b-preview-docx.png");
-  await page.getByRole("button", { name: "关闭对话框" }).click();
+
+  // Click-to-segment: the preview export embeds per-paragraph segment
+  // anchors, so clicking the draft table paragraph jumps the grid to its
+  // segment through the same onJump path the proofread view uses (which
+  // also closes the dialog).
+  await page
+    .locator(".preview__docx p", { hasText: "表中金额" })
+    .first()
+    .click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
+  await expect(
+    page.locator(".segment-grid tr[data-active='true']"),
+  ).toContainText("表中金额");
 
   // Project settings: language pair fixed, TM and termbase files move
   // through the dedicated dialog channels against the real engine.

@@ -153,6 +153,11 @@ pub struct ExportRequest<'a> {
     pub source: &'a Path,
     pub output: &'a Path,
     pub segments: &'a [Segment],
+    /// Structural path → grid segment id, for filters that can embed stable,
+    /// renderer-detectable anchors into the exported artifact (layout preview
+    /// click-to-segment). Filters without an anchor story ignore the map; an
+    /// empty map means the caller wants a plain export.
+    pub segment_anchors: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
