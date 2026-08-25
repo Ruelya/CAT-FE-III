@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { Project, TermbaseListResult } from "@translunar/contracts";
+import type {
+  Project,
+  Termbase,
+  TermbaseListResult,
+} from "@translunar/contracts";
 import { Badge, Button, Dialog, TextField } from "@translunar/ui";
 
 import { callEngine, describeError } from "../lib/engine.js";
@@ -13,10 +17,12 @@ export interface ProjectSettingsDialogProps {
 
 /**
  * Project settings. The language pair stays read-only (the protocol has no
- * project.update), the termbase section manages real mounts through
- * termbase.list/create/attach, and the external-TM row stays honestly
- * disabled: the engine has tm.import, but the desktop shell has no TM file
- * picker channel yet.
+ * project.update). The termbase section manages real mounts through
+ * termbase.list/create/attach and moves CSV/TSV/TBX files through
+ * termbase.import/export. The TM section moves TMX/CSV/TSV files through
+ * tm.import/export. All file picks go through dedicated dialog channels in
+ * the main process; a canceled pick does nothing and every result message
+ * reports the engine's real counts.
  */
 export function ProjectSettingsDialog({
   open,
@@ -27,6 +33,7 @@ export function ProjectSettingsDialog({
   const [newTermbaseName, setNewTermbaseName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refreshTermbases = useCallback(async () => {
     const result = await callEngine("termbase.list", {
@@ -84,6 +91,102 @@ export function ProjectSettingsDialog({
     [project.id, refreshTermbases],
   );
 
+  const importTm = useCallback(async () => {
+    const path = await window.tl.chooseTmImportFile();
+    if (!path) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await callEngine("tm.import", {
+        projectId: project.id,
+        path,
+      });
+      setNotice(
+        `外部 TM 导入完成：读取 ${result.imported} 条，新增 ${result.added}，更新 ${result.updated}`,
+      );
+    } catch (importError) {
+      setError(describeError(importError));
+    } finally {
+      setBusy(false);
+    }
+  }, [project.id]);
+
+  const exportTm = useCallback(async () => {
+    const path = await window.tl.chooseTmExportPath(`${project.name}-tm.tmx`);
+    if (!path) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await callEngine("tm.export", {
+        projectId: project.id,
+        path,
+      });
+      setNotice(`TM 导出完成：${result.exported} 条 → ${result.outputPath}`);
+    } catch (exportError) {
+      setError(describeError(exportError));
+    } finally {
+      setBusy(false);
+    }
+  }, [project.id, project.name]);
+
+  const importTermbase = useCallback(
+    async (termbase: Termbase) => {
+      const path = await window.tl.chooseTermbaseImportFile();
+      if (!path) {
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await callEngine("termbase.import", {
+          termbaseId: termbase.id,
+          path,
+          targetLocale: project.targetLocale,
+        });
+        setNotice(
+          `术语库「${termbase.name}」导入完成：读取 ${result.imported} 条，新增 ${result.added}，合并 ${result.merged}`,
+        );
+      } catch (importError) {
+        setError(describeError(importError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project.targetLocale],
+  );
+
+  const exportTermbase = useCallback(async (termbase: Termbase) => {
+    const path = await window.tl.chooseTermbaseExportPath(
+      `${termbase.name}.csv`,
+    );
+    if (!path) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await callEngine("termbase.export", {
+        termbaseId: termbase.id,
+        path,
+      });
+      setNotice(
+        `术语库「${termbase.name}」导出完成：${result.exported} 条 → ${result.outputPath}`,
+      );
+    } catch (exportError) {
+      setError(describeError(exportError));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const mountedIds = new Set(
     (termbases?.mounts ?? []).map((mount) => mount.termbaseId),
   );
@@ -131,14 +234,27 @@ export function ProjectSettingsDialog({
             「预翻译」按阈值批量填充草稿。
           </p>
           <div className="settings__row">
-            <Button size="sm" variant="outline" disabled>
-              挂载外部 TM…
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void importTm()}
+            >
+              导入外部 TM…
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void exportTm()}
+            >
+              导出 TM…
             </Button>
           </div>
-          <div className="honest-note">
-            引擎已支持 tm.import（TMX/CSV/TSV），但桌面端尚未提供 TM
-            文件选择通道。此按钮在通道接入前保持禁用——不做假成功。
-          </div>
+          <p className="settings__note">
+            支持 TMX/CSV/TSV。导入会合并进项目
+            TM（同源文的旧译文会被覆盖）；导出拒绝覆盖已存在的文件。
+          </p>
         </section>
 
         <section className="settings__section">
@@ -150,6 +266,24 @@ export function ProjectSettingsDialog({
               <div className="settings__row" key={termbase.id}>
                 <span>{termbase.name}</span>
                 <Badge tone="ok">已挂载</Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  aria-label={`导入术语到 ${termbase.name}`}
+                  onClick={() => void importTermbase(termbase)}
+                >
+                  导入 CSV/TBX…
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  aria-label={`导出术语库 ${termbase.name}`}
+                  onClick={() => void exportTermbase(termbase)}
+                >
+                  导出…
+                </Button>
               </div>
             ))
           )}
@@ -190,7 +324,8 @@ export function ProjectSettingsDialog({
           </form>
           <p className="settings__note">
             挂载后，术语面板会对当前句段做 term.lookup
-            命中，并支持快速添加术语；CSV/TBX 批量导入待文件通道接入。
+            命中，并支持快速添加术语；CSV/TSV/TBX
+            批量导入与导出走上方按钮，结果以引擎实际计数为准。
           </p>
         </section>
 
@@ -204,6 +339,12 @@ export function ProjectSettingsDialog({
             在右侧 QA 面板手动运行；Agent 运行结束时也会自动执行。
           </p>
         </section>
+
+        {notice ? (
+          <div className="honest-note" data-tone="ok" role="status">
+            {notice}
+          </div>
+        ) : null}
 
         {error ? (
           <div className="honest-note" data-tone="danger" role="alert">

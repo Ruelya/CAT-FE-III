@@ -521,6 +521,10 @@ body {
   border-left-color: var(--tl-status-danger);
 }
 
+.honest-note[data-tone="ok"] {
+  border-left-color: var(--tl-status-ok);
+}
+
 .ai-draft {
   border: 1px solid var(--tl-color-accent);
   border-radius: var(--tl-radius-sm);
@@ -794,4 +798,19 @@ body {
   font-size: var(--tl-text-sm);
   line-height: 1.5;
   color: var(--tl-color-text-muted);
+}
+
+/* Document import dialog. */
+
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+}
+
+.import-form__path {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  word-break: break-all;
 }

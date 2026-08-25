@@ -65,8 +65,14 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
     "演示项目",
   );
 
-  // Import the DOCX fixture through the (seamed) file dialog.
-  await page.getByRole("button", { name: "导入" }).click();
+  // Import the DOCX fixture through the import dialog: pick the file via
+  // the (seamed) dedicated dialog channel, keep default sentence mode.
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  const importDialog = page.locator(".tl-dialog");
+  await expect(importDialog).toContainText("导入文档");
+  await importDialog.getByRole("button", { name: "选择文件…" }).click();
+  await expect(importDialog).toContainText("m0-source.docx");
+  await importDialog.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".segment-grid tbody tr").first()).toContainText(
     "The retention period is 30 days.",
     { timeout: 30_000 },
@@ -176,16 +182,66 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Project settings: language pair fixed, external TM import honestly
-  // disabled, termbase mounting wired to the real engine.
+  // Project settings: language pair fixed, TM and termbase files move
+  // through the dedicated dialog channels against the real engine.
   await page.getByRole("button", { name: "项目设置" }).click();
   await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
-  await expect(
-    page.getByRole("button", { name: "挂载外部 TM…" }),
-  ).toBeDisabled();
+
+  // External TM import: a real CSV through tm.import, honest counts back.
+  const tmCsvPath = join(workDir, "external-tm.csv");
+  writeFileSync(
+    tmCsvPath,
+    "source,target\nBilling is monthly.,按月计费。\nSupport hours are 24/7.,支持时间为全天候。\n",
+  );
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_TM_OPEN_PATH = path;
+  }, tmCsvPath);
+  await page.getByRole("button", { name: "导入外部 TM…" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "外部 TM 导入完成：读取 2 条，新增 2，更新 0",
+  );
+
+  // TM export: 1 confirmed entry + 2 imported ones land in a real TMX file.
+  const tmExportPath = join(workDir, "tm-export.tmx");
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_TM_SAVE_PATH = path;
+  }, tmExportPath);
+  await page.getByRole("button", { name: "导出 TM…" }).click();
+  await expect(page.getByRole("status")).toContainText("TM 导出完成：3 条");
+  expect(existsSync(tmExportPath)).toBe(true);
+  expect(statSync(tmExportPath).size).toBeGreaterThan(0);
+
+  // Honest failure: exporting to the same path again surfaces the engine's
+  // refusal to overwrite instead of a fake success.
+  await page.getByRole("button", { name: "导出 TM…" }).click();
+  await expect(page.getByRole("alert")).toContainText("already exists");
+
+  // Termbase: create + mount, then CSV import and export round-trip.
   await page.getByLabel("新术语库名称").fill("产品术语");
   await page.getByRole("button", { name: "新建并挂载" }).click();
   await expect(page.getByText("已挂载")).toBeVisible();
+
+  const termCsvPath = join(workDir, "terms.csv");
+  writeFileSync(termCsvPath, "sourceTerm,targetTerm\nbilling cycle,账单周期\n");
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_TERM_OPEN_PATH = path;
+  }, termCsvPath);
+  await page.getByRole("button", { name: "导入术语到 产品术语" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "术语库「产品术语」导入完成：读取 1 条，新增 1，合并 0",
+  );
+
+  const termExportPath = join(workDir, "terms-export.csv");
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_TERM_SAVE_PATH = path;
+  }, termExportPath);
+  await page.getByRole("button", { name: "导出术语库 产品术语" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "术语库「产品术语」导出完成：1 条",
+  );
+  expect(existsSync(termExportPath)).toBe(true);
+  expect(statSync(termExportPath).size).toBeGreaterThan(0);
+
   await shot("11-settings.png");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
@@ -206,6 +262,37 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await shot("11c-pretranslate.png");
 });
 
+// Drives the import dialog end to end: re-point the source-file seam, pick
+// the file, optionally flip segmentation or attach an SRX ruleset, submit.
+async function importThroughDialog(
+  path: string,
+  options: { paragraph?: boolean; srxPath?: string; shot?: string } = {},
+) {
+  await app.evaluate((_electronModule, value) => {
+    process.env.TL_FAKE_OPEN_PATH = value;
+  }, path);
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  const dialog = page.locator(".tl-dialog");
+  await dialog.getByRole("button", { name: "选择文件…" }).click();
+  await expect(dialog).toContainText(path.split("/").pop() ?? path);
+  if (options.paragraph) {
+    await dialog.getByLabel("分段方式").selectOption("paragraph");
+  }
+  if (options.srxPath) {
+    await app.evaluate((_electronModule, value) => {
+      process.env.TL_FAKE_SRX_PATH = value;
+    }, options.srxPath);
+    await dialog.getByRole("button", { name: "选择 SRX 规则…" }).click();
+    await expect(dialog).toContainText(
+      options.srxPath.split("/").pop() ?? options.srxPath,
+    );
+  }
+  if (options.shot) {
+    await shot(options.shot);
+  }
+  await dialog.getByRole("button", { name: "导入", exact: true }).click();
+}
+
 // The TXT filter is registered engine-side; the import seam is re-pointed
 // at a generated 400-paragraph file to exercise row virtualization for real.
 test("virtualized grid stays windowed on a large document", async () => {
@@ -217,11 +304,7 @@ test("virtualized grid stays windowed on a large document", async () => {
       (_, i) => `Segment number ${i} ends here.`,
     ).join("\n\n"),
   );
-  await app.evaluate((_electronModule, path) => {
-    process.env.TL_FAKE_OPEN_PATH = path;
-  }, largePath);
-
-  await page.getByRole("button", { name: "导入" }).click();
+  await importThroughDialog(largePath);
   await expect(page.locator(".app-statusbar")).toContainText(
     "已导入「large.txt」",
     { timeout: 30_000 },
@@ -244,4 +327,51 @@ test("virtualized grid stays windowed on a large document", async () => {
   await expect(page.getByText("Segment number 399 ends here.")).toBeVisible();
   expect(await mounted.count()).toBeLessThan(400);
   await shot("12-virtualized-tail.png");
+});
+
+// document.import options exposed by the dialog actually reach the engine:
+// paragraph mode keeps a two-sentence paragraph whole, and a custom SRX
+// ruleset overrides the built-in sentence breaks.
+test("import dialog segmentation options shape the grid", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // Paragraph mode: one paragraph with two sentences stays one segment
+  // (sentence mode would split it in two).
+  const paragraphPath = join(workDir, "paragraph.txt");
+  writeFileSync(paragraphPath, "First sentence. Second sentence.");
+  await importThroughDialog(paragraphPath, { paragraph: true });
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「paragraph.txt」：1 个句段",
+    { timeout: 30_000 },
+  );
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("First sentence. Second sentence.");
+  await shot("13-paragraph-mode.png");
+
+  // Custom SRX: only a semicolon breaks, so the built-in period rule no
+  // longer splits and the first segment ends at the semicolon.
+  const srxPath = join(workDir, "semicolon.srx");
+  writeFileSync(
+    srxPath,
+    `<srx version="2.0"><header/><body>
+      <languagerules><languagerule languagerulename="en" languagepattern="en.*">
+        <rule break="yes"><beforebreak>;</beforebreak><afterbreak>\\s+</afterbreak></rule>
+      </languagerule></languagerules>
+      <maprules><maprule languagerulename="en" languagepattern="en.*"/></maprules>
+    </body></srx>`,
+  );
+  const srxDocPath = join(workDir, "srx-doc.txt");
+  writeFileSync(srxDocPath, "Alpha part; beta part. Still the same segment.");
+  await importThroughDialog(srxDocPath, {
+    srxPath,
+    shot: "14a-import-dialog-srx.png",
+  });
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「srx-doc.txt」：2 个句段",
+    { timeout: 30_000 },
+  );
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("Alpha part;");
+  await expect(rows.nth(1)).toContainText("beta part. Still the same segment.");
+  await shot("14-custom-srx.png");
 });
