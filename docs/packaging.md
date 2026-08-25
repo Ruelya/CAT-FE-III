@@ -1,114 +1,63 @@
 # Packaging and product shell
 
-## Desktop package
+## Current status: no packaging pipeline yet
+
+The repository does not currently ship installers. There is no
+electron-builder configuration, no `package:win` / `package:mac` scripts, no
+installer smoke tests, and no signing wiring. The previous
+`package-windows.yml` / `package-macos.yml` GitHub workflows referenced
+scripts that no longer exist and have been removed rather than left broken;
+they will return together with the packaging pipeline in a dedicated task.
+`docs/release-signing.md` describes the signing setup for that future
+pipeline, not something that works today.
+
+## What exists today
 
 The tested host-runtime matrix is Node 22.17+ within major 22 and Node 24.x.
-Node 24 is the checked-in development default; Node 22 remains the release
-baseline. Every clean install must pass `pnpm electron:install:check`, which
-checks the Electron runtime inventory and repaired extraction dependency chain,
-then launches the installed Electron executable under a hard timeout.
+Node 24 is the checked-in development default.
 
 ```bash
-# 1) Verify the Electron installation
-pnpm electron:install:check
+# 1) Build the release engine binary (current platform only)
+cargo build -p tl-engine --release
 
-# 2) Build release engine binaries (current platform only)
-cargo build -p translunar-engine --release
+# 2) Build desktop renderer + electron main/preload
+pnpm build:desktop
 
-# 3) Build desktop renderer + electron main/preload
-pnpm --filter @translunar/desktop build
-
-# 4) Package (unsigned development artifacts are valid)
-pnpm --filter @translunar/desktop package:dir
-pnpm release:package:check
+# 3) Run the E2E gates against the debug engine
+pnpm test:e2e:engine
+pnpm test:e2e:desktop
 ```
 
-Platform installers:
+Release engine binaries are stripped via the workspace `Cargo.toml`
+`[profile.release] strip = true` setting.
 
-```bash
-pnpm package:win   # Windows
-pnpm package:mac   # macOS
-pnpm release:install-smoke --platform win32
-pnpm release:install-smoke --platform darwin
-```
+## Contract for the future packaging task
 
-`release:install-smoke` is a native-runner gate. Windows must contain a real
-NSIS `.exe`; the smoke installs it silently into an isolated temporary root.
-macOS must contain a real `.dmg`; the smoke mounts it read-only, copies the
-`.app` bundle into an isolated root, and detaches the image. Unpacked
-electron-builder output is never accepted as an installer substitute. The
-installed app must remain alive while the packaged Engine is launched from its
-`resources/engine` directory and exercised over stdio JSON-RPC
-(`engine.initialize`, `data.checkHealth`, project creation, text import, and a
-non-empty `segment.list`). Evidence is written to
-`apps/desktop/release/install-smoke-evidence.json` without source bodies or
-credentials. Running this command on Linux is an explicit external-runner
-limitation, not a pass.
+- When `app.isPackaged`, Electron main resolves the engine binary at
+  `process.resourcesPath/engine/tl-engine` (`tl-engine.exe` on Windows). A
+  packager must place the matching-platform engine binary there.
+- Ship only the matching-platform engine binary; keep optional heavy AI/QE
+  models out of the installer.
+- Unsigned packages must remain valid for development; signing and Apple
+  notarization stay optional CI secrets.
 
-Before packaging, run the deterministic helper tests:
+## Data directory
 
-```bash
-pnpm release:install-smoke:test
-```
-
-Configuration: `apps/desktop/electron-builder.yml`.
-
-### Size controls
-
-- Ship only the matching-platform Engine binary under `resources/engine/`.
-- Prefer `asar` + maximum compression.
-- Keep optional heavy AI/QE models out of the installer.
-- Limit Chromium `electronLanguages` to product locales (`en-US`, `zh-CN`).
-- Stage Engine via relative `apps/desktop/.package-engine-resource` (never absolute temp paths — Windows path-join drops the binary).
-- Strip symbols from the release Engine binary (`Cargo.toml` `[profile.release]` strip = true).
-- **Hard gates** (`pnpm release:package:check`):
-  - Downloadable **installer** (NSIS / DMG / ZIP) ≤ **200 MiB** (PRD N-02 安装包).
-  - **Unpacked** `*-unpacked` tree ≤ **420 MiB** (Electron 41 Chromium floor + app + Engine; not redefinable as 200 MiB without changing shell runtime).
-
-### Signing
-
-See `docs/release-signing.md`. Code signing and Apple notarization are optional
-CI secrets. Unsigned packages remain valid for development.
-
-## Data directory, backup, restore, updates
-
-- Default engine data directory is under the app userData path unless
-  `TRANSLUNAR_DATA_DIR` is set (test/dev override) or the user migrates via
-  Product Settings.
-- One-click backup uses Engine `data.createBackup` with destination selection
-  and history in shell settings.
-- Restore validates manifest schema/hashes, stages a copy, runs Engine
-  initialize + `data.checkHealth`, then swaps with rollback on failure.
-- Before applying app updates that may run SQLite migrations, the update
-  manager creates a workspace backup.
-- Secrets (AI keys, local API token) use the OS keychain and must not appear in
-  backup manifests, logs, or renderer storage.
-- Telemetry remains off by default.
-
-## Localization
-
-- Typed `en-US` / `zh-CN` catalogs in `apps/desktop/src/renderer/i18n/messages.ts`.
-- LocaleProvider initializes from system locale, persists user choice through
-  main-process shell settings, and formats plural/date/number values.
+- The default engine data directory is `engine-data/` under the Electron
+  userData path. `TL_DATA_DIR` overrides it for tests and development; the
+  engine binary itself takes `--data-dir`.
+- The engine owns the directory: `state.json` whole-state persistence plus
+  managed document copies under `documents/`. The renderer never opens these
+  files.
 
 ## Crash recovery
 
-- Unexpected Engine exits restart with bounded exponential backoff (≤ 3).
-- Unsaved drafts use an atomic journal under the data directory (`.desktop/`),
-  never `localStorage` for source/target text.
-- Stale-revision drafts require explicit restore/discard/copy.
-
-## Accessibility baseline
-
-- Prefer visible labels on icon-only controls.
-- Keep focus rings and keyboard confirm paths in the workbench.
-- Respect reduced-motion OS preferences.
-- Maintain contrast for status lamps and error text.
-- Matrix: `docs/accessibility-matrix.md`.
+- The Electron main process supervises the engine with bounded crash-restart
+  and backoff (`apps/desktop/src/main/engine-supervisor.ts`); engine status
+  surfaces in the workbench header instead of failing silently.
 
 ## Governance
 
 - Apache-2.0 `LICENSE`
 - `SECURITY.md`, `CODE_OF_CONDUCT.md`
 - GitHub issue templates under `.github/ISSUE_TEMPLATE/`
-- Plugin release guidance: `docs/plugins/README.md`
