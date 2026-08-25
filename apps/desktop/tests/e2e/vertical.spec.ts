@@ -263,6 +263,38 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   expect(existsSync(termExportPath)).toBe(true);
   expect(statSync(termExportPath).size).toBeGreaterThan(0);
 
+  // Term management: the mounted termbase is not write-only. List the
+  // imported entries, edit one source/target pair through term.update,
+  // then delete that entry through term.delete (leaving "retention"
+  // untouched for the dock assertions below).
+  const settingsDialog = page.locator(".tl-dialog");
+  await page
+    .getByRole("button", { name: "管理术语库 产品术语 的术语" })
+    .click();
+  await expect(settingsDialog).toContainText("2 条术语");
+  await expect(settingsDialog).toContainText("billing cycle");
+  await settingsDialog
+    .getByRole("button", { name: "编辑译文 账单周期" })
+    .click();
+  await settingsDialog
+    .getByLabel("源术语", { exact: true })
+    .fill("billing period");
+  await settingsDialog.getByLabel("目标术语", { exact: true }).fill("账期");
+  await settingsDialog.getByRole("button", { name: "保存修改" }).click();
+  await expect(settingsDialog).toContainText("billing period");
+  await expect(settingsDialog).toContainText("账期");
+  await shot("11a-term-manage.png");
+
+  // Deleting takes an explicit confirmation and reports the real count.
+  await settingsDialog
+    .getByRole("button", { name: "删除术语 billing period" })
+    .click();
+  await settingsDialog
+    .getByRole("button", { name: "确认删除术语 billing period" })
+    .click();
+  await expect(settingsDialog).toContainText("1 条术语");
+  await expect(settingsDialog).not.toContainText("billing period");
+
   await shot("11-settings.png");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
