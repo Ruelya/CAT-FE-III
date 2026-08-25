@@ -123,6 +123,9 @@ export function WorkbenchView({
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Two-step remove: the first 移除 click only arms this id; the row then
+  // shows 确认移除/取消 and nothing is deleted until the explicit confirm.
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [unackedWrite, setUnackedWrite] = useState<UnackedWrite | null>(null);
   // An export the engine refused because the destination exists. Kept until
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
@@ -219,6 +222,57 @@ export function WorkbenchView({
       await loadDocument(result.document.id);
     },
     [refreshDocuments, loadDocument, onStatusMessage],
+  );
+
+  // Remove one document (its segments and QA issues go with it; the
+  // project TM, termbases, and the original file on disk stay). Runs only
+  // from the two-step confirm in the document list.
+  const removeDocument = useCallback(
+    async (target: Document) => {
+      setBusy(true);
+      try {
+        const result = await callEngine("document.remove", {
+          documentId: target.id,
+        });
+        onStatusMessage(
+          `已移除「${target.name}」：删除 ${result.removedSegments} 个句段、${result.removedQaIssues} 条 QA 记录；项目 TM、术语库与原始文件保留`,
+        );
+        const removedIndex = documents.findIndex(
+          (item) => item.id === target.id,
+        );
+        const remaining = await refreshDocuments();
+        if (target.id !== activeDocumentId) {
+          return;
+        }
+        // The open document is gone: land on its list neighbor, or show
+        // the empty state when it was the last one.
+        setUnackedWrite(null);
+        const next =
+          remaining[Math.min(Math.max(removedIndex, 0), remaining.length - 1)];
+        if (next) {
+          await loadDocument(next.id);
+        } else {
+          setActiveDocumentId(null);
+          setSegments([]);
+          setIssues([]);
+          setActiveSegmentId(null);
+          setFilter(EMPTY_FILTER);
+          setOverwritePrompt(null);
+        }
+      } catch (error) {
+        onStatusMessage(`移除失败：${describeError(error)}`);
+      } finally {
+        setPendingRemoveId(null);
+        setBusy(false);
+      }
+    },
+    [
+      documents,
+      activeDocumentId,
+      refreshDocuments,
+      loadDocument,
+      onStatusMessage,
+    ],
   );
 
   const exportDocument = useCallback(async () => {
@@ -633,18 +687,59 @@ export function WorkbenchView({
             ) : (
               <div className="document-list">
                 {documents.map((document) => (
-                  <button
+                  <div
                     key={document.id}
-                    type="button"
                     className="document-list__item"
                     data-active={document.id === activeDocumentId}
-                    onClick={() => void loadDocument(document.id)}
                   >
-                    <span className="document-list__name">{document.name}</span>
-                    <span className="document-list__meta">
-                      {document.format} · {document.segmentCount} 句段
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="document-list__select"
+                      onClick={() => void loadDocument(document.id)}
+                    >
+                      <span className="document-list__name">
+                        {document.name}
+                      </span>
+                      <span className="document-list__meta">
+                        {document.format} · {document.segmentCount} 句段
+                      </span>
+                    </button>
+                    {pendingRemoveId === document.id ? (
+                      <span
+                        className="document-list__confirm"
+                        role="group"
+                        aria-label={`确认移除 ${document.name}`}
+                      >
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => void removeDocument(document)}
+                          disabled={busy}
+                        >
+                          确认移除
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setPendingRemoveId(null)}
+                          disabled={busy}
+                        >
+                          取消
+                        </Button>
+                      </span>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="document-list__remove"
+                        aria-label={`移除 ${document.name}`}
+                        onClick={() => setPendingRemoveId(document.id)}
+                        disabled={busy}
+                      >
+                        移除
+                      </Button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
