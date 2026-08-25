@@ -1,26 +1,31 @@
 //! tl-engine: the CAT engine behind the desktop shell.
 //!
-//! Phase 1 scope: project lifecycle, DOCX (and friends) import with SRX
-//! sentence segmentation, grid editing with optimistic concurrency, exact
-//! translation memory with confirmation-time propagation, deterministic number
-//! QA, filter-backed export, and an honest AI assist/agent skeleton that
-//! refuses to fabricate output when no provider is configured.
+//! Scope: project lifecycle, DOCX (and friends) import with SRX sentence
+//! segmentation (built-in or user-supplied rulesets), grid editing with
+//! optimistic concurrency, exact + fuzzy translation memory with
+//! confirmation-time propagation, TMX/CSV TM exchange, threshold-based
+//! pretranslation, termbases with CSV/TBX exchange and in-text hits, the
+//! deterministic QA rule library from `tl-qa`, filter-backed export, and an
+//! honest AI assist/agent skeleton that refuses to fabricate output when no
+//! provider is configured.
 
 mod aiops;
+mod assets;
 mod export;
 mod import;
+mod qacheck;
 mod store;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
+use tl_asset::TmIndex;
 use tl_domain::{
-    Document, DocumentStatus, Project, ProjectLifecycle, QaIssue, QaIssueStatus, QaSeverity,
-    Segment, SegmentState, TmEntry, new_id, normalize_text, number_issue_fingerprint,
-    number_mismatch, sha256_hex,
+    Document, DocumentStatus, Project, ProjectLifecycle, Segment, SegmentState, new_id, sha256_hex,
 };
 use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
@@ -31,16 +36,15 @@ use tl_protocol::{
     AiConfigureParams, AiStatusResult, DocumentExportParams, DocumentExportResult,
     DocumentImportParams, DocumentImportResult, DocumentListParams, DocumentListResult,
     EngineCapabilities, EngineReadyNotification, InitializeParams, InitializeResult,
-    PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult, QaListParams,
-    QaListResult, QaRunParams, QaRunResult, RpcError, RpcErrorCode, RpcNotification, RpcRequest,
-    RpcResponse, SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
-    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, TmLookupParams, TmLookupResult,
-    TmMatchGrade, TmMatchItem, methods, notifications,
+    PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult, RpcError,
+    RpcErrorCode, RpcNotification, RpcRequest, RpcResponse, SegmentConfirmParams,
+    SegmentConfirmResult, SegmentListParams, SegmentListResult, SegmentUpdateParams,
+    SegmentUpdateResult, ShutdownResult, methods, notifications,
 };
+use tl_segmentation::{SegmentationMode, SrxRules};
 
 pub use store::{DocumentRecord, EngineState};
 
-const QA_NUMBER_RULE_ID: &str = "builtin.qa.numbers";
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
 
 #[derive(Debug, Error)]
@@ -95,6 +99,9 @@ pub struct Engine {
     state: EngineState,
     registry: FilterRegistry,
     ai: Option<aiops::AiRuntime>,
+    /// Fuzzy recall indexes, one per translation memory, rebuilt on open and
+    /// maintained on every TM write.
+    tm_indexes: BTreeMap<String, TmIndex>,
 }
 
 fn now_ms() -> i64 {
@@ -127,12 +134,20 @@ impl Engine {
                 .register(filter)
                 .map_err(|error| EngineError::Internal(error.to_string()))?;
         }
+        let mut tm_indexes: BTreeMap<String, TmIndex> = BTreeMap::new();
+        for entry in state.tm_entries.values() {
+            tm_indexes
+                .entry(entry.memory_id.clone())
+                .or_default()
+                .insert(&entry.id, &entry.source_text);
+        }
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
             state,
             registry,
             ai: None,
+            tm_indexes,
         })
     }
 
@@ -179,6 +194,17 @@ impl Engine {
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
             methods::SEGMENT_CONFIRM => to_value(self.segment_confirm(parse(params)?)?),
             methods::TM_LOOKUP => to_value(self.tm_lookup(parse(params)?)?),
+            methods::TM_IMPORT => to_value(self.tm_import(parse(params)?)?),
+            methods::TM_EXPORT => to_value(self.tm_export(parse(params)?)?),
+            methods::TM_PRETRANSLATE => to_value(self.tm_pretranslate(parse(params)?)?),
+            methods::TERMBASE_CREATE => to_value(self.termbase_create(parse(params)?)?),
+            methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
+            methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),
+            methods::TERMBASE_IMPORT => to_value(self.termbase_import(parse(params)?)?),
+            methods::TERMBASE_EXPORT => to_value(self.termbase_export(parse(params)?)?),
+            methods::TERM_ADD => to_value(self.term_add(parse(params)?)?),
+            methods::TERM_LIST => to_value(self.term_list(parse(params)?)?),
+            methods::TERM_LOOKUP => to_value(self.term_lookup(parse(params)?)?),
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),
             methods::QA_LIST => to_value(self.qa_list(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
@@ -292,6 +318,27 @@ impl Engine {
         let filter = self.registry.select(&source, params.filter_id.as_deref())?;
         let document_id = new_id();
 
+        // Resolve the segmentation ruleset before touching any state so a bad
+        // SRX file fails the import cleanly.
+        let srx_rules = match params.srx_path.as_deref() {
+            Some(path) => {
+                let xml = std::fs::read_to_string(path)?;
+                SrxRules::parse(&xml).map_err(|error| {
+                    EngineError::InvalidParams(format!("invalid SRX ruleset {path}: {error}"))
+                })?
+            }
+            None => SrxRules::builtin(&project.source_locale),
+        };
+        let segmentation_mode = match params.segmentation.as_deref().map(str::trim) {
+            None | Some("") | Some("sentence") | Some("srx") => SegmentationMode::Sentence,
+            Some("paragraph") => SegmentationMode::Paragraph,
+            Some(other) => {
+                return Err(EngineError::InvalidParams(format!(
+                    "unknown segmentation mode: {other}"
+                )));
+            }
+        };
+
         let mut request = ImportRequest::new(source.clone());
         request.document_id = Some(document_id.clone());
         request.source_locale = Some(project.source_locale.clone());
@@ -314,7 +361,14 @@ impl Engine {
         let bytes = std::fs::read(&managed_source_path)?;
 
         let now = now_ms();
-        let prepared = import::build_segments(&document_id, &imported, &project.source_locale, now);
+        let prepared = import::build_segments(
+            &document_id,
+            &imported,
+            &project.source_locale,
+            &srx_rules,
+            segmentation_mode,
+            now,
+        );
         let segment_count = u32::try_from(prepared.segments.len()).unwrap_or(u32::MAX);
         let name = source
             .file_name()
@@ -474,36 +528,17 @@ impl Engine {
             })?;
 
         // Upsert the project TM entry for this normalized source.
-        let memory_id = format!("tm-{project_id}");
-        let existing = self.state.tm_entries.values_mut().find(|entry| {
-            entry.memory_id == memory_id && entry.source_hash == confirmed.source_hash
-        });
-        let tm_entry = match existing {
-            Some(entry) => {
-                entry.target_text = confirmed.target_text.clone();
-                entry.origin_document_id = confirmed.document_id.clone();
-                entry.origin_segment_id = confirmed.id.clone();
-                entry.confirmed_at_ms = now;
-                entry.clone()
-            }
-            None => {
-                let entry = TmEntry {
-                    id: new_id(),
-                    memory_id,
-                    source_text: confirmed.source_text.clone(),
-                    target_text: confirmed.target_text.clone(),
-                    source_hash: confirmed.source_hash.clone(),
-                    origin_project_id: project_id.clone(),
-                    origin_document_id: confirmed.document_id.clone(),
-                    origin_segment_id: confirmed.id.clone(),
-                    confirmed_at_ms: now,
-                };
-                self.state
-                    .tm_entries
-                    .insert(entry.id.clone(), entry.clone());
-                entry
-            }
-        };
+        let memory_id = Self::project_memory_id(&project_id);
+        let (tm_entry, _) = self.upsert_tm_entry(
+            &memory_id,
+            &project_id,
+            &confirmed.source_text,
+            &confirmed.target_text,
+            &confirmed.source_hash,
+            &confirmed.document_id,
+            &confirmed.id,
+            now,
+        );
 
         // Propagate to untranslated duplicates across the project as drafts.
         let project_document_ids: Vec<String> = self
@@ -534,122 +569,6 @@ impl Engine {
             tm_entry,
             propagated,
         })
-    }
-
-    fn tm_lookup(&self, params: TmLookupParams) -> Result<TmLookupResult, EngineError> {
-        self.require_project(&params.project_id)?;
-        let memory_id = format!("tm-{}", params.project_id);
-        let hash = sha256_hex(normalize_text(&params.source_text).as_bytes());
-        let mut matches: Vec<TmMatchItem> = self
-            .state
-            .tm_entries
-            .values()
-            .filter(|entry| entry.memory_id == memory_id && entry.source_hash == hash)
-            .map(|entry| TmMatchItem {
-                entry: entry.clone(),
-                score: 100,
-                grade: TmMatchGrade::Exact,
-            })
-            .collect();
-        matches.sort_by_key(|item| std::cmp::Reverse(item.entry.confirmed_at_ms));
-        Ok(TmLookupResult { matches })
-    }
-
-    fn qa_run(&mut self, params: QaRunParams) -> Result<QaRunResult, EngineError> {
-        let record = self.require_document(&params.document_id)?;
-        let segment_ids = record.segment_ids.clone();
-        let now = now_ms();
-        let mut checked = 0_u32;
-        let mut current_fingerprints = Vec::new();
-        for segment_id in &segment_ids {
-            let Some(segment) = self.state.segments.get(segment_id) else {
-                continue;
-            };
-            if segment.target_text.trim().is_empty() {
-                continue;
-            }
-            checked += 1;
-            let Some(evidence) = number_mismatch(&segment.source_text, &segment.target_text) else {
-                continue;
-            };
-            let fingerprint = number_issue_fingerprint(&segment.id, &evidence);
-            current_fingerprints.push(fingerprint.clone());
-            let existing = self
-                .state
-                .qa_issues
-                .values_mut()
-                .find(|issue| issue.fingerprint == fingerprint);
-            match existing {
-                Some(issue) => {
-                    issue.status = QaIssueStatus::Open;
-                    issue.evidence = evidence;
-                    issue.updated_at_ms = now;
-                }
-                None => {
-                    let issue = QaIssue {
-                        id: new_id(),
-                        segment_id: segment.id.clone(),
-                        rule_id: QA_NUMBER_RULE_ID.to_string(),
-                        severity: QaSeverity::Error,
-                        status: QaIssueStatus::Open,
-                        message: format!(
-                            "numbers differ between source [{}] and target [{}]",
-                            evidence.source_numbers.join(", "),
-                            evidence.target_numbers.join(", ")
-                        ),
-                        fingerprint,
-                        evidence,
-                        created_at_ms: now,
-                        updated_at_ms: now,
-                    };
-                    self.state.qa_issues.insert(issue.id.clone(), issue);
-                }
-            }
-        }
-        // Resolve issues that no longer reproduce for this document.
-        for issue in self.state.qa_issues.values_mut() {
-            if segment_ids.contains(&issue.segment_id)
-                && issue.status == QaIssueStatus::Open
-                && !current_fingerprints.contains(&issue.fingerprint)
-            {
-                issue.status = QaIssueStatus::Resolved;
-                issue.updated_at_ms = now;
-            }
-        }
-        self.store.save(&self.state)?;
-        let issues = self.document_issues(&segment_ids);
-        let open_issues = issues
-            .iter()
-            .filter(|issue| issue.status == QaIssueStatus::Open)
-            .count() as u32;
-        Ok(QaRunResult {
-            checked_segments: checked,
-            open_issues,
-            issues,
-        })
-    }
-
-    fn qa_list(&self, params: QaListParams) -> Result<QaListResult, EngineError> {
-        let record = self.require_document(&params.document_id)?;
-        Ok(QaListResult {
-            issues: self.document_issues(&record.segment_ids),
-        })
-    }
-
-    fn document_issues(&self, segment_ids: &[String]) -> Vec<QaIssue> {
-        let mut issues: Vec<QaIssue> = self
-            .state
-            .qa_issues
-            .values()
-            .filter(|issue| segment_ids.contains(&issue.segment_id))
-            .cloned()
-            .collect();
-        issues.sort_by(|a, b| {
-            (a.status == QaIssueStatus::Resolved)
-                .cmp(&(b.status == QaIssueStatus::Resolved))
-                .then(a.created_at_ms.cmp(&b.created_at_ms))
-        });
-        issues
     }
 
     fn ai_configure(&mut self, params: AiConfigureParams) -> Result<AiStatusResult, EngineError> {
@@ -724,7 +643,7 @@ impl Engine {
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
         let document_id = record.document.id.clone();
-        let memory_id = format!("tm-{}", project.id);
+        let memory_id = Self::project_memory_id(&project.id);
         let max_segments = params
             .max_segments
             .unwrap_or(AGENT_DEFAULT_MAX_SEGMENTS)
@@ -861,7 +780,7 @@ impl Engine {
         self.store.save(&self.state)?;
 
         // Tool 3: deterministic QA over the whole document.
-        let qa = self.qa_run(QaRunParams {
+        let qa = self.qa_run(tl_protocol::QaRunParams {
             document_id: document_id.clone(),
         })?;
         emit(

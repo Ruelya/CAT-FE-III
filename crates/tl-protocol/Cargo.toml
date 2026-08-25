@@ -10,6 +10,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tl-ai = { path = "../tl-ai" }
+tl-asset = { path = "../tl-asset" }
 tl-domain = { path = "../tl-domain" }
 
 [[bin]]

@@ -33,7 +33,10 @@ export type ProjectLifecycle = "active" | "archived" | "trash";
 export type QaSeverity = "error" | "warning" | "info";
 export type QaIssueStatus = "open" | "resolved";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
-export type TmMatchGrade = "exact" | "inContext";
+export type TermStatus = "candidate" | "active" | "deprecated";
+export type TermExchangeFormat = "csv" | "tsv" | "tbx";
+export type TmExchangeFormat = "tmx" | "csv" | "tsv";
+export type TmMatchGrade = "exact" | "inContext" | "fuzzy";
 
 /**
  * Root schema exported for the TypeScript contracts package.
@@ -61,10 +64,10 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.run": MethodContract18;
-  "ai.assist": MethodContract17;
-  "ai.configure": MethodContract15;
-  "ai.status": MethodContract16;
+  "ai.agent.run": MethodContract29;
+  "ai.assist": MethodContract28;
+  "ai.configure": MethodContract26;
+  "ai.status": MethodContract27;
   "document.export": MethodContract8;
   "document.import": MethodContract6;
   "document.list": MethodContract7;
@@ -73,17 +76,28 @@ export interface RpcMethodCatalog {
   "project.create": MethodContract3;
   "project.get": MethodContract5;
   "project.list": MethodContract4;
-  "qa.list": MethodContract14;
-  "qa.run": MethodContract13;
+  "qa.list": MethodContract25;
+  "qa.run": MethodContract24;
   "segment.confirm": MethodContract11;
   "segment.list": MethodContract9;
   "segment.update": MethodContract10;
+  "term.add": MethodContract21;
+  "term.list": MethodContract22;
+  "term.lookup": MethodContract23;
+  "termbase.attach": MethodContract18;
+  "termbase.create": MethodContract16;
+  "termbase.export": MethodContract20;
+  "termbase.import": MethodContract19;
+  "termbase.list": MethodContract17;
+  "tm.export": MethodContract14;
+  "tm.import": MethodContract13;
   "tm.lookup": MethodContract12;
+  "tm.pretranslate": MethodContract15;
 }
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract18 {
+export interface MethodContract29 {
   params: AgentRunParams;
   result: AgentRunResult;
 }
@@ -117,7 +131,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract17 {
+export interface MethodContract28 {
   params: AiAssistParams;
   result: AiAssistResult;
 }
@@ -137,7 +151,7 @@ export interface AiAssistResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract15 {
+export interface MethodContract26 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -164,7 +178,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract16 {
+export interface MethodContract27 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -209,7 +223,16 @@ export interface DocumentImportParams {
    */
   filterId?: string | null;
   projectId: string;
+  /**
+   * Segmentation mode: `sentence` (default) or `paragraph`.
+   */
+  segmentation?: string | null;
   sourcePath: string;
+  /**
+   * Path to a custom SRX ruleset used for sentence segmentation. When
+   * omitted, the built-in rules for the project source locale apply.
+   */
+  srxPath?: string | null;
   [k: string]: unknown;
 }
 export interface DocumentImportResult {
@@ -378,7 +401,7 @@ export interface ProjectListResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract14 {
+export interface MethodContract25 {
   params: QaListParams;
   result: QaListResult;
 }
@@ -403,15 +426,22 @@ export interface QaIssue {
   updatedAtMs: number;
   [k: string]: unknown;
 }
+/**
+ * Evidence attached to a QA issue. Historically number-only; general rules
+ * reuse the same shape with free-form source/target values.
+ */
 export interface NumberEvidence {
+  relatedSegmentIds?: string[];
   sourceNumbers: string[];
+  sourceValues?: string[];
   targetNumbers: string[];
+  targetValues?: string[];
   [k: string]: unknown;
 }
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract13 {
+export interface MethodContract24 {
   params: QaRunParams;
   result: QaRunResult;
 }
@@ -513,17 +543,297 @@ export interface SegmentUpdateResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
+export interface MethodContract21 {
+  params: TermAddParams;
+  result: TermAddResult;
+}
+export interface TermAddParams {
+  definition?: string | null;
+  domain?: string | null;
+  /**
+   * Marks the target as forbidden instead of preferred.
+   */
+  forbidden?: boolean;
+  sourceTerm: string;
+  targetLocale: string;
+  targetTerm: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermAddResult {
+  entry: TermEntry;
+  [k: string]: unknown;
+}
+export interface TermEntry {
+  createdAtMs: number;
+  definition?: string | null;
+  domain?: string | null;
+  example?: string | null;
+  id: string;
+  partOfSpeech?: string | null;
+  revision: number;
+  sourceLocale: string;
+  sourceTerm: string;
+  status: TermStatus;
+  termbaseId: string;
+  translations: TermTranslation[];
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface TermTranslation {
+  createdAtMs: number;
+  entryId: string;
+  forbidden: boolean;
+  id: string;
+  locale: string;
+  preferred: boolean;
+  term: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract22 {
+  params: TermListParams;
+  result: TermListResult;
+}
+export interface TermListParams {
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermListResult {
+  entries: TermEntry[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract23 {
+  params: TermLookupParams;
+  result: TermLookupResult;
+}
+export interface TermLookupParams {
+  projectId: string;
+  sourceText: string;
+  [k: string]: unknown;
+}
+export interface TermLookupResult {
+  /**
+   * Hits over the normalized source text, ordered by span position. Spans
+   * are Unicode-scalar offsets into the normalized text.
+   */
+  matches: TermMatch[];
+  [k: string]: unknown;
+}
+export interface TermMatch {
+  end: number;
+  entryId: string;
+  sourceTerm: string;
+  start: number;
+  termbaseId: string;
+  translations: TermTranslation[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract18 {
+  params: TermbaseAttachParams;
+  result: TermbaseAttachResult;
+}
+export interface TermbaseAttachParams {
+  projectId: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermbaseAttachResult {
+  mount: TermbaseMount;
+  [k: string]: unknown;
+}
+export interface TermbaseMount {
+  createdAtMs: number;
+  enabled: boolean;
+  priority: number;
+  projectId: string;
+  revision: number;
+  termbaseId: string;
+  updatedAtMs: number;
+  writable: boolean;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract16 {
+  params: TermbaseCreateParams;
+  result: Termbase;
+}
+export interface TermbaseCreateParams {
+  name: string;
+  sourceLocale: string;
+  [k: string]: unknown;
+}
+export interface Termbase {
+  createdAtMs: number;
+  domain?: string | null;
+  id: string;
+  name: string;
+  revision: number;
+  sourceLocale: string;
+  updatedAtMs: number;
+  writable: boolean;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract20 {
+  params: TermbaseExportParams;
+  result: TermbaseExportResult;
+}
+export interface TermbaseExportParams {
+  format?: TermExchangeFormat | null;
+  path: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermbaseExportResult {
+  exported: number;
+  outputPath: string;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract19 {
+  params: TermbaseImportParams;
+  result: TermbaseImportResult;
+}
+export interface TermbaseImportParams {
+  /**
+   * Explicit exchange format. When omitted, inferred from the extension.
+   */
+  format?: TermExchangeFormat | null;
+  path: string;
+  /**
+   * Fallback target locale for rows/entries that do not carry one.
+   */
+  targetLocale: string;
+  termbaseId: string;
+  [k: string]: unknown;
+}
+export interface TermbaseImportResult {
+  /**
+   * New term entries created.
+   */
+  added: number;
+  /**
+   * Entries read from the file.
+   */
+  imported: number;
+  /**
+   * Existing entries that gained or refreshed translations.
+   */
+  merged: number;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract17 {
+  params: TermbaseListParams;
+  result: TermbaseListResult;
+}
+export interface TermbaseListParams {
+  /**
+   * When set, `mounts` is restricted to this project.
+   */
+  projectId?: string | null;
+  [k: string]: unknown;
+}
+export interface TermbaseListResult {
+  mounts: TermbaseMount[];
+  termbases: Termbase[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract14 {
+  params: TmExportParams;
+  result: TmExportResult;
+}
+export interface TmExportParams {
+  format?: TmExchangeFormat | null;
+  path: string;
+  projectId: string;
+  [k: string]: unknown;
+}
+export interface TmExportResult {
+  exported: number;
+  outputPath: string;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract13 {
+  params: TmImportParams;
+  result: TmImportResult;
+}
+export interface TmImportParams {
+  /**
+   * Explicit exchange format. When omitted, inferred from the extension.
+   */
+  format?: TmExchangeFormat | null;
+  path: string;
+  projectId: string;
+  [k: string]: unknown;
+}
+export interface TmImportResult {
+  /**
+   * New TM entries created.
+   */
+  added: number;
+  /**
+   * Units read from the file.
+   */
+  imported: number;
+  /**
+   * Existing entries whose target was replaced.
+   */
+  updated: number;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
 export interface MethodContract12 {
   params: TmLookupParams;
   result: TmLookupResult;
 }
 export interface TmLookupParams {
+  /**
+   * Maximum matches to return; defaults to [`TM_LOOKUP_DEFAULT_LIMIT`].
+   */
+  limit?: number | null;
+  /**
+   * Fuzzy score floor (1..=100); defaults to
+   * [`TM_LOOKUP_DEFAULT_MIN_SCORE`]. Exact matches always pass.
+   */
+  minScore?: number | null;
   projectId: string;
   sourceText: string;
   [k: string]: unknown;
 }
 export interface TmLookupResult {
   matches: TmMatchItem[];
+  /**
+   * Total candidates that met the floor before the limit was applied, so
+   * clients can tell when a `limit` cut the list short.
+   */
+  totalMatches: number;
   [k: string]: unknown;
 }
 export interface TmMatchItem {
@@ -545,6 +855,39 @@ export interface TmEntry1 {
   sourceHash: string;
   sourceText: string;
   targetText: string;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract15 {
+  params: TmPretranslateParams;
+  result: TmPretranslateResult;
+}
+export interface TmPretranslateParams {
+  documentId: string;
+  /**
+   * Score threshold (1..=100) a match must reach to be applied; defaults
+   * to [`TM_PRETRANSLATE_DEFAULT_MIN_SCORE`].
+   */
+  minScore?: number | null;
+  [k: string]: unknown;
+}
+export interface TmPretranslateResult {
+  /**
+   * Untranslated segments examined.
+   */
+  checked: number;
+  exact: number;
+  fuzzy: number;
+  /**
+   * Segments filled from the TM (exact + fuzzy).
+   */
+  pretranslated: number;
+  /**
+   * The segments that changed, at their new revisions.
+   */
+  segments: Segment[];
   [k: string]: unknown;
 }
 /**

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use tl_domain::{Segment, SegmentState, new_id, segment_hashes, state_for_target};
 use tl_filter_core::ImportedDocument;
-use tl_segmentation::{SegmentationMode, segment_text};
+use tl_segmentation::{SegmentationMode, SrxRules};
 
 pub struct PreparedSegments {
     pub segments: Vec<Segment>,
@@ -25,6 +25,8 @@ pub fn build_segments(
     document_id: &str,
     imported: &ImportedDocument,
     source_locale: &str,
+    rules: &SrxRules,
+    mode: SegmentationMode,
     now_ms: i64,
 ) -> PreparedSegments {
     let mut pieces = Vec::new();
@@ -39,7 +41,7 @@ pub fn build_segments(
             });
             continue;
         }
-        let ranges = segment_text(&unit.source_text, source_locale, SegmentationMode::Sentence);
+        let ranges = rules.ranges(&unit.source_text, source_locale, mode);
         if ranges.is_empty() {
             pieces.push(Piece {
                 structural_path: unit.structural_path.clone(),
@@ -126,6 +128,17 @@ mod tests {
         }
     }
 
+    fn build(document: &ImportedDocument) -> PreparedSegments {
+        build_segments(
+            "d1",
+            document,
+            "en-US",
+            &SrxRules::builtin("en-US"),
+            SegmentationMode::Sentence,
+            1,
+        )
+    }
+
     #[test]
     fn splits_plain_paragraphs_into_sentences() {
         let document = imported(vec![ImportedUnit::plain(
@@ -133,7 +146,7 @@ mod tests {
             "word/document.xml#p:0",
             "First sentence. Second sentence.",
         )]);
-        let prepared = build_segments("d1", &document, "en-US", 1);
+        let prepared = build(&document);
         assert_eq!(prepared.segments.len(), 2);
         assert_eq!(prepared.segments[0].source_text, "First sentence.");
         assert_eq!(prepared.segments[1].source_text, "Second sentence.");
@@ -158,7 +171,7 @@ mod tests {
             display_text: "<b>".to_string(),
             protected: true,
         });
-        let prepared = build_segments("d1", &imported(vec![unit]), "en-US", 1);
+        let prepared = build(&imported(vec![unit]));
         assert_eq!(prepared.segments.len(), 1);
         assert_eq!(prepared.segments[0].source_text, "Bold start. Plain end.");
     }
@@ -170,7 +183,7 @@ mod tests {
             "p:0",
             "Same text. Same text. Other tail.",
         )]);
-        let prepared = build_segments("d1", &document, "en-US", 1);
+        let prepared = build(&document);
         assert_eq!(prepared.segments.len(), 3);
         assert_eq!(
             prepared.segments[0].source_hash,

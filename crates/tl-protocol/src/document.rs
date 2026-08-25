@@ -12,6 +12,13 @@ pub struct DocumentImportParams {
     /// Explicit filter id. When omitted, the engine probes registered filters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter_id: Option<String>,
+    /// Path to a custom SRX ruleset used for sentence segmentation. When
+    /// omitted, the built-in rules for the project source locale apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub srx_path: Option<String>,
+    /// Segmentation mode: `sentence` (default) or `paragraph`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segmentation: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
