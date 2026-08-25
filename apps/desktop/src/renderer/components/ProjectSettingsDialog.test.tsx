@@ -56,26 +56,36 @@ interface BridgePickers {
   termbaseExport?: string | null;
 }
 
+interface Bridge {
+  invoke: ReturnType<typeof vi.fn>;
+  chooseTmImportFile: ReturnType<typeof vi.fn>;
+  chooseTmExportPath: ReturnType<typeof vi.fn>;
+  chooseTermbaseImportFile: ReturnType<typeof vi.fn>;
+  chooseTermbaseExportPath: ReturnType<typeof vi.fn>;
+}
+
 function installBridge(
   invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
   pickers: BridgePickers = {},
-): ReturnType<typeof vi.fn> {
-  const spy = vi.fn(invoke);
-  const api: Partial<DesktopApi> = {
-    invoke: spy,
-    chooseTmImportFile: () => Promise.resolve(pickers.tmImport ?? null),
-    chooseTmExportPath: () => Promise.resolve(pickers.tmExport ?? null),
-    chooseTermbaseImportFile: () =>
-      Promise.resolve(pickers.termbaseImport ?? null),
-    chooseTermbaseExportPath: () =>
-      Promise.resolve(pickers.termbaseExport ?? null),
+): Bridge {
+  const bridge: Bridge = {
+    invoke: vi.fn(invoke),
+    chooseTmImportFile: vi.fn().mockResolvedValue(pickers.tmImport ?? null),
+    chooseTmExportPath: vi.fn().mockResolvedValue(pickers.tmExport ?? null),
+    chooseTermbaseImportFile: vi
+      .fn()
+      .mockResolvedValue(pickers.termbaseImport ?? null),
+    chooseTermbaseExportPath: vi
+      .fn()
+      .mockResolvedValue(pickers.termbaseExport ?? null),
   };
+  const api: Partial<DesktopApi> = bridge;
   Object.defineProperty(window, "tl", {
     value: api,
     configurable: true,
     writable: true,
   });
-  return spy;
+  return bridge;
 }
 
 describe("ProjectSettingsDialog", () => {
@@ -172,7 +182,7 @@ describe("ProjectSettingsDialog", () => {
 
   it("exports the project TM to a picked path", async () => {
     const calls: Array<[string, unknown]> = [];
-    installBridge(
+    const bridge = installBridge(
       (method, params) => {
         calls.push([method, params]);
         if (method === "tm.export") {
@@ -195,6 +205,9 @@ describe("ProjectSettingsDialog", () => {
         screen.getByText(/TM 导出完成：7 条 → \/tmp\/out.tmx/),
       ).toBeInTheDocument();
     });
+    // The save dialog gets a sensible default filename derived from the
+    // project name, so the picked path starts from something meaningful.
+    expect(bridge.chooseTmExportPath).toHaveBeenCalledWith("演示项目-tm.tmx");
     const exportCall = calls.find(([method]) => method === "tm.export");
     expect(exportCall?.[1]).toEqual({ projectId: "p1", path: "/tmp/out.tmx" });
   });
