@@ -24,6 +24,7 @@ import {
 import {
   EMPTY_FILTER,
   filterSegments,
+  findSegmentMatch,
   isFilterActive,
 } from "../lib/segment-filter.js";
 import type {
@@ -118,10 +119,14 @@ export function WorkbenchView({
   const [tab, setTab] = useState<DockTab>("tm");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
+  // Find next/prev query (F4 / Shift+F4). Unlike `filter`, it never hides
+  // rows: it only moves the selection through matching segments.
+  const [findQuery, setFindQuery] = useState("");
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // Two-step remove: the first 移除 click only arms this id; the row then
   // shows 确认移除/取消 and nothing is deleted until the explicit confirm.
@@ -160,6 +165,7 @@ export function WorkbenchView({
   const loadDocument = useCallback(async (documentId: string) => {
     setActiveDocumentId(documentId);
     setFilter(EMPTY_FILTER);
+    setFindQuery("");
     setOverwritePrompt(null);
     const [segmentResult, issueResult] = await Promise.all([
       callEngine("segment.list", { documentId }),
@@ -611,14 +617,73 @@ export function WorkbenchView({
     return true;
   }, []);
 
+  // Find next/prev (F4 / Shift+F4, menu 查找下一个/查找上一个): moves the
+  // selection to the next visible segment whose source or target contains
+  // the find query. It searches the currently visible rows, so it never
+  // hides anything and never clears an active filter; wrapping and misses
+  // are reported honestly instead of silently doing nothing.
+  const findMatch = useCallback(
+    (direction: "next" | "prev") => {
+      if (!activeDocument) {
+        return;
+      }
+      const query = findQuery.trim();
+      if (query.length === 0) {
+        // No query yet: land the user in the find box instead of guessing.
+        const input = findInputRef.current;
+        input?.focus();
+        input?.select();
+        return;
+      }
+      const result = findSegmentMatch(
+        filteredSegments,
+        query,
+        activeSegmentId,
+        direction,
+      );
+      if (!result) {
+        onStatusMessage(`查找「${query}」：没有匹配`);
+        return;
+      }
+      setActiveSegmentId(result.segment.id);
+      if (result.wrapped) {
+        onStatusMessage(
+          direction === "next"
+            ? `查找「${query}」：已从头继续，跳到句段 #${result.segment.ordinal + 1}`
+            : `查找「${query}」：已从末尾继续，跳到句段 #${result.segment.ordinal + 1}`,
+        );
+      }
+    },
+    [
+      activeDocument,
+      findQuery,
+      filteredSegments,
+      activeSegmentId,
+      onStatusMessage,
+    ],
+  );
+
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
-  // F3 concordance, Ctrl/Cmd+F focus the segment filter.
+  // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
+  // segment filter.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      // Plain F4 / Shift+F4 only — never Alt+F4 (OS window close) or
+      // Ctrl/Cmd+F4 combinations.
+      if (
+        event.key === "F4" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        findMatch(event.shiftKey ? "prev" : "next");
         return;
       }
       if (
@@ -634,7 +699,7 @@ export function WorkbenchView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter]);
+  }, [openConcordance, focusFilter, findMatch]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding button/shortcut already calls; state guards keep the
@@ -668,6 +733,12 @@ export function WorkbenchView({
         case "focus-filter":
           focusFilter();
           break;
+        case "find-next":
+          findMatch("next");
+          break;
+        case "find-prev":
+          findMatch("prev");
+          break;
         case "confirm-segment":
           if (!gridRef.current?.confirmActive()) {
             onStatusMessage("没有正在编辑的句段，无法确认");
@@ -683,6 +754,7 @@ export function WorkbenchView({
       activeDocument,
       openConcordance,
       focusFilter,
+      findMatch,
       onStatusMessage,
     ],
   );
@@ -898,6 +970,45 @@ export function WorkbenchView({
                       </Button>
                     </>
                   ) : null}
+                  <input
+                    ref={findInputRef}
+                    className="grid-toolbar__search grid-toolbar__find"
+                    aria-label="查找跳转"
+                    placeholder="查找（F4 下一个）…"
+                    title="跳到下一个匹配句段，不隐藏其他句段"
+                    value={findQuery}
+                    onChange={(event) => setFindQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing) {
+                        // Enter mid-IME commits the composed text, not a jump.
+                        return;
+                      }
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        findMatch(event.shiftKey ? "prev" : "next");
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="查找上一个"
+                    title="查找上一个（Shift+F4）"
+                    disabled={findQuery.trim().length === 0}
+                    onClick={() => findMatch("prev")}
+                  >
+                    上一个
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="查找下一个"
+                    title="查找下一个（F4）"
+                    disabled={findQuery.trim().length === 0}
+                    onClick={() => findMatch("next")}
+                  >
+                    下一个
+                  </Button>
                   <span className="grid-toolbar__spacer" />
                   <span className="grid-toolbar__progress">
                     <Meter

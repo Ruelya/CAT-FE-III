@@ -6,8 +6,9 @@
  *
  * Keymap ownership rule (spec: editor/workbench chords are renderer-owned,
  * main must not swallow them):
- * - Chords the renderer already listens for (F3 concordance, Ctrl+Enter
- *   confirm) and workbench-interaction chords (Ctrl+F filter) are displayed
+ * - Chords the renderer already listens for (F3 concordance, F4/Shift+F4
+ *   find next/prev, Ctrl+Enter confirm) and workbench-interaction chords
+ *   (Ctrl+F filter) are displayed
  *   in the menu but NOT registered as global accelerators on Windows/Linux
  *   (`registerAccelerator: false`), so the raw key events keep reaching the
  *   renderer keymap. Clicking the item dispatches the same command over IPC.
@@ -30,6 +31,8 @@ export interface MenuTemplateOptions {
 /** Accelerators owned by renderer keydown handlers, never by the menu. */
 export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "F3",
+  "F4",
+  "Shift+F4",
   "CmdOrCtrl+Enter",
   "CmdOrCtrl+F",
 ];
@@ -170,6 +173,22 @@ export function buildMenuTemplate(
         "focus-filter",
         context.documentOpen,
         "CmdOrCtrl+F",
+        true,
+      ),
+      // Renderer-owned F4 / Shift+F4 jump the selection through segments
+      // matching the find box query without hiding any rows.
+      commandItem(
+        "查找下一个",
+        "find-next",
+        context.documentOpen,
+        "F4",
+        true,
+      ),
+      commandItem(
+        "查找上一个",
+        "find-prev",
+        context.documentOpen,
+        "Shift+F4",
         true,
       ),
       // Renderer-owned F3 seeds concordance from the current selection.

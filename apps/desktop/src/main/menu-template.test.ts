@@ -13,8 +13,9 @@ import type { MenuTemplateOptions } from "./menu-template.js";
  * The menu's keymap contract: every command item, which accelerator it
  * shows, whether the renderer owns that chord (accelerator display-only on
  * Windows/Linux), and what state it needs to be enabled. This mirrors the
- * workbench: F3 / Ctrl+Enter / Ctrl+F are renderer keydown handlers; the
- * remaining accelerators have no prior binding and are menu-owned.
+ * workbench: F3 / F4 / Shift+F4 / Ctrl+Enter / Ctrl+F are renderer keydown
+ * handlers; the remaining accelerators have no prior binding and are
+ * menu-owned.
  */
 const COMMAND_ITEMS: Array<{
   label: string;
@@ -95,6 +96,20 @@ const COMMAND_ITEMS: Array<{
     label: "筛选句段",
     command: "focus-filter",
     accelerator: "CmdOrCtrl+F",
+    rendererOwned: true,
+    needs: "document",
+  },
+  {
+    label: "查找下一个",
+    command: "find-next",
+    accelerator: "F4",
+    rendererOwned: true,
+    needs: "document",
+  },
+  {
+    label: "查找上一个",
+    command: "find-prev",
+    accelerator: "Shift+F4",
     rendererOwned: true,
     needs: "document",
   },
