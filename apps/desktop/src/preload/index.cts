@@ -12,6 +12,7 @@ const CHANNELS = {
   invoke: "tl:engine:invoke",
   statusGet: "tl:engine:status:get",
   statusEvent: "tl:engine:status",
+  relaunch: "tl:engine:relaunch",
   notification: "tl:engine:notification",
   chooseSource: "tl:dialog:choose-source",
   chooseExport: "tl:dialog:choose-export",
@@ -34,6 +35,11 @@ const api: DesktopApi = {
   engineStatus(): Promise<EngineStatusPayload> {
     return electron.ipcRenderer.invoke(
       CHANNELS.statusGet,
+    ) as Promise<EngineStatusPayload>;
+  },
+  relaunchEngine(): Promise<EngineStatusPayload> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.relaunch,
     ) as Promise<EngineStatusPayload>;
   },
   onEngineStatus(listener) {

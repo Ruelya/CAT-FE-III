@@ -9,8 +9,13 @@ import type {
 } from "@translunar/contracts";
 import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
 
+import type { EngineLifecycleState } from "../../shared/desktop-api.js";
 import { AiStatusProvider } from "../lib/ai-status.js";
-import { callEngine, describeError } from "../lib/engine.js";
+import {
+  callEngine,
+  describeError,
+  isEngineUnavailable,
+} from "../lib/engine.js";
 import {
   EMPTY_FILTER,
   filterSegments,
@@ -33,10 +38,24 @@ import { PreviewDialog } from "../components/PreviewDialog.js";
 
 export interface WorkbenchViewProps {
   project: Project;
+  engineState: EngineLifecycleState;
   onStatusMessage: (message: string) => void;
 }
 
 type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
+
+/**
+ * A write (draft save or confirm) the engine never acknowledged. Kept as a
+ * persistent inline alert — not a transient statusbar line — until a later
+ * write for the same segment is acked, so a mid-session crash can never
+ * look like a successful save.
+ */
+interface UnackedWrite {
+  segmentId: string;
+  ordinal: number;
+  kind: "draft" | "confirm";
+  message: string;
+}
 
 const STATE_FILTER_OPTIONS: Array<[SegmentStateFilter, string]> = [
   ["all", "全部状态"],
@@ -66,6 +85,7 @@ function readTextSelection(): string {
 
 export function WorkbenchView({
   project,
+  engineState,
   onStatusMessage,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -80,6 +100,7 @@ export function WorkbenchView({
   const [previewOpen, setPreviewOpen] = useState(false);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [unackedWrite, setUnackedWrite] = useState<UnackedWrite | null>(null);
 
   const activeDocument = useMemo(
     () =>
@@ -110,13 +131,47 @@ export function WorkbenchView({
   }, []);
 
   useEffect(() => {
-    void refreshDocuments().then((loaded) => {
-      const first = loaded[0];
-      if (first) {
-        void loadDocument(first.id);
+    void refreshDocuments()
+      .then((loaded) => {
+        const first = loaded[0];
+        if (first) {
+          return loadDocument(first.id);
+        }
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        onStatusMessage(`加载文档失败：${describeError(error)}`);
+      });
+  }, [refreshDocuments, loadDocument, onStatusMessage]);
+
+  // The engine came back after a crash or manual relaunch. The renderer's
+  // in-memory lists may be ahead of what the engine actually acked (a write
+  // could have died with the old process), so resync from the engine and
+  // say so instead of silently trusting stale state.
+  const previousEngineStateRef = useRef(engineState);
+  useEffect(() => {
+    const previous = previousEngineStateRef.current;
+    previousEngineStateRef.current = engineState;
+    if (engineState !== "ready" || previous === "ready") {
+      return;
+    }
+    void (async () => {
+      try {
+        await refreshDocuments();
+        if (activeDocumentId) {
+          const [segmentResult, issueResult] = await Promise.all([
+            callEngine("segment.list", { documentId: activeDocumentId }),
+            callEngine("qa.list", { documentId: activeDocumentId }),
+          ]);
+          setSegments(segmentResult.segments);
+          setIssues(issueResult.issues);
+        }
+        onStatusMessage("引擎已恢复，文档与句段已从引擎重新同步");
+      } catch (error) {
+        onStatusMessage(`引擎恢复后同步失败：${describeError(error)}`);
       }
-    });
-  }, [refreshDocuments, loadDocument]);
+    })();
+  }, [engineState, activeDocumentId, refreshDocuments, onStatusMessage]);
 
   // The import dialog owns file picking and the document.import call
   // (including segmentation and SRX options); this only reacts to success.
@@ -172,11 +227,17 @@ export function WorkbenchView({
     if (!activeDocumentId) {
       return;
     }
-    const result = await callEngine("segment.list", {
-      documentId: activeDocumentId,
-    });
-    setSegments(result.segments);
-  }, [activeDocumentId]);
+    try {
+      const result = await callEngine("segment.list", {
+        documentId: activeDocumentId,
+      });
+      setSegments(result.segments);
+    } catch (error) {
+      // Refreshing with a dead engine cannot work; keep the local state
+      // (it still holds the user's text) instead of exploding.
+      onStatusMessage(`刷新句段失败：${describeError(error)}`);
+    }
+  }, [activeDocumentId, onStatusMessage]);
 
   const saveDraft = useCallback(
     async (segment: Segment, targetText: string) => {
@@ -187,8 +248,25 @@ export function WorkbenchView({
           baseRevision: segment.revision,
         });
         applySegments([result.segment]);
+        setUnackedWrite((current) =>
+          current?.segmentId === segment.id ? null : current,
+        );
         onStatusMessage(`句段 #${segment.ordinal + 1} 草稿已保存`);
       } catch (error) {
+        if (isEngineUnavailable(error)) {
+          // The engine never acked this write: keep an inline alert up (the
+          // editor still holds the text) and skip the doomed reload.
+          setUnackedWrite({
+            segmentId: segment.id,
+            ordinal: segment.ordinal,
+            kind: "draft",
+            message: describeError(error),
+          });
+          onStatusMessage(
+            `句段 #${segment.ordinal + 1} 草稿未保存：引擎未确认写入`,
+          );
+          return;
+        }
         onStatusMessage(`保存失败：${describeError(error)}`);
         await reloadSegments();
       }
@@ -213,6 +291,9 @@ export function WorkbenchView({
           baseRevision: current.revision,
         });
         applySegments([result.segment, ...result.propagated]);
+        setUnackedWrite((currentAlert) =>
+          currentAlert?.segmentId === segment.id ? null : currentAlert,
+        );
         const propagated =
           result.propagated.length > 0
             ? `，TM 传播 ${result.propagated.length} 个重复句段`
@@ -221,6 +302,18 @@ export function WorkbenchView({
           `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
         );
       } catch (error) {
+        if (isEngineUnavailable(error)) {
+          setUnackedWrite({
+            segmentId: segment.id,
+            ordinal: segment.ordinal,
+            kind: "confirm",
+            message: describeError(error),
+          });
+          onStatusMessage(
+            `句段 #${segment.ordinal + 1} 未确认：引擎未确认写入`,
+          );
+          return;
+        }
         onStatusMessage(`确认失败：${describeError(error)}`);
         await reloadSegments();
       }
@@ -435,6 +528,29 @@ export function WorkbenchView({
           >
             {activeDocument ? (
               <>
+                {unackedWrite ? (
+                  <div
+                    className="honest-note workbench-unacked"
+                    data-tone="danger"
+                    role="alert"
+                  >
+                    <span>
+                      句段 #{unackedWrite.ordinal + 1} 的
+                      {unackedWrite.kind === "draft" ? "草稿" : "确认"}
+                      未被引擎确认写入（{unackedWrite.message}）。
+                      编辑器中的文本仍保留；引擎恢复后请重新
+                      {unackedWrite.kind === "draft" ? "保存" : "确认"}
+                      该句段。
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setUnackedWrite(null)}
+                    >
+                      知道了
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="grid-toolbar">
                   <select
                     className="grid-toolbar__select"

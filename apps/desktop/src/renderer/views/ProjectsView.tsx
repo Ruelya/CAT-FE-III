@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
 import { Button, EmptyState, Panel, TextField } from "@translunar/ui";
 
+import type { EngineLifecycleState } from "../../shared/desktop-api.js";
 import { callEngine, describeError } from "../lib/engine.js";
 
 export interface ProjectsViewProps {
+  engineState: EngineLifecycleState;
   onOpenProject: (project: Project) => void;
   onStatusMessage: (message: string) => void;
 }
 
 export function ProjectsView({
+  engineState,
   onOpenProject,
   onStatusMessage,
 }: ProjectsViewProps) {
@@ -25,6 +28,7 @@ export function ProjectsView({
     try {
       const result = await callEngine("project.list", {});
       setProjects(result.projects);
+      setError(null);
     } catch (listError) {
       setError(describeError(listError));
     }
@@ -33,6 +37,17 @@ export function ProjectsView({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // If the initial list load happened against a dead engine, refetch when
+  // the engine comes back instead of showing a stale empty list.
+  const previousEngineStateRef = useRef(engineState);
+  useEffect(() => {
+    const previous = previousEngineStateRef.current;
+    previousEngineStateRef.current = engineState;
+    if (engineState === "ready" && previous !== "ready") {
+      void refresh();
+    }
+  }, [engineState, refresh]);
 
   const create = useCallback(async () => {
     setBusy(true);
