@@ -221,7 +221,7 @@ export function AgentPanel({
           </div>
         ) : (
           <div className="honest-note">
-            任务单：TM 预翻 → AI 起草未命中段 → 数字 QA。步骤实时回传、可随时
+            任务单：TM 预翻 → AI 起草未命中段 → QA。步骤实时回传、可随时
             取消；运行结束停在人工审核门，Agent 不确认句段、不导出。
           </div>
         )}

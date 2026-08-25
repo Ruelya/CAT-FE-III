@@ -6,11 +6,9 @@ pub use connector::*;
 
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use regex::Regex;
 use reqwest::header::{AUTHORIZATION, HeaderMap, RETRY_AFTER};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Response, StatusCode};
@@ -1729,25 +1727,15 @@ fn to_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
-/// Placeholder-like tokens a translation must carry through verbatim:
-/// `{name}` / `{{var}}` braces, printf conversions, markup tags, entities.
-static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?x)
-        \{\{[^{}]*\}\}                                  # {{handlebars}}
-        | \{[^{}\s][^{}]*\}                             # {brace} placeholders
-        | %(?:\d+\$)?[-+ 0\#]*\d*(?:\.\d+)?[sdifucxXeg@] # printf-style
-        | </?[A-Za-z][A-Za-z0-9:._-]*(?:\s[^<>]*)?/?>   # markup tags
-        | &\#?[A-Za-z0-9]+;                             # character entities
-    ",
-    )
-    .expect("valid placeholder regex")
-});
+pub use tl_domain::placeholder_tokens;
 
 /// Verdict on whether a proposal preserves the source's placeholder tokens.
 ///
 /// `missing` lists tokens the proposal dropped, `extra` lists tokens it
 /// invented; both are multiset differences, so a duplicated token counts.
+/// Detection is [`tl_domain::placeholder_mismatch`] — the same detector the
+/// deterministic QA tag rules use, so the AI gate and QA agree token for
+/// token.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TagIntegrityReport {
@@ -1758,35 +1746,17 @@ pub struct TagIntegrityReport {
     pub extra: Vec<String>,
 }
 
-pub fn placeholder_tokens(text: &str) -> Vec<String> {
-    PLACEHOLDER_RE
-        .find_iter(text)
-        .map(|found| found.as_str().to_string())
-        .collect()
-}
-
 pub fn check_tag_integrity(source: &str, candidate: &str) -> TagIntegrityReport {
-    let mut counts: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
-    for token in placeholder_tokens(source) {
-        *counts.entry(token).or_default() += 1;
-    }
-    for token in placeholder_tokens(candidate) {
-        *counts.entry(token).or_default() -= 1;
-    }
-    let mut missing = Vec::new();
-    let mut extra = Vec::new();
-    for (token, balance) in counts {
-        for _ in 0..balance.max(0) {
-            missing.push(token.clone());
-        }
-        for _ in 0..(-balance).max(0) {
-            extra.push(token.clone());
-        }
-    }
-    TagIntegrityReport {
-        ok: missing.is_empty() && extra.is_empty(),
-        missing,
-        extra,
+    match tl_domain::placeholder_mismatch(source, candidate) {
+        None => TagIntegrityReport {
+            ok: true,
+            ..TagIntegrityReport::default()
+        },
+        Some(mismatch) => TagIntegrityReport {
+            ok: false,
+            missing: mismatch.missing,
+            extra: mismatch.extra,
+        },
     }
 }
 

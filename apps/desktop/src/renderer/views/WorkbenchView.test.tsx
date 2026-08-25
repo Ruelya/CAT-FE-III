@@ -292,9 +292,7 @@ describe("WorkbenchView application menu commands", () => {
     act(() => {
       bridge.emitMenuCommand("show-dock-qa");
     });
-    expect(
-      screen.getByRole("button", { name: "运行数字 QA" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
     act(() => {
       bridge.emitMenuCommand("show-dock-term");
     });

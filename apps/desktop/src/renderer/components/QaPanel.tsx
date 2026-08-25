@@ -44,73 +44,88 @@ export function QaPanel({
       className="dock-panel"
       actions={
         <Button size="sm" variant="primary" onClick={onRun} disabled={disabled}>
-          运行数字 QA
+          运行 QA
         </Button>
       }
     >
       {issues.length === 0 ? (
         <EmptyState
           title="尚未运行检查"
-          hint="数字 QA 会比对每个已译句段中源文与译文的数字是否一致。"
+          hint="QA 会对每个已译句段运行整套确定性规则：数字与单位、内联标签/占位符完整性、术语、标点、长度与一致性等。"
         />
       ) : (
         <div className="dock-stack">
-          {[...open, ...waived, ...resolved].map((issue) => (
-            <div
-              key={issue.id}
-              className="issue-card"
-              data-status={issue.status}
-              data-resolved={issue.status === "resolved"}
-            >
-              <div className="match-card__row">
-                <Badge tone={STATUS_TONE[issue.status]}>
-                  {STATUS_LABEL[issue.status]}
-                </Badge>
-                <span className="issue-card__actions">
-                  {issue.status === "open" ? (
+          {[...open, ...waived, ...resolved].map((issue) => {
+            // Number rules fill sourceNumbers/targetNumbers; tag, term, and
+            // other rules fill sourceValues/targetValues. Render whichever
+            // side carries evidence, and no bracket line when neither does.
+            const sourceEvidence = [
+              ...issue.evidence.sourceNumbers,
+              ...(issue.evidence.sourceValues ?? []),
+            ];
+            const targetEvidence = [
+              ...issue.evidence.targetNumbers,
+              ...(issue.evidence.targetValues ?? []),
+            ];
+            return (
+              <div
+                key={issue.id}
+                className="issue-card"
+                data-status={issue.status}
+                data-resolved={issue.status === "resolved"}
+              >
+                <div className="match-card__row">
+                  <Badge tone={STATUS_TONE[issue.status]}>
+                    {STATUS_LABEL[issue.status]}
+                  </Badge>
+                  <span className="issue-card__actions">
+                    {issue.status === "open" ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pendingIssueId === issue.id}
+                        onClick={() => onWaive(issue)}
+                      >
+                        忽略
+                      </Button>
+                    ) : null}
+                    {issue.status === "waived" ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pendingIssueId === issue.id}
+                        onClick={() => onRestore(issue)}
+                      >
+                        恢复
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={pendingIssueId === issue.id}
-                      onClick={() => onWaive(issue)}
+                      onClick={() => onJump(issue.segmentId)}
                     >
-                      忽略
+                      定位句段
                     </Button>
-                  ) : null}
-                  {issue.status === "waived" ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={pendingIssueId === issue.id}
-                      onClick={() => onRestore(issue)}
-                    >
-                      恢复
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onJump(issue.segmentId)}
-                  >
-                    定位句段
-                  </Button>
-                </span>
+                  </span>
+                </div>
+                <p className="issue-card__message">{issue.message}</p>
+                {sourceEvidence.length > 0 || targetEvidence.length > 0 ? (
+                  <span className="issue-card__evidence">
+                    源 [{sourceEvidence.join(", ")}] ≠ 译 [
+                    {targetEvidence.join(", ")}]
+                  </span>
+                ) : null}
+                {issue.status === "waived" ? (
+                  // Honest reminder: waiving parks the issue, it does not fix
+                  // it — nothing was confirmed and nothing reached the TM.
+                  <span className="issue-card__note">
+                    已忽略：问题仍存在，未确认句段、未写入 TM
+                    {issue.waiveNote ? `（备注：${issue.waiveNote}）` : ""}
+                  </span>
+                ) : null}
               </div>
-              <p className="issue-card__message">{issue.message}</p>
-              <span className="issue-card__evidence">
-                源 [{issue.evidence.sourceNumbers.join(", ")}] ≠ 译 [
-                {issue.evidence.targetNumbers.join(", ")}]
-              </span>
-              {issue.status === "waived" ? (
-                // Honest reminder: waiving parks the issue, it does not fix
-                // it — nothing was confirmed and nothing reached the TM.
-                <span className="issue-card__note">
-                  已忽略：问题仍存在，未确认句段、未写入 TM
-                  {issue.waiveNote ? `（备注：${issue.waiveNote}）` : ""}
-                </span>
-              ) : null}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Panel>

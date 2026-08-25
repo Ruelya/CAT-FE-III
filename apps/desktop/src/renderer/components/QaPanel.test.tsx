@@ -47,6 +47,49 @@ describe("QaPanel", () => {
     );
     expect(screen.getByText("尚未运行检查")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "忽略" })).toBeNull();
+    // One button runs the whole rule library; neither the button nor the
+    // hint may claim QA is numbers-only.
+    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    expect(screen.getByText(/内联标签\/占位符完整性/)).toBeInTheDocument();
+  });
+
+  it("renders token evidence for tag issues and hides empty evidence", () => {
+    render(
+      <QaPanel
+        issues={[
+          issue("tag-1", "open", {
+            ruleId: "qa.tag-placeholder_missing",
+            message: "Target is missing inline tags or placeholders.",
+            evidence: {
+              sourceNumbers: [],
+              targetNumbers: [],
+              sourceValues: ["{button}", "{link}"],
+              targetValues: [],
+              relatedSegmentIds: [],
+            },
+          }),
+          issue("plain-1", "open", {
+            ruleId: "qa.edge-whitespace",
+            message: "译文首尾有空白。",
+            evidence: {
+              sourceNumbers: [],
+              targetNumbers: [],
+              sourceValues: [],
+              targetValues: [],
+              relatedSegmentIds: [],
+            },
+          }),
+        ]}
+        disabled={false}
+        pendingIssueId={null}
+        {...NOOP}
+      />,
+    );
+    // The tag issue shows the exact tokens as evidence.
+    expect(screen.getByText(/源 \[\{button\}, \{link\}\]/)).toBeInTheDocument();
+    // A rule without side-by-side evidence renders no empty bracket line.
+    const evidenceLines = document.querySelectorAll(".issue-card__evidence");
+    expect(evidenceLines).toHaveLength(1);
   });
 
   it("orders open, waived, resolved and offers 忽略 only on open issues", () => {

@@ -179,14 +179,14 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   await expect(page.locator(".match-card").first()).toContainText("100%");
   await shot("03-confirmed-tm-hit.png");
 
-  // Draft a wrong number in segment 2, then run number QA.
+  // Draft a wrong number in segment 2, then run the full QA library.
   await rows.nth(1).click();
   const editor2 = page.getByLabel("句段 2 译文");
   await editor2.fill("表中金额：1,300。");
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.locator(".app-statusbar")).toContainText("草稿已保存");
   await page.getByRole("button", { name: "QA", exact: true }).click();
-  await page.getByRole("button", { name: "运行数字 QA" }).click();
+  await page.getByRole("button", { name: "运行 QA" }).click();
   // The engine now runs the full rule library, so target the number issue
   // card instead of assuming it is the first one.
   const numberIssue = page.locator(".issue-card", { hasText: "1300" }).first();
@@ -639,7 +639,7 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   // Menu clicks reach the renderer over IPC and drive the same commands as
   // the workbench buttons: dock switch, then the preview dialog.
   expect(await clickMenuItem("QA 面板")).toBe(true);
-  await expect(page.getByRole("button", { name: "运行数字 QA" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "运行 QA" })).toBeVisible();
 
   expect(await clickMenuItem("译文预览…")).toBe(true);
   await expect(page.locator(".tl-dialog")).toContainText("译文预览");
