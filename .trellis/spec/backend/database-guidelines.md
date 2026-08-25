@@ -1,10 +1,12 @@
 # Database Guidelines
 
-> **Historical / not current greenfield.** There is no database in the current
-> tree. `crates/storage` and `translunar.sqlite3` were removed in the
-> greenfield reset; persistence today is the whole-state `state.json` written
-> atomically by `crates/tl-engine/src/store.rs`. Keep this document as the
-> reference contract for when a real storage layer returns.
+> **Historical / not current greenfield.** The `crates/storage` +
+> `translunar.sqlite3` stack described below was removed in the greenfield
+> reset. The current tree persists to a rusqlite `engine.sqlite` database
+> owned by `crates/tl-engine/src/store.rs` (WAL, per-mutation delta
+> transactions, one-time legacy `state.json` import); see that module's docs
+> for the live contract. Keep this document as reference for the deleted
+> stack's query and transaction patterns only.
 
 ## Storage Model
 

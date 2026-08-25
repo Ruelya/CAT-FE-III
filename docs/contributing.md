@@ -33,8 +33,9 @@ available: `./scripts/linux-display.sh pnpm test:e2e:desktop`.
 ## Architecture rules
 
 - The Rust engine (`crates/tl-engine`) owns domain rules, state transitions,
-  and every persistent write. Persistence is currently the whole-state
-  `state.json` under the engine data directory; there is no database yet.
+  and every persistent write. Persistence is a rusqlite `engine.sqlite`
+  database under the engine data directory (`crates/tl-engine/src/store.rs`);
+  legacy whole-state `state.json` directories are imported once on first open.
 - The renderer talks to the engine only through newline-framed JSON-RPC 2.0
   over stdio, mediated by Electron main and the context-isolated preload.
 - Generated protocol contracts (`packages/contracts`, generated from
@@ -49,9 +50,11 @@ available: `./scripts/linux-display.sh pnpm test:e2e:desktop`.
 
 ## Packaging and release
 
-There is no packaging or signing pipeline yet. See
+Packaging currently produces only an unsigned, unpackaged directory artifact
+(`pnpm package:dir`, plus the manual `package.yml` workflow); there are no
+installers and no signing pipeline yet. See
 [`docs/packaging.md`](packaging.md) for what exists today and the contract a
-future packager must meet.
+future installer pipeline must meet.
 
 Governance: [`LICENSE`](../LICENSE), [`SECURITY.md`](../SECURITY.md), and
 [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md).

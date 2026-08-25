@@ -127,14 +127,17 @@ directory:
 
 ```text
 <data-dir>/
-  state.json
+  engine.sqlite
   documents/<document-id>/
 ```
 
-`state.json` is the whole-state JSON persistence for the current phase; a real
-storage layer can replace it without touching the wire protocol. Managed
-copies of imported documents live under `documents/`. The renderer never opens
-these files.
+`engine.sqlite` is a single SQLite database (WAL journal mode, bundled into
+the engine binary via rusqlite) holding projects, documents, segments,
+translation memories, and termbases. Data directories written by older builds
+hold a whole-state `state.json` instead; the engine imports it into the
+database once on first open and preserves the original as
+`state.json.imported-backup`. Managed copies of imported documents live under
+`documents/`. The renderer never opens these files.
 
 ## Scope
 

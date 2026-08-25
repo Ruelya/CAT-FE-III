@@ -17,7 +17,7 @@ headless engine and its persistence/format layers.
 | ----------------------------------------------- | ------------------------------------------------------------------- | ----------------------------- |
 | [M0 Engine Boundary](./engine-boundary.md)      | Headless engine, JSON-RPC, storage, DOCX, and transaction contracts | Historical (pre-greenfield)   |
 | [Directory Structure](./directory-structure.md) | Module organization and file layout                                 | Historical (pre-greenfield)   |
-| [Database Guidelines](./database-guidelines.md) | Direct SQLite queries and migrations                                | Historical (no database yet)  |
+| [Database Guidelines](./database-guidelines.md) | Direct SQLite queries and migrations                                | Historical (old storage crate; current store is `tl-engine/src/store.rs`)  |
 | [Error Handling](./error-handling.md)           | Typed errors and JSON-RPC mapping                                   | Active (see greenfield note)  |
 | [Quality Guidelines](./quality-guidelines.md)   | Code standards, testing, and review gates                           | Active (see greenfield note)  |
 | [Logging Guidelines](./logging-guidelines.md)   | Structured stderr diagnostics                                       | Active                        |

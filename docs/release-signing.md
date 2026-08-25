@@ -2,11 +2,12 @@
 
 ## Current status: not implemented
 
-There is no packaging pipeline, so there is nothing to sign. The repository
-has no electron-builder configuration, no `package:*` or `release:*` scripts,
-and no packaging CI workflows. This document records the contract the future
-pipeline should meet so earlier decisions are not lost; nothing below exists
-in the tree today. See [packaging.md](./packaging.md) for the current state.
+Nothing is signed. Packaging today produces only an unsigned, unpackaged
+directory artifact via electron-builder's `dir` target (`pnpm package:dir`
+and the manual `package.yml` workflow); there are no installers and no
+signing or notarization wiring. This document records the contract the
+future installer pipeline should meet so earlier decisions are not lost.
+See [packaging.md](./packaging.md) for the current state.
 
 ## Planned artifacts
 

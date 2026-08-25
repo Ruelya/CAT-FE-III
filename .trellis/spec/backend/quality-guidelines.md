@@ -4,8 +4,9 @@
 > (`crates/protocol`, SQLite storage tests, `translunar-engine.exe`, the VPS
 > evidence flow) refer to the pre-greenfield tree. Current names are
 > `crates/tl-protocol` / `crates/tl-engine` / `tl-engine` binary, and storage
-> tests target the `state.json` store. The design properties, forbidden
-> patterns, and quality-gate commands still apply.
+> tests target the `engine.sqlite` store in `crates/tl-engine/src/store.rs`.
+> The design properties, forbidden patterns, and quality-gate commands still
+> apply.
 
 ## Required Design Properties
 

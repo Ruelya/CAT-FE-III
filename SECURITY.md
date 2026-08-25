@@ -22,11 +22,12 @@ Preferred channel:
 
 - AI provider credentials are supplied at runtime through `ai.configure` and
   held in engine memory only (a redacting `SecretString`). They are never
-  written to `state.json`, logs, protocol error text, or renderer
-  `localStorage`.
-- There is no packaging or signing pipeline yet. When one lands, production
-  signing and notarization secrets must stay in CI secret stores, and
-  unsigned packages remain valid for development.
+  written to the `engine.sqlite` database, logs, protocol error text, or
+  renderer `localStorage`.
+- Packaging currently produces only an unsigned directory artifact; there is
+  no installer or signing pipeline yet. When one lands, production signing
+  and notarization secrets must stay in CI secret stores, and unsigned
+  packages remain valid for development.
 
 ## Local hardening expectations
 

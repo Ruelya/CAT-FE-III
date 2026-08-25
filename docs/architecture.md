@@ -8,7 +8,7 @@ React renderer
   -> Electron main
   -> JSON-RPC 2.0 over child stdin/stdout
   -> Rust engine (tl-engine)
-  -> tl-* domain/filter crates + state.json store
+  -> tl-* domain/filter crates + SQLite store (engine.sqlite)
 ```
 
 Electron and TypeScript own presentation and operating-system integration. The
@@ -46,13 +46,16 @@ edit.
 
 ## Persistence Ownership
 
-`crates/tl-engine/src/store.rs` owns whole-state JSON persistence: the entire
-engine state lives in memory and every committed mutation is written as one
-atomic `state.json` (temp file plus rename) under the data directory. Managed
-copies of imported documents live under `documents/<document-id>/`. A crash
-can lose an unwritten mutation but cannot expose a partially written state
-file. A real storage layer can replace this without touching the wire
-protocol; until that lands there is no database in this tree.
+`crates/tl-engine/src/store.rs` owns SQLite persistence: one `engine.sqlite`
+database per data directory (rusqlite with the bundled SQLite, WAL journal
+mode, `synchronous=FULL`). Every committed mutation is written as one delta
+inside one transaction; reads come from the in-memory working set loaded once
+at open. Managed copies of imported documents live under
+`documents/<document-id>/`. A crash or power cut mid-write cannot corrupt the
+database: SQLite replays fully committed WAL frames or discards the
+uncommitted tail. Data directories written by older builds hold a whole-state
+`state.json`; the store imports it once on first open and preserves it as
+`state.json.imported-backup`.
 
 The renderer treats RPC responses as server state. It does not recreate
 segment state transitions, QA rules, TM scoring, counts, or persistence
@@ -87,7 +90,7 @@ every result at a human review gate before anything is applied.
 
 ## Recovery And Failure
 
-- Engine restart reloads `state.json`; committed edits, confirmations, TM
+- Engine restart reloads `engine.sqlite`; committed edits, confirmations, TM
   entries, and QA state survive.
 - Electron main supervises the engine process with bounded crash-restart and
   backoff; engine status surfaces in the workbench header instead of failing
