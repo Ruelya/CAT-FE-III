@@ -7,7 +7,8 @@ import type {
 } from "@translunar/contracts";
 import { Badge, Button, Dialog, SelectField, TextField } from "@translunar/ui";
 
-import { callEngine, describeError } from "../lib/engine.js";
+import { callEngine, describeError, isExportBlocked } from "../lib/engine.js";
+import { ExportOverwriteConfirm } from "./ExportOverwriteConfirm.js";
 import { defaultSegmentation, defaultSrxPath } from "./ImportDocumentDialog.js";
 import { TermManagePanel } from "./TermManagePanel.js";
 
@@ -42,6 +43,9 @@ export interface ProjectSettingsDialogProps {
  * moves TMX/CSV/TSV files through tm.import/export. All file picks go
  * through dedicated dialog channels in the main process; a canceled pick
  * does nothing and every result message reports the engine's real counts.
+ * An export refused with exportBlocked (destination exists) surfaces an
+ * inline overwrite confirm; only an explicit 覆盖 retries with
+ * overwrite: true, and 取消 leaves the existing file untouched.
  *
  * File and termbase actions each track their own in-flight state (a Set of
  * action ids), so a long TM import never locks the termbase buttons and
@@ -75,6 +79,14 @@ export function ProjectSettingsDialog({
   const [managedTermbaseId, setManagedTermbaseId] = useState<string | null>(
     null,
   );
+  // An export the engine refused because the destination exists. Kept until
+  // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
+  // existing file untouched).
+  const [overwritePrompt, setOverwritePrompt] = useState<
+    | { kind: "tm"; path: string }
+    | { kind: "termbase"; termbase: Termbase; path: string }
+    | null
+  >(null);
 
   const beginAction = useCallback((actionId: string) => {
     setPending((previous) => {
@@ -110,6 +122,7 @@ export function ProjectSettingsDialog({
     setTargetDraft(project.targetLocale);
     setSegmentationDraft(defaultSegmentation(project));
     setSrxDraft(defaultSrxPath(project));
+    setOverwritePrompt(null);
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
@@ -310,6 +323,7 @@ export function ProjectSettingsDialog({
     beginAction("tm.export");
     setError(null);
     setNotice(null);
+    setOverwritePrompt(null);
     try {
       const result = await callEngine("tm.export", {
         projectId: project.id,
@@ -317,7 +331,12 @@ export function ProjectSettingsDialog({
       });
       setNotice(`TM 导出完成：${result.exported} 条 → ${result.outputPath}`);
     } catch (exportError) {
-      setError(describeError(exportError));
+      if (isExportBlocked(exportError)) {
+        // The engine never clobbers silently; hand the decision to the user.
+        setOverwritePrompt({ kind: "tm", path });
+      } else {
+        setError(describeError(exportError));
+      }
     } finally {
       endAction("tm.export");
     }
@@ -361,6 +380,7 @@ export function ProjectSettingsDialog({
       beginAction(`termbase.export:${termbase.id}`);
       setError(null);
       setNotice(null);
+      setOverwritePrompt(null);
       try {
         const result = await callEngine("termbase.export", {
           termbaseId: termbase.id,
@@ -370,7 +390,11 @@ export function ProjectSettingsDialog({
           `术语库「${termbase.name}」导出完成：${result.exported} 条 → ${result.outputPath}`,
         );
       } catch (exportError) {
-        setError(describeError(exportError));
+        if (isExportBlocked(exportError)) {
+          setOverwritePrompt({ kind: "termbase", termbase, path });
+        } else {
+          setError(describeError(exportError));
+        }
       } finally {
         endAction(`termbase.export:${termbase.id}`);
       }
@@ -378,8 +402,63 @@ export function ProjectSettingsDialog({
     [beginAction, endAction],
   );
 
+  // 覆盖: retry the blocked export with the explicit overwrite flag.
+  const confirmOverwriteExport = useCallback(async () => {
+    if (!overwritePrompt) {
+      return;
+    }
+    const actionId =
+      overwritePrompt.kind === "tm"
+        ? "tm.export"
+        : `termbase.export:${overwritePrompt.termbase.id}`;
+    beginAction(actionId);
+    setError(null);
+    setNotice(null);
+    try {
+      if (overwritePrompt.kind === "tm") {
+        const result = await callEngine("tm.export", {
+          projectId: project.id,
+          path: overwritePrompt.path,
+          overwrite: true,
+        });
+        setNotice(
+          `TM 导出完成（已覆盖）：${result.exported} 条 → ${result.outputPath}`,
+        );
+      } else {
+        const result = await callEngine("termbase.export", {
+          termbaseId: overwritePrompt.termbase.id,
+          path: overwritePrompt.path,
+          overwrite: true,
+        });
+        setNotice(
+          `术语库「${overwritePrompt.termbase.name}」导出完成（已覆盖）：${result.exported} 条 → ${result.outputPath}`,
+        );
+      }
+      setOverwritePrompt(null);
+    } catch (retryError) {
+      setOverwritePrompt(null);
+      setError(describeError(retryError));
+    } finally {
+      endAction(actionId);
+    }
+  }, [overwritePrompt, beginAction, endAction, project.id]);
+
+  // 取消: nothing was written and the existing file stays as it is.
+  const cancelOverwriteExport = useCallback(() => {
+    setOverwritePrompt(null);
+    setNotice("已取消导出：保留现有文件，未做任何修改。");
+  }, []);
+
   const tmImportPending = pending.has("tm.import");
   const tmExportPending = pending.has("tm.export");
+  const overwritePending =
+    overwritePrompt === null
+      ? false
+      : pending.has(
+          overwritePrompt.kind === "tm"
+            ? "tm.export"
+            : `termbase.export:${overwritePrompt.termbase.id}`,
+        );
   // Import and export hit the same project TM, so they exclude each other;
   // everything else runs independently.
   const tmFileBusy = tmImportPending || tmExportPending;
@@ -579,7 +658,8 @@ export function ProjectSettingsDialog({
           </div>
           <p className="settings__note">
             支持 TMX/CSV/TSV。导入会合并进项目
-            TM（同源文的旧译文会被覆盖）；导出拒绝覆盖已存在的文件。
+            TM（同源文的旧译文会被覆盖）；导出遇到已存在的文件会先询问，
+            确认后才覆盖。
           </p>
         </section>
 
@@ -708,6 +788,15 @@ export function ProjectSettingsDialog({
             在右侧 QA 面板手动运行；Agent 运行结束时也会自动执行。
           </p>
         </section>
+
+        {overwritePrompt ? (
+          <ExportOverwriteConfirm
+            path={overwritePrompt.path}
+            busy={overwritePending}
+            onOverwrite={() => void confirmOverwriteExport()}
+            onCancel={cancelOverwriteExport}
+          />
+        ) : null}
 
         {notice ? (
           <div className="honest-note" data-tone="ok" role="status">

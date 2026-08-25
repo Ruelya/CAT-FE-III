@@ -31,6 +31,15 @@ export function isAiNotConfigured(error: unknown): boolean {
 }
 
 /**
+ * The engine refused to clobber an existing export destination. The caller
+ * may retry the same export with `overwrite: true` after an explicit user
+ * confirmation.
+ */
+export function isExportBlocked(error: unknown): boolean {
+  return error instanceof EngineClientError && error.code === "exportBlocked";
+}
+
+/**
  * Transport-level failures where the request may never have reached the
  * engine (child not running, stdin write failed, or no response before the
  * timeout). For writes this means the change was NOT acknowledged and must

@@ -330,11 +330,15 @@ impl Engine {
     pub(crate) fn tm_export(&self, params: TmExportParams) -> Result<TmExportResult, EngineError> {
         let project = self.require_project(&params.project_id)?.clone();
         let path = Path::new(&params.path);
+        let overwrite = params.overwrite.unwrap_or(false);
         if path.exists() {
-            return Err(EngineError::ExportBlocked(format!(
-                "output path already exists: {}",
-                path.display()
-            )));
+            if !overwrite {
+                return Err(EngineError::ExportBlocked(format!(
+                    "output path already exists: {}",
+                    path.display()
+                )));
+            }
+            self.refuse_managed_overwrite(path)?;
         }
         let format = resolve_tm_format(params.format, path)?;
         let memory_id = Self::project_memory_id(&project.id);
@@ -361,7 +365,7 @@ impl Engine {
             TmExchangeFormat::Tsv => tl_asset::write_tm_tsv(&mut buffer, &units),
         }
         .map_err(|error| EngineError::Internal(error.to_string()))?;
-        write_new_file(path, &buffer)?;
+        write_export_file(path, &buffer, overwrite)?;
         Ok(TmExportResult {
             output_path: path.display().to_string(),
             exported: u32::try_from(units.len()).unwrap_or(u32::MAX),
@@ -1045,11 +1049,15 @@ impl Engine {
     ) -> Result<TermbaseExportResult, EngineError> {
         self.require_termbase(&params.termbase_id)?;
         let path = Path::new(&params.path);
+        let overwrite = params.overwrite.unwrap_or(false);
         if path.exists() {
-            return Err(EngineError::ExportBlocked(format!(
-                "output path already exists: {}",
-                path.display()
-            )));
+            if !overwrite {
+                return Err(EngineError::ExportBlocked(format!(
+                    "output path already exists: {}",
+                    path.display()
+                )));
+            }
+            self.refuse_managed_overwrite(path)?;
         }
         let format = resolve_term_format(params.format, path)?;
         // Export inherently materializes the termbase for the outgoing file,
@@ -1088,7 +1096,7 @@ impl Engine {
             TermExchangeFormat::Tbx => tl_asset::write_tbx(&mut buffer, &exchange),
         }
         .map_err(|error| EngineError::Internal(error.to_string()))?;
-        write_new_file(path, &buffer)?;
+        write_export_file(path, &buffer, overwrite)?;
         Ok(TermbaseExportResult {
             output_path: path.display().to_string(),
             exported: u32::try_from(exchange.len()).unwrap_or(u32::MAX),
@@ -1163,11 +1171,29 @@ fn term_status_text(status: TermStatus) -> &'static str {
     }
 }
 
-fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
+/// Publish export bytes. Without `overwrite` the destination must not exist
+/// (`create_new` keeps the no-clobber guarantee race-free). With `overwrite`,
+/// the bytes are staged in a sibling temp file and renamed over the
+/// destination atomically, so a failed write never destroys the existing
+/// file.
+fn write_export_file(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), EngineError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
         std::fs::create_dir_all(parent)?;
+    }
+    if overwrite {
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        temporary.write_all(bytes)?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(path)
+            .map_err(|error| EngineError::Io(error.error))?;
+        return Ok(());
     }
     let mut file = std::fs::OpenOptions::new()
         .write(true)

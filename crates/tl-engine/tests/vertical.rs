@@ -314,6 +314,36 @@ fn vertical_slice_docx_roundtrip() {
         ),
         RpcErrorCode::ExportBlocked
     );
+
+    // An explicit overwrite replaces the blocked file (staged sibling temp +
+    // atomic rename), still through the real filter pipeline.
+    let overwritten: DocumentExportResult = call(
+        &mut engine,
+        methods::DOCUMENT_EXPORT,
+        json!({
+            "documentId": document_id,
+            "outputPath": output.display().to_string(),
+            "overwrite": true,
+        }),
+    );
+    assert_eq!(overwritten.output_path, output.display().to_string());
+    assert!(overwritten.translated_segments >= 1);
+    assert!(output.is_file(), "overwritten export file exists");
+
+    // Even with overwrite, the engine never replaces a file inside its own
+    // data directory: project state lives there.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::DOCUMENT_EXPORT,
+            json!({
+                "documentId": document_id,
+                "outputPath": workspace.path().join("data/engine.sqlite").display().to_string(),
+                "overwrite": true,
+            }),
+        ),
+        RpcErrorCode::ExportBlocked
+    );
 }
 
 #[test]

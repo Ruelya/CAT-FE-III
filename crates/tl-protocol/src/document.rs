@@ -55,6 +55,13 @@ pub struct DocumentExportParams {
     /// without anchor support ignore it. Defaults to a plain export.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segment_anchors: Option<bool>,
+    /// Replace an existing destination file (staged sibling temp + atomic
+    /// rename). Defaults to false: the export is refused with `exportBlocked`
+    /// when the path exists. Even with overwrite, the engine refuses paths
+    /// inside its own managed data directory — it cannot tell who owns an
+    /// arbitrary file on disk, but its own project data it can protect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

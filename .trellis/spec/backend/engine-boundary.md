@@ -421,6 +421,14 @@ Built-in IDs are `builtin.docx`, `builtin.txt`, `builtin.markdown`,
 - `publish_bytes_noclobber` is the only shared byte-publication helper. A
   format validates/reparses first, then the helper writes a sibling temporary
   file, fsyncs it, and publishes without replacing an existing path.
+- `document.export`, `tm.export`, and `termbase.export` accept an additive
+  `overwrite: bool` (default false, i.e. `exportBlocked` when the destination
+  exists). With overwrite the engine stages the export beside the destination
+  and atomically renames it over the existing file; a failed export never
+  destroys the file being replaced. Destinations inside the engine's own data
+  directory are refused even with overwrite — the engine cannot tell who owns
+  an arbitrary path, but it protects its own project state. Clients send
+  overwrite only after an explicit user confirmation.
 - Document insertion persists segments, inline tags, and segment notes in the
   same immediate transaction. A failed parse or uniqueness check removes the
   managed source and commits nothing.
