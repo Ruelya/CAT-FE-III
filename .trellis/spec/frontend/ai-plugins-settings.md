@@ -1,5 +1,11 @@
 # Frontend AI Control, Plugins, Collaboration, and Settings (P4)
 
+> **Historical / not current greenfield.** The P4 surfaces described here (AI
+> Control, Plugins, Collaboration, Product Settings, appearance-v1) belonged
+> to the pre-greenfield renderer and were removed in the greenfield reset.
+> Current AI UI is the workbench AI/Agent panels over `ai.*` engine methods;
+> there is no plugin or collaboration surface.
+
 ## 1. Scope / Trigger
 
 Use this contract when changing:

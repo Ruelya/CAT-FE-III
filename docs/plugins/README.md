@@ -1,5 +1,12 @@
 # Plugin SDK
 
+> **Historical record (pre-greenfield).** The plugin runtime described in this
+> directory belonged to the previous engine and was removed in the greenfield
+> reset. The current tree has no plugin system: no plugin RPC methods, no
+> `@translunar/plugin-sdk` package sources, and no plugin host in
+> `crates/tl-engine`. These documents are kept as the contract record for a
+> future reintroduction.
+
 Translunar CAT exposes a versioned local plugin contract with three currently
 executable runtime tiers:
 

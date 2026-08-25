@@ -1,5 +1,8 @@
 # QA Rule And Pipeline Step SDK
 
+> **Historical record (pre-greenfield).** The plugin runtime this SDK targets
+> was removed in the greenfield reset; see [README.md](./README.md).
+
 The public QA and pipeline contract lets a plugin add deterministic mechanical
 checks or processing steps without importing Engine, storage, protocol, or
 Desktop internals. The Rust Engine owns permissions, lifecycle, input

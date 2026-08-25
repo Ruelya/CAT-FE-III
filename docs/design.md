@@ -1,5 +1,12 @@
 # Design
 
+> **Historical record (pre-greenfield).** This document describes the design
+> system of the previous renderer, which was removed in the greenfield reset,
+> together with its enforcement scripts (`ui:audit`, `ui:shots`). The current
+> renderer ships the INSTRUMENT token set in `packages/ui/src/tokens.css`
+> (cold grays, single deep-blue accent) instead of the warm-paper system
+> below. Kept as a design record.
+
 | Item | Value |
 | --- | --- |
 | Date | 2026-08-17 |

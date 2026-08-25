@@ -1,5 +1,13 @@
 # M0 Engine Boundary
 
+> **Historical / not current greenfield.** This contract describes the
+> pre-greenfield engine (`translunar-*` crates, SQLite storage, plugins,
+> collab, task packages), which was removed in the greenfield reset. The
+> current boundary is `crates/tl-engine` + `crates/tl-protocol` with
+> rusqlite `engine.sqlite` persistence; see `docs/architecture.md`. The
+> boundary principles (engine owns all domain rules; stdout carries protocol
+> frames only; contracts are generated) still apply.
+
 ## 1. Scope / Trigger
 
 Use this contract for changes to `crates/domain`, `crates/protocol`,

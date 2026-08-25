@@ -1,42 +1,33 @@
-# First-run tutorial
+# First project walkthrough
 
-The desktop product shell shows an interactive bilingual tutorial on first
-launch (persisted in product shell settings, not `localStorage` document text).
+There is no in-app tutorial in the current build. This is the manual path
+through the vertical slice.
 
-## Guided steps
+## Desktop path
 
-1. Welcome
-2. Create / open a project (real Project Home control)
-3. Import a source document
-4. Edit and confirm segments
-5. Run QA
-6. Export
-7. Complete — optional offline example project
-
-Skip, resume, and restart are supported. Focus is trapped in the overlay while
-it is open; Escape skips.
-
-## Bundled example
-
-- Path: `apps/desktop/resources/examples/welcome/source.txt`
-- License: Apache-2.0-compatible sample text (`LICENSE.txt` beside the fixture)
-- Action: Product Settings → **Open example project** copies/opens through the
-  normal Engine `project.create` + `document.import` path (works offline)
-
-## Manual path
-
-1. Launch Translunar CAT.
-2. Create or open a project (source/target locales + domain).
-3. Import a source document (start with the bundled example or
-   `fixtures/docx/m0-source.docx`).
-4. Translate and confirm segments; confirmed work sinks into local TM.
-5. Open Project Insights → QA / Assets / Plugins as needed.
+1. Start the app: `pnpm bootstrap` once, then `pnpm dev:desktop`.
+2. Create a project in the Projects view (name, source and target locale).
+3. Import a source document. Registered import formats: DOCX, TXT, Markdown,
+   HTML, XLIFF, XLSX, and PPTX. `fixtures/docx/m0-source.docx` and the files
+   under `fixtures/formats/` are good starting points.
+4. Translate in the workbench grid. Confirming a segment writes it into the
+   project translation memory; exact and fuzzy TM matches, term hits, and
+   concordance search appear in the side panels.
+5. Optionally pretranslate the remaining segments from TM, and run QA to see
+   deterministic number-mismatch issues.
 6. Export the translated document.
-7. Optional headless path:
+
+## Headless path
+
+The engine is a standalone process speaking JSON-RPC 2.0 over stdio, one
+request per stdin line and one response per stdout line:
 
 ```bash
-cargo build -p translunar-engine
-./target/debug/translunar --data-dir ./tmp-data run \
-  --source ./fixtures/docx/m0-source.docx \
-  --output ./tmp-out.docx
+cargo build -p tl-engine
+./target/debug/tl-engine --data-dir ./tmp-data
 ```
+
+`scripts/engine-smoke.mjs` (run via `pnpm test:e2e:engine`) drives the whole
+flow over that protocol and is the best executable reference for the method
+sequence: handshake, project, import, edit/confirm, TM, termbases,
+pretranslate, QA, and export.

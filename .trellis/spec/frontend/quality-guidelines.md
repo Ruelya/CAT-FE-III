@@ -1,5 +1,12 @@
 # Frontend Quality Guidelines
 
+> **Historical / not current greenfield.** The harnesses this document is
+> built around (`pnpm ui:audit`, `pnpm ui:shots`, the P1–P4 E2E specs, and the
+> landmark tables) were removed with the pre-greenfield renderer. Current
+> gates are `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`,
+> `pnpm contracts:check`, `pnpm test:e2e:engine`, and `pnpm test:e2e:desktop`
+> (see `.github/workflows/ci.yml`).
+
 ## Automated Checks
 
 The supported Node lanes are 22.17.x through 22.x and 24.x, with pnpm

@@ -1,5 +1,8 @@
 # External System Connector SDK
 
+> **Historical record (pre-greenfield).** The plugin runtime this SDK targets
+> was removed in the greenfield reset; see [README.md](./README.md).
+
 External connector contract V1 (P-08) lets a plugin exchange bounded translation
 objects with an external system through authenticated pull, push, poll, and
 webhook operations. The Engine owns credentials, authorization, exact-generation
