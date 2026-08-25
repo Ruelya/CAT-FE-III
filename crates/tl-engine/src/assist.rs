@@ -5,10 +5,10 @@
 //! [`EngineEvent::AssistFinished`]. The worker owns no engine state and never
 //! touches segments: the completion is only a proposal for a human to apply.
 //!
-//! Cancellation is cooperative and best-effort, like the agent worker: the
-//! flag is checked before the request is sent and between SSE lines. A hung
-//! connect or read can only be abandoned by the provider timeout because the
-//! blocking HTTP client cannot abort an in-flight socket.
+//! Cancellation is honest and fast, like the agent worker: the flag is
+//! checked before the request is sent, and `tl_ai::execute_provider` aborts
+//! an in-flight HTTP call (hung connect included) within its cancel poll
+//! interval by dropping the connection.
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;

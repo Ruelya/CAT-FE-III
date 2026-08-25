@@ -2,20 +2,38 @@
 //!
 //! The engine loop stays single-threaded and lock-free. `ai.agent.start`
 //! performs the cheap local work (planning, exact TM pretranslation) inline,
-//! then hands the slow provider calls to a worker thread. The worker owns no
-//! engine state: it receives immutable work items and streams
+//! then hands the slow provider calls to a small worker pool. The workers own
+//! no engine state: they receive immutable work items and stream
 //! [`EngineEvent`]s back over a channel, and the engine applies them between
 //! RPC frames.
+//!
+//! Segment-level parallelism: up to [`AGENT_SEGMENT_WORKERS`] threads drain a
+//! shared queue, so one slow provider call no longer serializes the whole
+//! run. Draft events may arrive in any order; the engine applies each one
+//! independently, and the coordinator emits exactly one terminal event
+//! (finished or canceled) after every worker has stopped.
+//!
+//! Cancellation is honest and fast: the shared flag is checked before each
+//! item, and `tl_ai::execute_provider` aborts an in-flight HTTP call within
+//! its cancel poll interval by dropping the connection. A cancel therefore
+//! bounds the wait by roughly one poll interval per busy worker, not by the
+//! provider timeout.
 
-use std::sync::Arc;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use tl_ai::{AiCoreError, AiProviderProfile, SecretString};
 use tl_protocol::AiAssistAction;
 
 use crate::aiops;
 use crate::events::{AgentDraft, EngineEvent};
+
+/// Upper bound on provider calls one agent run keeps in flight at a time.
+/// Small on purpose: enough to hide per-request latency without hammering a
+/// provider or spawning an unbounded thread herd.
+pub const AGENT_SEGMENT_WORKERS: usize = 4;
 
 /// One TM-missed segment the worker must draft.
 #[derive(Debug, Clone)]
@@ -37,69 +55,115 @@ pub struct AgentJob {
 }
 
 pub fn spawn_worker(job: AgentJob) {
-    std::thread::spawn(move || run_worker(job));
+    std::thread::spawn(move || run_job(job));
 }
 
-fn run_worker(job: AgentJob) {
-    for item in &job.items {
-        if job.cancel.load(Ordering::Relaxed) {
-            let _ = job.events.send(EngineEvent::AgentCanceled {
-                run_id: job.run_id.clone(),
-            });
+/// Coordinator: fan the work items out to a bounded pool, join every worker,
+/// then send the single terminal event for the run.
+fn run_job(job: AgentJob) {
+    let AgentJob {
+        run_id,
+        items,
+        instruction,
+        source_locale,
+        target_locale,
+        profile,
+        credential,
+        cancel,
+        events,
+    } = job;
+    let worker_count = items.len().min(AGENT_SEGMENT_WORKERS);
+    let queue = Arc::new(Mutex::new(VecDeque::from(items)));
+    let mut workers = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let context = WorkerContext {
+            run_id: run_id.clone(),
+            instruction: instruction.clone(),
+            source_locale: source_locale.clone(),
+            target_locale: target_locale.clone(),
+            profile: profile.clone(),
+            credential: credential.duplicate(),
+            cancel: Arc::clone(&cancel),
+            events: events.clone(),
+            queue: Arc::clone(&queue),
+        };
+        workers.push(std::thread::spawn(move || drain_queue(context)));
+    }
+    for worker in workers {
+        let _ = worker.join();
+    }
+    let event = if cancel.load(Ordering::Relaxed) {
+        EngineEvent::AgentCanceled { run_id }
+    } else {
+        EngineEvent::AgentFinished { run_id }
+    };
+    let _ = events.send(event);
+}
+
+struct WorkerContext {
+    run_id: String,
+    instruction: Option<String>,
+    source_locale: String,
+    target_locale: String,
+    profile: AiProviderProfile,
+    credential: SecretString,
+    cancel: Arc<AtomicBool>,
+    events: Sender<EngineEvent>,
+    queue: Arc<Mutex<VecDeque<AgentWorkItem>>>,
+}
+
+fn drain_queue(context: WorkerContext) {
+    loop {
+        if context.cancel.load(Ordering::Relaxed) {
             return;
         }
+        let item = {
+            let mut queue = match context.queue.lock() {
+                Ok(queue) => queue,
+                Err(_) => return,
+            };
+            queue.pop_front()
+        };
+        let Some(item) = item else { return };
         let messages = aiops::assist_messages(
             AiAssistAction::Translate,
-            job.instruction.as_deref(),
-            &job.source_locale,
-            &job.target_locale,
+            context.instruction.as_deref(),
+            &context.source_locale,
+            &context.target_locale,
             &item.source_text,
             "",
         );
         let outcome = aiops::run_completion(
-            &job.profile,
-            &job.credential,
+            &context.profile,
+            &context.credential,
             messages,
             &item.source_text,
-            &job.source_locale,
-            &job.target_locale,
-            &job.cancel,
+            &context.source_locale,
+            &context.target_locale,
+            &context.cancel,
         );
         match outcome {
-            Err(AiCoreError::Canceled) => {
-                let _ = job.events.send(EngineEvent::AgentCanceled {
-                    run_id: job.run_id.clone(),
-                });
-                return;
-            }
+            // The run was canceled mid-call; the coordinator reports the
+            // terminal state once all workers stop. Nothing to send here.
+            Err(AiCoreError::Canceled) => return,
             Ok(completion) => {
-                let _ = job.events.send(EngineEvent::AgentDrafted {
-                    run_id: job.run_id.clone(),
+                let _ = context.events.send(EngineEvent::AgentDrafted {
+                    run_id: context.run_id.clone(),
                     segment_id: item.segment_id.clone(),
                     outcome: Ok(AgentDraft {
                         target: completion.text.trim().to_string(),
-                        model: job.profile.model.clone(),
+                        model: context.profile.model.clone(),
                         elapsed_ms: completion.elapsed_ms,
                     }),
                 });
             }
             Err(error) => {
-                let _ = job.events.send(EngineEvent::AgentDrafted {
-                    run_id: job.run_id.clone(),
+                let _ = context.events.send(EngineEvent::AgentDrafted {
+                    run_id: context.run_id.clone(),
                     segment_id: item.segment_id.clone(),
                     outcome: Err(error.to_string()),
                 });
             }
         }
     }
-    let event = if job.cancel.load(Ordering::Relaxed) {
-        EngineEvent::AgentCanceled {
-            run_id: job.run_id.clone(),
-        }
-    } else {
-        EngineEvent::AgentFinished {
-            run_id: job.run_id.clone(),
-        }
-    };
-    let _ = job.events.send(event);
 }

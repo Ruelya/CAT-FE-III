@@ -91,6 +91,26 @@ fn spawn_sse_server(reply: &'static str, delay: Duration) -> String {
     format!("http://{address}")
 }
 
+/// Loopback endpoint that accepts connections, swallows the request, and
+/// never replies: the honest way to simulate a hung provider. Sockets stay
+/// open until the test process exits.
+fn spawn_hanging_server() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind hanging fixture");
+    let address = listener.local_addr().expect("fixture address");
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            thread::spawn(move || {
+                let mut sink = [0u8; 4096];
+                while stream.read(&mut sink).is_ok_and(|bytes| bytes > 0) {
+                    // Hold the socket open, never answer.
+                }
+            });
+        }
+    });
+    format!("http://{address}")
+}
+
 fn configure_loopback_ai(engine: &mut Engine, base_url: &str) {
     let status: AiStatusResult = call(
         engine,
@@ -785,7 +805,216 @@ fn agent_run_pretranslates_drafts_and_parks_at_the_human_gate() {
 }
 
 #[test]
-fn agent_run_cancels_between_segments_and_rejects_concurrent_runs() {
+fn agent_runs_on_different_documents_proceed_concurrently() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Concurrent", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let first_doc = write_txt(
+        workspace.path(),
+        "concurrent-a.txt",
+        "Alpha sentence one.\n\nAlpha sentence two.\n",
+    );
+    let second_doc = write_txt(
+        workspace.path(),
+        "concurrent-b.txt",
+        "Beta sentence one.\n\nBeta sentence two.\n",
+    );
+    let imported_a: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": first_doc.display().to_string()}),
+    );
+    let imported_b: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": second_doc.display().to_string()}),
+    );
+
+    // Slow fixture so the first run is still in flight when the second starts.
+    let base_url = spawn_sse_server("并发草稿。", Duration::from_millis(400));
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let run_a: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported_a.document.id}),
+    );
+    assert_eq!(run_a.status, AgentRunStatus::Running);
+
+    // Same document while running: honest Conflict.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_AGENT_START,
+            json!({"documentId": imported_a.document.id}),
+        ),
+        RpcErrorCode::Conflict
+    );
+
+    // A different document does not fight: the second run starts at once.
+    let run_b: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported_b.document.id}),
+    );
+    assert_eq!(run_b.status, AgentRunStatus::Running);
+    assert_ne!(run_a.run_id, run_b.run_id, "each job has its own run id");
+
+    // Both runs park at the human gate; status stays addressable per run id.
+    let mut notifications = Vec::new();
+    let finished_a = drive_agent_run(&mut engine, &events, &run_a.run_id, &mut notifications);
+    let finished_b = drive_agent_run(&mut engine, &events, &run_b.run_id, &mut notifications);
+    assert_eq!(finished_a.status, AgentRunStatus::AwaitingReview);
+    assert_eq!(finished_b.status, AgentRunStatus::AwaitingReview);
+    assert_eq!(finished_a.ai_drafted, 2);
+    assert_eq!(finished_b.ai_drafted, 2);
+
+    // Both documents got drafts, nothing was confirmed anywhere.
+    for document_id in [&imported_a.document.id, &imported_b.document.id] {
+        let segments: SegmentListResult = call(
+            &mut engine,
+            methods::SEGMENT_LIST,
+            json!({"documentId": document_id}),
+        );
+        for segment in &segments.segments {
+            assert_eq!(segment.state, tl_domain::SegmentState::Draft);
+        }
+    }
+
+    // Once the first run is terminal, its document is free again.
+    let rerun: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported_a.document.id}),
+    );
+    assert_eq!(rerun.planned_segments, 0, "nothing left to draft");
+}
+
+#[test]
+fn agent_drafts_segments_in_parallel_within_one_run() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Parallel", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(
+        workspace.path(),
+        "parallel.txt",
+        "Parallel one.\n\nParallel two.\n\nParallel three.\n\nParallel four.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    assert_eq!(imported.segment_count, 4);
+
+    // 4 segments x 600 ms: serial drafting needs >= 2.4 s, the worker pool
+    // finishes in roughly one round trip.
+    let delay = Duration::from_millis(600);
+    let base_url = spawn_sse_server("并行草稿。", delay);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let clock = Instant::now();
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id}),
+    );
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    let elapsed = clock.elapsed();
+
+    assert_eq!(finished.status, AgentRunStatus::AwaitingReview);
+    assert_eq!(finished.ai_drafted, 4);
+    assert_eq!(finished.failed_segments, 0);
+    assert!(
+        elapsed < delay * 4,
+        "worker pool drafts segments concurrently; serial would need >= {:?}, got {elapsed:?}",
+        delay * 4
+    );
+}
+
+#[test]
+fn agent_cancel_aborts_in_flight_provider_calls_without_waiting_for_the_timeout() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Abort", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(
+        workspace.path(),
+        "abort.txt",
+        "Hang one.\n\nHang two.\n\nHang three.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+
+    // The provider never answers; the runtime profile timeout is 60 s. A
+    // cooperative-only cancel would leave the run "running" for the whole
+    // timeout; the abortive cancel must turn it terminal within seconds.
+    let base_url = spawn_hanging_server();
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(run.status, AgentRunStatus::Running);
+
+    // Let the workers actually enter their provider calls before canceling.
+    std::thread::sleep(Duration::from_millis(300));
+    let clock = Instant::now();
+    let canceled: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_CANCEL,
+        json!({"runId": run.run_id}),
+    );
+    assert!(canceled.cancel_requested);
+
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.status, AgentRunStatus::Canceled);
+    assert_eq!(finished.ai_drafted, 0, "hung calls never produce drafts");
+    assert!(
+        clock.elapsed() < Duration::from_secs(5),
+        "cancel aborted in-flight HTTP in {:?}, far below the 60 s provider timeout",
+        clock.elapsed()
+    );
+
+    // The canceled run frees its document for a fresh start.
+    let rerun: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(rerun.status, AgentRunStatus::Running);
+    let _: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_CANCEL,
+        json!({"runId": rerun.run_id}),
+    );
+    let finished_rerun = drive_agent_run(&mut engine, &events, &rerun.run_id, &mut notifications);
+    assert_eq!(finished_rerun.status, AgentRunStatus::Canceled);
+}
+
+#[test]
+fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
     let workspace = tempfile::tempdir().expect("tempdir");
     let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
     let events = engine.take_engine_events();
@@ -816,7 +1045,7 @@ fn agent_run_cancels_between_segments_and_rejects_concurrent_runs() {
     );
     assert_eq!(run.status, AgentRunStatus::Running);
 
-    // A second run cannot start while one is in flight.
+    // A second run on the same document cannot start while one is in flight.
     assert_eq!(
         call_err(
             &mut engine,
