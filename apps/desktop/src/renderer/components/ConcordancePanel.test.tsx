@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Segment } from "@translunar/contracts";
+import type { Segment, TmMatchItem } from "@translunar/contracts";
+import type {
+  DesktopApi,
+  EngineInvokeResponse,
+} from "../../shared/desktop-api.js";
 
 import { ConcordancePanel, searchConcordance } from "./ConcordancePanel.js";
 
@@ -33,6 +37,33 @@ const SEGMENTS = [
   segment("s3", 2, "Nothing here.", "这里没有。"),
 ];
 
+const TM_MATCH: TmMatchItem = {
+  entry: {
+    id: "tm-1",
+    memoryId: "tm-p1",
+    sourceText: "The retention policy is 30 days.",
+    targetText: "保留策略为 30 天。",
+    sourceHash: "hash",
+    originProjectId: "p1",
+    originDocumentId: "d0",
+    originSegmentId: "s0",
+    confirmedAtMs: 1,
+  },
+  score: 82,
+  grade: "fuzzy",
+};
+
+function installBridge(
+  invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
+): void {
+  const api: Partial<DesktopApi> = { invoke };
+  Object.defineProperty(window, "tl", {
+    value: api,
+    configurable: true,
+    writable: true,
+  });
+}
+
 describe("searchConcordance", () => {
   it("finds case-insensitive hits in source and target", () => {
     const hits = searchConcordance(SEGMENTS, "retention");
@@ -49,9 +80,16 @@ describe("searchConcordance", () => {
 });
 
 describe("ConcordancePanel", () => {
+  beforeEach(() => {
+    installBridge(() =>
+      Promise.resolve({ ok: true, result: { matches: [], totalMatches: 0 } }),
+    );
+  });
+
   it("seeds the query from the F3 selection and lists hits", () => {
     render(
       <ConcordancePanel
+        projectId="p1"
         segments={SEGMENTS}
         initialQuery="retention"
         onJump={vi.fn()}
@@ -67,6 +105,7 @@ describe("ConcordancePanel", () => {
     const onJump = vi.fn();
     render(
       <ConcordancePanel
+        projectId="p1"
         segments={SEGMENTS}
         initialQuery="保留期"
         onJump={onJump}
@@ -76,16 +115,41 @@ describe("ConcordancePanel", () => {
     expect(onJump).toHaveBeenCalledWith("s1");
   });
 
-  it("is honest about the document-only scope", () => {
+  it("shows fuzzy TM concordance hits from the engine", async () => {
+    installBridge((method) => {
+      if (method === "tm.lookup") {
+        return Promise.resolve({
+          ok: true,
+          result: { matches: [TM_MATCH], totalMatches: 1 },
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        error: { code: "notFound", message: "?" },
+      });
+    });
     render(
-      <ConcordancePanel segments={SEGMENTS} initialQuery="" onJump={vi.fn()} />,
+      <ConcordancePanel
+        projectId="p1"
+        segments={SEGMENTS}
+        initialQuery="retention period"
+        onJump={vi.fn()}
+      />,
     );
-    expect(screen.getByText(/尚无 TM 级检索 API/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("82%")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/保留策略为 30 天/)).toBeInTheDocument();
   });
 
   it("supports typing a new query", async () => {
     render(
-      <ConcordancePanel segments={SEGMENTS} initialQuery="" onJump={vi.fn()} />,
+      <ConcordancePanel
+        projectId="p1"
+        segments={SEGMENTS}
+        initialQuery=""
+        onJump={vi.fn()}
+      />,
     );
     await userEvent.type(screen.getByLabelText(/检索词/), "nothing");
     expect(screen.getByText("1 命中")).toBeInTheDocument();

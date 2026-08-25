@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { Segment, SegmentState } from "@translunar/contracts";
 
-import { EMPTY_FILTER, filterSegments, isFilterActive } from "./segment-filter.js";
+import {
+  EMPTY_FILTER,
+  filterSegments,
+  isFilterActive,
+} from "./segment-filter.js";
 
 function segment(
   id: string,

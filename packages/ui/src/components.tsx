@@ -204,7 +204,9 @@ export function Dialog({
           </Button>
         </header>
         <div className="tl-dialog__body">{children}</div>
-        {footer ? <footer className="tl-dialog__footer">{footer}</footer> : null}
+        {footer ? (
+          <footer className="tl-dialog__footer">{footer}</footer>
+        ) : null}
       </div>
     </div>
   );

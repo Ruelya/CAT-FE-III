@@ -51,9 +51,7 @@ describe("PreviewDialog", () => {
     // Untranslated segment shows source text, flagged as fallback.
     const fallback = screen.getByText("Untranslated one.");
     expect(fallback).toHaveAttribute("data-fallback", "true");
-    expect(
-      screen.getByText(/1 个未译（以源文回填显示）/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/1 个未译（以源文回填显示）/)).toBeInTheDocument();
   });
 
   it("jumps back to the grid from a preview segment", async () => {

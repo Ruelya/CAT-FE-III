@@ -243,6 +243,39 @@ export function WorkbenchView({
     [activeSegment, saveDraft],
   );
 
+  // Term insertion appends to the last saved draft; picking a caret inside
+  // the grid editor is out of scope for the dock panel.
+  const insertTermToActive = useCallback(
+    (term: string) => {
+      if (!activeSegment) {
+        return;
+      }
+      const base = activeSegment.targetText;
+      void saveDraft(activeSegment, base.length > 0 ? `${base}${term}` : term);
+    },
+    [activeSegment, saveDraft],
+  );
+
+  const pretranslate = useCallback(async () => {
+    if (!activeDocumentId) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await callEngine("tm.pretranslate", {
+        documentId: activeDocumentId,
+      });
+      applySegments(result.segments);
+      onStatusMessage(
+        `预翻译完成：检查 ${result.checked} 个未译句段，填充 ${result.pretranslated} 个（精确 ${result.exact} / 模糊 ${result.fuzzy}）`,
+      );
+    } catch (error) {
+      onStatusMessage(`预翻译失败：${describeError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [activeDocumentId, applySegments, onStatusMessage]);
+
   const runQa = useCallback(async () => {
     if (!activeDocumentId) {
       return;
@@ -376,6 +409,14 @@ export function WorkbenchView({
                 <Button
                   size="sm"
                   variant="outline"
+                  onClick={() => void pretranslate()}
+                  disabled={!activeDocument || busy}
+                >
+                  预翻译
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => setPreviewOpen(true)}
                   disabled={!activeDocument}
                 >
@@ -442,7 +483,9 @@ export function WorkbenchView({
                   <span className="grid-toolbar__spacer" />
                   <span className="grid-toolbar__progress">
                     <Meter
-                      ratio={counts.total > 0 ? counts.confirmed / counts.total : 0}
+                      ratio={
+                        counts.total > 0 ? counts.confirmed / counts.total : 0
+                      }
                       label={`已确认 ${counts.confirmed}/${counts.total}`}
                     />
                     <span className="grid-toolbar__progress-text">
@@ -465,7 +508,9 @@ export function WorkbenchView({
                     activeSegmentId={activeSegmentId}
                     qaSegmentIds={openIssueSegmentIds}
                     onSelect={setActiveSegmentId}
-                    onSaveDraft={(segment, text) => void saveDraft(segment, text)}
+                    onSaveDraft={(segment, text) =>
+                      void saveDraft(segment, text)
+                    }
                     onConfirm={(segment, text) =>
                       void confirmSegment(segment, text)
                     }
@@ -511,9 +556,17 @@ export function WorkbenchView({
                 onApply={applyDraftToActive}
               />
             ) : null}
-            {tab === "term" ? <TermPanel /> : null}
+            {tab === "term" ? (
+              <TermPanel
+                projectId={project.id}
+                targetLocale={project.targetLocale}
+                activeSegment={activeSegment}
+                onInsert={insertTermToActive}
+              />
+            ) : null}
             {tab === "concordance" ? (
               <ConcordancePanel
+                projectId={project.id}
                 segments={segments}
                 initialQuery={concordanceSeed}
                 onJump={jumpToSegment}

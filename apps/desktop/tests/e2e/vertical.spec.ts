@@ -176,18 +176,34 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Project settings: language pair fixed, mounts honestly disabled.
+  // Project settings: language pair fixed, external TM import honestly
+  // disabled, termbase mounting wired to the real engine.
   await page.getByRole("button", { name: "项目设置" }).click();
   await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
   await expect(
     page.getByRole("button", { name: "挂载外部 TM…" }),
   ).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "挂载术语库…" }),
-  ).toBeDisabled();
+  await page.getByLabel("新术语库名称").fill("产品术语");
+  await page.getByRole("button", { name: "新建并挂载" }).click();
+  await expect(page.getByText("已挂载")).toBeVisible();
   await shot("11-settings.png");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
+
+  // Term dock: quick-add a term into the mounted termbase, the active
+  // segment then shows a real term.lookup hit.
+  await rows.first().click();
+  await page.getByRole("button", { name: "术语", exact: true }).click();
+  await page.getByLabel(/源术语/).fill("retention period");
+  await page.getByLabel("目标术语").fill("保留期");
+  await page.getByRole("button", { name: "添加术语" }).click();
+  await expect(page.locator(".term-hit__target")).toContainText("保留期");
+  await shot("11b-term-hit.png");
+
+  // Pretranslation runs against the project TM and reports honestly.
+  await page.getByRole("button", { name: "预翻译" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText("预翻译完成");
+  await shot("11c-pretranslate.png");
 });
 
 // The TXT filter is registered engine-side; the import seam is re-pointed

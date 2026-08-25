@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { Segment } from "@translunar/contracts";
+import type { Segment, TmMatchItem } from "@translunar/contracts";
 import { Badge, Button, EmptyState, Panel, TextField } from "@translunar/ui";
+
+import { callEngine, describeError } from "../lib/engine.js";
 
 export interface ConcordanceHit {
   segment: Segment;
@@ -10,11 +12,15 @@ export interface ConcordanceHit {
 }
 
 export interface ConcordancePanelProps {
+  projectId: string;
   segments: Segment[];
   /** Seed query, e.g. the text selection captured on F3. */
   initialQuery: string;
   onJump: (segmentId: string) => void;
 }
+
+/** Fuzzy floor for TM concordance: recall generously, the score is shown. */
+const TM_CONCORDANCE_MIN_SCORE = 50;
 
 /** Case-insensitive substring search over the loaded document's segments. */
 export function searchConcordance(
@@ -77,11 +83,14 @@ function Highlighted({ text, query }: { text: string; query: string }) {
 }
 
 export function ConcordancePanel({
+  projectId,
   segments,
   initialQuery,
   onJump,
 }: ConcordancePanelProps) {
   const [query, setQuery] = useState(initialQuery);
+  const [tmMatches, setTmMatches] = useState<TmMatchItem[]>([]);
+  const [tmError, setTmError] = useState<string | null>(null);
 
   // F3 with a new selection re-seeds the query even if the tab was open.
   useEffect(() => {
@@ -90,10 +99,39 @@ export function ConcordancePanel({
     }
   }, [initialQuery]);
 
-  const hits = useMemo(() => searchConcordance(segments, query), [
-    segments,
-    query,
-  ]);
+  const hits = useMemo(
+    () => searchConcordance(segments, query),
+    [segments, query],
+  );
+
+  // TM concordance backed by the engine's fuzzy lookup.
+  useEffect(() => {
+    setTmMatches([]);
+    setTmError(null);
+    const needle = query.trim();
+    if (needle.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    callEngine("tm.lookup", {
+      projectId,
+      sourceText: needle,
+      minScore: TM_CONCORDANCE_MIN_SCORE,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setTmMatches(result.matches);
+        }
+      })
+      .catch((lookupError: unknown) => {
+        if (!cancelled) {
+          setTmError(describeError(lookupError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, query]);
 
   return (
     <Panel
@@ -107,20 +145,16 @@ export function ConcordancePanel({
         <TextField
           label="检索词（F3 取编辑区选中文本）"
           value={query}
-          placeholder="在当前文档的源文与译文中检索…"
+          placeholder="在当前文档与项目 TM 中检索…"
           onChange={(event) => setQuery(event.target.value)}
         />
-        <div className="honest-note">
-          检索范围为当前文档的句段。引擎协议（v1）尚无 TM 级检索 API，TM
-          concordance 将在引擎支持后接入。
-        </div>
         {query.trim().length === 0 ? (
           <EmptyState
             title="输入检索词"
             hint="或在句段编辑器中选中文本后按 F3。"
           />
         ) : hits.length === 0 ? (
-          <EmptyState title="无命中" hint="换一个检索词试试。" />
+          <EmptyState title="文档内无命中" hint="换一个检索词试试。" />
         ) : (
           <div className="dock-stack">
             {hits.map((hit) => (
@@ -152,6 +186,44 @@ export function ConcordancePanel({
             ))}
           </div>
         )}
+        {query.trim().length > 0 ? (
+          <section className="concordance__tm" aria-label="TM 命中">
+            <h4 className="concordance__tm-heading">
+              项目 TM（模糊检索）
+              {tmMatches.length > 0 ? (
+                <Badge tone="accent">{tmMatches.length} 条</Badge>
+              ) : null}
+            </h4>
+            {tmError ? (
+              <div className="honest-note" data-tone="danger" role="alert">
+                {tmError}
+              </div>
+            ) : tmMatches.length === 0 ? (
+              <EmptyState title="TM 内无相似条目" />
+            ) : (
+              <div className="dock-stack">
+                {tmMatches.map((match) => (
+                  <div key={match.entry.id} className="match-card">
+                    <div className="match-card__row">
+                      <Badge tone={match.grade === "fuzzy" ? "accent" : "ok"}>
+                        {match.score}%
+                      </Badge>
+                    </div>
+                    <p className="match-card__text">
+                      <Highlighted
+                        text={match.entry.sourceText}
+                        query={query}
+                      />
+                    </p>
+                    <span className="match-card__origin">
+                      译：{match.entry.targetText}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
       </div>
     </Panel>
   );
