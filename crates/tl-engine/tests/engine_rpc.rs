@@ -1428,6 +1428,83 @@ fn bilingual_docx_filter_reports_layout_format_and_roundtrips() {
 }
 
 #[test]
+fn bilingual_docx_export_embeds_segment_anchors_only_when_requested() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual-anchored.docx");
+    tl_filter_docx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual DOCX fixture");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-docx",
+        }),
+    );
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2, "fixture yields two bilingual rows");
+    harness.set_target(&segments[0], "你好世界更新");
+
+    let document_xml_of = |path: &str| -> String {
+        let package =
+            tl_filter_office::OfficePackage::open(std::path::Path::new(path)).expect("package");
+        String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part")
+    };
+
+    // The plain export — what「导出译文」writes — carries no preview anchors.
+    let plain_path = harness.path_of("bilingual-plain.docx");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+    assert!(!document_xml_of(&harness.path_of("bilingual-plain.docx")).contains("tlseg-"));
+
+    // The anchored export bookmarks every row's target-cell paragraph with
+    // its grid segment id, so the layout preview can jump from a click on
+    // the target cell — rows the user has not edited included.
+    let anchored_path = harness.path_of("bilingual-anchored.out.docx");
+    let result = harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": anchored_path,
+            "segmentAnchors": true,
+        }),
+    );
+    assert_eq!(result["translatedSegments"], 2);
+    let anchored_xml = document_xml_of(&harness.path_of("bilingual-anchored.out.docx"));
+    for segment in &segments {
+        let segment_id = segment["id"].as_str().expect("segment id");
+        assert!(
+            anchored_xml.contains(&format!("w:name=\"tlseg-{segment_id}\"")),
+            "missing anchor for segment {segment_id}"
+        );
+    }
+    // The anchored artifact still parses as the same bilingual table, with
+    // the edited row updated and the untouched row preserved.
+    let rows = tl_filter_docx::extract_bilingual_table_rows(
+        harness.path_of("bilingual-anchored.out.docx").as_ref(),
+    )
+    .expect("reparse anchored export");
+    let updated = rows
+        .iter()
+        .find(|row| row.table_index == 0 && row.row_number == 1)
+        .expect("first data row");
+    assert_eq!(updated.cells[1], "你好世界更新");
+    let untouched = rows
+        .iter()
+        .find(|row| row.table_index == 1 && row.row_number == 1)
+        .expect("second data row");
+    assert_eq!(untouched.cells[1], "第二译文");
+}
+
+#[test]
 fn custom_srx_controls_segmentation_and_export_reassembles() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();
