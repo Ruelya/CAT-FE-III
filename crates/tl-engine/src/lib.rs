@@ -54,8 +54,15 @@ pub use events::EngineEvent;
 pub use store::{DocumentRecord, EngineState};
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
+/// Upper bound on agent runs in flight at once. Each run owns a small worker
+/// pool ([`agent::AGENT_SEGMENT_WORKERS`] threads), so this cap bounds the
+/// total thread and provider load. Hitting it is an honest Conflict, not a
+/// queue.
+const AGENT_MAX_CONCURRENT_RUNS: usize = 4;
 /// Terminal assist runs kept for late status polls before being pruned.
 const ASSIST_TERMINAL_HISTORY: usize = 16;
+/// Terminal agent runs kept for late status polls before being pruned.
+const AGENT_TERMINAL_HISTORY: usize = 16;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -772,8 +779,16 @@ impl Engine {
     }
 
     /// Start an agent run: plan, apply exact TM pretranslation inline, then
-    /// hand the TM misses to a worker thread for AI drafting. Returns the
+    /// hand the TM misses to a worker pool for AI drafting. Returns the
     /// task order immediately; heavy provider calls never block the RPC loop.
+    ///
+    /// Concurrency rules: runs on *different* documents proceed in parallel
+    /// (each claims only its own document's segments, so they cannot fight).
+    /// A second run on the *same* document is an honest Conflict while the
+    /// first is running — its worker may still land drafts there, even after
+    /// a cancel was requested, until the terminal event arrives. A global cap
+    /// of [`AGENT_MAX_CONCURRENT_RUNS`] bounds worker threads and provider
+    /// load.
     fn ai_agent_start(
         &mut self,
         params: AgentStartParams,
@@ -781,14 +796,22 @@ impl Engine {
     ) -> Result<AgentRunView, EngineError> {
         // Honest degradation: without a provider the run must not start.
         let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
-        if let Some(active) = self
+        if let Some(active) = self.agent_runs.values().find(|run| {
+            run.view.status == AgentRunStatus::Running && run.view.document_id == params.document_id
+        }) {
+            return Err(EngineError::Conflict(format!(
+                "agent run {} is still running on this document; cancel it or wait",
+                active.view.run_id
+            )));
+        }
+        let running = self
             .agent_runs
             .values()
-            .find(|run| run.view.status == AgentRunStatus::Running)
-        {
+            .filter(|run| run.view.status == AgentRunStatus::Running)
+            .count();
+        if running >= AGENT_MAX_CONCURRENT_RUNS {
             return Err(EngineError::Conflict(format!(
-                "agent run {} is still running; cancel it or wait",
-                active.view.run_id
+                "{running} agent runs are already in flight; wait for one to finish or cancel one"
             )));
         }
         let record = self.require_document(&params.document_id)?;
@@ -901,7 +924,27 @@ impl Engine {
                 cancel,
             },
         );
+        self.prune_agent_runs();
         Ok(view)
+    }
+
+    /// Drop the oldest terminal agent runs beyond the polling grace window
+    /// so the map cannot grow without bound now that runs are concurrent.
+    /// Running runs are never pruned.
+    fn prune_agent_runs(&mut self) {
+        let mut terminal: Vec<(i64, String)> = self
+            .agent_runs
+            .values()
+            .filter(|run| run.view.status.is_terminal())
+            .map(|run| (run.view.updated_at_ms, run.view.run_id.clone()))
+            .collect();
+        if terminal.len() <= AGENT_TERMINAL_HISTORY {
+            return;
+        }
+        terminal.sort();
+        for (_, run_id) in &terminal[..terminal.len() - AGENT_TERMINAL_HISTORY] {
+            self.agent_runs.remove(run_id);
+        }
     }
 
     fn ai_agent_status(&self, params: AgentStatusParams) -> Result<AgentRunView, EngineError> {
@@ -911,6 +954,10 @@ impl Engine {
             .ok_or_else(|| EngineError::NotFound(format!("agent run {}", params.run_id)))
     }
 
+    /// Request cancellation of a running agent run. The flag aborts each
+    /// worker's in-flight HTTP call within the tl-ai cancel poll interval;
+    /// the run turns `canceled` once every worker has stopped and the
+    /// terminal event arrives. Drafts already applied stay in the grid.
     fn ai_agent_cancel(&mut self, params: AgentCancelParams) -> Result<AgentRunView, EngineError> {
         let run = self
             .agent_runs
