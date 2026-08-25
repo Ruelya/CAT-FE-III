@@ -17,6 +17,12 @@ export interface PreviewDialogProps {
   activeSegmentId: string | null;
   onClose: () => void;
   onJump: (segmentId: string) => void;
+  /**
+   * Quiet period after a segment change before the layout view re-exports.
+   * Exposed so tests can collapse the debounce; the default absorbs bursts
+   * of rapid edits without re-running the export pipeline for each one.
+   */
+  layoutRefreshDelayMs?: number;
 }
 
 type PreviewMode = "proofread" | "layout";
@@ -24,6 +30,7 @@ type PreviewMode = "proofread" | "layout";
 type LayoutState =
   | { phase: "idle" }
   | { phase: "loading" }
+  | { phase: "refreshing"; translatedSegments: number }
   | { phase: "ready"; translatedSegments: number }
   | { phase: "error"; message: string };
 
@@ -31,12 +38,13 @@ type LayoutState =
 const LAYOUT_FORMATS = new Set(["docx", "bilingual-docx"]);
 
 /**
- * Formats whose anchored preview export embeds per-paragraph segment
- * bookmarks, which docx-preview renders as `<span id="tlseg-…">` markers.
- * bilingual-docx writes into existing table-cell ranges and has no anchor
- * story yet, so its layout view stays view-only and says so.
+ * Formats whose anchored preview export embeds segment bookmarks, which
+ * docx-preview renders as `<span id="tlseg-…">` markers. Plain DOCX anchors
+ * every paragraph; bilingual-docx anchors each row's target-cell paragraph
+ * (see tl-filter-docx), so clicking a target cell jumps to that row's
+ * segment while source cells and page chrome stay honest and do nothing.
  */
-const LAYOUT_JUMP_FORMATS = new Set(["docx"]);
+const LAYOUT_JUMP_FORMATS = new Set(["docx", "bilingual-docx"]);
 
 /** Bookmark-name prefix the engine uses for segment anchors (see tl-filter-docx). */
 const ANCHOR_PREFIX = "tlseg-";
@@ -74,10 +82,13 @@ function anchoredSegmentId(target: EventTarget | null, container: Element) {
  *   active grid segment and jumps back on click.
  * - 版式视图 (DOCX only): the engine's real export pipeline writes the
  *   translated DOCX to a temp path and the bytes are rendered as-is, so the
- *   layout preview cannot drift from what「导出译文」would produce. For plain
- *   DOCX the preview export additionally bookmarks each paragraph with its
- *   grid segment id, so clicking a paragraph jumps through the same onJump
- *   path the proofread view uses.
+ *   layout preview cannot drift from what「导出译文」would produce. The
+ *   preview export additionally embeds segment anchors (every paragraph for
+ *   plain DOCX, each row's target cell for bilingual DOCX), so clicking an
+ *   anchored region jumps through the same onJump path the proofread view
+ *   uses. While the dialog stays open, segment edits mark the layout stale
+ *   and re-run the same export after a short quiet period, so the layout
+ *   view never shows a draft older than the grid.
  */
 export function PreviewDialog({
   open,
@@ -88,6 +99,7 @@ export function PreviewDialog({
   activeSegmentId,
   onClose,
   onJump,
+  layoutRefreshDelayMs = 600,
 }: PreviewDialogProps) {
   const model = useMemo(() => buildPreviewModel(segments), [segments]);
   const layoutAvailable = LAYOUT_FORMATS.has(documentFormat);
@@ -96,15 +108,17 @@ export function PreviewDialog({
   const [layout, setLayout] = useState<LayoutState>({ phase: "idle" });
   const proofreadRef = useRef<HTMLDivElement | null>(null);
   const layoutContainerRef = useRef<HTMLDivElement | null>(null);
-  // Layout DOM survives tab switches within one open cycle; regenerate only
-  // after the dialog is reopened (segments may have changed in between).
-  const layoutRenderedRef = useRef(false);
+  // The segments array the current layout DOM was generated from. Layout DOM
+  // survives tab switches within one open cycle; it regenerates when the
+  // segments prop changes identity (every grid edit produces a new array) or
+  // after the dialog is reopened.
+  const layoutRenderedForRef = useRef<Segment[] | null>(null);
 
   useEffect(() => {
     if (!open) {
       setMode("proofread");
       setLayout({ phase: "idle" });
-      layoutRenderedRef.current = false;
+      layoutRenderedForRef.current = null;
     }
   }, [open]);
 
@@ -131,12 +145,15 @@ export function PreviewDialog({
   }, [open, mode, activeSegmentId, model]);
 
   useEffect(() => {
-    if (!open || mode !== "layout" || layoutRenderedRef.current) {
+    if (
+      !open ||
+      mode !== "layout" ||
+      layoutRenderedForRef.current === segments
+    ) {
       return;
     }
     let cancelled = false;
-    setLayout({ phase: "loading" });
-    void (async () => {
+    const generate = async () => {
       try {
         const response = await window.tl.renderDocxPreview(documentId);
         if (cancelled) {
@@ -157,7 +174,7 @@ export function PreviewDialog({
           ignoreLastRenderedPageBreak: true,
         });
         if (!cancelled) {
-          layoutRenderedRef.current = true;
+          layoutRenderedForRef.current = segments;
           setLayout({
             phase: "ready",
             translatedSegments: response.translatedSegments,
@@ -168,11 +185,35 @@ export function PreviewDialog({
           setLayout({ phase: "error", message: describeError(error) });
         }
       }
-    })();
+    };
+    if (layoutRenderedForRef.current === null) {
+      // First generation for this open cycle: nothing on screen yet.
+      setLayout({ phase: "loading" });
+      void generate();
+      return () => {
+        cancelled = true;
+      };
+    }
+    // Segments changed under an already-rendered layout: say the view is
+    // syncing (the stale DOM stays visible underneath), then re-run the same
+    // export pipeline after a quiet period so bursts of edits coalesce into
+    // one regeneration. An unmount or a further edit cancels this cycle.
+    setLayout((previous) =>
+      previous.phase === "ready" || previous.phase === "refreshing"
+        ? {
+            phase: "refreshing",
+            translatedSegments: previous.translatedSegments,
+          }
+        : { phase: "loading" },
+    );
+    const timer = window.setTimeout(() => {
+      void generate();
+    }, layoutRefreshDelayMs);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [open, mode, documentId]);
+  }, [open, mode, documentId, segments, layoutRefreshDelayMs]);
 
   return (
     <Dialog
@@ -185,7 +226,9 @@ export function PreviewDialog({
           <span className="preview__legend">
             <span className="preview__legend-note">
               {layoutJumpAvailable
-                ? "版式视图由导出管线生成；点击段落可跳转到编辑网格，精确排版以导出文件为准。"
+                ? documentFormat === "bilingual-docx"
+                  ? "版式视图由导出管线生成；点击译文单元格可跳转到编辑网格，精确排版以导出文件为准。"
+                  : "版式视图由导出管线生成；点击段落可跳转到编辑网格，精确排版以导出文件为准。"
                 : "版式视图由导出管线生成，此格式暂不支持点段跳转；以导出文件为准。"}
             </span>
           </span>
@@ -269,6 +312,11 @@ export function PreviewDialog({
               {layout.phase === "loading" ? (
                 <p className="preview__summary">
                   正在通过导出管线生成 DOCX 版式预览…
+                </p>
+              ) : null}
+              {layout.phase === "refreshing" ? (
+                <p className="preview__summary" role="status">
+                  句段已更新，正在重新生成版式预览…
                 </p>
               ) : null}
               {layout.phase === "error" ? (
