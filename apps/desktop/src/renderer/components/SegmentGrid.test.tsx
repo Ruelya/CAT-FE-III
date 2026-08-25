@@ -202,6 +202,82 @@ describe("SegmentGrid", () => {
     expect(gridRef.current!.insertAtCaret("术语")).toBe(false);
   });
 
+  it("confirms the live draft through the imperative handle (menu path)", async () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "Hello.", "你好")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    // Extend the draft first: the handle must confirm the unsaved editor
+    // text, exactly like the Ctrl+Enter chord.
+    await userEvent.type(screen.getByLabelText("句段 1 译文"), "。");
+    let confirmed = false;
+    act(() => {
+      confirmed = gridRef.current!.confirmActive();
+    });
+    expect(confirmed).toBe(true);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    const [confirmedSegment, draft] = onConfirm.mock.calls[0] as [
+      Segment,
+      string,
+    ];
+    expect(confirmedSegment.id).toBe("s1");
+    expect(draft).toBe("你好。");
+  });
+
+  it("refuses to confirm through the handle when no editor is mounted", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    expect(gridRef.current!.confirmActive()).toBe(false);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("refuses to confirm through the handle during IME composition", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.compositionStart(editor);
+    expect(gridRef.current!.confirmActive()).toBe(false);
+    expect(onConfirm).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(editor);
+    let confirmed = false;
+    act(() => {
+      confirmed = gridRef.current!.confirmActive();
+    });
+    expect(confirmed).toBe(true);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores the confirm shortcut while an IME composition is active", () => {
     const onConfirm = vi.fn();
     render(

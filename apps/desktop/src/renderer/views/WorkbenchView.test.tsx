@@ -1,4 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,6 +12,7 @@ import type { Project, Segment } from "@translunar/contracts";
 import type {
   DesktopApi,
   EngineInvokeResponse,
+  MenuCommand,
 } from "../../shared/desktop-api.js";
 
 import { WorkbenchView } from "./WorkbenchView.js";
@@ -109,9 +116,16 @@ function baseHandlers(): Record<string, (params: unknown) => unknown> {
   };
 }
 
+interface Bridge {
+  invoke: ReturnType<typeof vi.fn>;
+  chooseExportPath: ReturnType<typeof vi.fn>;
+  /** Fires the listener the workbench registered via onMenuCommand. */
+  emitMenuCommand: (command: MenuCommand) => void;
+}
+
 function installBridge(
   handlers: Record<string, (params: unknown) => unknown>,
-): ReturnType<typeof vi.fn> {
+): Bridge {
   const spy = vi.fn(
     (method: string, params: unknown): Promise<EngineInvokeResponse> => {
       const handler = handlers[method];
@@ -124,18 +138,41 @@ function installBridge(
       return Promise.resolve({ ok: true, result: handler(params) });
     },
   );
-  const api: Partial<DesktopApi> = { invoke: spy };
+  const chooseExportPath = vi.fn((): Promise<string | null> => {
+    return Promise.resolve(null);
+  });
+  let menuListener: ((command: MenuCommand) => void) | null = null;
+  const api: Partial<DesktopApi> = {
+    invoke: spy,
+    chooseExportPath,
+    onMenuCommand: (listener) => {
+      menuListener = listener;
+      return () => {
+        menuListener = null;
+      };
+    },
+    setMenuContext: vi.fn(),
+  };
   Object.defineProperty(window, "tl", {
     value: api,
     configurable: true,
     writable: true,
   });
-  return spy;
+  return {
+    invoke: spy,
+    chooseExportPath,
+    emitMenuCommand: (command) => {
+      if (!menuListener) {
+        throw new Error("workbench did not subscribe to menu commands");
+      }
+      menuListener(command);
+    },
+  };
 }
 
 describe("WorkbenchView term insertion", () => {
   it("inserts a dock term at the grid editor caret without saving", async () => {
-    const invoke = installBridge(baseHandlers());
+    const { invoke } = installBridge(baseHandlers());
     render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
     const editor =
       await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
@@ -189,5 +226,137 @@ describe("WorkbenchView term insertion", () => {
       targetText: "文件的为 30 天。保留期",
       baseRevision: 1,
     });
+  });
+});
+
+describe("WorkbenchView application menu commands", () => {
+  it("reports document-open state for honest menu enablement", async () => {
+    installBridge(baseHandlers());
+    const onDocumentOpenChange = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        onStatusMessage={vi.fn()}
+        onDocumentOpenChange={onDocumentOpenChange}
+      />,
+    );
+    // Before the document list loads there is nothing open…
+    expect(onDocumentOpenChange).toHaveBeenCalledWith(false);
+    // …and once the first document loads the menu can enable export/preview.
+    await waitFor(() => {
+      expect(onDocumentOpenChange).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  it("switches dock tabs through the same setTab path as the dock buttons", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("show-dock-qa");
+    });
+    expect(
+      screen.getByRole("button", { name: "运行数字 QA" }),
+    ).toBeInTheDocument();
+    act(() => {
+      bridge.emitMenuCommand("show-dock-term");
+    });
+    expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+  });
+
+  it("opens the import dialog from the menu like the 导入 button", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("import-document");
+    });
+    expect(screen.getByRole("dialog")).toHaveTextContent("导入文档");
+  });
+
+  it("routes menu export through the same chooseExportPath dialog", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("export-document");
+    });
+    // Same suggested name as the 导出译文 button; the user cancelled (null),
+    // so no engine export call happens.
+    await waitFor(() => {
+      expect(bridge.chooseExportPath).toHaveBeenCalledWith(
+        "guide-translated.txt",
+      );
+    });
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "document.export"),
+    ).toBe(false);
+  });
+
+  it("seeds concordance from the live selection like the F3 chord", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+    editor.focus();
+    editor.setSelectionRange(0, 3);
+    act(() => {
+      bridge.emitMenuCommand("open-concordance");
+    });
+    expect(screen.getByLabelText(/检索词/)).toHaveValue("文件的");
+  });
+
+  it("confirms the live editor draft and reports honestly when none is mounted", async () => {
+    const handlers = baseHandlers();
+    let confirmParams: unknown = null;
+    handlers["segment.confirm"] = (params) => {
+      confirmParams = params;
+      return {
+        segment: { ...SEGMENT, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView project={PROJECT} onStatusMessage={onStatusMessage} />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("confirm-segment");
+    });
+    await waitFor(() => {
+      expect(confirmParams).toMatchObject({ segmentId: "s1" });
+    });
+    // Filter the active row out so no editor is mounted: the command must
+    // not guess, it reports instead.
+    await userEvent.type(screen.getByLabelText("按文本筛选"), "无匹配文本");
+    await waitFor(() => {
+      expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    });
+    act(() => {
+      bridge.emitMenuCommand("confirm-segment");
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "没有正在编辑的句段，无法确认",
+    );
+  });
+
+  it("focuses the segment filter via the menu command and the Ctrl+F chord", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    await screen.findByLabelText("句段 1 译文");
+    const filter = screen.getByLabelText("按文本筛选");
+    act(() => {
+      bridge.emitMenuCommand("focus-filter");
+    });
+    expect(document.activeElement).toBe(filter);
+    // The chord itself is renderer-owned: the menu only displays it.
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    expect(document.activeElement).toBe(filter);
   });
 });

@@ -11,6 +11,7 @@ import type {
   EngineInvokeResponse,
 } from "../shared/desktop-api.js";
 import { EngineRpcError, EngineSupervisor } from "./engine-supervisor.js";
+import { installApplicationMenu } from "./menu.js";
 
 function resolveEngineBinary(): string {
   const override = process.env.TL_ENGINE_BIN;
@@ -305,6 +306,7 @@ void app.whenReady().then(() => {
   });
   supervisor.start();
   registerIpc();
+  installApplicationMenu();
   createWindow();
 
   app.on("activate", () => {
