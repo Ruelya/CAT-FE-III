@@ -8,9 +8,7 @@ use std::path::Path;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use thiserror::Error;
-use tl_domain::{
-    DegradationFinding, DegradationSeverity, InlineTag, Segment, TagKind, TagSide,
-};
+use tl_domain::{DegradationFinding, DegradationSeverity, InlineTag, Segment, TagKind, TagSide};
 use tl_filter_core::{
     DocumentFilter, DocumentMetadata, ExportReport, ExportRequest, FilterCapabilities,
     FilterDescriptor, FilterError, FilterEvent, FilterEventStream, ImportRequest, ProbeResult,

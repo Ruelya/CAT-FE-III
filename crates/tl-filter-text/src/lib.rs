@@ -835,8 +835,8 @@ mod tests {
                 options,
             })
             .expect("import with custom SRX");
-        let document = tl_filter_core::collect_imported_document(stream)
-            .expect("collect custom SRX units");
+        let document =
+            tl_filter_core::collect_imported_document(stream).expect("collect custom SRX units");
         assert_eq!(
             document
                 .units

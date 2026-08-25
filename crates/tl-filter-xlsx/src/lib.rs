@@ -226,17 +226,15 @@ impl XlsxFilter {
                 match cell.kind {
                     CellKind::Inline => {
                         for (index, range) in cell.ranges.iter().enumerate() {
-                            sheet_replacements.push(
-                                tl_filter_office::ByteReplacement {
-                                    start: range.start,
-                                    end: range.end,
-                                    bytes: if index == 0 {
-                                        tl_filter_office::escape_xml_text(target)
-                                    } else {
-                                        Vec::new()
-                                    },
+                            sheet_replacements.push(tl_filter_office::ByteReplacement {
+                                start: range.start,
+                                end: range.end,
+                                bytes: if index == 0 {
+                                    tl_filter_office::escape_xml_text(target)
+                                } else {
+                                    Vec::new()
                                 },
-                            );
+                            });
                         }
                     }
                     CellKind::Shared { index } => {
