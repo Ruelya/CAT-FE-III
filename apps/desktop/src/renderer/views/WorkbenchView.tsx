@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   Document,
+  DocumentImportResult,
   Project,
   QaIssue,
   Segment,
@@ -19,6 +20,7 @@ import type {
   SegmentFilterSpec,
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
+import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
 import { TermPanel } from "../components/TermPanel.js";
@@ -75,6 +77,7 @@ export function WorkbenchView({
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const activeDocument = useMemo(
     () =>
@@ -113,28 +116,18 @@ export function WorkbenchView({
     });
   }, [refreshDocuments, loadDocument]);
 
-  const importDocument = useCallback(async () => {
-    const sourcePath = await window.tl.chooseSourceFile();
-    if (!sourcePath) {
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await callEngine("document.import", {
-        projectId: project.id,
-        sourcePath,
-      });
+  // The import dialog owns file picking and the document.import call
+  // (including segmentation and SRX options); this only reacts to success.
+  const handleImported = useCallback(
+    async (result: DocumentImportResult) => {
       onStatusMessage(
         `已导入「${result.document.name}」：${result.segmentCount} 个句段`,
       );
       await refreshDocuments();
       await loadDocument(result.document.id);
-    } catch (error) {
-      onStatusMessage(`导入失败：${describeError(error)}`);
-    } finally {
-      setBusy(false);
-    }
-  }, [project.id, refreshDocuments, loadDocument, onStatusMessage]);
+    },
+    [refreshDocuments, loadDocument, onStatusMessage],
+  );
 
   const exportDocument = useCallback(async () => {
     if (!activeDocument) {
@@ -364,7 +357,7 @@ export function WorkbenchView({
               <Button
                 size="sm"
                 variant="primary"
-                onClick={() => void importDocument()}
+                onClick={() => setImportOpen(true)}
                 disabled={busy}
               >
                 导入
@@ -600,6 +593,13 @@ export function WorkbenchView({
             ) : null}
           </div>
         </aside>
+
+        <ImportDocumentDialog
+          open={importOpen}
+          project={project}
+          onClose={() => setImportOpen(false)}
+          onImported={(result) => void handleImported(result)}
+        />
 
         {activeDocument ? (
           <PreviewDialog

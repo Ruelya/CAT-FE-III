@@ -114,50 +114,117 @@ function registerIpc(): void {
     );
   });
 
-  ipcMain.handle(IPC_CHANNELS.chooseSource, async () => {
-    // E2E seam: native dialogs cannot be driven by automation.
-    const fakeOpen = process.env.TL_FAKE_OPEN_PATH;
-    if (fakeOpen && fakeOpen.trim().length > 0) {
-      return fakeOpen;
+  // E2E seam on every dialog channel: native dialogs cannot be driven by
+  // automation, so an env var can stand in for the user's pick.
+  async function openFileDialog(
+    seamEnv: string,
+    title: string,
+    filters: Electron.FileFilter[],
+  ): Promise<string | null> {
+    const fake = process.env[seamEnv];
+    if (fake && fake.trim().length > 0) {
+      return fake;
     }
     const result = await dialog.showOpenDialog({
-      title: "选择要导入的文档",
+      title,
       properties: ["openFile"],
-      filters: [
-        {
-          name: "可翻译文档",
-          extensions: [
-            "docx",
-            "txt",
-            "md",
-            "html",
-            "xlf",
-            "xliff",
-            "xlsx",
-            "pptx",
-          ],
-        },
-      ],
+      filters,
     });
     return result.canceled || result.filePaths.length === 0
       ? null
       : (result.filePaths[0] ?? null);
+  }
+
+  async function saveFileDialog(
+    seamEnv: string,
+    title: string,
+    filters: Electron.FileFilter[],
+    defaultName: unknown,
+  ): Promise<string | null> {
+    const fake = process.env[seamEnv];
+    if (fake && fake.trim().length > 0) {
+      return fake;
+    }
+    const options: Electron.SaveDialogOptions = { title, filters };
+    if (typeof defaultName === "string" && defaultName.length > 0) {
+      options.defaultPath = defaultName;
+    }
+    const result = await dialog.showSaveDialog(options);
+    return result.canceled || !result.filePath ? null : result.filePath;
+  }
+
+  const TM_FILTERS: Electron.FileFilter[] = [
+    { name: "翻译记忆（TMX/CSV/TSV）", extensions: ["tmx", "csv", "tsv"] },
+  ];
+  const TERMBASE_FILTERS: Electron.FileFilter[] = [
+    { name: "术语库（CSV/TSV/TBX）", extensions: ["csv", "tsv", "tbx"] },
+  ];
+  const SRX_FILTERS: Electron.FileFilter[] = [
+    { name: "SRX 分段规则", extensions: ["srx"] },
+  ];
+
+  ipcMain.handle(IPC_CHANNELS.chooseSource, () =>
+    openFileDialog("TL_FAKE_OPEN_PATH", "选择要导入的文档", [
+      {
+        name: "可翻译文档",
+        extensions: [
+          "docx",
+          "txt",
+          "md",
+          "html",
+          "xlf",
+          "xliff",
+          "xlsx",
+          "pptx",
+        ],
+      },
+    ]),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseExport, (_event, defaultName: unknown) => {
+    // The document save dialog keeps its historical no-filter behavior: the
+    // export format follows the source document, not a picked extension.
+    return saveFileDialog("TL_FAKE_SAVE_PATH", "选择导出位置", [], defaultName);
   });
 
+  ipcMain.handle(IPC_CHANNELS.chooseTmImport, () =>
+    openFileDialog(
+      "TL_FAKE_TM_OPEN_PATH",
+      "选择要导入的翻译记忆文件",
+      TM_FILTERS,
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseTmExport, (_event, defaultName: unknown) =>
+    saveFileDialog(
+      "TL_FAKE_TM_SAVE_PATH",
+      "选择 TM 导出位置",
+      TM_FILTERS,
+      defaultName,
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseTermbaseImport, () =>
+    openFileDialog(
+      "TL_FAKE_TERM_OPEN_PATH",
+      "选择要导入的术语库文件",
+      TERMBASE_FILTERS,
+    ),
+  );
+
   ipcMain.handle(
-    IPC_CHANNELS.chooseExport,
-    async (_event, defaultName: unknown) => {
-      const fakeSave = process.env.TL_FAKE_SAVE_PATH;
-      if (fakeSave && fakeSave.trim().length > 0) {
-        return fakeSave;
-      }
-      const options: Electron.SaveDialogOptions = { title: "选择导出位置" };
-      if (typeof defaultName === "string" && defaultName.length > 0) {
-        options.defaultPath = defaultName;
-      }
-      const result = await dialog.showSaveDialog(options);
-      return result.canceled || !result.filePath ? null : result.filePath;
-    },
+    IPC_CHANNELS.chooseTermbaseExport,
+    (_event, defaultName: unknown) =>
+      saveFileDialog(
+        "TL_FAKE_TERM_SAVE_PATH",
+        "选择术语库导出位置",
+        TERMBASE_FILTERS,
+        defaultName,
+      ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseSrx, () =>
+    openFileDialog("TL_FAKE_SRX_PATH", "选择 SRX 分段规则文件", SRX_FILTERS),
   );
 }
 

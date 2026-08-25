@@ -32,6 +32,14 @@ export interface DesktopApi {
   ): () => void;
   chooseSourceFile(): Promise<string | null>;
   chooseExportPath(defaultName: string): Promise<string | null>;
+  /** TM exchange files (TMX/CSV/TSV) — dedicated filter, not the document one. */
+  chooseTmImportFile(): Promise<string | null>;
+  chooseTmExportPath(defaultName: string): Promise<string | null>;
+  /** Termbase exchange files (CSV/TSV/TBX). */
+  chooseTermbaseImportFile(): Promise<string | null>;
+  chooseTermbaseExportPath(defaultName: string): Promise<string | null>;
+  /** SRX segmentation ruleset for document.import. */
+  chooseSrxFile(): Promise<string | null>;
 }
 
 export const IPC_CHANNELS = {
@@ -41,6 +49,11 @@ export const IPC_CHANNELS = {
   notification: "tl:engine:notification",
   chooseSource: "tl:dialog:choose-source",
   chooseExport: "tl:dialog:choose-export",
+  chooseTmImport: "tl:dialog:choose-tm-import",
+  chooseTmExport: "tl:dialog:choose-tm-export",
+  chooseTermbaseImport: "tl:dialog:choose-termbase-import",
+  chooseTermbaseExport: "tl:dialog:choose-termbase-export",
+  chooseSrx: "tl:dialog:choose-srx",
 } as const;
 
 declare global {
