@@ -442,11 +442,19 @@ pub enum QaIssueStatus {
     Resolved,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Evidence attached to a QA issue. Historically number-only; general rules
+/// reuse the same shape with free-form source/target values.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NumberEvidence {
     pub source_numbers: Vec<String>,
     pub target_numbers: Vec<String>,
+    #[serde(default)]
+    pub source_values: Vec<String>,
+    #[serde(default)]
+    pub target_values: Vec<String>,
+    #[serde(default)]
+    pub related_segment_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -522,6 +530,7 @@ pub fn number_mismatch(source: &str, target: &str) -> Option<NumberEvidence> {
         Some(NumberEvidence {
             source_numbers,
             target_numbers,
+            ..NumberEvidence::default()
         })
     }
 }
