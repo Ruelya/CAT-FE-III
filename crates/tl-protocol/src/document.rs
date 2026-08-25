@@ -45,6 +45,11 @@ pub struct DocumentListResult {
 pub struct DocumentExportParams {
     pub document_id: String,
     pub output_path: String,
+    /// Embed per-paragraph grid-segment anchors into the exported artifact so
+    /// a layout preview can map clicks back to segments. Preview aid; filters
+    /// without anchor support ignore it. Defaults to a plain export.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_anchors: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

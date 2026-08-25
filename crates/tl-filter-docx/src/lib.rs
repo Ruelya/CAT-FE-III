@@ -29,6 +29,19 @@ const DOCUMENT_XML_PATH: &str = "word/document.xml";
 const MAIN_REL_TYPE: &str = "/officeDocument";
 const STRUCTURAL_PATH_PREFIX: &str = "word/document.xml#p:";
 
+/// Bookmark-name prefix for segment anchors embedded on anchored exports.
+///
+/// `docx-preview` renders a paragraph-level `w:bookmarkStart` as
+/// `<span id="{name}">`, so the renderer can map a click on any paragraph back
+/// to the grid segment id carried in the bookmark name. The desktop layout
+/// preview keys on the same prefix.
+pub const ANCHOR_BOOKMARK_PREFIX: &str = "tlseg-";
+
+/// First `w:id` used for anchor bookmarks. Anchored exports are preview
+/// artifacts consumed by docx-preview (which keys bookmarks on the name, not
+/// the id); the offset only keeps ids clear of small hand-numbered bookmarks.
+const ANCHOR_BOOKMARK_ID_BASE: u32 = 700_000;
+
 #[derive(Debug, Error)]
 pub enum DocxError {
     #[error("DOCX I/O failed: {0}")]
@@ -156,6 +169,10 @@ struct ParagraphUnit {
     /// Inline formatting signature of the run that owns each range, index
     /// aligned with `ranges`. Empty string means the run carries no `w:rPr`.
     formats: Vec<RunFormat>,
+    /// Byte offset immediately before the run that owns the paragraph's first
+    /// captured text range — a schema-valid position for a `w:bookmarkStart`
+    /// segment anchor. `None` for paragraphs without any captured text.
+    anchor_insert_at: Option<usize>,
 }
 
 impl ParagraphUnit {
@@ -201,9 +218,10 @@ impl DocxFilter {
         source: &Path,
         output: &Path,
         segments: &[Segment],
+        segment_anchors: &BTreeMap<String, String>,
     ) -> Result<(ExportSummary, Vec<DegradationFinding>), DocxError> {
         let flattened = self.flattened_formatting_paths(source, segments)?;
-        let summary = self.export(source, output, segments)?;
+        let summary = self.export_anchored(source, output, segments, segment_anchors)?;
         let degradation = flattened
             .into_iter()
             .map(|path| DegradationFinding {
@@ -251,6 +269,22 @@ impl DocxFilter {
         output: &Path,
         segments: &[Segment],
     ) -> Result<ExportSummary, DocxError> {
+        self.export_anchored(source, output, segments, &BTreeMap::new())
+    }
+
+    /// Export with optional segment anchors: for every structural path in
+    /// `segment_anchors` that exists in the package, a bookmark pair named
+    /// `tlseg-{segment id}` is inserted immediately before the run that owns
+    /// the paragraph's first text — translated or not — so a preview renderer
+    /// can map layout clicks back to grid segments. An empty map is a plain
+    /// export with byte-identical behavior to before anchors existed.
+    pub fn export_anchored(
+        &self,
+        source: &Path,
+        output: &Path,
+        segments: &[Segment],
+        segment_anchors: &BTreeMap<String, String>,
+    ) -> Result<ExportSummary, DocxError> {
         if source == output {
             return Err(DocxError::InvalidPackage(
                 "export path must not replace the managed source".to_string(),
@@ -263,12 +297,31 @@ impl DocxFilter {
         let mut replacements = BTreeMap::new();
         let mut applied = BTreeSet::new();
         let mut translated_segments = 0_u32;
+        let mut next_anchor_id = ANCHOR_BOOKMARK_ID_BASE;
         for part in parts {
             let bytes = package.require(&part)?;
             let units = parse_paragraphs(bytes, &part)?;
             let mut part_replacements = Vec::new();
             for unit in units {
                 let path = paragraph_path(&part, unit.index);
+                // Anchors cover every anchored paragraph that still exists in
+                // the package, independent of translation state: the layout
+                // preview renders untranslated paragraphs too, and clicking
+                // one must jump just the same. Anchor paths that vanished from
+                // the package are skipped — a lost anchor degrades one click,
+                // unlike a lost translation, which would corrupt the export.
+                if let Some(segment_id) = segment_anchors.get(&path)
+                    && let Some(insert_at) = unit.anchor_insert_at
+                {
+                    part_replacements.push(ByteReplacement {
+                        start: insert_at,
+                        end: insert_at,
+                        bytes: anchor_bookmark_bytes(segment_id, next_anchor_id),
+                    });
+                    next_anchor_id = next_anchor_id.checked_add(1).ok_or_else(|| {
+                        DocxError::InvalidPackage("anchor bookmark id overflow".to_string())
+                    })?;
+                }
                 let Some(target) = targets.get(&path) else {
                     continue;
                 };
@@ -420,6 +473,7 @@ impl DocumentFilter for DocxFilter {
             request.source,
             request.output,
             request.segments,
+            &request.segment_anchors,
         )
         .map_err(map_docx_error)?;
         degradation.extend(flattened);
@@ -548,6 +602,10 @@ impl DocumentFilter for BilingualDocxFilter {
     }
 
     fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
+        // `segment_anchors` is intentionally ignored: bilingual rows write
+        // into existing table-cell text ranges and the byte-range parser does
+        // not track a schema-valid in-paragraph slot for a bookmark, so this
+        // format has no layout click-jump yet. The preview UI says so.
         let translated_segments =
             export_bilingual_table(request.source, request.output, request.segments)
                 .map_err(map_docx_error)?;
@@ -696,11 +754,22 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
                             text: String::new(),
                             ranges: Vec::new(),
                             formats: Vec::new(),
+                            anchor_insert_at: None,
+                            pending_run_start: None,
                         });
                     }
                     b"r" if !paragraph_stack.is_empty() => {
                         run_depth = run_depth.saturating_add(1);
                         run_properties.clear();
+                        // Remember where the run's start tag begins: when this
+                        // run turns out to own the paragraph's first text, that
+                        // offset is a schema-valid slot for an anchor bookmark
+                        // (after `w:pPr`, sibling of the run). Tracked on the
+                        // innermost paragraph so textbox content anchors into
+                        // its own paragraph, not the host's.
+                        if let Some(current) = paragraph_stack.last_mut() {
+                            current.pending_run_start = Some(before);
+                        }
                     }
                     b"rPr" if run_depth > 0 => in_run_properties = true,
                     b"t" if !paragraph_stack.is_empty() && revision_excluded == 0 => {
@@ -752,6 +821,9 @@ fn parse_paragraphs(bytes: &[u8], part: &str) -> Result<Vec<ParagraphUnit>, Docx
                         if let Some((start, value)) = text.take()
                             && let Some(current) = paragraph_stack.last_mut()
                         {
+                            if current.anchor_insert_at.is_none() {
+                                current.anchor_insert_at = current.pending_run_start;
+                            }
                             current.text.push_str(&value);
                             current.ranges.push(XmlTextRange {
                                 start,
@@ -1004,6 +1076,9 @@ struct ParagraphBuilder {
     text: String,
     ranges: Vec<XmlTextRange>,
     formats: Vec<RunFormat>,
+    anchor_insert_at: Option<usize>,
+    /// Start offset of the most recently opened run in this paragraph.
+    pending_run_start: Option<usize>,
 }
 
 impl ParagraphBuilder {
@@ -1013,8 +1088,20 @@ impl ParagraphBuilder {
             text: self.text,
             ranges: self.ranges,
             formats: self.formats,
+            anchor_insert_at: self.anchor_insert_at,
         }
     }
+}
+
+/// A zero-width bookmark pair naming the grid segment that owns a paragraph.
+/// The segment id is XML-escaped defensively; engine ids are UUIDs.
+fn anchor_bookmark_bytes(segment_id: &str, bookmark_id: u32) -> Vec<u8> {
+    let mut bytes =
+        format!("<w:bookmarkStart w:id=\"{bookmark_id}\" w:name=\"{ANCHOR_BOOKMARK_PREFIX}")
+            .into_bytes();
+    bytes.extend_from_slice(&tl_filter_office::escape_xml_text(segment_id));
+    bytes.extend_from_slice(format!("\"/><w:bookmarkEnd w:id=\"{bookmark_id}\"/>").as_bytes());
+    bytes
 }
 
 fn paragraph_path(part: &str, index: u32) -> String {
@@ -1229,6 +1316,96 @@ mod tests {
             source_package.get("customXml/item1.xml"),
             output_package.get("customXml/item1.xml")
         );
+    }
+
+    #[test]
+    fn anchored_export_bookmarks_every_paragraph_and_stays_out_of_plain_exports() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("fixture.docx");
+        let plain = temp.path().join("plain.docx");
+        let anchored = temp.path().join("anchored.docx");
+        fixture::write_fixture(&source).expect("write fixture");
+        let units = DocxFilter.extract_units(&source).expect("extract fixture");
+        let mut segments = segments_for(&units);
+        segments[0].target_text = "保留期为 30 天。".to_string();
+        segments[0].state = SegmentState::Confirmed;
+        let anchors: BTreeMap<String, String> = segments
+            .iter()
+            .map(|segment| (segment.structural_path.clone(), segment.id.clone()))
+            .collect();
+
+        let summary = DocxFilter
+            .export_anchored(&source, &anchored, &segments, &anchors)
+            .expect("anchored export");
+        assert_eq!(summary.translated_segments, 1);
+        let package = OfficePackage::open(&anchored).expect("anchored package");
+        let xml = String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part");
+        // Every anchored paragraph gets a bookmark pair named after its grid
+        // segment — the untranslated ones included, because the layout preview
+        // renders and must jump from those too.
+        for segment in &segments {
+            assert!(
+                xml.contains(&format!(
+                    "w:name=\"{ANCHOR_BOOKMARK_PREFIX}{}\"",
+                    segment.id
+                )),
+                "missing anchor for {}",
+                segment.structural_path
+            );
+        }
+        // The anchor sits inside the paragraph, immediately before the run
+        // that received the translation, where docx-preview renders bookmarks.
+        let start = xml.find(&format!("{ANCHOR_BOOKMARK_PREFIX}{}", segments[0].id));
+        let translated = xml.find("保留期为 30 天。");
+        assert!(start.expect("anchor offset") < translated.expect("translation offset"));
+        assert!(xml.contains(&format!(
+            "w:name=\"{ANCHOR_BOOKMARK_PREFIX}{}\"/><w:bookmarkEnd",
+            segments[0].id
+        )));
+        // The anchored artifact still parses as a valid DOCX with intact text.
+        let reopened = DocxFilter
+            .extract_units(&anchored)
+            .expect("reopen anchored");
+        assert_eq!(reopened[0].source_text, "保留期为 30 天。");
+        assert_eq!(reopened.len(), units.len());
+
+        // A plain export stays byte-honest: no anchors leak into user exports.
+        DocxFilter
+            .export(&source, &plain, &segments)
+            .expect("plain export");
+        let plain_package = OfficePackage::open(&plain).expect("plain package");
+        let plain_xml = String::from_utf8(
+            plain_package
+                .require("word/document.xml")
+                .expect("main")
+                .to_vec(),
+        )
+        .expect("utf-8 document part");
+        assert!(!plain_xml.contains(ANCHOR_BOOKMARK_PREFIX));
+    }
+
+    #[test]
+    fn anchored_export_skips_anchor_paths_missing_from_the_package() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("fixture.docx");
+        let anchored = temp.path().join("anchored.docx");
+        fixture::write_fixture(&source).expect("write fixture");
+        let units = DocxFilter.extract_units(&source).expect("extract fixture");
+        let segments = segments_for(&units);
+        let anchors = BTreeMap::from([(
+            "word/document.xml#p:99".to_string(),
+            "ghost-segment".to_string(),
+        )]);
+        // A stale anchor path degrades to "no jump for that paragraph", never
+        // to a failed preview export.
+        DocxFilter
+            .export_anchored(&source, &anchored, &segments, &anchors)
+            .expect("anchored export with stale path");
+        let package = OfficePackage::open(&anchored).expect("anchored package");
+        let xml = String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part");
+        assert!(!xml.contains(ANCHOR_BOOKMARK_PREFIX));
     }
 
     #[test]
