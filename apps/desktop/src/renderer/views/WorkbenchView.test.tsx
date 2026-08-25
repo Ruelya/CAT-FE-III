@@ -659,3 +659,123 @@ describe("WorkbenchView export overwrite confirm", () => {
     );
   });
 });
+
+describe("WorkbenchView QA waive", () => {
+  const QA_ISSUE = {
+    id: "issue-1",
+    segmentId: "s1",
+    ruleId: "qa.number-mismatch",
+    severity: "error",
+    status: "open",
+    message: "数字不一致：源 30 / 译 40",
+    fingerprint: "fp-1",
+    evidence: {
+      sourceNumbers: ["30"],
+      targetNumbers: ["40"],
+      sourceValues: [],
+      targetValues: [],
+      relatedSegmentIds: [],
+    },
+    waiveNote: null,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+
+  it("忽略/恢复 go through qa.waive and never confirm or write TM", async () => {
+    const handlers = baseHandlers();
+    handlers["qa.list"] = () => ({ issues: [QA_ISSUE], total: 1 });
+    let waiveParams: unknown = null;
+    handlers["qa.waive"] = (params) => {
+      waiveParams = params;
+      return { issue: { ...QA_ISSUE, status: "waived", updatedAtMs: 2 } };
+    };
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    expect(await screen.findByText("质量检查（未解决 1）")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "忽略" }));
+    await waitFor(() => {
+      expect(waiveParams).toEqual({ issueId: "issue-1", waived: true });
+    });
+    // The open count drops honestly and the card says what really happened:
+    // parked by a human, not fixed, nothing confirmed, nothing in TM.
+    expect(await screen.findByText("质量检查（未解决 0）")).toBeInTheDocument();
+    expect(screen.getByText("已忽略")).toBeInTheDocument();
+    expect(
+      screen.getByText(/已忽略：问题仍存在，未确认句段、未写入 TM/),
+    ).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已忽略 QA 问题：问题并未修复，未确认句段、未写入 TM",
+    );
+    // Red line: waiving is not confirming. No confirm and no TM/segment
+    // write may ever ride along with a waive.
+    const methods = bridge.invoke.mock.calls.map(
+      ([method]) => method as string,
+    );
+    for (const forbidden of [
+      "segment.confirm",
+      "segment.update",
+      "tm.update",
+      "tm.import",
+    ]) {
+      expect(methods).not.toContain(forbidden);
+    }
+
+    // 恢复 flips the same issue back to open through the same endpoint.
+    handlers["qa.waive"] = (params) => {
+      waiveParams = params;
+      return { issue: { ...QA_ISSUE, updatedAtMs: 3 } };
+    };
+    await userEvent.click(screen.getByRole("button", { name: "恢复" }));
+    await waitFor(() => {
+      expect(waiveParams).toEqual({ issueId: "issue-1", waived: false });
+    });
+    expect(await screen.findByText("质量检查（未解决 1）")).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith("已恢复 QA 问题为未解决");
+  });
+
+  it("keeps the issue open and reports honestly when qa.waive fails", async () => {
+    const handlers = baseHandlers();
+    handlers["qa.list"] = () => ({ issues: [QA_ISSUE], total: 1 });
+    handlers["qa.waive"] = () =>
+      new EngineFailure("engineDown", "engine process is not running");
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    await userEvent.click(await screen.findByRole("button", { name: "忽略" }));
+
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        expect.stringContaining("忽略失败"),
+      );
+    });
+    // The issue must not be presented as waived anywhere.
+    expect(screen.getByText("质量检查（未解决 1）")).toBeInTheDocument();
+    expect(screen.getByText("未解决")).toBeInTheDocument();
+    expect(screen.queryByText("已忽略")).not.toBeInTheDocument();
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).startsWith("已忽略"),
+      ),
+    ).toBe(false);
+    // The button unlocks so the user can retry once the engine is back.
+    expect(screen.getByRole("button", { name: "忽略" })).toBeEnabled();
+  });
+});

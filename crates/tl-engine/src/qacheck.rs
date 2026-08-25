@@ -7,12 +7,32 @@
 //! fixed issues resolve. Issues live in SQL only: a run reconciles one
 //! document's rows transiently and `qa.list` pages them straight from the
 //! store.
+//!
+//! ## The waiver rule
+//!
+//! `qa.waive` marks an issue as accepted by a human without pretending the
+//! finding went away. A waiver is pinned to the issue fingerprint, which
+//! hashes rule id + segment id + evidence, so:
+//!
+//! - Same fingerprint + same evidence on a later run → the issue **stays
+//!   waived** (the user already judged exactly this finding).
+//! - Changed evidence (e.g. different numbers) → the fingerprint changes,
+//!   so a **new open issue** appears and the old waived row resolves like
+//!   any finding that stopped reproducing. A waiver never silently covers
+//!   evidence the user has not seen.
+//! - The user can restore (`waived: false`) at any time, which reopens the
+//!   issue until it is fixed, re-waived, or stops reproducing.
+//!
+//! Waiving is not confirming: it never touches the segment, its state, or
+//! the TM. Only `qa.run` may mark an issue resolved.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use tl_asset::TermEntry;
 use tl_domain::{NumberEvidence, QaIssue, QaIssueStatus, new_id};
-use tl_protocol::{QaListParams, QaListResult, QaRunParams, QaRunResult};
+use tl_protocol::{
+    QaListParams, QaListResult, QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
+};
 use tl_qa::{
     CompiledQaProfile, QaCandidateEvidence, QaConsistencySegment, QaFindingCandidate,
     QaSegmentInput, QaTermExpectation, built_in_profiles, default_profile_id, evaluate_consistency,
@@ -105,10 +125,25 @@ impl Engine {
             match id_by_fingerprint.get(&candidate.fingerprint) {
                 Some(id) => {
                     let issue = issues.get_mut(id).expect("issue id just indexed");
+                    let evidence = map_evidence(candidate.evidence);
+                    // The waiver rule: the exact finding the user accepted
+                    // (same fingerprint, same evidence) stays waived across
+                    // runs. Built-in fingerprints hash the evidence, so a
+                    // fingerprint match implies an evidence match; the
+                    // explicit comparison keeps the rule honest even if a
+                    // future rule ever fingerprints differently.
+                    if issue.status == QaIssueStatus::Waived && issue.evidence == evidence {
+                        continue;
+                    }
+                    if issue.status == QaIssueStatus::Waived {
+                        // Same fingerprint but different evidence: the
+                        // waiver no longer applies; drop its note and reopen.
+                        issue.waive_note = None;
+                    }
                     issue.status = QaIssueStatus::Open;
                     issue.severity = candidate.severity;
                     issue.message = candidate.message;
-                    issue.evidence = map_evidence(candidate.evidence);
+                    issue.evidence = evidence;
                     issue.updated_at_ms = now;
                     changed_ids.insert(id.clone());
                 }
@@ -122,6 +157,7 @@ impl Engine {
                         message: candidate.message,
                         fingerprint: candidate.fingerprint,
                         evidence: map_evidence(candidate.evidence),
+                        waive_note: None,
                         created_at_ms: now,
                         updated_at_ms: now,
                     };
@@ -131,12 +167,16 @@ impl Engine {
                 }
             }
         }
-        // Resolve issues that no longer reproduce for this document.
+        // Resolve issues that no longer reproduce for this document. This
+        // covers waived rows too: when the evidence behind a waiver changes
+        // or the finding disappears, the waiver has run its course (any
+        // still-mismatching evidence opened a fresh issue above).
         for issue in issues.values_mut() {
-            if issue.status == QaIssueStatus::Open
+            if issue.status != QaIssueStatus::Resolved
                 && !current_fingerprints.contains(&issue.fingerprint)
             {
                 issue.status = QaIssueStatus::Resolved;
+                issue.waive_note = None;
                 issue.updated_at_ms = now;
                 changed_ids.insert(issue.id.clone());
             }
@@ -163,9 +203,52 @@ impl Engine {
         })
     }
 
-    /// One page of a document's issues straight from SQL — open before
-    /// resolved, then oldest first — plus the honest pre-page total.
-    /// Omitting `limit` returns every issue, as before.
+    /// `qa.waive`: record a human decision on one issue. Waiving flips an
+    /// open issue to waived (with an optional, never-required note);
+    /// restoring flips a waived issue back to open. It writes exactly one
+    /// QA row — never the segment, never the TM — because the finding is
+    /// still true; the user is only saying they accept it.
+    pub(crate) fn qa_waive(&mut self, params: QaWaiveParams) -> Result<QaWaiveResult, EngineError> {
+        let mut issue = self
+            .store
+            .qa_issue_by_id(&params.issue_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("QA issue {}", params.issue_id)))?;
+        // An empty or whitespace note is a valid "no note", not an error.
+        let note = params
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .map(str::to_string);
+        if params.waived {
+            if issue.status == QaIssueStatus::Resolved {
+                return Err(EngineError::Conflict(
+                    "issue is already resolved; there is nothing left to waive".to_string(),
+                ));
+            }
+            // Waiving an already-waived issue just updates the note.
+            issue.status = QaIssueStatus::Waived;
+            issue.waive_note = note;
+        } else {
+            if issue.status != QaIssueStatus::Waived {
+                return Err(EngineError::Conflict(
+                    "issue is not waived; there is nothing to restore".to_string(),
+                ));
+            }
+            issue.status = QaIssueStatus::Open;
+            issue.waive_note = None;
+        }
+        issue.updated_at_ms = now_ms();
+        self.store.apply(&StateDelta {
+            qa_issues: vec![issue.clone()],
+            ..Default::default()
+        })?;
+        Ok(QaWaiveResult { issue })
+    }
+
+    /// One page of a document's issues straight from SQL — open first, then
+    /// waived, then resolved, each oldest first — plus the honest pre-page
+    /// total. Omitting `limit` returns every issue, as before.
     pub(crate) fn qa_list(&self, params: QaListParams) -> Result<QaListResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
         if params.limit == Some(0) {
@@ -228,12 +311,20 @@ impl Engine {
     }
 }
 
-/// The list order every QA read shares: open before resolved, then oldest
-/// first, then id (the same ORDER BY the store's paged read uses).
+/// The list order every QA read shares: open, then waived, then resolved,
+/// each oldest first, then id (the same ORDER BY the store's paged read
+/// uses).
 fn sort_issues(issues: &mut [QaIssue]) {
+    fn rank(status: QaIssueStatus) -> u8 {
+        match status {
+            QaIssueStatus::Open => 0,
+            QaIssueStatus::Waived => 1,
+            QaIssueStatus::Resolved => 2,
+        }
+    }
     issues.sort_by(|a, b| {
-        (a.status == QaIssueStatus::Resolved)
-            .cmp(&(b.status == QaIssueStatus::Resolved))
+        rank(a.status)
+            .cmp(&rank(b.status))
             .then(a.created_at_ms.cmp(&b.created_at_ms))
             .then(a.id.cmp(&b.id))
     });

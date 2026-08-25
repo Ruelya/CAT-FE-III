@@ -124,6 +124,8 @@ export function WorkbenchView({
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [unackedWrite, setUnackedWrite] = useState<UnackedWrite | null>(null);
+  // QA issue whose waive/restore call is in flight (locks its button).
+  const [waivePendingId, setWaivePendingId] = useState<string | null>(null);
   // An export the engine refused because the destination exists. Kept until
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
   // existing file untouched).
@@ -455,6 +457,41 @@ export function WorkbenchView({
       onStatusMessage(`QA 失败：${describeError(error)}`);
     }
   }, [activeDocumentId, onStatusMessage]);
+
+  // 忽略/恢复 one QA issue. Waiving records a human decision on the exact
+  // finding — it never confirms the segment and never writes TM, and the
+  // issue only stays waived while the same evidence keeps reproducing.
+  const setIssueWaived = useCallback(
+    async (issue: QaIssue, waived: boolean) => {
+      setWaivePendingId(issue.id);
+      try {
+        const result = await callEngine("qa.waive", {
+          issueId: issue.id,
+          waived,
+        });
+        setIssues((current) =>
+          current.map((item) =>
+            item.id === result.issue.id ? result.issue : item,
+          ),
+        );
+        onStatusMessage(
+          waived
+            ? "已忽略 QA 问题：问题并未修复，未确认句段、未写入 TM"
+            : "已恢复 QA 问题为未解决",
+        );
+      } catch (error) {
+        // The issue keeps its current status; nothing is pretended.
+        onStatusMessage(
+          waived
+            ? `忽略失败：${describeError(error)}`
+            : `恢复失败：${describeError(error)}`,
+        );
+      } finally {
+        setWaivePendingId(null);
+      }
+    },
+    [onStatusMessage],
+  );
 
   const counts = useMemo(() => {
     let confirmed = 0;
@@ -864,6 +901,9 @@ export function WorkbenchView({
                 issues={issues}
                 onRun={() => void runQa()}
                 onJump={jumpToSegment}
+                onWaive={(issue) => void setIssueWaived(issue, true)}
+                onRestore={(issue) => void setIssueWaived(issue, false)}
+                pendingIssueId={waivePendingId}
                 disabled={!activeDocumentId}
               />
             ) : null}
