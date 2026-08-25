@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-regex.workspace = true
 reqwest.workspace = true
 schemars.workspace = true
 serde.workspace = true
@@ -16,6 +15,7 @@ thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
 zeroize.workspace = true
+tl-domain = { path = "../tl-domain" }
 
 [dev-dependencies]
 tempfile.workspace = true
