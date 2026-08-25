@@ -10,7 +10,7 @@
     "predev": "pnpm --filter @translunar/contracts build",
     "dev": "concurrently -k -n renderer,types,electron -c cyan,yellow,green \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"wait-on tcp:127.0.0.1:5173 file:dist/electron/main/index.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "pretypecheck": "pnpm --filter @translunar/contracts build",
-    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json",
+    "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json && tsc -p tsconfig.e2e.json",
     "pretest": "pnpm --filter @translunar/contracts build",
     "test": "vitest run",
     "test:e2e": "pnpm build && playwright test"

@@ -115,6 +115,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.chooseSource, async () => {
+    // E2E seam: native dialogs cannot be driven by automation.
+    const fakeOpen = process.env.TL_FAKE_OPEN_PATH;
+    if (fakeOpen && fakeOpen.trim().length > 0) {
+      return fakeOpen;
+    }
     const result = await dialog.showOpenDialog({
       title: "选择要导入的文档",
       properties: ["openFile"],
@@ -142,6 +147,10 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.chooseExport,
     async (_event, defaultName: unknown) => {
+      const fakeSave = process.env.TL_FAKE_SAVE_PATH;
+      if (fakeSave && fakeSave.trim().length > 0) {
+        return fakeSave;
+      }
       const options: Electron.SaveDialogOptions = { title: "选择导出位置" };
       if (typeof defaultName === "string" && defaultName.length > 0) {
         options.defaultPath = defaultName;
