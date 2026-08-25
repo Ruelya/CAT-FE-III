@@ -19,7 +19,7 @@
 //!
 //! ## Read model — what pages from SQL and what stays in RAM
 //!
-//! The two bulk tables never get a full RAM copy anymore:
+//! The row tables never get a full RAM copy anymore:
 //!
 //! - `segments` is read per document straight from SQL (`segment.list`
 //!   pages with LIMIT/OFFSET over the `(document_id, ordinal)` index; edit,
@@ -28,13 +28,20 @@
 //! - `tm_entries` is read per entry or per page from SQL (`tm.list` pages
 //!   over the `(memory_id, confirmed_at_ms DESC, id)` index; exact lookups
 //!   are point queries on the unique `(memory_id, source_hash)` index).
+//! - `term_entries` is read per termbase from SQL (`term.list` pages over
+//!   the `term_entries_by_termbase` index; update and delete are point
+//!   queries by id; lookup, import, and QA materialize one termbase — or a
+//!   project's attached termbases — transiently, never the whole table).
+//! - `qa_issues` is read per document from SQL (`qa.list` pages the join
+//!   through the document's segments; `qa.run` reconciles one document's
+//!   issues transiently and writes only the rows that changed).
 //!
 //! Honest limits of what remains memory-resident, loaded once at open:
 //!
 //! - [`EngineState`] still holds every project, document *metadata* row
-//!   (not its segments), termbase, term entry, termbase mount, and QA
-//!   issue. These are working-set–sized tables; paging them is a follow-up
-//!   the schema already supports.
+//!   (not its segments), termbase, and termbase mount. These are tiny
+//!   identity tables (one row per project / file / termbase), not per-entry
+//!   data.
 //! - The fuzzy TM recall index stays in RAM by design: it stores token
 //!   postings and per-entry token counts keyed by entry id — not the entry
 //!   rows themselves — and open() streams `(id, memory_id, source_text)`
@@ -59,7 +66,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tl_asset::{TermEntry, Termbase, TermbaseMount};
-use tl_domain::{Document, Project, QaIssue, Segment, SegmentState, TmEntry};
+use tl_domain::{Document, Project, QaIssue, QaIssueStatus, Segment, SegmentState, TmEntry};
 
 pub const DB_FILE_NAME: &str = "engine.sqlite";
 const LEGACY_STATE_FILE: &str = "state.json";
@@ -202,15 +209,13 @@ CREATE TABLE termbase_mounts (
 ";
 
 /// The in-memory working set loaded once at open. Deliberately excludes the
-/// two bulk tables: segments and TM entries are read from SQL on demand
-/// (see the module docs for the honest split).
+/// row tables: segments, TM entries, term entries, and QA issues are read
+/// from SQL on demand (see the module docs for the honest split).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct EngineState {
     pub projects: BTreeMap<String, Project>,
     pub documents: BTreeMap<String, DocumentRecord>,
-    pub qa_issues: BTreeMap<String, QaIssue>,
     pub termbases: BTreeMap<String, Termbase>,
-    pub term_entries: BTreeMap<String, TermEntry>,
     pub termbase_mounts: Vec<TermbaseMount>,
 }
 
@@ -389,18 +394,6 @@ impl Store {
             .query_row([document_id], |row| row.get(0))
             .map_err(db_err)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
-    }
-
-    /// Segment ids of one document in grid order, without the row payloads.
-    pub fn document_segment_ids(&self, document_id: &str) -> io::Result<Vec<String>> {
-        let mut statement = self
-            .conn
-            .prepare_cached("SELECT id FROM segments WHERE document_id = ?1 ORDER BY ordinal, id")
-            .map_err(db_err)?;
-        let rows = statement
-            .query_map([document_id], |row| row.get(0))
-            .map_err(db_err)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 
     /// A document's segments plus their non-empty leading text, for export
@@ -616,6 +609,137 @@ impl Store {
         }
         Ok(())
     }
+
+    // ---- Term reads (point queries and per-termbase windows) ----
+
+    /// One term entry by id.
+    pub fn term_entry(&self, entry_id: &str) -> io::Result<Option<TermEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TERM_ENTRY_COLUMNS} FROM term_entries WHERE id = ?1"
+            ))
+            .map_err(db_err)?;
+        statement
+            .query_row([entry_id], term_entry_from_row)
+            .optional()
+            .map_err(db_err)
+    }
+
+    /// One page of a termbase's entries in source-term order (then id),
+    /// walking the `term_entries_by_termbase` index. `limit: None` returns
+    /// everything from `offset` on.
+    pub fn termbase_entries_page(
+        &self,
+        termbase_id: &str,
+        offset: u32,
+        limit: Option<u32>,
+    ) -> io::Result<Vec<TermEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TERM_ENTRY_COLUMNS} FROM term_entries WHERE termbase_id = ?1
+                 ORDER BY source_term, id LIMIT ?2 OFFSET ?3"
+            ))
+            .map_err(db_err)?;
+        // SQLite treats a negative LIMIT as "no limit".
+        let limit = limit.map_or(-1_i64, i64::from);
+        let rows = statement
+            .query_map(params![termbase_id, limit, i64::from(offset)], |row| {
+                term_entry_from_row(row)
+            })
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    pub fn termbase_entry_count(&self, termbase_id: &str) -> io::Result<u32> {
+        let mut statement = self
+            .conn
+            .prepare_cached("SELECT COUNT(*) FROM term_entries WHERE termbase_id = ?1")
+            .map_err(db_err)?;
+        let count: i64 = statement
+            .query_row([termbase_id], |row| row.get(0))
+            .map_err(db_err)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// First entry id in a termbase whose `(id, source_term)` satisfies the
+    /// predicate, walking ids in order. Backs the normalized-source dedupe
+    /// checks (term.add, term.update, termbase.import) without materializing
+    /// entry rows: normalization happens Rust-side, so SQL streams the two
+    /// text columns and the caller decides.
+    pub fn find_term_entry_id(
+        &self,
+        termbase_id: &str,
+        mut matches: impl FnMut(&str, &str) -> bool,
+    ) -> io::Result<Option<String>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(
+                "SELECT id, source_term FROM term_entries WHERE termbase_id = ?1 ORDER BY id",
+            )
+            .map_err(db_err)?;
+        let mut rows = statement.query([termbase_id]).map_err(db_err)?;
+        while let Some(row) = rows.next().map_err(db_err)? {
+            let id: String = row.get(0).map_err(db_err)?;
+            let source_term: String = row.get(1).map_err(db_err)?;
+            if matches(&id, &source_term) {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
+    // ---- QA reads (per document through the segment join) ----
+
+    /// One page of a document's issues in list order — open before
+    /// resolved, then oldest first, then id — joined through the document's
+    /// segments so only this document's rows leave SQL. `limit: None`
+    /// returns everything from `offset` on.
+    pub fn document_qa_issues_page(
+        &self,
+        document_id: &str,
+        offset: u32,
+        limit: Option<u32>,
+    ) -> io::Result<Vec<QaIssue>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {QA_ISSUE_COLUMNS} FROM qa_issues q
+                 JOIN segments s ON s.id = q.segment_id
+                 WHERE s.document_id = ?1
+                 ORDER BY (q.status = ?2), q.created_at_ms, q.id LIMIT ?3 OFFSET ?4"
+            ))
+            .map_err(db_err)?;
+        let limit = limit.map_or(-1_i64, i64::from);
+        let rows = statement
+            .query_map(
+                params![
+                    document_id,
+                    enum_text(&QaIssueStatus::Resolved)?,
+                    limit,
+                    i64::from(offset)
+                ],
+                qa_issue_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    pub fn document_qa_issue_count(&self, document_id: &str) -> io::Result<u32> {
+        let mut statement = self
+            .conn
+            .prepare_cached(
+                "SELECT COUNT(*) FROM qa_issues q
+                 JOIN segments s ON s.id = q.segment_id
+                 WHERE s.document_id = ?1",
+            )
+            .map_err(db_err)?;
+        let count: i64 = statement
+            .query_row([document_id], |row| row.get(0))
+            .map_err(db_err)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
 }
 
 const SEGMENT_COLUMNS: &str = "id, document_id, ordinal, structural_path, source_text, \
@@ -623,6 +747,15 @@ const SEGMENT_COLUMNS: &str = "id, document_id, ordinal, structural_path, source
 
 const TM_ENTRY_COLUMNS: &str = "id, memory_id, source_text, target_text, source_hash, \
      origin_project_id, origin_document_id, origin_segment_id, confirmed_at_ms";
+
+const TERM_ENTRY_COLUMNS: &str = "id, termbase_id, source_locale, source_term, \
+     part_of_speech, definition, example, domain, status, revision, translations, \
+     created_at_ms, updated_at_ms";
+
+/// Qualified with the `q.` alias because every QA read joins through the
+/// document's segments.
+const QA_ISSUE_COLUMNS: &str = "q.id, q.segment_id, q.rule_id, q.severity, q.status, \
+     q.message, q.fingerprint, q.evidence, q.created_at_ms, q.updated_at_ms";
 
 fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
     Ok(Segment {
@@ -651,6 +784,39 @@ fn tm_entry_from_row(row: &Row) -> rusqlite::Result<TmEntry> {
         origin_document_id: row.get(6)?,
         origin_segment_id: row.get(7)?,
         confirmed_at_ms: row.get(8)?,
+    })
+}
+
+fn term_entry_from_row(row: &Row) -> rusqlite::Result<TermEntry> {
+    Ok(TermEntry {
+        id: row.get(0)?,
+        termbase_id: row.get(1)?,
+        source_locale: row.get(2)?,
+        source_term: row.get(3)?,
+        part_of_speech: row.get(4)?,
+        definition: row.get(5)?,
+        example: row.get(6)?,
+        domain: row.get(7)?,
+        status: enum_column(row, 8)?,
+        revision: revision_column(row, 9)?,
+        translations: json_column(row, 10)?,
+        created_at_ms: row.get(11)?,
+        updated_at_ms: row.get(12)?,
+    })
+}
+
+fn qa_issue_from_row(row: &Row) -> rusqlite::Result<QaIssue> {
+    Ok(QaIssue {
+        id: row.get(0)?,
+        segment_id: row.get(1)?,
+        rule_id: row.get(2)?,
+        severity: enum_column(row, 3)?,
+        status: enum_column(row, 4)?,
+        message: row.get(5)?,
+        fingerprint: row.get(6)?,
+        evidence: json_column(row, 7)?,
+        created_at_ms: row.get(8)?,
+        updated_at_ms: row.get(9)?,
     })
 }
 
@@ -1109,8 +1275,9 @@ fn upsert_termbase_mount(conn: &Connection, mount: &TermbaseMount) -> io::Result
     Ok(())
 }
 
-/// Load the metadata working set. Deliberately never touches the `segments`
-/// or `tm_entries` tables: those are queried on demand (see module docs).
+/// Load the metadata working set. Deliberately never touches the
+/// `segments`, `tm_entries`, `term_entries`, or `qa_issues` tables: those
+/// are queried on demand (see module docs).
 fn load_state(conn: &Connection) -> io::Result<EngineState> {
     let mut state = EngineState::default();
 
@@ -1181,34 +1348,6 @@ fn load_state(conn: &Connection) -> io::Result<EngineState> {
 
     let mut statement = conn
         .prepare(
-            "SELECT id, segment_id, rule_id, severity, status, message, fingerprint, evidence,
-               created_at_ms, updated_at_ms
-             FROM qa_issues",
-        )
-        .map_err(db_err)?;
-    let qa_issues = statement
-        .query_map([], |row| {
-            Ok(QaIssue {
-                id: row.get(0)?,
-                segment_id: row.get(1)?,
-                rule_id: row.get(2)?,
-                severity: enum_column(row, 3)?,
-                status: enum_column(row, 4)?,
-                message: row.get(5)?,
-                fingerprint: row.get(6)?,
-                evidence: json_column(row, 7)?,
-                created_at_ms: row.get(8)?,
-                updated_at_ms: row.get(9)?,
-            })
-        })
-        .map_err(db_err)?;
-    for issue in qa_issues {
-        let issue = issue.map_err(db_err)?;
-        state.qa_issues.insert(issue.id.clone(), issue);
-    }
-
-    let mut statement = conn
-        .prepare(
             "SELECT id, name, source_locale, domain, writable, revision, created_at_ms,
                updated_at_ms
              FROM termbases",
@@ -1231,37 +1370,6 @@ fn load_state(conn: &Connection) -> io::Result<EngineState> {
     for termbase in termbases {
         let termbase = termbase.map_err(db_err)?;
         state.termbases.insert(termbase.id.clone(), termbase);
-    }
-
-    let mut statement = conn
-        .prepare(
-            "SELECT id, termbase_id, source_locale, source_term, part_of_speech, definition,
-               example, domain, status, revision, translations, created_at_ms, updated_at_ms
-             FROM term_entries",
-        )
-        .map_err(db_err)?;
-    let term_entries = statement
-        .query_map([], |row| {
-            Ok(TermEntry {
-                id: row.get(0)?,
-                termbase_id: row.get(1)?,
-                source_locale: row.get(2)?,
-                source_term: row.get(3)?,
-                part_of_speech: row.get(4)?,
-                definition: row.get(5)?,
-                example: row.get(6)?,
-                domain: row.get(7)?,
-                status: enum_column(row, 8)?,
-                revision: revision_column(row, 9)?,
-                translations: json_column(row, 10)?,
-                created_at_ms: row.get(11)?,
-                updated_at_ms: row.get(12)?,
-            })
-        })
-        .map_err(db_err)?;
-    for entry in term_entries {
-        let entry = entry.map_err(db_err)?;
-        state.term_entries.insert(entry.id.clone(), entry);
     }
 
     let mut statement = conn
@@ -1534,15 +1642,13 @@ mod tests {
         let mut expected = EngineState::default();
         expected.projects.insert("p1".to_string(), project);
         expected.documents.insert("d1".to_string(), record);
-        expected.qa_issues.insert("qa1".to_string(), qa_issue);
         expected.termbases.insert("tb1".to_string(), termbase);
-        expected.term_entries.insert("te1".to_string(), term_entry);
         expected.termbase_mounts.push(mount);
 
         let (reopened, reloaded) = Store::open(directory.path()).expect("reopen");
         assert_eq!(reloaded, expected);
 
-        // Bulk tables come back through queries, not through the working set.
+        // Row tables come back through queries, not through the working set.
         assert_eq!(
             reopened
                 .document_segments_page("d1", 0, None)
@@ -1565,6 +1671,24 @@ mod tests {
                 .expect("tm by source"),
             Some(tm_entry)
         );
+        assert_eq!(
+            reopened.term_entry("te1").expect("term entry"),
+            Some(term_entry.clone())
+        );
+        assert_eq!(
+            reopened
+                .termbase_entries_page("tb1", 0, None)
+                .expect("termbase entries"),
+            vec![term_entry]
+        );
+        assert_eq!(reopened.termbase_entry_count("tb1").expect("count"), 1);
+        assert_eq!(
+            reopened
+                .document_qa_issues_page("d1", 0, None)
+                .expect("qa issues"),
+            vec![qa_issue]
+        );
+        assert_eq!(reopened.document_qa_issue_count("d1").expect("count"), 1);
     }
 
     /// LIMIT/OFFSET windows come back in grid order for segments and in
@@ -1602,10 +1726,6 @@ mod tests {
             vec!["s1", "s2"]
         );
         assert_eq!(store.document_segment_count("d1").expect("count"), 5);
-        assert_eq!(
-            store.document_segment_ids("d1").expect("ids"),
-            vec!["s0", "s1", "s2", "s3", "s4"]
-        );
         // Past the end: an empty page, not an error.
         assert!(
             store
@@ -1642,6 +1762,130 @@ mod tests {
             vec!["tm0", "tm1", "tm2", "tm3"],
             "export walks oldest first"
         );
+    }
+
+    fn sample_term_entry(id: &str, termbase_id: &str, source_term: &str) -> TermEntry {
+        TermEntry {
+            id: id.to_string(),
+            termbase_id: termbase_id.to_string(),
+            source_locale: "en-US".to_string(),
+            source_term: source_term.to_string(),
+            part_of_speech: None,
+            definition: None,
+            example: None,
+            domain: None,
+            status: TermStatus::Active,
+            revision: 1,
+            translations: Vec::new(),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }
+    }
+
+    fn sample_qa_issue(
+        id: &str,
+        segment_id: &str,
+        status: QaIssueStatus,
+        created_at_ms: i64,
+    ) -> QaIssue {
+        QaIssue {
+            id: id.to_string(),
+            segment_id: segment_id.to_string(),
+            rule_id: "qa.number-mismatch".to_string(),
+            severity: QaSeverity::Error,
+            status,
+            message: format!("issue {id}"),
+            fingerprint: format!("fp-{id}"),
+            evidence: NumberEvidence::default(),
+            created_at_ms,
+            updated_at_ms: created_at_ms,
+        }
+    }
+
+    /// Term entries window per termbase in source-term order; QA issues
+    /// window per document (open before resolved, oldest first) through the
+    /// segment join. Rows of other termbases / documents never leak in.
+    #[test]
+    fn pages_term_entries_and_qa_issues_from_sql() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let (mut store, _) = Store::open(directory.path()).expect("open");
+        let terms = vec![
+            sample_term_entry("te-b", "tb1", "bracket"),
+            sample_term_entry("te-a", "tb1", "actuator"),
+            sample_term_entry("te-c", "tb1", "coupling"),
+            sample_term_entry("te-other", "tb2", "gasket"),
+        ];
+        let issues = vec![
+            sample_qa_issue("qa-resolved", "s0", QaIssueStatus::Resolved, 1),
+            sample_qa_issue("qa-late", "s1", QaIssueStatus::Open, 9),
+            sample_qa_issue("qa-early", "s1", QaIssueStatus::Open, 2),
+            sample_qa_issue("qa-foreign", "elsewhere", QaIssueStatus::Open, 1),
+        ];
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 2)],
+                segments: vec![sample_segment("s0", "d1", 0), sample_segment("s1", "d1", 1)],
+                term_entries: terms,
+                qa_issues: issues,
+                ..Default::default()
+            })
+            .expect("apply");
+
+        let window = store
+            .termbase_entries_page("tb1", 1, Some(1))
+            .expect("term window");
+        assert_eq!(
+            window
+                .iter()
+                .map(|entry| entry.source_term.as_str())
+                .collect::<Vec<_>>(),
+            vec!["bracket"],
+            "source-term order, offset applied"
+        );
+        assert_eq!(store.termbase_entry_count("tb1").expect("count"), 3);
+        assert_eq!(
+            store
+                .termbase_entries_page("tb1", 9, Some(2))
+                .expect("tail window")
+                .len(),
+            0,
+            "past the end: an empty page, not an error"
+        );
+        assert_eq!(
+            store
+                .find_term_entry_id("tb1", |_, source_term| source_term == "coupling")
+                .expect("find"),
+            Some("te-c".to_string())
+        );
+        assert_eq!(
+            store
+                .find_term_entry_id("tb1", |_, source_term| source_term == "gasket")
+                .expect("find in wrong termbase"),
+            None
+        );
+
+        let ordered = store
+            .document_qa_issues_page("d1", 0, None)
+            .expect("qa order");
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|issue| issue.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["qa-early", "qa-late", "qa-resolved"],
+            "open first, then oldest, resolved last; foreign document excluded"
+        );
+        assert_eq!(
+            store
+                .document_qa_issues_page("d1", 1, Some(1))
+                .expect("qa window")
+                .iter()
+                .map(|issue| issue.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["qa-late"]
+        );
+        assert_eq!(store.document_qa_issue_count("d1").expect("count"), 3);
     }
 
     /// Updates rewrite the mutable columns only: segment leading text and
