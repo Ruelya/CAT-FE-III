@@ -63,13 +63,11 @@ function installBridge(
   const bridge = {
     invoke: vi.fn(invoke),
     chooseTmImportFile: vi.fn(() => Promise.resolve(pickers.tmImport ?? null)),
-    chooseTmExportPath: vi.fn((_defaultName: string) =>
-      Promise.resolve(pickers.tmExport ?? null),
-    ),
+    chooseTmExportPath: vi.fn(() => Promise.resolve(pickers.tmExport ?? null)),
     chooseTermbaseImportFile: vi.fn(() =>
       Promise.resolve(pickers.termbaseImport ?? null),
     ),
-    chooseTermbaseExportPath: vi.fn((_defaultName: string) =>
+    chooseTermbaseExportPath: vi.fn(() =>
       Promise.resolve(pickers.termbaseExport ?? null),
     ),
   };
