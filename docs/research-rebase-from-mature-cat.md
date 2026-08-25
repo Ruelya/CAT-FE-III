@@ -1,5 +1,9 @@
 # Research: rebase the CAT surface from a mature project
 
+> **Historical research record (pre-greenfield).** Written against the
+> previous implementation, which was removed in the greenfield reset. Kept as
+> a decision record.
+
 | Item | Value |
 | --- | --- |
 | Date | 2026-08-16 |

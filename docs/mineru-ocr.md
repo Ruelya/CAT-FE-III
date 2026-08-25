@@ -1,5 +1,10 @@
 # MinerU OCR for PDF import
 
+> **Historical record (pre-greenfield).** The MinerU OCR pipeline belonged to
+> the previous engine, which was removed in the greenfield reset. The current
+> tree has no PDF import and none of the RPC methods or environment variables
+> named here exist.
+
 MinerU is selected **only** when import options set `ocrEngine=mineru` (and
 `ocrMode` is not `never`). Configuring a base URL alone does not switch ordinary
 text-layer PDFs onto MinerU. This covers Full PRD HB3 (scanned/mixed PDF OCR via

@@ -1,5 +1,13 @@
 # Backend Quality Guidelines
 
+> **Note (greenfield).** Crate paths and binaries named here
+> (`crates/protocol`, SQLite storage tests, `translunar-engine.exe`, the VPS
+> evidence flow) refer to the pre-greenfield tree. Current names are
+> `crates/tl-protocol` / `crates/tl-engine` / `tl-engine` binary, and storage
+> tests target the `engine.sqlite` store in `crates/tl-engine/src/store.rs`.
+> The design properties, forbidden patterns, and quality-gate commands still
+> apply.
+
 ## Required Design Properties
 
 - Rust owns domain rules, persistence, formats, QA, TM, and pipelines.

@@ -1,10 +1,16 @@
 # Frontend Type Safety
 
+> **Note (greenfield).** The "Data And Reducers" examples and the "Task
+> Package Contracts" section reference pre-greenfield renderer modules that
+> were removed in the greenfield reset; the current RPC seam is
+> `lib/engine.ts`. The contract-source and boundary rules still apply.
+
 ## Contract Source
 
 Import engine entities and method payloads from `@translunar/contracts`.
-`crates/protocol` generates `packages/contracts/src/protocol.schema.json` and
-`protocol.generated.ts`; run `pnpm contracts:check` after any protocol change.
+`crates/tl-protocol` generates `packages/contracts/src/protocol.schema.json`
+and `protocol.generated.ts`; run `pnpm contracts:check` after any protocol
+change.
 Do not hand-maintain a parallel interface in `renderer`.
 
 Use `import type` for types. The repository ESLint configuration enforces

@@ -1,5 +1,11 @@
 # Accessibility acceptance matrix
 
+> **Historical record (pre-greenfield).** This matrix measured the previous
+> renderer, which was removed in the greenfield reset along with the test
+> harnesses it cites (`ui:shots`, `ui:audit`, the old spec files). The current
+> renderer has not been through this qualification; none of these results
+> carry over.
+
 Supported viewports: **1180×700** (the BrowserWindow minimum), **1250×744**,
 **1680×942**, **1920×1080**. Both themes. 100 % and 125 % text scaling.
 

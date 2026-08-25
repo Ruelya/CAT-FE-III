@@ -1,5 +1,9 @@
 # 设计与架构决策记录（design-notes）
 
+> **Historical decision record (pre-greenfield, 2026-07-16).** 平台选型
+> （Electron + Rust 无头引擎）仍然成立；文中的 SQLite 存储、插件系统等实现
+> 细节属于已在 greenfield 重置中删除的旧实现，不描述当前代码。
+
 | 项目 | 内容 |
 | --- | --- |
 | 日期 | 2026-07-16 |

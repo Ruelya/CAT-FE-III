@@ -1,5 +1,12 @@
 # Component Guidelines
 
+> **Historical / not current greenfield.** The source-backed examples in this
+> document reference the pre-greenfield renderer (`surfaces/`, `workbench/`,
+> `shell/`), which was removed in the greenfield reset, and `pnpm ui:audit`
+> does not exist. The component-shape principles still apply; current
+> components live in `apps/desktop/src/renderer/components` and
+> `packages/ui`.
+
 ## Component Shape
 
 Use named function components with an explicit props interface. Keep a
