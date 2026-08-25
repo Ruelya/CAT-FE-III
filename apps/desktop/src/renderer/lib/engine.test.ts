@@ -6,6 +6,7 @@ import {
   callEngine,
   isAiNotConfigured,
   isEngineUnavailable,
+  isExportBlocked,
 } from "./engine.js";
 
 function installBridge(invoke: DesktopApi["invoke"]): void {
@@ -49,6 +50,20 @@ describe("callEngine", () => {
     expect(failure).toBeInstanceOf(EngineClientError);
     expect((failure as EngineClientError).code).toBe("aiNotConfigured");
     expect(isAiNotConfigured(failure)).toBe(true);
+  });
+});
+
+describe("isExportBlocked", () => {
+  it("recognises only the engine's exportBlocked refusal", () => {
+    expect(
+      isExportBlocked(
+        new EngineClientError("exportBlocked", "output path already exists"),
+      ),
+    ).toBe(true);
+    expect(isExportBlocked(new EngineClientError("io", "disk full"))).toBe(
+      false,
+    );
+    expect(isExportBlocked(new Error("exportBlocked"))).toBe(false);
   });
 });
 

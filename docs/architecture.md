@@ -105,7 +105,14 @@ applied.
   backoff; engine status surfaces in the workbench header instead of failing
   silently.
 - Export publishes atomically through a temp file (`publish_bytes_noclobber`
-  in `crates/tl-filter-core`) and never overwrites an existing destination.
+  in `crates/tl-filter-core`) and never overwrites an existing destination by
+  default (`exportBlocked`). `document.export`, `tm.export`, and
+  `termbase.export` accept an additive `overwrite: true` that the desktop
+  only sends after an explicit user confirmation; the replacement is still
+  staged in a sibling temp file and renamed over the destination atomically.
+  The honest limit: the engine cannot tell who owns an arbitrary path, but it
+  refuses to overwrite files inside its own managed data directory, where
+  every project's imported sources and databases live.
 - Protocol stdout contains frames only; structured diagnostics use stderr.
 - Incompatible wire changes require a protocol version bump. Additive version
   1 changes regenerate the Rust schema and TypeScript contracts together.

@@ -648,6 +648,150 @@ describe("ProjectSettingsDialog", () => {
     expect(exportCall?.[1]).toEqual({ projectId: "p1", path: "/tmp/out.tmx" });
   });
 
+  /** Engine that blocks the plain export but honors an explicit overwrite. */
+  function blockedTmExportBridge(calls: Array<[string, unknown]>) {
+    return installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "tm.export") {
+          if ((params as { overwrite?: boolean }).overwrite !== true) {
+            return Promise.resolve({
+              ok: false,
+              error: {
+                code: "exportBlocked",
+                message: "output path already exists: /tmp/out.tmx",
+              },
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            result: { exported: 7, outputPath: "/tmp/out.tmx" },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { tmExport: "/tmp/out.tmx" },
+    );
+  }
+
+  it("asks before overwriting a blocked TM export and retries with overwrite", async () => {
+    const calls: Array<[string, unknown]> = [];
+    blockedTmExportBridge(calls);
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+
+    // The refusal surfaces as an explicit question, not an error alert.
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+    expect(prompt).toHaveTextContent("/tmp/out.tmx");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/TM 导出完成（已覆盖）：7 条 → \/tmp\/out.tmx/),
+      ).toBeInTheDocument();
+    });
+    const exportCalls = calls.filter(([method]) => method === "tm.export");
+    expect(exportCalls).toHaveLength(2);
+    expect(exportCalls[0]?.[1]).toEqual({
+      projectId: "p1",
+      path: "/tmp/out.tmx",
+    });
+    expect(exportCalls[1]?.[1]).toEqual({
+      projectId: "p1",
+      path: "/tmp/out.tmx",
+      overwrite: true,
+    });
+    expect(
+      screen.queryByRole("alertdialog", { name: "目标已存在，要覆盖吗？" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("取消 on a blocked TM export sends no overwrite call", async () => {
+    const calls: Array<[string, unknown]> = [];
+    blockedTmExportBridge(calls);
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(
+      screen.queryByRole("alertdialog", { name: "目标已存在，要覆盖吗？" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/已取消导出：保留现有文件，未做任何修改。/),
+    ).toBeInTheDocument();
+    // Only the refused no-clobber call ever reached the engine.
+    expect(calls.filter(([method]) => method === "tm.export")).toHaveLength(1);
+  });
+
+  it("asks before overwriting a blocked termbase export too", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "termbase.export") {
+          if ((params as { overwrite?: boolean }).overwrite !== true) {
+            return Promise.resolve({
+              ok: false,
+              error: {
+                code: "exportBlocked",
+                message: "output path already exists: /tmp/terms.csv",
+              },
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            result: { exported: 6, outputPath: "/tmp/terms.csv" },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: {
+            termbases: [termbase("tb1", "产品术语")],
+            mounts: [mount("tb1")],
+          },
+        });
+      },
+      { termbaseExport: "/tmp/terms.csv" },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("产品术语")).toBeInTheDocument();
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "导出术语库 产品术语" }),
+    );
+    await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+    await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /术语库「产品术语」导出完成（已覆盖）：6 条 → \/tmp\/terms.csv/,
+        ),
+      ).toBeInTheDocument();
+    });
+    const exportCalls = calls.filter(
+      ([method]) => method === "termbase.export",
+    );
+    expect(exportCalls).toHaveLength(2);
+    expect(exportCalls[1]?.[1]).toEqual({
+      termbaseId: "tb1",
+      path: "/tmp/terms.csv",
+      overwrite: true,
+    });
+  });
+
   it("keeps unrelated settings actions usable while a TM import runs", async () => {
     let finishImport: (response: EngineInvokeResponse) => void = () => {};
     installBridge(

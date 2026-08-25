@@ -159,6 +159,23 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// A sibling path in the destination's directory (same filesystem, so the
+/// final `rename` is an atomic replace) that cannot collide with a real file.
+fn export_staging_path(output: &Path) -> PathBuf {
+    let file_name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("export");
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    output.with_file_name(format!(
+        ".{file_name}.{}.{nanos}.tl-export.tmp",
+        std::process::id()
+    ))
+}
+
 fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, EngineError> {
     serde_json::from_value(params).map_err(|error| EngineError::InvalidParams(error.to_string()))
 }
@@ -584,6 +601,29 @@ impl Engine {
             .ok_or_else(|| EngineError::NotFound(format!("document {document_id}")))
     }
 
+    /// The honest overwrite rule: an explicit `overwrite: true` replaces
+    /// exactly the file the caller pointed at — the engine cannot tell who
+    /// owns an arbitrary path on disk. The one thing it *can* detect and
+    /// protect is its own managed data directory (imported source copies and
+    /// databases for every project live there), so destinations inside it
+    /// are refused even with overwrite.
+    pub(crate) fn refuse_managed_overwrite(&self, destination: &Path) -> Result<(), EngineError> {
+        let data_dir = self
+            .data_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.data_dir.clone());
+        let resolved = destination
+            .canonicalize()
+            .unwrap_or_else(|_| destination.to_path_buf());
+        if resolved.starts_with(&data_dir) {
+            return Err(EngineError::ExportBlocked(format!(
+                "refusing to overwrite engine-managed file: {}",
+                destination.display()
+            )));
+        }
+        Ok(())
+    }
+
     fn document_import(
         &mut self,
         params: DocumentImportParams,
@@ -740,11 +780,15 @@ impl Engine {
     ) -> Result<DocumentExportResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
         let output = PathBuf::from(&params.output_path);
-        if output.exists() {
-            return Err(EngineError::ExportBlocked(format!(
-                "output path already exists: {}",
-                output.display()
-            )));
+        let replace_existing = output.exists();
+        if replace_existing {
+            if !params.overwrite.unwrap_or(false) {
+                return Err(EngineError::ExportBlocked(format!(
+                    "output path already exists: {}",
+                    output.display()
+                )));
+            }
+            self.refuse_managed_overwrite(&output)?;
         }
         // One document materialized transiently for the outgoing file; the
         // rest of the segments table stays on disk.
@@ -769,14 +813,34 @@ impl Engine {
         let merged = export::merge_for_export(&segments, &leading);
         let filter = self.registry.resolve(&record.document.filter_id)?;
         let source = PathBuf::from(&record.managed_source_path);
-        let report = filter.export(tl_filter_core::ExportRequest {
-            source: &source,
-            output: &output,
-            segments: &merged,
-            segment_anchors,
-        })?;
+        // Filters only publish no-clobber. A confirmed overwrite exports to a
+        // sibling staging file first and renames it over the destination, so
+        // a failed export never destroys the file being replaced.
+        let staging = replace_existing.then(|| export_staging_path(&output));
+        let report = filter
+            .export(tl_filter_core::ExportRequest {
+                source: &source,
+                output: staging.as_deref().unwrap_or(&output),
+                segments: &merged,
+                segment_anchors,
+            })
+            .inspect_err(|_| {
+                if let Some(staging) = &staging {
+                    let _ = std::fs::remove_file(staging);
+                }
+            })?;
+        if let Some(staging) = &staging
+            && let Err(error) = std::fs::rename(staging, &output)
+        {
+            let _ = std::fs::remove_file(staging);
+            return Err(error.into());
+        }
         Ok(DocumentExportResult {
-            output_path: report.output_path,
+            output_path: if staging.is_some() {
+                output.display().to_string()
+            } else {
+                report.output_path
+            },
             translated_segments: report.translated_segments,
             degradation: report.degradation,
         })
