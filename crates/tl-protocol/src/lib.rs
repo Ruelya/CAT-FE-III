@@ -38,6 +38,7 @@ pub mod methods {
     pub const PROJECT_ARCHIVE: &str = "project.archive";
     pub const DOCUMENT_IMPORT: &str = "document.import";
     pub const DOCUMENT_LIST: &str = "document.list";
+    pub const DOCUMENT_REMOVE: &str = "document.remove";
     pub const DOCUMENT_EXPORT: &str = "document.export";
     pub const SEGMENT_LIST: &str = "segment.list";
     pub const SEGMENT_UPDATE: &str = "segment.update";
@@ -108,6 +109,8 @@ pub struct RpcMethodCatalog {
     pub document_import: MethodContract<DocumentImportParams, DocumentImportResult>,
     #[serde(rename = "document.list")]
     pub document_list: MethodContract<DocumentListParams, DocumentListResult>,
+    #[serde(rename = "document.remove")]
+    pub document_remove: MethodContract<DocumentRemoveParams, DocumentRemoveResult>,
     #[serde(rename = "document.export")]
     pub document_export: MethodContract<DocumentExportParams, DocumentExportResult>,
     #[serde(rename = "segment.list")]
@@ -220,6 +223,7 @@ mod tests {
             methods::PROJECT_ARCHIVE,
             methods::DOCUMENT_IMPORT,
             methods::DOCUMENT_LIST,
+            methods::DOCUMENT_REMOVE,
             methods::DOCUMENT_EXPORT,
             methods::SEGMENT_LIST,
             methods::SEGMENT_UPDATE,

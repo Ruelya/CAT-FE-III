@@ -2080,3 +2080,127 @@ fn docx_export_embeds_segment_anchors_only_when_requested() {
         );
     }
 }
+
+/// document.remove deletes the document row, its segments, and its QA
+/// issues in one call — and nothing else. The project TM (including the
+/// entry confirmed from the removed document), the attached termbase, the
+/// sibling document, and the original file on disk all survive; only the
+/// engine's managed copy of the source is deleted. A restart proves the
+/// rows are gone from SQLite, not just from engine memory.
+#[test]
+fn document_remove_deletes_rows_keeps_assets_and_survives_restart() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // A termbase mount that must survive the removal untouched.
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Kept glossary", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+
+    let doomed_id = harness.import_txt(
+        &project_id,
+        "doomed.txt",
+        "Hello world.\n\nThe count is 30.\n",
+    );
+    let kept_id = harness.import_txt(&project_id, "kept.txt", "Keep me around.\n");
+
+    // A confirmed segment writes the project TM; a wrong number gives the
+    // QA run an open issue to persist. Both hang off the doomed document.
+    let segments = harness.segments(&doomed_id);
+    assert_eq!(segments.len(), 2);
+    let drafted = harness.set_target(&segments[0], "你好，世界。");
+    harness.confirm(&drafted);
+    harness.set_target(&segments[1], "数量是 60。");
+    let run = harness.call("qa.run", json!({ "documentId": doomed_id }));
+    let open_issues = run["openIssues"].as_u64().expect("open issues");
+    assert!(open_issues >= 1, "the number mismatch persists an issue");
+
+    // The engine's managed copy exists before the removal.
+    let managed_dir = harness
+        .directory
+        .path()
+        .join("data")
+        .join("documents")
+        .join(&doomed_id);
+    assert!(managed_dir.is_dir(), "managed copy exists after import");
+
+    let removed = harness.call("document.remove", json!({ "documentId": doomed_id }));
+    assert_eq!(removed["document"]["id"].as_str(), Some(doomed_id.as_str()));
+    assert_eq!(removed["removedSegments"].as_u64(), Some(2));
+    assert!(removed["removedQaIssues"].as_u64().expect("qa count") >= open_issues);
+    assert_eq!(removed["managedCopyDeleted"].as_bool(), Some(true));
+
+    // Deleted: the document row, its segments, and its QA issues.
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    let documents = listed["documents"].as_array().expect("documents");
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0]["id"].as_str(), Some(kept_id.as_str()));
+    assert_eq!(
+        harness.call_err("segment.list", json!({ "documentId": doomed_id })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err("qa.list", json!({ "documentId": doomed_id })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "document.export",
+            json!({ "documentId": doomed_id, "outputPath": harness.path_of("gone.txt") }),
+        ),
+        "notFound"
+    );
+
+    // Kept: the project TM still serves the confirmed translation, the
+    // termbase mount is untouched, the sibling document still lists its
+    // segments, and the original import file is still on disk.
+    let lookup = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Hello world.", "minScore": 100 }),
+    );
+    assert_eq!(lookup["matches"].as_array().expect("matches").len(), 1);
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"].as_u64(), Some(1));
+    let termbases = harness.call("termbase.list", json!({ "projectId": project_id }));
+    assert_eq!(termbases["mounts"].as_array().expect("mounts").len(), 1);
+    assert_eq!(harness.segments(&kept_id).len(), 1);
+    assert!(
+        std::path::Path::new(&harness.path_of("doomed.txt")).is_file(),
+        "the original file outside the data dir is never touched"
+    );
+    assert!(
+        !managed_dir.exists(),
+        "the engine-managed copy is deleted with the document"
+    );
+
+    // Restart: the deletion is in SQLite, not just in engine memory.
+    harness.reopen();
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    let documents = listed["documents"].as_array().expect("documents");
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0]["id"].as_str(), Some(kept_id.as_str()));
+    assert_eq!(
+        harness.call_err("segment.list", json!({ "documentId": doomed_id })),
+        "notFound"
+    );
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"].as_u64(), Some(1), "TM survives the restart too");
+    assert_eq!(harness.segments(&kept_id).len(), 1);
+
+    // Removing again — or removing an id that never existed — is an honest
+    // NotFound, not a silent success.
+    assert_eq!(
+        harness.call_err("document.remove", json!({ "documentId": doomed_id })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err("document.remove", json!({ "documentId": "missing" })),
+        "notFound"
+    );
+}

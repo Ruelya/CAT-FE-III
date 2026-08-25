@@ -52,6 +52,7 @@ export const ENGINE_METHODS = [
   "project.archive",
   "document.import",
   "document.list",
+  "document.remove",
   "document.export",
   "segment.list",
   "segment.update",

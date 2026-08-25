@@ -43,12 +43,12 @@ use tl_protocol::{
     AiAssistCancelParams, AiAssistParams, AiAssistResult, AiAssistRunStatus, AiAssistRunView,
     AiAssistStatusParams, AiConfigureParams, AiProviderKind, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
-    DocumentListResult, EngineCapabilities, EngineReadyNotification, InitializeParams,
-    InitializeResult, PROTOCOL_VERSION, ProjectArchiveParams, ProjectCreateParams,
-    ProjectGetParams, ProjectListResult, ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode,
-    RpcNotification, RpcRequest, RpcResponse, SegmentConfirmParams, SegmentConfirmResult,
-    SegmentListParams, SegmentListResult, SegmentUpdateParams, SegmentUpdateResult, ShutdownResult,
-    methods, notifications,
+    DocumentListResult, DocumentRemoveParams, DocumentRemoveResult, EngineCapabilities,
+    EngineReadyNotification, InitializeParams, InitializeResult, PROTOCOL_VERSION,
+    ProjectArchiveParams, ProjectCreateParams, ProjectGetParams, ProjectListResult,
+    ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode, RpcNotification, RpcRequest,
+    RpcResponse, SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
+    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods, notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
@@ -323,6 +323,7 @@ impl Engine {
             methods::PROJECT_ARCHIVE => to_value(self.project_archive(parse(params)?)?),
             methods::DOCUMENT_IMPORT => to_value(self.document_import(parse(params)?)?),
             methods::DOCUMENT_LIST => to_value(self.document_list(parse(params)?)?),
+            methods::DOCUMENT_REMOVE => to_value(self.document_remove(parse(params)?)?),
             methods::DOCUMENT_EXPORT => to_value(self.document_export(parse(params)?)?),
             methods::SEGMENT_LIST => to_value(self.segment_list(parse(params)?)?),
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
@@ -772,6 +773,79 @@ impl Engine {
             .collect();
         documents.sort_by_key(|document| document.imported_at_ms);
         Ok(DocumentListResult { documents })
+    }
+
+    /// Remove one document from its project: the document row, its
+    /// segments, and its QA issues go in one SQLite transaction. The
+    /// project TM keeps every entry — including ones confirmed from this
+    /// document — and termbases/mounts are untouched; removing a bad import
+    /// must never cost linguistic assets.
+    fn document_remove(
+        &mut self,
+        params: DocumentRemoveParams,
+    ) -> Result<DocumentRemoveResult, EngineError> {
+        let record = self.require_document(&params.document_id)?.clone();
+        // A running agent still lands drafts on this document's segments;
+        // removing it mid-run would fail the run's closing QA pass. Honest
+        // Conflict instead, mirroring the run-start rule.
+        if let Some(active) = self.agent_runs.values().find(|run| {
+            run.view.status == AgentRunStatus::Running && run.view.document_id == record.document.id
+        }) {
+            return Err(EngineError::Conflict(format!(
+                "agent run {} is still running on this document; cancel it or wait",
+                active.view.run_id
+            )));
+        }
+        let removed_segments = self.store.document_segment_count(&record.document.id)?;
+        let removed_qa_issues = self.store.document_qa_issue_count(&record.document.id)?;
+        // Persist first (one transaction; see StateDelta::deleted_documents
+        // for the cascade), then drop the RAM record only after the commit.
+        self.store.apply(&StateDelta {
+            deleted_documents: vec![record.document.id.clone()],
+            ..Default::default()
+        })?;
+        self.state.documents.remove(&record.document.id);
+        let managed_copy_deleted = self.remove_managed_document_copy(&record);
+        Ok(DocumentRemoveResult {
+            document: record.document,
+            removed_segments,
+            removed_qa_issues,
+            managed_copy_deleted,
+        })
+    }
+
+    /// Best-effort cleanup of the engine's managed copy of a removed
+    /// document's source file, after the database transaction committed.
+    ///
+    /// The honest rule (the mirror of [`Engine::refuse_managed_overwrite`]):
+    /// the engine only deletes files inside its own data directory. The
+    /// original file at the import path is never touched, and a managed
+    /// path that resolves elsewhere — possible for records imported from a
+    /// legacy `state.json` — is left alone, because the engine cannot tell
+    /// who owns an arbitrary path on disk.
+    fn remove_managed_document_copy(&self, record: &DocumentRecord) -> bool {
+        let data_dir = self
+            .data_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.data_dir.clone());
+        let managed_source = Path::new(&record.managed_source_path);
+        let resolved = managed_source
+            .canonicalize()
+            .unwrap_or_else(|_| managed_source.to_path_buf());
+        if !resolved.starts_with(&data_dir) {
+            return false;
+        }
+        // Imports keep the copy in a per-document directory; remove the
+        // whole directory when the copy lives there, otherwise just the file.
+        let managed_dir = self.data_dir.join("documents").join(&record.document.id);
+        let resolved_dir = managed_dir
+            .canonicalize()
+            .unwrap_or_else(|_| managed_dir.clone());
+        if resolved.starts_with(&resolved_dir) {
+            std::fs::remove_dir_all(&managed_dir).is_ok()
+        } else {
+            std::fs::remove_file(&resolved).is_ok()
+        }
     }
 
     fn document_export(
