@@ -15,6 +15,7 @@ use tl_qa::{
     QaSegmentInput, QaTermExpectation, built_in_profiles, default_profile_id, evaluate_consistency,
 };
 
+use crate::store::StateDelta;
 use crate::{Engine, EngineError, now_ms};
 
 impl Engine {
@@ -76,6 +77,7 @@ impl Engine {
 
         let now = now_ms();
         let mut current_fingerprints = BTreeSet::new();
+        let mut changed_issues = Vec::new();
         for candidate in candidates {
             current_fingerprints.insert(candidate.fingerprint.clone());
             let existing = self
@@ -90,6 +92,7 @@ impl Engine {
                     issue.message = candidate.message;
                     issue.evidence = map_evidence(candidate.evidence);
                     issue.updated_at_ms = now;
+                    changed_issues.push(issue.clone());
                 }
                 None => {
                     let issue = QaIssue {
@@ -104,6 +107,7 @@ impl Engine {
                         created_at_ms: now,
                         updated_at_ms: now,
                     };
+                    changed_issues.push(issue.clone());
                     self.state.qa_issues.insert(issue.id.clone(), issue);
                 }
             }
@@ -116,9 +120,13 @@ impl Engine {
             {
                 issue.status = QaIssueStatus::Resolved;
                 issue.updated_at_ms = now;
+                changed_issues.push(issue.clone());
             }
         }
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            qa_issues: changed_issues,
+            ..Default::default()
+        })?;
         let issues = self.document_issues(&segment_ids);
         let open_issues = issues
             .iter()

@@ -25,6 +25,7 @@ use tl_protocol::{
     TmPretranslateResult, TmUpdateParams, TmUpdateResult,
 };
 
+use crate::store::StateDelta;
 use crate::{Engine, EngineError, now_ms};
 
 impl Engine {
@@ -33,7 +34,9 @@ impl Engine {
     }
 
     /// Insert or refresh the TM entry for one normalized source in a memory.
-    /// Returns the entry and whether it was newly added.
+    /// Returns the entry and whether it was newly added. The lookup goes
+    /// through the exact-match index, so upserting stays O(log n) instead of
+    /// scanning the whole table. Callers persist the returned entry.
     #[expect(clippy::too_many_arguments, reason = "internal upsert plumbing")]
     pub(crate) fn upsert_tm_entry(
         &mut self,
@@ -46,41 +49,36 @@ impl Engine {
         origin_segment_id: &str,
         now: i64,
     ) -> (TmEntry, bool) {
-        let existing = self
-            .state
-            .tm_entries
-            .values_mut()
-            .find(|entry| entry.memory_id == memory_id && entry.source_hash == source_hash);
-        match existing {
-            Some(entry) => {
-                entry.target_text = target_text.to_string();
-                entry.origin_document_id = origin_document_id.to_string();
-                entry.origin_segment_id = origin_segment_id.to_string();
-                entry.confirmed_at_ms = now;
-                (entry.clone(), false)
-            }
-            None => {
-                let entry = TmEntry {
-                    id: new_id(),
-                    memory_id: memory_id.to_string(),
-                    source_text: source_text.to_string(),
-                    target_text: target_text.to_string(),
-                    source_hash: source_hash.to_string(),
-                    origin_project_id: project_id.to_string(),
-                    origin_document_id: origin_document_id.to_string(),
-                    origin_segment_id: origin_segment_id.to_string(),
-                    confirmed_at_ms: now,
-                };
-                self.tm_indexes
-                    .entry(memory_id.to_string())
-                    .or_default()
-                    .insert(&entry.id, &entry.source_text);
-                self.state
-                    .tm_entries
-                    .insert(entry.id.clone(), entry.clone());
-                (entry, true)
-            }
+        let key = (memory_id.to_string(), source_hash.to_string());
+        if let Some(entry_id) = self.tm_exact.get(&key)
+            && let Some(entry) = self.state.tm_entries.get_mut(entry_id)
+        {
+            entry.target_text = target_text.to_string();
+            entry.origin_document_id = origin_document_id.to_string();
+            entry.origin_segment_id = origin_segment_id.to_string();
+            entry.confirmed_at_ms = now;
+            return (entry.clone(), false);
         }
+        let entry = TmEntry {
+            id: new_id(),
+            memory_id: memory_id.to_string(),
+            source_text: source_text.to_string(),
+            target_text: target_text.to_string(),
+            source_hash: source_hash.to_string(),
+            origin_project_id: project_id.to_string(),
+            origin_document_id: origin_document_id.to_string(),
+            origin_segment_id: origin_segment_id.to_string(),
+            confirmed_at_ms: now,
+        };
+        self.tm_indexes
+            .entry(memory_id.to_string())
+            .or_default()
+            .insert(&entry.id, &entry.source_text);
+        self.tm_exact.insert(key, entry.id.clone());
+        self.state
+            .tm_entries
+            .insert(entry.id.clone(), entry.clone());
+        (entry, true)
     }
 
     /// Exact + fuzzy matches for one source text against one memory, sorted
@@ -94,14 +92,16 @@ impl Engine {
     ) -> (Vec<TmMatchItem>, u32) {
         let hash = sha256_hex(normalize_text(source_text).as_bytes());
         let mut matches: Vec<TmMatchItem> = Vec::new();
-        for entry in self.state.tm_entries.values() {
-            if entry.memory_id == memory_id && entry.source_hash == hash {
-                matches.push(TmMatchItem {
-                    entry: entry.clone(),
-                    score: 100,
-                    grade: TmMatchGrade::Exact,
-                });
-            }
+        if let Some(entry) = self
+            .tm_exact
+            .get(&(memory_id.to_string(), hash.clone()))
+            .and_then(|entry_id| self.state.tm_entries.get(entry_id))
+        {
+            matches.push(TmMatchItem {
+                entry: entry.clone(),
+                score: 100,
+                grade: TmMatchGrade::Exact,
+            });
         }
         if let Some(index) = self.tm_indexes.get(memory_id) {
             for entry_id in index.recall(source_text, min_score) {
@@ -221,12 +221,16 @@ impl Engine {
                 "source and target text must not be empty".to_string(),
             ));
         }
-        let (memory_id, old_source_text) = {
+        let (memory_id, old_source_text, old_source_hash) = {
             let entry =
                 self.state.tm_entries.get(&params.entry_id).ok_or_else(|| {
                     EngineError::NotFound(format!("TM entry {}", params.entry_id))
                 })?;
-            (entry.memory_id.clone(), entry.source_text.clone())
+            (
+                entry.memory_id.clone(),
+                entry.source_text.clone(),
+                entry.source_hash.clone(),
+            )
         };
         let source_hash = sha256_hex(normalize_text(&source_text).as_bytes());
         // One entry per normalized source per memory: the confirm-time upsert
@@ -254,11 +258,21 @@ impl Engine {
         if updated.source_text != old_source_text {
             // Re-key the fuzzy index so recall follows the edited source.
             self.tm_indexes
-                .entry(memory_id)
+                .entry(memory_id.clone())
                 .or_default()
                 .insert(&updated.id, &updated.source_text);
         }
-        self.store.save(&self.state)?;
+        if updated.source_hash != old_source_hash {
+            // Re-key the exact-match index the same way; the confirm-time
+            // upsert and exact lookup both resolve through it.
+            self.tm_exact.remove(&(memory_id.clone(), old_source_hash));
+            self.tm_exact
+                .insert((memory_id, updated.source_hash.clone()), updated.id.clone());
+        }
+        self.store.apply(&StateDelta {
+            tm_entries: vec![updated.clone()],
+            ..Default::default()
+        })?;
         Ok(TmUpdateResult { entry: updated })
     }
 
@@ -275,7 +289,12 @@ impl Engine {
         if let Some(index) = self.tm_indexes.get_mut(&entry.memory_id) {
             index.remove(&entry.id);
         }
-        self.store.save(&self.state)?;
+        self.tm_exact
+            .remove(&(entry.memory_id.clone(), entry.source_hash.clone()));
+        self.store.apply(&StateDelta {
+            deleted_tm_entries: vec![entry.id.clone()],
+            ..Default::default()
+        })?;
         Ok(TmDeleteResult { entry })
     }
 
@@ -307,9 +326,10 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut updated = 0_u32;
+        let mut changed_entries = Vec::with_capacity(units.len());
         for unit in &units {
             let hash = sha256_hex(normalize_text(&unit.source_text).as_bytes());
-            let (_, is_new) = self.upsert_tm_entry(
+            let (entry, is_new) = self.upsert_tm_entry(
                 &memory_id,
                 &project.id,
                 &unit.source_text,
@@ -319,13 +339,19 @@ impl Engine {
                 "",
                 unit.created_at_ms.unwrap_or(now),
             );
+            changed_entries.push(entry);
             if is_new {
                 added += 1;
             } else {
                 updated += 1;
             }
         }
-        self.store.save(&self.state)?;
+        // One transaction for the whole file; duplicate ids inside the batch
+        // upsert in order, so the last occurrence wins, same as in memory.
+        self.store.apply(&StateDelta {
+            tm_entries: changed_entries,
+            ..Default::default()
+        })?;
         Ok(TmImportResult {
             imported: u32::try_from(units.len()).unwrap_or(u32::MAX),
             added,
@@ -427,15 +453,17 @@ impl Engine {
                 }
             }
         }
-        if !changed.is_empty() {
-            self.store.save(&self.state)?;
-        }
+        let delta = StateDelta {
+            segments: changed,
+            ..Default::default()
+        };
+        self.store.apply(&delta)?;
         Ok(TmPretranslateResult {
             checked,
             pretranslated: exact + fuzzy,
             exact,
             fuzzy,
-            segments: changed,
+            segments: delta.segments,
         })
     }
 
@@ -465,10 +493,13 @@ impl Engine {
             created_at_ms: now,
             updated_at_ms: now,
         };
+        self.store.apply(&StateDelta {
+            termbases: vec![termbase.clone()],
+            ..Default::default()
+        })?;
         self.state
             .termbases
             .insert(termbase.id.clone(), termbase.clone());
-        self.store.save(&self.state)?;
         Ok(termbase)
     }
 
@@ -539,8 +570,11 @@ impl Engine {
             created_at_ms: now,
             updated_at_ms: now,
         };
+        self.store.apply(&StateDelta {
+            termbase_mounts: vec![mount.clone()],
+            ..Default::default()
+        })?;
         self.state.termbase_mounts.push(mount.clone());
-        self.store.save(&self.state)?;
         Ok(TermbaseAttachResult { mount })
     }
 
@@ -567,6 +601,7 @@ impl Engine {
         // Re-compact the remaining priorities for this project so the next
         // attach (priority = current mount count) can never collide.
         let now = now_ms();
+        let mut recompacted: Vec<TermbaseMount> = Vec::new();
         let mut remaining: Vec<&mut TermbaseMount> = self
             .state
             .termbase_mounts
@@ -580,9 +615,17 @@ impl Engine {
                 mount.priority = priority;
                 mount.revision += 1;
                 mount.updated_at_ms = now;
+                recompacted.push(mount.clone());
             }
         }
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            termbase_mounts: recompacted,
+            deleted_termbase_mounts: vec![(
+                removed.project_id.clone(),
+                removed.termbase_id.clone(),
+            )],
+            ..Default::default()
+        })?;
         Ok(TermbaseDetachResult { mount: removed })
     }
 
@@ -672,7 +715,10 @@ impl Engine {
         entry.revision += 1;
         entry.updated_at_ms = now;
         let result = entry.clone();
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            term_entries: vec![result.clone()],
+            ..Default::default()
+        })?;
         Ok(TermAddResult { entry: result })
     }
 
@@ -785,7 +831,10 @@ impl Engine {
         entry.revision += 1;
         entry.updated_at_ms = now;
         let result = entry.clone();
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            term_entries: vec![result.clone()],
+            ..Default::default()
+        })?;
         Ok(TermUpdateResult { entry: result })
     }
 
@@ -801,7 +850,7 @@ impl Engine {
                 params.entry_id
             )));
         }
-        let result = match params.translation_id.as_deref() {
+        let (result, delta) = match params.translation_id.as_deref() {
             Some(translation_id) => {
                 let entry = self
                     .state
@@ -818,16 +867,29 @@ impl Engine {
                 entry.translations.remove(index);
                 entry.revision += 1;
                 entry.updated_at_ms = now_ms();
-                TermDeleteResult {
-                    entry: Some(entry.clone()),
-                }
+                let updated = entry.clone();
+                (
+                    TermDeleteResult {
+                        entry: Some(updated.clone()),
+                    },
+                    StateDelta {
+                        term_entries: vec![updated],
+                        ..Default::default()
+                    },
+                )
             }
             None => {
                 self.state.term_entries.remove(&params.entry_id);
-                TermDeleteResult { entry: None }
+                (
+                    TermDeleteResult { entry: None },
+                    StateDelta {
+                        deleted_term_entries: vec![params.entry_id.clone()],
+                        ..Default::default()
+                    },
+                )
             }
         };
-        self.store.save(&self.state)?;
+        self.store.apply(&delta)?;
         Ok(result)
     }
 
@@ -939,6 +1001,7 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut merged = 0_u32;
+        let mut changed_entries = Vec::with_capacity(parsed.len());
         for exchange in &parsed {
             let normalized_source = normalize_match_key(&exchange.source_term);
             if normalized_source.is_empty() {
@@ -1007,13 +1070,19 @@ impl Engine {
             }
             entry.revision += 1;
             entry.updated_at_ms = now;
+            changed_entries.push(entry.clone());
             if is_new {
                 added += 1;
             } else {
                 merged += 1;
             }
         }
-        self.store.save(&self.state)?;
+        // Duplicate entry ids inside the batch upsert in order; the last
+        // occurrence carries the accumulated translations, so it wins.
+        self.store.apply(&StateDelta {
+            term_entries: changed_entries,
+            ..Default::default()
+        })?;
         Ok(TermbaseImportResult {
             imported: u32::try_from(parsed.len()).unwrap_or(u32::MAX),
             added,
