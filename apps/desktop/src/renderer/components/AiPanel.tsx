@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AiAssistResult,
@@ -31,6 +31,13 @@ const PROVIDERS: Array<{ value: AiProviderKind; label: string }> = [
   { value: "openaiCompatible", label: "OpenAI 兼容端点" },
 ];
 
+/** Assist runs off the engine RPC thread; the panel polls until terminal. */
+const ASSIST_POLL_INTERVAL_MS = 150;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export interface AiPanelProps {
   activeSegment: Segment | null;
   onApplyDraft: (targetText: string) => void;
@@ -58,6 +65,15 @@ export function AiPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [activeAssistId, setActiveAssistId] = useState<string | null>(null);
+  // Bumped to invalidate an in-flight poll loop (cancel or unmount).
+  const assistGeneration = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      assistGeneration.current += 1;
+    };
+  }, []);
 
   const configure = useCallback(async () => {
     setBusy(true);
@@ -81,30 +97,56 @@ export function AiPanel({
     }
   }, [provider, model, baseUrl, apiKey, onStatusMessage, setStatus]);
 
+  // ai.assist.start returns immediately; the provider call runs off the
+  // engine RPC thread and this panel polls ai.assist.status until terminal.
+  // The grid, TM lookups, and agent polling stay responsive meanwhile.
   const assist = useCallback(
     async (action: "translate" | "refine") => {
       if (!activeSegment) {
         return;
       }
+      const generation = ++assistGeneration.current;
       setBusy(true);
       setError(null);
       setCandidate(null);
       try {
-        const result = await callEngine("ai.assist", {
+        const started = await callEngine("ai.assist.start", {
           segmentId: activeSegment.id,
           action,
           instruction: null,
         });
-        setCandidate({
-          action,
-          result,
-          baseTarget: activeSegment.targetText,
-          segmentId: activeSegment.id,
-        });
-        onStatusMessage(
-          `AI ${action === "translate" ? "翻译" : "润色"}完成（${result.model}，${result.elapsedMs}ms）`,
-        );
+        setActiveAssistId(started.assistId);
+        let view = started;
+        while (view.status === "running") {
+          await sleep(ASSIST_POLL_INTERVAL_MS);
+          if (assistGeneration.current !== generation) {
+            return;
+          }
+          view = await callEngine("ai.assist.status", {
+            assistId: started.assistId,
+          });
+        }
+        if (assistGeneration.current !== generation) {
+          return;
+        }
+        if (view.status === "done" && view.result) {
+          setCandidate({
+            action,
+            result: view.result,
+            baseTarget: activeSegment.targetText,
+            segmentId: activeSegment.id,
+          });
+          onStatusMessage(
+            `AI ${action === "translate" ? "翻译" : "润色"}完成（${view.result.model}，${view.result.elapsedMs}ms）`,
+          );
+        } else if (view.status === "failed") {
+          setError(`AI 调用失败：${view.errorMessage ?? "未知错误"}`);
+        }
+        // A canceled run ends silently: the cancel action already reported.
       } catch (assistError) {
+        if (assistGeneration.current !== generation) {
+          return;
+        }
         if (isAiNotConfigured(assistError)) {
           setError(
             "尚未配置 AI 供应商——引擎拒绝伪造译文。请先在下方填写密钥。",
@@ -113,11 +155,32 @@ export function AiPanel({
           setError(`AI 调用失败：${describeError(assistError)}`);
         }
       } finally {
-        setBusy(false);
+        if (assistGeneration.current === generation) {
+          setBusy(false);
+          setActiveAssistId(null);
+        }
       }
     },
     [activeSegment, onStatusMessage],
   );
+
+  const cancelAssist = useCallback(async () => {
+    if (!activeAssistId) {
+      return;
+    }
+    // Stop the poll loop first so the UI frees up immediately; the engine
+    // marks the run canceled and discards any late provider result.
+    assistGeneration.current += 1;
+    const assistId = activeAssistId;
+    setActiveAssistId(null);
+    setBusy(false);
+    onStatusMessage("已取消 AI 请求；引擎会丢弃该次结果");
+    try {
+      await callEngine("ai.assist.cancel", { assistId });
+    } catch {
+      // The run may already be terminal or pruned; nothing to surface.
+    }
+  }, [activeAssistId, onStatusMessage]);
 
   const confirmedSegment = activeSegment?.state === "confirmed";
   const candidateForActive =
@@ -182,6 +245,15 @@ export function AiPanel({
                 >
                   AI 润色
                 </Button>
+                {busy && activeAssistId ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void cancelAssist()}
+                  >
+                    取消请求
+                  </Button>
+                ) : null}
               </div>
             )}
             {candidateForActive && !confirmedSegment ? (
