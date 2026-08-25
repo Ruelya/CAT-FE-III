@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   Document,
@@ -20,6 +20,7 @@ import type {
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
+import type { SegmentGridHandle } from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
 import { TermPanel } from "../components/TermPanel.js";
 import { ConcordancePanel } from "../components/ConcordancePanel.js";
@@ -75,6 +76,7 @@ export function WorkbenchView({
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const gridRef = useRef<SegmentGridHandle | null>(null);
 
   const activeDocument = useMemo(
     () =>
@@ -243,11 +245,15 @@ export function WorkbenchView({
     [activeSegment, saveDraft],
   );
 
-  // Term insertion appends to the last saved draft; picking a caret inside
-  // the grid editor is out of scope for the dock panel.
+  // Terms land at the caret of the live grid editor (unsaved draft) without
+  // triggering a save. Only when no editor is mounted — e.g. the active row
+  // is filtered out — fall back to appending to the saved draft.
   const insertTermToActive = useCallback(
     (term: string) => {
       if (!activeSegment) {
+        return;
+      }
+      if (gridRef.current?.insertAtCaret(term)) {
         return;
       }
       const base = activeSegment.targetText;
@@ -504,6 +510,7 @@ export function WorkbenchView({
                   />
                 ) : (
                   <SegmentGrid
+                    ref={gridRef}
                     segments={filteredSegments}
                     activeSegmentId={activeSegmentId}
                     qaSegmentIds={openIssueSegmentIds}
