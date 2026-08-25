@@ -204,6 +204,60 @@ describe("ProjectSettingsDialog", () => {
     expect(exportCall?.[1]).toEqual({ projectId: "p1", path: "/tmp/out.tmx" });
   });
 
+  it("keeps unrelated settings actions usable while a TM import runs", async () => {
+    let finishImport: (response: EngineInvokeResponse) => void = () => {};
+    installBridge(
+      (method) => {
+        if (method === "tm.import") {
+          return new Promise<EngineInvokeResponse>((resolve) => {
+            finishImport = resolve;
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: {
+            termbases: [
+              termbase("tb1", "产品术语"),
+              termbase("tb2", "备用术语"),
+            ],
+            mounts: [mount("tb1")],
+          },
+        });
+      },
+      { tmImport: "/tmp/slow.tmx" },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("产品术语")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
+
+    // The in-flight control shows progress and disables; exporting the same
+    // project TM would conflict, so it locks too.
+    const importing = await screen.findByRole("button", { name: "导入中…" });
+    expect(importing).toBeDisabled();
+    expect(screen.getByRole("button", { name: "导出 TM…" })).toBeDisabled();
+
+    // Termbase actions touch different stores and stay usable.
+    expect(
+      screen.getByRole("button", { name: "导入术语到 产品术语" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "导出术语库 产品术语" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "挂载" })).toBeEnabled();
+
+    finishImport({ ok: true, result: { imported: 2, added: 1, updated: 1 } });
+    await waitFor(() => {
+      expect(
+        screen.getByText(/外部 TM 导入完成：读取 2 条，新增 1，更新 1/),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "导入外部 TM…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "导出 TM…" })).toBeEnabled();
+  });
+
   it("imports and exports a mounted termbase through its file channels", async () => {
     const calls: Array<[string, unknown]> = [];
     installBridge(
@@ -266,6 +320,75 @@ describe("ProjectSettingsDialog", () => {
       termbaseId: "tb1",
       path: "/tmp/terms.csv",
     });
+  });
+
+  it("locks only the same termbase's file actions while its import runs", async () => {
+    let finishImport: (response: EngineInvokeResponse) => void = () => {};
+    installBridge(
+      (method) => {
+        if (method === "termbase.import") {
+          return new Promise<EngineInvokeResponse>((resolve) => {
+            finishImport = resolve;
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: {
+            termbases: [
+              termbase("tb1", "产品术语"),
+              termbase("tb2", "法务术语"),
+            ],
+            mounts: [mount("tb1"), mount("tb2")],
+          },
+        });
+      },
+      { termbaseImport: "/tmp/terms.tbx" },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("法务术语")).toBeInTheDocument();
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "导入术语到 产品术语" }),
+    );
+
+    // The row keeps its aria-label, so assert progress via the visible text.
+    const importingTb1 = screen.getByRole("button", {
+      name: "导入术语到 产品术语",
+    });
+    await waitFor(() => {
+      expect(importingTb1).toBeDisabled();
+    });
+    expect(importingTb1).toHaveTextContent("导入中…");
+    expect(
+      screen.getByRole("button", { name: "导出术语库 产品术语" }),
+    ).toBeDisabled();
+
+    // The other termbase and the project TM stay usable.
+    expect(
+      screen.getByRole("button", { name: "导入术语到 法务术语" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "导出术语库 法务术语" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "导入外部 TM…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "导出 TM…" })).toBeEnabled();
+
+    finishImport({ ok: true, result: { imported: 3, added: 3, merged: 0 } });
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /术语库「产品术语」导入完成：读取 3 条，新增 3，合并 0/,
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: "导入术语到 产品术语" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "导出术语库 产品术语" }),
+    ).toBeEnabled();
   });
 
   it("lists mounted termbases from the engine", async () => {

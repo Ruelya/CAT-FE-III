@@ -23,6 +23,11 @@ export interface ProjectSettingsDialogProps {
  * tm.import/export. All file picks go through dedicated dialog channels in
  * the main process; a canceled pick does nothing and every result message
  * reports the engine's real counts.
+ *
+ * Each action tracks its own in-flight state (a Set of action ids), so a
+ * long TM import never locks the termbase buttons and vice versa. Only
+ * import/export against the same resource (the project TM, or one termbase)
+ * stay mutually exclusive, because they read and write the same store.
  */
 export function ProjectSettingsDialog({
   open,
@@ -31,9 +36,27 @@ export function ProjectSettingsDialog({
 }: ProjectSettingsDialogProps) {
   const [termbases, setTermbases] = useState<TermbaseListResult | null>(null);
   const [newTermbaseName, setNewTermbaseName] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const beginAction = useCallback((actionId: string) => {
+    setPending((previous) => {
+      const next = new Set(previous);
+      next.add(actionId);
+      return next;
+    });
+  }, []);
+
+  const endAction = useCallback((actionId: string) => {
+    setPending((previous) => {
+      const next = new Set(previous);
+      next.delete(actionId);
+      return next;
+    });
+  }, []);
 
   const refreshTermbases = useCallback(async () => {
     const result = await callEngine("termbase.list", {
@@ -52,7 +75,7 @@ export function ProjectSettingsDialog({
   }, [open, refreshTermbases]);
 
   const createAndAttach = useCallback(async () => {
-    setBusy(true);
+    beginAction("termbase.create");
     setError(null);
     try {
       const termbase = await callEngine("termbase.create", {
@@ -68,13 +91,20 @@ export function ProjectSettingsDialog({
     } catch (createError) {
       setError(describeError(createError));
     } finally {
-      setBusy(false);
+      endAction("termbase.create");
     }
-  }, [newTermbaseName, project.id, project.sourceLocale, refreshTermbases]);
+  }, [
+    beginAction,
+    endAction,
+    newTermbaseName,
+    project.id,
+    project.sourceLocale,
+    refreshTermbases,
+  ]);
 
   const attachExisting = useCallback(
     async (termbaseId: string) => {
-      setBusy(true);
+      beginAction(`termbase.attach:${termbaseId}`);
       setError(null);
       try {
         await callEngine("termbase.attach", {
@@ -85,10 +115,10 @@ export function ProjectSettingsDialog({
       } catch (attachError) {
         setError(describeError(attachError));
       } finally {
-        setBusy(false);
+        endAction(`termbase.attach:${termbaseId}`);
       }
     },
-    [project.id, refreshTermbases],
+    [beginAction, endAction, project.id, refreshTermbases],
   );
 
   const importTm = useCallback(async () => {
@@ -96,7 +126,7 @@ export function ProjectSettingsDialog({
     if (!path) {
       return;
     }
-    setBusy(true);
+    beginAction("tm.import");
     setError(null);
     setNotice(null);
     try {
@@ -110,16 +140,16 @@ export function ProjectSettingsDialog({
     } catch (importError) {
       setError(describeError(importError));
     } finally {
-      setBusy(false);
+      endAction("tm.import");
     }
-  }, [project.id]);
+  }, [beginAction, endAction, project.id]);
 
   const exportTm = useCallback(async () => {
     const path = await window.tl.chooseTmExportPath(`${project.name}-tm.tmx`);
     if (!path) {
       return;
     }
-    setBusy(true);
+    beginAction("tm.export");
     setError(null);
     setNotice(null);
     try {
@@ -131,9 +161,9 @@ export function ProjectSettingsDialog({
     } catch (exportError) {
       setError(describeError(exportError));
     } finally {
-      setBusy(false);
+      endAction("tm.export");
     }
-  }, [project.id, project.name]);
+  }, [beginAction, endAction, project.id, project.name]);
 
   const importTermbase = useCallback(
     async (termbase: Termbase) => {
@@ -141,7 +171,7 @@ export function ProjectSettingsDialog({
       if (!path) {
         return;
       }
-      setBusy(true);
+      beginAction(`termbase.import:${termbase.id}`);
       setError(null);
       setNotice(null);
       try {
@@ -156,36 +186,46 @@ export function ProjectSettingsDialog({
       } catch (importError) {
         setError(describeError(importError));
       } finally {
-        setBusy(false);
+        endAction(`termbase.import:${termbase.id}`);
       }
     },
-    [project.targetLocale],
+    [beginAction, endAction, project.targetLocale],
   );
 
-  const exportTermbase = useCallback(async (termbase: Termbase) => {
-    const path = await window.tl.chooseTermbaseExportPath(
-      `${termbase.name}.csv`,
-    );
-    if (!path) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const result = await callEngine("termbase.export", {
-        termbaseId: termbase.id,
-        path,
-      });
-      setNotice(
-        `术语库「${termbase.name}」导出完成：${result.exported} 条 → ${result.outputPath}`,
+  const exportTermbase = useCallback(
+    async (termbase: Termbase) => {
+      const path = await window.tl.chooseTermbaseExportPath(
+        `${termbase.name}.csv`,
       );
-    } catch (exportError) {
-      setError(describeError(exportError));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+      if (!path) {
+        return;
+      }
+      beginAction(`termbase.export:${termbase.id}`);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await callEngine("termbase.export", {
+          termbaseId: termbase.id,
+          path,
+        });
+        setNotice(
+          `术语库「${termbase.name}」导出完成：${result.exported} 条 → ${result.outputPath}`,
+        );
+      } catch (exportError) {
+        setError(describeError(exportError));
+      } finally {
+        endAction(`termbase.export:${termbase.id}`);
+      }
+    },
+    [beginAction, endAction],
+  );
+
+  const tmImportPending = pending.has("tm.import");
+  const tmExportPending = pending.has("tm.export");
+  // Import and export hit the same project TM, so they exclude each other;
+  // everything else runs independently.
+  const tmFileBusy = tmImportPending || tmExportPending;
+  const createPending = pending.has("termbase.create");
 
   const mountedIds = new Set(
     (termbases?.mounts ?? []).map((mount) => mount.termbaseId),
@@ -237,18 +277,18 @@ export function ProjectSettingsDialog({
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={tmFileBusy}
               onClick={() => void importTm()}
             >
-              导入外部 TM…
+              {tmImportPending ? "导入中…" : "导入外部 TM…"}
             </Button>
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={tmFileBusy}
               onClick={() => void exportTm()}
             >
-              导出 TM…
+              {tmExportPending ? "导出中…" : "导出 TM…"}
             </Button>
           </div>
           <p className="settings__note">
@@ -262,44 +302,58 @@ export function ProjectSettingsDialog({
           {mounted.length === 0 ? (
             <p className="settings__note">尚未挂载术语库。</p>
           ) : (
-            mounted.map((termbase) => (
+            mounted.map((termbase) => {
+              const importPending = pending.has(
+                `termbase.import:${termbase.id}`,
+              );
+              const exportPending = pending.has(
+                `termbase.export:${termbase.id}`,
+              );
+              // Same-termbase import and export exclude each other; other
+              // termbases and the TM buttons stay usable.
+              const fileBusy = importPending || exportPending;
+              return (
+                <div className="settings__row" key={termbase.id}>
+                  <span>{termbase.name}</span>
+                  <Badge tone="ok">已挂载</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={fileBusy}
+                    aria-label={`导入术语到 ${termbase.name}`}
+                    onClick={() => void importTermbase(termbase)}
+                  >
+                    {importPending ? "导入中…" : "导入 CSV/TBX…"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={fileBusy}
+                    aria-label={`导出术语库 ${termbase.name}`}
+                    onClick={() => void exportTermbase(termbase)}
+                  >
+                    {exportPending ? "导出中…" : "导出…"}
+                  </Button>
+                </div>
+              );
+            })
+          )}
+          {unmounted.map((termbase) => {
+            const attachPending = pending.has(`termbase.attach:${termbase.id}`);
+            return (
               <div className="settings__row" key={termbase.id}>
                 <span>{termbase.name}</span>
-                <Badge tone="ok">已挂载</Badge>
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy}
-                  aria-label={`导入术语到 ${termbase.name}`}
-                  onClick={() => void importTermbase(termbase)}
+                  disabled={attachPending}
+                  onClick={() => void attachExisting(termbase.id)}
                 >
-                  导入 CSV/TBX…
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  aria-label={`导出术语库 ${termbase.name}`}
-                  onClick={() => void exportTermbase(termbase)}
-                >
-                  导出…
+                  {attachPending ? "挂载中…" : "挂载"}
                 </Button>
               </div>
-            ))
-          )}
-          {unmounted.map((termbase) => (
-            <div className="settings__row" key={termbase.id}>
-              <span>{termbase.name}</span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void attachExisting(termbase.id)}
-              >
-                挂载
-              </Button>
-            </div>
-          ))}
+            );
+          })}
           <form
             className="settings__row"
             onSubmit={(event) => {
@@ -317,9 +371,9 @@ export function ProjectSettingsDialog({
               type="submit"
               size="sm"
               variant="outline"
-              disabled={busy || !newTermbaseName.trim()}
+              disabled={createPending || !newTermbaseName.trim()}
             >
-              新建并挂载
+              {createPending ? "新建中…" : "新建并挂载"}
             </Button>
           </form>
           <p className="settings__note">
