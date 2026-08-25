@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tl_asset::{TermEntry, Termbase, TermbaseMount};
 use tl_domain::{Document, Project, QaIssue, Segment, TmEntry};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -24,6 +25,12 @@ pub struct EngineState {
     pub tm_entries: BTreeMap<String, TmEntry>,
     #[serde(default)]
     pub qa_issues: BTreeMap<String, QaIssue>,
+    #[serde(default)]
+    pub termbases: BTreeMap<String, Termbase>,
+    #[serde(default)]
+    pub term_entries: BTreeMap<String, TermEntry>,
+    #[serde(default)]
+    pub termbase_mounts: Vec<TermbaseMount>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
