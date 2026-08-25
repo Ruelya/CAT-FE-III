@@ -230,6 +230,237 @@ fn project_update_rejects_language_change_once_assets_exist() {
     assert_eq!(unchanged["targetLocale"], "fr-FR");
 }
 
+/// A custom SRX whose no-break rule keeps "Alpha. Beta." together, so a
+/// sentence import that really used it yields 2 segments where the built-in
+/// rules would yield 3.
+const CUSTOM_SRX: &str = r#"<srx version="2.0"><header/><body>
+  <languagerules><languagerule languagerulename="custom" languagepattern="en.*">
+    <rule break="no"><beforebreak>Alpha\.</beforebreak><afterbreak>\s</afterbreak></rule>
+    <rule break="yes"><beforebreak>\.</beforebreak><afterbreak>\s</afterbreak></rule>
+  </languagerule></languagerules>
+  <maprules><maprule languagerulename="custom" languagepattern="en.*"/></maprules>
+</body></srx>"#;
+
+#[test]
+fn project_update_persists_import_defaults_used_by_import() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Paragraph becomes the stored default and applies to an import that
+    // sends no segmentation params at all.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(updated["configuration"]["segmentation"], "paragraph");
+    assert_eq!(updated["revision"], 2);
+    let paragraph_source = harness.write_file("default-para.txt", "One. Two. Three.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": paragraph_source }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "stored paragraph default");
+
+    // Sentence + a stored SRX default: the next bare import segments with
+    // the custom ruleset (2 segments, not the built-in 3).
+    let srx_path = harness.write_file("default.srx", CUSTOM_SRX);
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "segmentation": "sentence",
+            "srxPath": srx_path,
+        }),
+    );
+    assert_eq!(updated["configuration"]["segmentation"], "sentence");
+    assert_eq!(updated["configuration"]["srxPath"], json!(srx_path));
+    let sentence_source = harness.write_file("default-srx.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": sentence_source }),
+    );
+    assert_eq!(imported["segmentCount"], 2, "stored SRX default");
+
+    // Explicit params override the stored default: paragraph keeps the line
+    // whole, and an explicit sentence choice with no srxPath means the
+    // built-in rules, not the stored default.
+    let explicit_para = harness.write_file("explicit-para.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": explicit_para,
+            "segmentation": "paragraph",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "explicit paragraph override");
+    let explicit_builtin = harness.write_file("explicit-builtin.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": explicit_builtin,
+            "segmentation": "sentence",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 3, "explicit sentence = built-in");
+
+    // Switching the default to paragraph keeps the stored SRX (ignored, not
+    // lost), so switching back to sentence restores it.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], json!(srx_path));
+    let para_again = harness.write_file("para-again.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": para_again }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "paragraph ignores stored SRX");
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "sentence" }),
+    );
+    let sentence_again = harness.write_file("sentence-again.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": sentence_again }),
+    );
+    assert_eq!(imported["segmentCount"], 2, "stored SRX restored");
+
+    // clearSrxPath resets to the built-in rules.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "clearSrxPath": true }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], Value::Null);
+    let cleared = harness.write_file("cleared.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": cleared }),
+    );
+    assert_eq!(imported["segmentCount"], 3, "cleared default = built-in");
+
+    // The defaults survive an engine restart through the store.
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "srxPath": srx_path }),
+    );
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["configuration"]["segmentation"], "sentence");
+    assert_eq!(reloaded["configuration"]["srxPath"], json!(srx_path));
+}
+
+#[test]
+fn project_update_validates_import_defaults_and_import_fails_honestly() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Unknown modes and contradictory SRX instructions are invalid.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "segmentation": "words" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({
+                "projectId": project_id,
+                "srxPath": "/tmp/rules.srx",
+                "clearSrxPath": true,
+            }),
+        ),
+        "invalidParams"
+    );
+
+    // An SRX default is rejected while the effective segmentation default is
+    // paragraph — whether both arrive together or the paragraph default was
+    // stored earlier.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({
+                "projectId": project_id,
+                "segmentation": "paragraph",
+                "srxPath": "/tmp/rules.srx",
+            }),
+        ),
+        "invalidParams"
+    );
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "srxPath": "/tmp/rules.srx" }),
+        ),
+        "invalidParams"
+    );
+
+    // Empty strings mean "keep the current defaults" and do not bump the
+    // revision.
+    let before = harness.call("project.get", json!({ "projectId": project_id }));
+    let same = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "", "srxPath": "  " }),
+    );
+    assert_eq!(same["revision"], before["revision"]);
+    assert_eq!(same["configuration"]["segmentation"], "paragraph");
+
+    // Saving only stores the path: a missing SRX file is accepted here and
+    // fails honestly at import time instead.
+    let missing_srx = harness.path_of("gone.srx");
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "segmentation": "sentence",
+            "srxPath": missing_srx,
+        }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], json!(missing_srx));
+    let source = harness.write_file("honest.txt", "Alpha. Beta. Gamma.\n");
+    assert_eq!(
+        harness.call_err(
+            "document.import",
+            json!({ "projectId": project_id, "sourcePath": source }),
+        ),
+        "notFound"
+    );
+
+    // Explicit params keep working around the broken default: sentence with
+    // the built-in rules, or paragraph mode. Paragraph with an SRX is the
+    // same contradiction as in project.update.
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source,
+            "segmentation": "sentence",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 3);
+    assert_eq!(
+        harness.call_err(
+            "document.import",
+            json!({
+                "projectId": project_id,
+                "sourcePath": source,
+                "segmentation": "paragraph",
+                "srxPath": missing_srx,
+            }),
+        ),
+        "invalidParams"
+    );
+}
+
 #[test]
 fn project_archive_stamps_and_clears_archived_at() {
     let mut harness = Harness::new();

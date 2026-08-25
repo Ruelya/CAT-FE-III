@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { DocumentImportResult, Project } from "@translunar/contracts";
 import { Button, Dialog, SelectField } from "@translunar/ui";
@@ -10,6 +10,12 @@ export interface ImportDocumentDialogProps {
   project: Project;
   onClose: () => void;
   onImported: (result: DocumentImportResult) => void;
+  /**
+   * Called with the stored project after the defaults auto-save.
+   * `undefined` is allowed explicitly so pass-through props survive
+   * `exactOptionalPropertyTypes`.
+   */
+  onProjectUpdated?: ((project: Project) => void) | undefined;
 }
 
 type SegmentationChoice = "sentence" | "paragraph";
@@ -18,25 +24,56 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
+/** The project's stored default segmentation; unset means sentence mode. */
+export function defaultSegmentation(project: Project): SegmentationChoice {
+  return project.configuration.segmentation === "paragraph"
+    ? "paragraph"
+    : "sentence";
+}
+
+/** The project's stored default SRX ruleset path, if any. */
+export function defaultSrxPath(project: Project): string | null {
+  return project.configuration.srxPath ?? null;
+}
+
 /**
  * Document import with the engine's real options: segmentation mode
  * (sentence via SRX, or paragraph) and an optional custom SRX ruleset.
- * The source and SRX files come from dedicated main-process dialog
- * channels; without a chosen source file the submit stays disabled, and a
- * failed import surfaces the engine error instead of pretending.
+ * The form pre-fills from the project's stored defaults
+ * (`configuration.segmentation` / `configuration.srxPath`), and after a
+ * successful import the chosen options are auto-saved back through
+ * project.update so the next import starts from them — the dialog note
+ * says so. The source and SRX files come from dedicated main-process
+ * dialog channels; without a chosen source file the submit stays
+ * disabled, and a failed import surfaces the engine error instead of
+ * pretending.
  */
 export function ImportDocumentDialog({
   open,
   project,
   onClose,
   onImported,
+  onProjectUpdated,
 }: ImportDocumentDialogProps) {
   const [sourcePath, setSourcePath] = useState<string | null>(null);
-  const [segmentation, setSegmentation] =
-    useState<SegmentationChoice>("sentence");
-  const [srxPath, setSrxPath] = useState<string | null>(null);
+  const [segmentation, setSegmentation] = useState<SegmentationChoice>(() =>
+    defaultSegmentation(project),
+  );
+  const [srxPath, setSrxPath] = useState<string | null>(() =>
+    defaultSrxPath(project),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    // Pre-fill from the stored project defaults whenever the dialog opens
+    // or the stored project changes (e.g. right after the auto-save).
+    setSegmentation(defaultSegmentation(project));
+    setSrxPath(defaultSrxPath(project));
+  }, [open, project]);
 
   const chooseSource = useCallback(async () => {
     const path = await window.tl.chooseSourceFile();
@@ -56,10 +93,10 @@ export function ImportDocumentDialog({
 
   const reset = useCallback(() => {
     setSourcePath(null);
-    setSegmentation("sentence");
-    setSrxPath(null);
+    setSegmentation(defaultSegmentation(project));
+    setSrxPath(defaultSrxPath(project));
     setError(null);
-  }, []);
+  }, [project]);
 
   const cancel = useCallback(() => {
     reset();
@@ -72,8 +109,9 @@ export function ImportDocumentDialog({
     }
     setBusy(true);
     setError(null);
+    let result: DocumentImportResult;
     try {
-      const result = await callEngine("document.import", {
+      result = await callEngine("document.import", {
         projectId: project.id,
         sourcePath,
         segmentation,
@@ -81,14 +119,40 @@ export function ImportDocumentDialog({
         // ruleset that would silently do nothing.
         srxPath: segmentation === "sentence" ? srxPath : null,
       });
-      reset();
-      onClose();
-      onImported(result);
     } catch (importError) {
       setError(describeError(importError));
-    } finally {
       setBusy(false);
+      return;
     }
+    try {
+      // Remember the successful choice as the project default so the next
+      // import starts from it (the dialog note documents this). Paragraph
+      // mode leaves the stored SRX default untouched — the engine keeps it
+      // for a later switch back to sentence mode.
+      const updated = await callEngine(
+        "project.update",
+        segmentation === "paragraph"
+          ? { projectId: project.id, segmentation }
+          : srxPath
+            ? { projectId: project.id, segmentation, srxPath }
+            : { projectId: project.id, segmentation, clearSrxPath: true },
+      );
+      onProjectUpdated?.(updated);
+    } catch (saveError) {
+      // The import itself succeeded; stay open and say so honestly instead
+      // of silently forgetting the defaults.
+      setSourcePath(null);
+      setError(
+        `文档已导入，但保存项目默认分段设置失败：${describeError(saveError)}`,
+      );
+      setBusy(false);
+      onImported(result);
+      return;
+    }
+    setBusy(false);
+    reset();
+    onClose();
+    onImported(result);
   }, [
     sourcePath,
     segmentation,
@@ -97,6 +161,7 @@ export function ImportDocumentDialog({
     reset,
     onClose,
     onImported,
+    onProjectUpdated,
   ]);
 
   return (
@@ -175,6 +240,8 @@ export function ImportDocumentDialog({
         </div>
         <p className="settings__note">
           自定义 SRX 仅在句子分段时生效；段落分段按空行切分，不使用 SRX。
+          导入成功后，本次的分段方式与 SRX
+          选择会自动保存为项目默认，下次导入沿用，也可在「项目设置」中修改。
         </p>
 
         {error ? (

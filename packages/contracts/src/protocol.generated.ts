@@ -40,6 +40,12 @@ export type AiProviderKind =
 export type AiAssistRunStatus = "running" | "done" | "failed" | "canceled";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
+/**
+ * Default segmentation mode applied when `document.import` is called without
+ * an explicit segmentation choice. Serialized as `sentence` / `paragraph`,
+ * matching the strings `DocumentImportParams.segmentation` accepts.
+ */
+export type ProjectSegmentation = "sentence" | "paragraph";
 export type ProjectLifecycle = "active" | "archived" | "trash";
 export type QaSeverity = "error" | "warning" | "info";
 export type QaIssueStatus = "open" | "resolved";
@@ -339,13 +345,18 @@ export interface DocumentImportParams {
   filterId?: string | null;
   projectId: string;
   /**
-   * Segmentation mode: `sentence` (default) or `paragraph`.
+   * Segmentation mode: `sentence` or `paragraph`. When omitted together
+   * with `srxPath`, the project's stored default applies (falling back
+   * to sentence with built-in rules).
    */
   segmentation?: string | null;
   sourcePath: string;
   /**
    * Path to a custom SRX ruleset used for sentence segmentation. When
-   * omitted, the built-in rules for the project source locale apply.
+   * omitted together with `segmentation`, the project's stored default
+   * applies; when provided without `segmentation` it implies sentence
+   * mode. An explicit `segmentation` makes the params the complete
+   * choice, so `srxPath: null` then means the built-in rules.
    */
   srxPath?: string | null;
   [k: string]: unknown;
@@ -472,6 +483,17 @@ export interface ProjectConfiguration {
   engineAllowlist?: string[];
   pipelineId?: string | null;
   qaProfileId?: string | null;
+  /**
+   * Default segmentation for future imports. `None` means sentence mode.
+   */
+  segmentation?: ProjectSegmentation | null;
+  /**
+   * Default SRX ruleset path for future sentence-mode imports. Only the
+   * path is stored — a missing or invalid file fails at import time, not
+   * when the default is saved. Ignored (but kept) while the segmentation
+   * default is paragraph, so switching back to sentence restores it.
+   */
+  srxPath?: string | null;
   taskPackage?: TaskPackageProjectReference | null;
   templateId?: string | null;
   [k: string]: unknown;
@@ -538,8 +560,9 @@ export interface MethodContract6 {
   result: Project;
 }
 /**
- * Parameters for `project.update`. Omitted fields stay unchanged; provided
- * fields are trimmed and must not be empty.
+ * Parameters for `project.update`. Omitted fields stay unchanged. `name`,
+ * `sourceLocale`, and `targetLocale` are trimmed and must not be empty when
+ * provided.
  *
  * Language-pair rule: the source/target locales may only change while the
  * project holds no linguistic assets — no imported documents, no project-TM
@@ -547,11 +570,34 @@ export interface MethodContract6 {
  * source locale and TM/term data was collected for the old pair, so once
  * assets exist a locale change is rejected with `conflict` instead of
  * silently orphaning TM and term lookups.
+ *
+ * Import-default rule: `segmentation` (`sentence` | `paragraph`) and
+ * `srxPath` persist the project's default import choices in
+ * `configuration`. Empty or omitted values keep the current defaults;
+ * `clearSrxPath: true` resets the SRX default back to the built-in rules
+ * (and cannot be combined with a new `srxPath`). An `srxPath` is only
+ * accepted while the effective segmentation default is `sentence` — SRX
+ * rules never apply in paragraph mode. Only the path is stored: a missing
+ * SRX file fails honestly at import time, not when the default is saved.
  */
 export interface ProjectUpdateParams {
+  /**
+   * Reset the stored SRX default back to the built-in rules.
+   */
+  clearSrxPath?: boolean;
   name?: string | null;
   projectId: string;
+  /**
+   * Default segmentation mode for future imports: `sentence` or
+   * `paragraph`. Empty or omitted keeps the current default.
+   */
+  segmentation?: string | null;
   sourceLocale?: string | null;
+  /**
+   * Default SRX ruleset path for future sentence-mode imports. Empty or
+   * omitted keeps the current default; use `clearSrxPath` to reset.
+   */
+  srxPath?: string | null;
   targetLocale?: string | null;
   [k: string]: unknown;
 }
