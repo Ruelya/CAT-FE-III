@@ -16,6 +16,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tl-ai = { path = "../tl-ai" }
+tl-asset = { path = "../tl-asset" }
 tl-domain = { path = "../tl-domain" }
 tl-filter-core = { path = "../tl-filter-core" }
 tl-filter-docx = { path = "../tl-filter-docx" }
@@ -25,6 +26,7 @@ tl-filter-text = { path = "../tl-filter-text" }
 tl-filter-xliff = { path = "../tl-filter-xliff" }
 tl-filter-xlsx = { path = "../tl-filter-xlsx" }
 tl-protocol = { path = "../tl-protocol" }
+tl-qa = { path = "../tl-qa" }
 tl-segmentation = { path = "../tl-segmentation" }
 
 [[bin]]

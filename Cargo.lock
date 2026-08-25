@@ -1705,6 +1705,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tl-ai",
+ "tl-asset",
  "tl-domain",
  "tl-filter-core",
  "tl-filter-docx",
@@ -1714,6 +1715,7 @@ dependencies = [
  "tl-filter-xliff",
  "tl-filter-xlsx",
  "tl-protocol",
+ "tl-qa",
  "tl-segmentation",
  "tracing",
  "tracing-subscriber",
@@ -1824,6 +1826,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tl-ai",
+ "tl-asset",
  "tl-domain",
 ]
 

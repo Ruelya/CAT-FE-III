@@ -88,8 +88,10 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   await expect(page.locator(".app-statusbar")).toContainText("草稿已保存");
   await page.getByRole("button", { name: "QA", exact: true }).click();
   await page.getByRole("button", { name: "运行数字 QA" }).click();
-  await expect(page.locator(".issue-card").first()).toContainText("未解决");
-  await expect(page.locator(".issue-card").first()).toContainText("1300");
+  // The engine now runs the full rule library, so target the number issue
+  // card instead of assuming it is the first one.
+  const numberIssue = page.locator(".issue-card", { hasText: "1300" }).first();
+  await expect(numberIssue).toContainText("未解决");
   await shot("04-number-qa-issue.png");
 
   // AI assist degrades honestly without credentials.
