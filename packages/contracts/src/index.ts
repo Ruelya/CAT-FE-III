@@ -1,9 +1,12 @@
 export * from "./protocol.generated.js";
 
 import type {
-  RpcError as GeneratedRpcError,
+  NotificationCatalog,
+  RpcError,
   RpcMethodCatalog,
 } from "./protocol.generated.js";
+
+export const PROTOCOL_VERSION = 1;
 
 export type EngineMethod = keyof RpcMethodCatalog;
 export type EngineParams<Method extends EngineMethod> =
@@ -11,273 +14,60 @@ export type EngineParams<Method extends EngineMethod> =
 export type EngineResult<Method extends EngineMethod> =
   RpcMethodCatalog[Method]["result"];
 
-export interface RpcRequest<Method extends EngineMethod = EngineMethod> {
-  jsonrpc: "2.0";
+export type EngineNotificationName = keyof NotificationCatalog;
+export type EngineNotificationParams<Name extends EngineNotificationName> =
+  NotificationCatalog[Name];
+
+/** Client-to-engine stdin frame with the method-specific params attached. */
+export interface EngineRequestFrame<
+  Method extends EngineMethod = EngineMethod,
+> {
   id: number;
   method: Method;
   params: EngineParams<Method>;
 }
 
-export interface RpcFailure {
-  jsonrpc: "2.0";
-  id: number | null;
-  error: GeneratedRpcError;
+export interface EngineResponseFrame {
+  kind: "response";
+  id?: number | null;
+  result?: unknown;
+  error?: RpcError | null;
 }
 
-export interface RpcSuccess<Result = unknown> {
-  jsonrpc: "2.0";
-  id: number;
-  result: Result;
+export interface EngineNotificationFrame {
+  kind: "notification";
+  method: string;
+  params?: unknown;
 }
 
-export type RpcResponse<Result = unknown> = RpcSuccess<Result> | RpcFailure;
-
-export const PROTOCOL_VERSION = 1;
+export type AnyEngineFrame = EngineResponseFrame | EngineNotificationFrame;
 
 export const ENGINE_METHODS = [
   "engine.initialize",
+  "engine.shutdown",
   "project.create",
-  "project.get",
   "project.list",
-  "project.update",
-  "project.setLifecycle",
-  "project.template.list",
-  "project.template.get",
-  "project.template.create",
-  "project.template.update",
-  "project.template.delete",
-  "project.createFromTemplate",
-  "project.batchImport",
-  "project.archive.export",
-  "project.archive.restore",
-  "project.analytics.get",
-  "discussion.thread.list",
-  "discussion.thread.create",
-  "discussion.thread.resolve",
-  "discussion.message.list",
-  "discussion.message.create",
-  "discussion.message.update",
-  "discussion.message.delete",
-  "project.snapshot.list",
-  "project.snapshot.create",
-  "project.snapshot.get",
-  "project.snapshot.previewRestore",
-  "project.snapshot.restore",
-  "document.list",
-  "document.get",
+  "project.get",
   "document.import",
-  "document.importDocx",
-  "document.reimport.preview",
-  "document.reimport.apply",
-  "recycle.list",
-  "recycle.delete",
-  "recycle.restore",
-  "recycle.purge",
-  "search.global",
-  "analysis.profile.list",
-  "analysis.run",
-  "analysis.run.get",
-  "segment.list",
-  "segment.updateTarget",
-  "segment.confirm",
-  "segment.editor.list",
-  "segment.tag.set",
-  "segment.chinese.convert",
-  "segment.propagate",
-  "segment.find",
-  "segment.replace.preview",
-  "segment.replace.apply",
-  "segment.split",
-  "segment.merge",
-  "segment.correctSource",
-  "segment.workflow.set",
-  "segment.comment.list",
-  "segment.comment.create",
-  "segment.comment.update",
-  "segment.comment.resolve",
-  "segment.comment.delete",
-  "segment.spell.check",
-  "dictionary.list",
-  "dictionary.add",
-  "dictionary.remove",
-  "editor.undo",
-  "editor.redo",
-  "editor.history",
-  "review.create",
-  "review.list",
-  "review.accept",
-  "review.reject",
-  "review.queue",
-  "review.stats",
-  "interop.review.export",
-  "interop.review.preview",
-  "interop.review.apply",
-  "interop.table.preview",
-  "interop.table.apply",
-  "taskPackage.export",
-  "taskPackage.preview",
-  "taskPackage.apply",
-  "taskPackage.import",
-  "taskPackage.discard",
-  "editor.preferences.get",
-  "editor.preferences.update",
-  "pdf.page.list",
-  "pdf.page.get",
-  "pdf.correctOcr",
-  "alignment.session.create",
-  "alignment.session.get",
-  "alignment.session.list",
-  "alignment.session.update",
-  "alignment.session.refine",
-  "alignment.session.apply",
-  "corpus.list",
-  "corpus.import",
-  "corpus.fromAlignment",
-  "corpus.search",
-  "corpus.reindex",
-  "corpus.remove",
-  "asset.catalog.list",
-  "curation.run",
-  "curation.run.get",
-  "curation.finding.list",
-  "curation.apply",
-  "curation.rollback",
-  "curation.export",
-  "tm.lookupExact",
-  "tm.library.list",
-  "tm.library.create",
-  "tm.library.mount",
-  "tm.library.unmount",
-  "tm.search",
-  "tm.concordance",
-  "tm.import",
-  "tm.export",
-  "termbase.list",
-  "termbase.create",
-  "termbase.mount",
-  "termbase.unmount",
-  "editor.suggest",
-  "term.search",
-  "term.upsert",
-  "termbase.import",
-  "termbase.export",
-  "qa.runDocument",
-  "qa.list",
-  "qa.profile.list",
-  "qa.profile.create",
-  "qa.profile.clone",
-  "qa.profile.update",
-  "qa.profile.delete",
-  "qa.run",
-  "qa.run.list",
-  "qa.run.get",
-  "qa.issue.list",
-  "qa.issue.waive",
-  "qa.issue.revoke",
-  "qa.report.export",
-  "qa.gate.check",
-  "qa.override.list",
-  "document.exportDocx",
+  "document.list",
   "document.export",
-  "filter.list",
-  "plugin.list",
-  "plugin.get",
-  "plugin.install",
-  "plugin.enable",
-  "plugin.disable",
-  "plugin.uninstall",
-  "plugin.inspect",
-  "plugin.version.list",
-  "plugin.upgrade",
-  "plugin.rollback",
-  "plugin.bundled.list",
-  "plugin.bundled.apply",
-  "plugin.permission.request.list",
-  "plugin.permission.review",
-  "plugin.permission.grant",
-  "plugin.permission.deny",
-  "plugin.permission.revoke",
-  "plugin.permission.audit.list",
-  "plugin.aiAction.list",
-  "plugin.aiAction.invoke",
-  "plugin.aiAction.cancel",
-  "plugin.aiAction.history.list",
-  "plugin.uiPanel.list",
-  "plugin.uiPanel.bridge.call",
-  "externalConnector.catalog",
-  "externalConnector.profile.list",
-  "externalConnector.profile.create",
-  "externalConnector.profile.update",
-  "externalConnector.profile.delete",
-  "externalConnector.credential.set",
-  "externalConnector.credential.delete",
-  "externalConnector.credential.status",
-  "externalConnector.invoke",
-  "externalConnector.checkpoint.get",
-  "collab.member.list",
-  "collab.member.add",
-  "collab.member.remove",
-  "collab.lock.acquire",
-  "collab.lock.release",
-  "collab.lock.heartbeat",
-  "collab.lock.list",
-  "collab.presence.heartbeat",
-  "collab.presence.list",
-  "collab.assignment.list",
-  "collab.assignment.create",
-  "collab.assignment.complete",
-  "collab.opLog.list",
-  "history.list",
-  "data.checkHealth",
-  "data.createBackup",
-  "pipeline.step.list",
-  "pipeline.create",
-  "pipeline.list",
-  "pipeline.get",
-  "pipeline.validate",
-  "pipeline.run",
-  "pipeline.run.list",
-  "pipeline.run.get",
-  "pipeline.run.cancel",
-  "pipeline.run.resume",
-  "ai.provider.catalog",
-  "ai.provider.list",
-  "ai.provider.create",
-  "ai.provider.update",
-  "ai.provider.delete",
-  "ai.provider.test",
-  "ai.credential.delete",
-  "ai.credential.status",
-  "ai.settings.get",
-  "ai.settings.update",
-  "ai.grounding.preview",
-  "ai.run.start",
-  "ai.run.get",
-  "ai.run.list",
-  "ai.run.events",
-  "ai.run.cancel",
-  "ai.run.resume",
-  "ai.result.apply",
-  "ai.batch.start",
-  "ai.batch.get",
-  "ai.batch.list",
-  "ai.batch.items",
-  "ai.batch.cancel",
-  "ai.batch.resume",
-  "ai.usage.query",
-  "ai.quality.scoreDocument",
-  "ai.quality.semanticQa",
-  "ai.quality.extractTerms",
-  "ai.conversation.list",
-  "ai.conversation.create",
-  "ai.conversation.update",
-  "ai.conversation.messages",
+  "segment.list",
+  "segment.update",
+  "segment.confirm",
+  "tm.lookup",
+  "qa.run",
+  "qa.list",
+  "ai.configure",
+  "ai.status",
+  "ai.assist",
+  "ai.agent.run",
 ] as const satisfies readonly EngineMethod[];
 
-type MissingEngineMethod = Exclude<
-  EngineMethod,
-  (typeof ENGINE_METHODS)[number]
->;
-const allMethodsCovered: MissingEngineMethod extends never ? true : false =
-  true;
-void allMethodsCovered;
+export const ENGINE_NOTIFICATIONS = [
+  "notify.engine.ready",
+  "notify.ai.agent.step",
+] as const satisfies readonly EngineNotificationName[];
+
+export function isEngineMethod(value: string): value is EngineMethod {
+  return (ENGINE_METHODS as readonly string[]).includes(value);
+}

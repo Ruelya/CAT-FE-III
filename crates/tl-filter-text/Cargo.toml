@@ -1,0 +1,15 @@
+[package]
+name = "tl-filter-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tl-domain = { path = "../tl-domain" }
+tl-filter-core = { path = "../tl-filter-core" }
+tl-segmentation = { path = "../tl-segmentation" }
+
+[dev-dependencies]
+tempfile.workspace = true

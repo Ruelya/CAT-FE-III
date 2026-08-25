@@ -1,14 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import "./appearance-bootstrap";
-import { App } from "./App";
-import "./styles.css";
+import "@translunar/ui/tokens.css";
+import "@translunar/ui/components.css";
+import "./app.css";
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Renderer root is missing.");
+import { App } from "./App.js";
 
-createRoot(root).render(
+const container = document.getElementById("root");
+if (!container) {
+  throw new Error("renderer root element is missing");
+}
+createRoot(container).render(
   <StrictMode>
     <App />
   </StrictMode>,

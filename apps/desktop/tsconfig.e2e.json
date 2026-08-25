@@ -3,8 +3,8 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
-    "types": ["node", "@playwright/test"]
+    "lib": ["ES2022"],
+    "types": ["node"]
   },
-  "include": ["tests/e2e/**/*.ts", "src/renderer/global.d.ts"]
+  "include": ["tests/e2e/**/*.ts", "playwright.config.ts"]
 }

@@ -13,10 +13,13 @@ export default tseslint.config(
       "packages/contracts/src/protocol.generated.ts",
       ".agent/**",
       ".agents/**",
+      ".amp/**",
       ".claude/**",
       ".codex/**",
       ".cursor/**",
+      ".devin/**",
       ".firecrawl/**",
+      ".grok/**",
       ".opencode/**",
       ".trellis/**",
     ],
@@ -35,8 +38,7 @@ export default tseslint.config(
           "./apps/desktop/tsconfig.renderer.json",
           "./apps/desktop/tsconfig.e2e.json",
           "./packages/contracts/tsconfig.json",
-          "./packages/plugin-sdk/tsconfig.json",
-          "./packages/plugin-sdk/tsconfig.example.json",
+          "./packages/ui/tsconfig.json",
         ],
         tsconfigRootDir: import.meta.dirname,
       },
@@ -56,36 +58,6 @@ export default tseslint.config(
     files: ["**/*.cts"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
-    },
-  },
-  {
-    // `await act(async () => { ... })` is the React Testing Library idiom for
-    // flushing effects and microtasks, and typed gateway fakes must satisfy
-    // async signatures even when the body is synchronous. Both are awaitless
-    // by design, so `require-await` is not meaningful in test sources.
-    files: ["**/*.test.{ts,tsx}", "apps/desktop/tests/**/*.ts"],
-    rules: {
-      "@typescript-eslint/require-await": "off",
-    },
-  },
-  {
-    files: ["**/*.{js,mjs,cjs}"],
-    languageOptions: {
-      globals: {
-        console: "readonly",
-        process: "readonly",
-      },
-    },
-  },
-  {
-    // Renderer public assets are classic browser scripts served verbatim.
-    files: ["apps/desktop/src/renderer/public/**/*.js"],
-    languageOptions: {
-      globals: {
-        window: "readonly",
-        document: "readonly",
-        localStorage: "readonly",
-      },
     },
   },
 );

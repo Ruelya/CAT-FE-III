@@ -1,0 +1,32 @@
+[package]
+name = "tl-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tl-ai = { path = "../tl-ai" }
+tl-domain = { path = "../tl-domain" }
+tl-filter-core = { path = "../tl-filter-core" }
+tl-filter-docx = { path = "../tl-filter-docx" }
+tl-filter-html = { path = "../tl-filter-html" }
+tl-filter-pptx = { path = "../tl-filter-pptx" }
+tl-filter-text = { path = "../tl-filter-text" }
+tl-filter-xliff = { path = "../tl-filter-xliff" }
+tl-filter-xlsx = { path = "../tl-filter-xlsx" }
+tl-protocol = { path = "../tl-protocol" }
+tl-segmentation = { path = "../tl-segmentation" }
+
+[[bin]]
+name = "tl-engine"
+path = "src/main.rs"

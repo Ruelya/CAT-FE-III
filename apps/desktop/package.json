@@ -13,23 +13,15 @@
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json && tsc -p tsconfig.e2e.json",
     "pretest": "pnpm --filter @translunar/contracts build",
     "test": "vitest run",
-    "test:e2e": "pnpm build && playwright test",
-    "package:win": "node ../../scripts/package-desktop.mjs --win",
-    "package:mac": "node ../../scripts/package-desktop.mjs --mac",
-    "package:dir": "node ../../scripts/package-desktop.mjs --dir"
+    "test:e2e": "pnpm build && playwright test"
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.10",
     "@translunar/contracts": "workspace:*",
-    "docx-preview": "^0.4.0",
-    "dompurify": "^3.4.13",
-    "electron-updater": "6.8.9",
-    "marked": "^18.0.9",
+    "@translunar/ui": "workspace:*",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.61.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
@@ -41,7 +33,6 @@
     "concurrently": "10.0.3",
     "cross-env": "10.1.0",
     "electron": "41.10.3",
-    "electron-builder": "26.0.12",
     "jsdom": "29.1.1",
     "playwright": "1.61.1",
     "typescript": "6.0.3",

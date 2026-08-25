@@ -1,10 +1,11 @@
+// Verify the committed TypeScript contracts match the Rust protocol schema.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
-const temporary = mkdtempSync(join(tmpdir(), "translunar-contracts-"));
+const temporary = mkdtempSync(join(tmpdir(), "tl-contracts-"));
 const schema = join(temporary, "protocol.schema.json");
 const types = join(temporary, "protocol.generated.ts");
 const committedSchema = join(
@@ -30,7 +31,7 @@ try {
     "run",
     "-q",
     "-p",
-    "translunar-protocol",
+    "tl-protocol",
     "--bin",
     "export-schema",
     "--",
@@ -49,31 +50,30 @@ try {
     "--bannerComment",
     "/* eslint-disable -- Generated from the Rust protocol schema. Do not edit. */",
   ]);
-  assertSame(committedSchema, schema, "Rust JSON schema");
-  assertSame(committedTypes, types, "generated TypeScript contracts");
-  console.log("Protocol contracts are current.");
+  compare(committedSchema, schema, "protocol.schema.json");
+  compare(committedTypes, types, "protocol.generated.ts");
+  console.log(
+    "contracts:check OK — committed contracts match the Rust protocol",
+  );
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
 
 function run(command, args) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
+  const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
   if (result.status !== 0) {
-    process.stderr.write(result.stdout ?? "");
-    process.stderr.write(result.stderr ?? "");
+    console.error(`command failed: ${command} ${args.join(" ")}`);
     process.exit(result.status ?? 1);
   }
 }
 
-function assertSame(committed, generated, label) {
-  const expected = readFileSync(committed, "utf8").replaceAll("\r\n", "\n");
-  const actual = readFileSync(generated, "utf8").replaceAll("\r\n", "\n");
-  if (expected !== actual) {
-    console.error(`${label} is stale. Run pnpm contracts:generate.`);
-    process.exitCode = 1;
+function compare(committedPath, generatedPath, label) {
+  const committed = readFileSync(committedPath, "utf8");
+  const generated = readFileSync(generatedPath, "utf8");
+  if (committed !== generated) {
+    console.error(
+      `${label} is stale. Run \`pnpm contracts:generate\` and commit the result.`,
+    );
+    process.exit(1);
   }
 }
