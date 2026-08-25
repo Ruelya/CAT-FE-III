@@ -3,7 +3,11 @@ import { useCallback, useEffect, useState } from "react";
 import type { Project } from "@translunar/contracts";
 import { Button, StatusDot } from "@translunar/ui";
 
-import type { EngineStatusPayload } from "../shared/desktop-api.js";
+import type {
+  EngineLifecycleState,
+  EngineStatusPayload,
+} from "../shared/desktop-api.js";
+import { EngineGate } from "./components/EngineGate.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
@@ -44,6 +48,7 @@ export function App() {
   const [engineStatus, setEngineStatus] = useState<EngineStatusPayload | null>(
     null,
   );
+  const [relaunching, setRelaunching] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
@@ -69,6 +74,21 @@ export function App() {
   const handleStatusMessage = useCallback((message: string) => {
     setStatusMessage(message);
   }, []);
+
+  const handleRelaunch = useCallback(async () => {
+    setRelaunching(true);
+    try {
+      const status = await window.tl.relaunchEngine();
+      setEngineStatus(status);
+    } finally {
+      setRelaunching(false);
+    }
+  }, []);
+
+  // Before the first status fetch resolves, assume the engine is still
+  // starting rather than pretending it is ready.
+  const engineState: EngineLifecycleState = engineStatus?.state ?? "starting";
+  const engineReady = engineState === "ready";
 
   return (
     <div className="app-shell">
@@ -110,29 +130,44 @@ export function App() {
         </span>
       </header>
 
-      {project ? (
-        <WorkbenchView
-          project={project}
-          onStatusMessage={handleStatusMessage}
-        />
-      ) : (
-        <ProjectsView
-          onOpenProject={setProject}
-          onStatusMessage={handleStatusMessage}
-        />
-      )}
+      {/* display:contents wrapper: keeps the grid layout intact while
+          `inert` blocks focus and input in the whole surface whenever the
+          engine cannot acknowledge writes. */}
+      <div className="app-main" inert={!engineReady}>
+        {project ? (
+          <WorkbenchView
+            project={project}
+            engineState={engineState}
+            onStatusMessage={handleStatusMessage}
+          />
+        ) : (
+          <ProjectsView
+            engineState={engineState}
+            onOpenProject={setProject}
+            onStatusMessage={handleStatusMessage}
+          />
+        )}
+
+        {project ? (
+          <ProjectSettingsDialog
+            open={settingsOpen}
+            project={project}
+            onClose={() => setSettingsOpen(false)}
+          />
+        ) : null}
+      </div>
 
       <footer className="app-statusbar">
         <span className="app-statusbar__message">{statusMessage}</span>
       </footer>
 
-      {project ? (
-        <ProjectSettingsDialog
-          open={settingsOpen}
-          project={project}
-          onClose={() => setSettingsOpen(false)}
+      {engineReady ? null : (
+        <EngineGate
+          status={engineStatus}
+          onRelaunch={() => void handleRelaunch()}
+          relaunching={relaunching}
         />
-      ) : null}
+      )}
     </div>
   );
 }

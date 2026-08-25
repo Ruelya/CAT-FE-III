@@ -8,9 +8,9 @@ import type {
   EngineStatusPayload,
 } from "../shared/desktop-api.js";
 
-const REQUEST_TIMEOUT_MS = 120_000;
-const MAX_RESTARTS = 5;
-const RESTART_BASE_DELAY_MS = 500;
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_RESTARTS = 5;
+const DEFAULT_RESTART_BASE_DELAY_MS = 500;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -24,6 +24,10 @@ export interface SupervisorOptions {
   clientVersion: string;
   onNotification: (notification: EngineNotificationPayload) => void;
   onStatus: (status: EngineStatusPayload) => void;
+  /** Test seams; production uses the defaults. */
+  maxRestarts?: number;
+  restartBaseDelayMs?: number;
+  requestTimeoutMs?: number;
 }
 
 export class EngineRpcError extends Error {
@@ -49,8 +53,18 @@ export class EngineSupervisor {
   private engineVersion: string | undefined;
   private state: EngineStatusPayload["state"] = "starting";
   private lastError: string | undefined;
+  private restartTimer: NodeJS.Timeout | undefined;
+  private readonly maxRestarts: number;
+  private readonly restartBaseDelayMs: number;
+  private readonly requestTimeoutMs: number;
 
-  constructor(private readonly options: SupervisorOptions) {}
+  constructor(private readonly options: SupervisorOptions) {
+    this.maxRestarts = options.maxRestarts ?? DEFAULT_MAX_RESTARTS;
+    this.restartBaseDelayMs =
+      options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS;
+    this.requestTimeoutMs =
+      options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
 
   status(): EngineStatusPayload {
     const payload: EngineStatusPayload = {
@@ -95,31 +109,79 @@ export class EngineSupervisor {
     });
     child.on("error", (error) => {
       this.lastError = error.message;
-      this.handleExit();
+      this.handleExit(child);
     });
     child.on("exit", (code, signal) => {
       if (!this.stopped) {
         this.lastError = `engine exited (code ${code ?? "none"}, signal ${signal ?? "none"})`;
       }
-      this.handleExit();
+      this.handleExit(child);
     });
 
-    void this.handshake();
+    void this.handshake(child);
   }
 
-  private async handshake(): Promise<void> {
+  private async handshake(
+    child: ChildProcessWithoutNullStreams,
+  ): Promise<void> {
     try {
       await this.request("engine.initialize", {
         protocolVersion: PROTOCOL_VERSION,
         clientName: "translunar-desktop",
         clientVersion: this.options.clientVersion,
       });
-      this.setState("ready");
+      if (this.child === child) {
+        this.setState("ready");
+      }
     } catch (error) {
+      // A relaunch may have replaced this child while its handshake was in
+      // flight; only the current child's outcome may drive the state.
+      if (this.child !== child) {
+        return;
+      }
       this.lastError =
         error instanceof Error ? error.message : "handshake failed";
       this.setState("down");
     }
+  }
+
+  /**
+   * Manual relaunch requested by the user from the engine-down surface.
+   * Discards the exhausted auto-restart budget, detaches and kills any
+   * stale child (e.g. one that failed the handshake but never exited),
+   * and spawns a fresh engine. No-op after stop().
+   */
+  relaunch(): EngineStatusPayload {
+    if (this.stopped) {
+      return this.status();
+    }
+    const child = this.child;
+    if (child) {
+      // The old child's exit must not race the manual relaunch through
+      // the auto-restart path; detach every listener before killing it.
+      this.child = undefined;
+      child.stdout.removeAllListeners("data");
+      child.stderr.removeAllListeners("data");
+      child.removeAllListeners("exit");
+      child.removeAllListeners("error");
+      child.on("error", () => {
+        // Kill/stdin errors on the discarded child are irrelevant.
+      });
+      if (child.exitCode === null) {
+        child.kill();
+      }
+    }
+    // A pending auto-restart from the backoff window would double-spawn on
+    // top of the manual relaunch.
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = undefined;
+    }
+    this.rejectPending("engine is relaunching");
+    this.restarts = 0;
+    this.lastError = undefined;
+    this.start();
+    return this.status();
   }
 
   async request(method: string, params: unknown): Promise<unknown> {
@@ -134,7 +196,7 @@ export class EngineSupervisor {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new EngineRpcError("timeout", `${method} timed out`));
-      }, REQUEST_TIMEOUT_MS);
+      }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       child.stdin.write(frame, (error) => {
         if (error) {
@@ -227,24 +289,38 @@ export class EngineSupervisor {
     }
   }
 
-  private handleExit(): void {
-    this.child = undefined;
-    for (const [, entry] of this.pending) {
-      clearTimeout(entry.timer);
-      entry.reject(new EngineRpcError("engineDown", "engine process exited"));
+  private handleExit(child: ChildProcessWithoutNullStreams): void {
+    // 'error' and 'exit' can both fire for the same child; only the first
+    // one may schedule a restart, and a child discarded by relaunch() must
+    // never restart on top of its replacement.
+    if (this.child !== child) {
+      return;
     }
-    this.pending.clear();
+    this.child = undefined;
+    this.rejectPending("engine process exited");
     if (this.stopped) {
       return;
     }
-    if (this.restarts >= MAX_RESTARTS) {
+    if (this.restarts >= this.maxRestarts) {
       this.setState("down");
       return;
     }
     this.restarts += 1;
     this.setState("restarting");
-    const delay = RESTART_BASE_DELAY_MS * 2 ** (this.restarts - 1);
-    setTimeout(() => this.start(), delay).unref();
+    const delay = this.restartBaseDelayMs * 2 ** (this.restarts - 1);
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
+      this.start();
+    }, delay);
+    this.restartTimer.unref();
+  }
+
+  private rejectPending(message: string): void {
+    for (const [, entry] of this.pending) {
+      clearTimeout(entry.timer);
+      entry.reject(new EngineRpcError("engineDown", message));
+    }
+    this.pending.clear();
   }
 
   private setState(state: EngineStatusPayload["state"]): void {

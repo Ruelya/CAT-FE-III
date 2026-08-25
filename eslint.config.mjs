@@ -36,6 +36,7 @@ export default tseslint.config(
         project: [
           "./apps/desktop/tsconfig.electron.json",
           "./apps/desktop/tsconfig.renderer.json",
+          "./apps/desktop/tsconfig.main-tests.json",
           "./apps/desktop/tsconfig.e2e.json",
           "./packages/contracts/tsconfig.json",
           "./packages/ui/tsconfig.json",
@@ -58,6 +59,15 @@ export default tseslint.config(
     files: ["**/*.cts"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
+    // Node test harnesses spawned as child processes by unit tests.
+    files: ["apps/desktop/tests/harness/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
     },
   },
 );
