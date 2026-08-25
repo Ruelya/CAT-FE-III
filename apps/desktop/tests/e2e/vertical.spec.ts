@@ -266,7 +266,7 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
 // the file, optionally flip segmentation or attach an SRX ruleset, submit.
 async function importThroughDialog(
   path: string,
-  options: { paragraph?: boolean; srxPath?: string } = {},
+  options: { paragraph?: boolean; srxPath?: string; shot?: string } = {},
 ) {
   await app.evaluate((_electronModule, value) => {
     process.env.TL_FAKE_OPEN_PATH = value;
@@ -274,6 +274,7 @@ async function importThroughDialog(
   await page.getByRole("button", { name: "导入", exact: true }).click();
   const dialog = page.locator(".tl-dialog");
   await dialog.getByRole("button", { name: "选择文件…" }).click();
+  await expect(dialog).toContainText(path.split("/").pop() ?? path);
   if (options.paragraph) {
     await dialog.getByLabel("分段方式").selectOption("paragraph");
   }
@@ -282,6 +283,12 @@ async function importThroughDialog(
       process.env.TL_FAKE_SRX_PATH = value;
     }, options.srxPath);
     await dialog.getByRole("button", { name: "选择 SRX 规则…" }).click();
+    await expect(dialog).toContainText(
+      options.srxPath.split("/").pop() ?? options.srxPath,
+    );
+  }
+  if (options.shot) {
+    await shot(options.shot);
   }
   await dialog.getByRole("button", { name: "导入", exact: true }).click();
 }
@@ -355,7 +362,10 @@ test("import dialog segmentation options shape the grid", async () => {
   );
   const srxDocPath = join(workDir, "srx-doc.txt");
   writeFileSync(srxDocPath, "Alpha part; beta part. Still the same segment.");
-  await importThroughDialog(srxDocPath, { srxPath });
+  await importThroughDialog(srxDocPath, {
+    srxPath,
+    shot: "14a-import-dialog-srx.png",
+  });
   await expect(page.locator(".app-statusbar")).toContainText(
     "已导入「srx-doc.txt」：2 个句段",
     { timeout: 30_000 },
