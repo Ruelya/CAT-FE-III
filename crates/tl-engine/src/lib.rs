@@ -31,7 +31,8 @@ use thiserror::Error;
 use tl_ai::check_tag_integrity;
 use tl_asset::TmIndex;
 use tl_domain::{
-    Document, DocumentStatus, Project, ProjectLifecycle, Segment, SegmentState, new_id, sha256_hex,
+    Document, DocumentStatus, Project, ProjectLifecycle, ProjectSegmentation, Segment,
+    SegmentState, new_id, sha256_hex,
 };
 use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
@@ -135,8 +136,8 @@ pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
     /// Metadata working set only (projects, document metadata, termbases,
-    /// term entries, mounts, QA issues). Segments and TM entries are never
-    /// held here; they are read from SQLite per document / per page.
+    /// mounts). Segments, TM entries, term entries, and QA issues are never
+    /// held here; they are read from SQLite per document / termbase / page.
     state: EngineState,
     registry: FilterRegistry,
     ai: Option<aiops::AiRuntime>,
@@ -164,6 +165,29 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, EngineError
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, EngineError> {
     serde_json::to_value(value).map_err(|error| EngineError::Internal(error.to_string()))
+}
+
+/// `None`, `null`, and blank strings all mean "keep the current value".
+fn provided(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// Accepts `sentence` (alias `srx`) and `paragraph`.
+fn parse_segmentation(value: &str) -> Result<ProjectSegmentation, EngineError> {
+    match value {
+        "sentence" | "srx" => Ok(ProjectSegmentation::Sentence),
+        "paragraph" => Ok(ProjectSegmentation::Paragraph),
+        other => Err(EngineError::InvalidParams(format!(
+            "unknown segmentation mode: {other}"
+        ))),
+    }
+}
+
+fn to_segmentation_mode(choice: ProjectSegmentation) -> SegmentationMode {
+    match choice {
+        ProjectSegmentation::Sentence => SegmentationMode::Sentence,
+        ProjectSegmentation::Paragraph => SegmentationMode::Paragraph,
+    }
 }
 
 /// `None` keeps the current value; `Some` is trimmed and must not be empty.
@@ -395,7 +419,8 @@ impl Engine {
             .ok_or_else(|| EngineError::NotFound(format!("project {}", params.project_id)))
     }
 
-    /// Rename and/or change the language pair. Omitted fields stay unchanged.
+    /// Rename, change the language pair, and/or persist the default import
+    /// segmentation. Omitted fields stay unchanged.
     ///
     /// Language-pair rule (documented on [`ProjectUpdateParams`]): locales may
     /// only change while the project holds no linguistic assets. Imported
@@ -403,6 +428,13 @@ impl Engine {
     /// termbase mounts carry translations for the old pair, so changing the
     /// pair over them would silently serve wrong-language matches. The engine
     /// rejects that with `conflict` instead of allowing it with a warning.
+    ///
+    /// Import-default rule (documented on [`ProjectUpdateParams`]): the
+    /// stored `srxPath` is a path only — its file is validated at import
+    /// time, never here — and a new `srxPath` is rejected while the
+    /// effective segmentation default is paragraph, where SRX rules would
+    /// silently do nothing. A default that already exists survives a switch
+    /// to paragraph so switching back to sentence restores it.
     fn project_update(&mut self, params: ProjectUpdateParams) -> Result<Project, EngineError> {
         let project = self.require_project(&params.project_id)?.clone();
         let name = resolve_update_field(params.name, &project.name, "project name")?;
@@ -428,7 +460,28 @@ impl Engine {
                 )));
             }
         }
-        if name == project.name && !language_changed {
+        let mut configuration = project.configuration.clone();
+        if let Some(mode) = provided(params.segmentation.as_deref()) {
+            configuration.segmentation = Some(parse_segmentation(mode)?);
+        }
+        let new_srx_path = provided(params.srx_path.as_deref());
+        if params.clear_srx_path && new_srx_path.is_some() {
+            return Err(EngineError::InvalidParams(
+                "srxPath and clearSrxPath are contradictory; provide at most one".to_string(),
+            ));
+        }
+        if params.clear_srx_path {
+            configuration.srx_path = None;
+        } else if let Some(path) = new_srx_path {
+            if configuration.segmentation == Some(ProjectSegmentation::Paragraph) {
+                return Err(EngineError::InvalidParams(
+                    "srxPath only applies while the segmentation default is sentence".to_string(),
+                ));
+            }
+            configuration.srx_path = Some(path.to_string());
+        }
+        let configuration_changed = configuration != project.configuration;
+        if name == project.name && !language_changed && !configuration_changed {
             return Ok(project);
         }
         let now = now_ms();
@@ -440,6 +493,7 @@ impl Engine {
         stored.name = name;
         stored.source_locale = source_locale;
         stored.target_locale = target_locale;
+        stored.configuration = configuration;
         stored.revision += 1;
         stored.updated_at_ms = now;
         let updated = stored.clone();
@@ -545,25 +599,53 @@ impl Engine {
         let filter = self.registry.select(&source, params.filter_id.as_deref())?;
         let document_id = new_id();
 
+        // Resolve the effective segmentation choice. Params carrying an
+        // explicit segmentation are the complete choice (so `srxPath: null`
+        // then means the built-in rules); an srxPath alone implies sentence
+        // mode; fully omitted params fall back to the project's stored
+        // defaults from project.update.
+        let params_srx = provided(params.srx_path.as_deref());
+        let (segmentation_mode, srx_source) =
+            match (provided(params.segmentation.as_deref()), params_srx) {
+                (Some(mode), srx) => {
+                    let mode = parse_segmentation(mode)?;
+                    if mode == ProjectSegmentation::Paragraph && srx.is_some() {
+                        return Err(EngineError::InvalidParams(
+                            "srxPath only applies to sentence segmentation".to_string(),
+                        ));
+                    }
+                    (to_segmentation_mode(mode), srx.map(str::to_string))
+                }
+                (None, Some(srx)) => (SegmentationMode::Sentence, Some(srx.to_string())),
+                (None, None) => {
+                    let default_mode = project
+                        .configuration
+                        .segmentation
+                        .unwrap_or(ProjectSegmentation::Sentence);
+                    let default_srx = match default_mode {
+                        ProjectSegmentation::Sentence => project.configuration.srx_path.clone(),
+                        // A stored srxPath is kept but never applied in
+                        // paragraph mode, so it must not fail the import.
+                        ProjectSegmentation::Paragraph => None,
+                    };
+                    (to_segmentation_mode(default_mode), default_srx)
+                }
+            };
+
         // Resolve the segmentation ruleset before touching any state so a bad
-        // SRX file fails the import cleanly.
-        let srx_rules = match params.srx_path.as_deref() {
+        // or missing SRX file fails the import cleanly — project.update only
+        // stores the path, so this is where a stale default surfaces.
+        let srx_rules = match srx_source.as_deref() {
             Some(path) => {
+                if !Path::new(path).is_file() {
+                    return Err(EngineError::NotFound(format!("SRX ruleset {path}")));
+                }
                 let xml = std::fs::read_to_string(path)?;
                 SrxRules::parse(&xml).map_err(|error| {
                     EngineError::InvalidParams(format!("invalid SRX ruleset {path}: {error}"))
                 })?
             }
             None => SrxRules::builtin(&project.source_locale),
-        };
-        let segmentation_mode = match params.segmentation.as_deref().map(str::trim) {
-            None | Some("") | Some("sentence") | Some("srx") => SegmentationMode::Sentence,
-            Some("paragraph") => SegmentationMode::Paragraph,
-            Some(other) => {
-                return Err(EngineError::InvalidParams(format!(
-                    "unknown segmentation mode: {other}"
-                )));
-            }
         };
 
         let mut request = ImportRequest::new(source.clone());

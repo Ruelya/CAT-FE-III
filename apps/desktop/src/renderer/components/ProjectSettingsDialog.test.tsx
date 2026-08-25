@@ -54,6 +54,7 @@ interface BridgePickers {
   tmExport?: string | null;
   termbaseImport?: string | null;
   termbaseExport?: string | null;
+  srx?: string | null;
 }
 
 function installBridge(
@@ -70,6 +71,7 @@ function installBridge(
     chooseTermbaseExportPath: vi.fn(() =>
       Promise.resolve(pickers.termbaseExport ?? null),
     ),
+    chooseSrxFile: vi.fn(() => Promise.resolve(pickers.srx ?? null)),
   };
   const api: Partial<DesktopApi> = bridge;
   Object.defineProperty(window, "tl", {
@@ -195,6 +197,225 @@ describe("ProjectSettingsDialog", () => {
     });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(onProjectUpdated).not.toHaveBeenCalled();
+  });
+
+  it("shows the stored import defaults and disables SRX in paragraph mode", async () => {
+    installBridge(() =>
+      Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      }),
+    );
+    render(
+      <ProjectSettingsDialog
+        open
+        project={{
+          ...project,
+          configuration: {
+            segmentation: "sentence",
+            srxPath: "/tmp/stored-rules.srx",
+          },
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("默认分段方式")).toHaveValue("sentence");
+    expect(screen.getByText("stored-rules.srx")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "选择默认 SRX 规则…" }),
+    ).toBeEnabled();
+
+    // Paragraph mode never applies SRX rules, so the picker locks; the
+    // stored ruleset stays visible because saving keeps it for a switch
+    // back to sentence mode.
+    await userEvent.selectOptions(
+      screen.getByLabelText("默认分段方式"),
+      "paragraph",
+    );
+    expect(
+      screen.getByRole("button", { name: "选择默认 SRX 规则…" }),
+    ).toBeDisabled();
+    expect(screen.getByText("stored-rules.srx")).toBeInTheDocument();
+  });
+
+  it("saves sentence import defaults with a picked SRX ruleset", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "project.update") {
+          return Promise.resolve({
+            ok: true,
+            result: {
+              ...project,
+              revision: 2,
+              configuration: {
+                segmentation: "sentence",
+                srxPath: "/tmp/rules.srx",
+              },
+            },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { srx: "/tmp/rules.srx" },
+    );
+    const onProjectUpdated = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "选择默认 SRX 规则…" }),
+    );
+    expect(await screen.findByText("rules.srx")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "保存导入默认" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/导入默认已保存：句子分段（SRX：rules.srx）/),
+      ).toBeInTheDocument();
+    });
+    const updateCall = calls.find(([method]) => method === "project.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      segmentation: "sentence",
+      srxPath: "/tmp/rules.srx",
+    });
+    expect(onProjectUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 2 }),
+    );
+  });
+
+  it("clears the stored SRX default through clearSrxPath", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "project.update") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...project,
+            revision: 2,
+            configuration: { segmentation: "sentence", srxPath: null },
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(
+      <ProjectSettingsDialog
+        open
+        project={{
+          ...project,
+          configuration: {
+            segmentation: "sentence",
+            srxPath: "/tmp/stored-rules.srx",
+          },
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "清除" }));
+    expect(screen.getByText(/内置规则（en-US）/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "保存导入默认" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/导入默认已保存：句子分段（内置 SRX 规则）/),
+      ).toBeInTheDocument();
+    });
+    const updateCall = calls.find(([method]) => method === "project.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      segmentation: "sentence",
+      clearSrxPath: true,
+    });
+  });
+
+  it("saves a paragraph default without touching the stored SRX", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "project.update") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...project,
+            revision: 2,
+            configuration: {
+              segmentation: "paragraph",
+              srxPath: "/tmp/stored-rules.srx",
+            },
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(
+      <ProjectSettingsDialog
+        open
+        project={{
+          ...project,
+          configuration: {
+            segmentation: "sentence",
+            srxPath: "/tmp/stored-rules.srx",
+          },
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("默认分段方式"),
+      "paragraph",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "保存导入默认" }));
+    await waitFor(() => {
+      expect(screen.getByText(/导入默认已保存：段落分段/)).toBeInTheDocument();
+    });
+    const updateCall = calls.find(([method]) => method === "project.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      segmentation: "paragraph",
+    });
+  });
+
+  it("surfaces an engine error from the import-defaults save", async () => {
+    installBridge((method) => {
+      if (method === "project.update") {
+        return Promise.resolve({
+          ok: false,
+          error: {
+            code: "invalidParams",
+            message:
+              "srxPath only applies while the segmentation default is sentence",
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "保存导入默认" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "srxPath only applies while the segmentation default is sentence",
+      );
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("archives the project through project.archive", async () => {

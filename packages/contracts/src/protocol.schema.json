@@ -665,7 +665,7 @@
           "type": "string"
         },
         "segmentation": {
-          "description": "Segmentation mode: `sentence` (default) or `paragraph`.",
+          "description": "Segmentation mode: `sentence` or `paragraph`. When omitted together\nwith `srxPath`, the project's stored default applies (falling back\nto sentence with built-in rules).",
           "type": [
             "string",
             "null"
@@ -675,7 +675,7 @@
           "type": "string"
         },
         "srxPath": {
-          "description": "Path to a custom SRX ruleset used for sentence segmentation. When\nomitted, the built-in rules for the project source locale apply.",
+          "description": "Path to a custom SRX ruleset used for sentence segmentation. When\nomitted together with `segmentation`, the project's stored default\napplies; when provided without `segmentation` it implies sentence\nmode. An explicit `segmentation` makes the params the complete\nchoice, so `srxPath: null` then means the built-in rules.",
           "type": [
             "string",
             "null"
@@ -1755,6 +1755,26 @@
           ],
           "default": null
         },
+        "segmentation": {
+          "description": "Default segmentation for future imports. `None` means sentence mode.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSegmentation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "srxPath": {
+          "description": "Default SRX ruleset path for future sentence-mode imports. Only the\npath is stored — a missing or invalid file fails at import time, not\nwhen the default is saved. Ignored (but kept) while the segmentation\ndefault is paragraph, so switching back to sentence restores it.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "taskPackage": {
           "anyOf": [
             {
@@ -1830,10 +1850,23 @@
         "projects"
       ]
     },
+    "ProjectSegmentation": {
+      "description": "Default segmentation mode applied when `document.import` is called without\nan explicit segmentation choice. Serialized as `sentence` / `paragraph`,\nmatching the strings `DocumentImportParams.segmentation` accepts.",
+      "type": "string",
+      "enum": [
+        "sentence",
+        "paragraph"
+      ]
+    },
     "ProjectUpdateParams": {
-      "description": "Parameters for `project.update`. Omitted fields stay unchanged; provided\nfields are trimmed and must not be empty.\n\nLanguage-pair rule: the source/target locales may only change while the\nproject holds no linguistic assets — no imported documents, no project-TM\nentries, and no attached termbases. Documents were segmented with the old\nsource locale and TM/term data was collected for the old pair, so once\nassets exist a locale change is rejected with `conflict` instead of\nsilently orphaning TM and term lookups.",
+      "description": "Parameters for `project.update`. Omitted fields stay unchanged. `name`,\n`sourceLocale`, and `targetLocale` are trimmed and must not be empty when\nprovided.\n\nLanguage-pair rule: the source/target locales may only change while the\nproject holds no linguistic assets — no imported documents, no project-TM\nentries, and no attached termbases. Documents were segmented with the old\nsource locale and TM/term data was collected for the old pair, so once\nassets exist a locale change is rejected with `conflict` instead of\nsilently orphaning TM and term lookups.\n\nImport-default rule: `segmentation` (`sentence` | `paragraph`) and\n`srxPath` persist the project's default import choices in\n`configuration`. Empty or omitted values keep the current defaults;\n`clearSrxPath: true` resets the SRX default back to the built-in rules\n(and cannot be combined with a new `srxPath`). An `srxPath` is only\naccepted while the effective segmentation default is `sentence` — SRX\nrules never apply in paragraph mode. Only the path is stored: a missing\nSRX file fails honestly at import time, not when the default is saved.",
       "type": "object",
       "properties": {
+        "clearSrxPath": {
+          "description": "Reset the stored SRX default back to the built-in rules.",
+          "type": "boolean",
+          "default": false
+        },
         "name": {
           "type": [
             "string",
@@ -1844,7 +1877,23 @@
         "projectId": {
           "type": "string"
         },
+        "segmentation": {
+          "description": "Default segmentation mode for future imports: `sentence` or\n`paragraph`. Empty or omitted keeps the current default.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "sourceLocale": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "srxPath": {
+          "description": "Default SRX ruleset path for future sentence-mode imports. Empty or\nomitted keeps the current default; use `clearSrxPath` to reset.",
           "type": [
             "string",
             "null"
@@ -1924,6 +1973,26 @@
       "properties": {
         "documentId": {
           "type": "string"
+        },
+        "limit": {
+          "description": "Page size. When omitted every issue from `offset` on is returned,\nwhich is the pre-paging behavior existing clients rely on.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "offset": {
+          "description": "Issues to skip in list order (open first, then oldest); defaults to 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
         }
       },
       "required": [
@@ -1934,14 +2003,22 @@
       "type": "object",
       "properties": {
         "issues": {
+          "description": "One window of the document's issues, open before resolved.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/QaIssue"
           }
+        },
+        "total": {
+          "description": "Issues for the document before the page window was applied, so\nclients can page honestly.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
-        "issues"
+        "issues",
+        "total"
       ]
     },
     "QaRunParams": {
@@ -2677,6 +2754,26 @@
     "TermListParams": {
       "type": "object",
       "properties": {
+        "limit": {
+          "description": "Page size. When omitted every entry from `offset` on is returned,\nwhich is the pre-paging behavior existing clients rely on.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "offset": {
+          "description": "Entries to skip in source-term order; defaults to 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
         "termbaseId": {
           "type": "string"
         }
@@ -2689,14 +2786,22 @@
       "type": "object",
       "properties": {
         "entries": {
+          "description": "One window of entries in source-term order.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/TermEntry"
           }
+        },
+        "total": {
+          "description": "Entries in the termbase before the page window was applied, so\nclients can page honestly.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
-        "entries"
+        "entries",
+        "total"
       ]
     },
     "TermLookupParams": {

@@ -23,6 +23,10 @@ const project: Project = {
   configuration: {},
 };
 
+function projectWith(configuration: Project["configuration"]): Project {
+  return { ...project, configuration };
+}
+
 const importedDocument: Document = {
   id: "d1",
   projectId: "p1",
@@ -114,6 +118,13 @@ describe("ImportDocumentDialog", () => {
       segmentation: "sentence",
       srxPath: null,
     });
+    // The successful choice is auto-saved as the project default; a
+    // sentence import without SRX resets a stored ruleset to built-in.
+    expect(spy).toHaveBeenCalledWith("project.update", {
+      projectId: "p1",
+      segmentation: "sentence",
+      clearSrxPath: true,
+    });
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -140,6 +151,14 @@ describe("ImportDocumentDialog", () => {
       expect(spy).toHaveBeenCalledWith("document.import", {
         projectId: "p1",
         sourcePath: "/tmp/manual.docx",
+        segmentation: "sentence",
+        srxPath: "/tmp/rules.srx",
+      });
+    });
+    // The chosen ruleset becomes the project default for the next import.
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith("project.update", {
+        projectId: "p1",
         segmentation: "sentence",
         srxPath: "/tmp/rules.srx",
       });
@@ -180,6 +199,113 @@ describe("ImportDocumentDialog", () => {
         srxPath: null,
       });
     });
+    // Paragraph auto-save keeps the stored SRX default untouched: only the
+    // segmentation is sent (the engine rejects paragraph + srxPath).
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith("project.update", {
+        projectId: "p1",
+        segmentation: "paragraph",
+      });
+    });
+  });
+
+  it("pre-fills from the project's stored import defaults", () => {
+    installBridge({ sourcePath: null });
+    render(
+      <ImportDocumentDialog
+        open
+        project={projectWith({
+          segmentation: "paragraph",
+          srxPath: "/tmp/stored-rules.srx",
+        })}
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("分段方式")).toHaveValue("paragraph");
+    // The stored ruleset is shown (kept for a switch back to sentence),
+    // but the picker stays disabled while paragraph mode is selected.
+    expect(screen.getByText("stored-rules.srx")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "选择 SRX 规则…" }),
+    ).toBeDisabled();
+  });
+
+  it("reports the auto-saved project back through onProjectUpdated", async () => {
+    const updatedProject: Project = {
+      ...project,
+      revision: 2,
+      configuration: { segmentation: "sentence", srxPath: null },
+    };
+    installBridge({
+      sourcePath: "/tmp/manual.docx",
+      invoke: (method) => {
+        if (method === "project.update") {
+          return Promise.resolve({ ok: true, result: updatedProject });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { document: importedDocument, segmentCount: 3 },
+        });
+      },
+    });
+    const onProjectUpdated = vi.fn();
+    render(
+      <ImportDocumentDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "选择文件…" }));
+    await userEvent.click(screen.getByRole("button", { name: "导入" }));
+    await waitFor(() => {
+      expect(onProjectUpdated).toHaveBeenCalledWith(updatedProject);
+    });
+  });
+
+  it("stays open with an honest warning when the defaults save fails", async () => {
+    installBridge({
+      sourcePath: "/tmp/manual.docx",
+      invoke: (method) => {
+        if (method === "project.update") {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "internal", message: "store went away" },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { document: importedDocument, segmentCount: 3 },
+        });
+      },
+    });
+    const onImported = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <ImportDocumentDialog
+        open
+        project={project}
+        onClose={onClose}
+        onImported={onImported}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "选择文件…" }));
+    await userEvent.click(screen.getByRole("button", { name: "导入" }));
+    // The import itself succeeded, so the parent still gets the result;
+    // the dialog stays open and says which half failed.
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /文档已导入，但保存项目默认分段设置失败/,
+      );
+    });
+    expect(onImported).toHaveBeenCalledWith({
+      document: importedDocument,
+      segmentCount: 3,
+    });
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("shows the engine error and stays open on failure", async () => {

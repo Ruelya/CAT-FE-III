@@ -230,6 +230,237 @@ fn project_update_rejects_language_change_once_assets_exist() {
     assert_eq!(unchanged["targetLocale"], "fr-FR");
 }
 
+/// A custom SRX whose no-break rule keeps "Alpha. Beta." together, so a
+/// sentence import that really used it yields 2 segments where the built-in
+/// rules would yield 3.
+const CUSTOM_SRX: &str = r#"<srx version="2.0"><header/><body>
+  <languagerules><languagerule languagerulename="custom" languagepattern="en.*">
+    <rule break="no"><beforebreak>Alpha\.</beforebreak><afterbreak>\s</afterbreak></rule>
+    <rule break="yes"><beforebreak>\.</beforebreak><afterbreak>\s</afterbreak></rule>
+  </languagerule></languagerules>
+  <maprules><maprule languagerulename="custom" languagepattern="en.*"/></maprules>
+</body></srx>"#;
+
+#[test]
+fn project_update_persists_import_defaults_used_by_import() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Paragraph becomes the stored default and applies to an import that
+    // sends no segmentation params at all.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(updated["configuration"]["segmentation"], "paragraph");
+    assert_eq!(updated["revision"], 2);
+    let paragraph_source = harness.write_file("default-para.txt", "One. Two. Three.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": paragraph_source }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "stored paragraph default");
+
+    // Sentence + a stored SRX default: the next bare import segments with
+    // the custom ruleset (2 segments, not the built-in 3).
+    let srx_path = harness.write_file("default.srx", CUSTOM_SRX);
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "segmentation": "sentence",
+            "srxPath": srx_path,
+        }),
+    );
+    assert_eq!(updated["configuration"]["segmentation"], "sentence");
+    assert_eq!(updated["configuration"]["srxPath"], json!(srx_path));
+    let sentence_source = harness.write_file("default-srx.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": sentence_source }),
+    );
+    assert_eq!(imported["segmentCount"], 2, "stored SRX default");
+
+    // Explicit params override the stored default: paragraph keeps the line
+    // whole, and an explicit sentence choice with no srxPath means the
+    // built-in rules, not the stored default.
+    let explicit_para = harness.write_file("explicit-para.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": explicit_para,
+            "segmentation": "paragraph",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "explicit paragraph override");
+    let explicit_builtin = harness.write_file("explicit-builtin.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": explicit_builtin,
+            "segmentation": "sentence",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 3, "explicit sentence = built-in");
+
+    // Switching the default to paragraph keeps the stored SRX (ignored, not
+    // lost), so switching back to sentence restores it.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], json!(srx_path));
+    let para_again = harness.write_file("para-again.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": para_again }),
+    );
+    assert_eq!(imported["segmentCount"], 1, "paragraph ignores stored SRX");
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "sentence" }),
+    );
+    let sentence_again = harness.write_file("sentence-again.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": sentence_again }),
+    );
+    assert_eq!(imported["segmentCount"], 2, "stored SRX restored");
+
+    // clearSrxPath resets to the built-in rules.
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "clearSrxPath": true }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], Value::Null);
+    let cleared = harness.write_file("cleared.txt", "Alpha. Beta. Gamma.\n");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": cleared }),
+    );
+    assert_eq!(imported["segmentCount"], 3, "cleared default = built-in");
+
+    // The defaults survive an engine restart through the store.
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "srxPath": srx_path }),
+    );
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["configuration"]["segmentation"], "sentence");
+    assert_eq!(reloaded["configuration"]["srxPath"], json!(srx_path));
+}
+
+#[test]
+fn project_update_validates_import_defaults_and_import_fails_honestly() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Unknown modes and contradictory SRX instructions are invalid.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "segmentation": "words" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({
+                "projectId": project_id,
+                "srxPath": "/tmp/rules.srx",
+                "clearSrxPath": true,
+            }),
+        ),
+        "invalidParams"
+    );
+
+    // An SRX default is rejected while the effective segmentation default is
+    // paragraph — whether both arrive together or the paragraph default was
+    // stored earlier.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({
+                "projectId": project_id,
+                "segmentation": "paragraph",
+                "srxPath": "/tmp/rules.srx",
+            }),
+        ),
+        "invalidParams"
+    );
+    harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "paragraph" }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "srxPath": "/tmp/rules.srx" }),
+        ),
+        "invalidParams"
+    );
+
+    // Empty strings mean "keep the current defaults" and do not bump the
+    // revision.
+    let before = harness.call("project.get", json!({ "projectId": project_id }));
+    let same = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "segmentation": "", "srxPath": "  " }),
+    );
+    assert_eq!(same["revision"], before["revision"]);
+    assert_eq!(same["configuration"]["segmentation"], "paragraph");
+
+    // Saving only stores the path: a missing SRX file is accepted here and
+    // fails honestly at import time instead.
+    let missing_srx = harness.path_of("gone.srx");
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "segmentation": "sentence",
+            "srxPath": missing_srx,
+        }),
+    );
+    assert_eq!(updated["configuration"]["srxPath"], json!(missing_srx));
+    let source = harness.write_file("honest.txt", "Alpha. Beta. Gamma.\n");
+    assert_eq!(
+        harness.call_err(
+            "document.import",
+            json!({ "projectId": project_id, "sourcePath": source }),
+        ),
+        "notFound"
+    );
+
+    // Explicit params keep working around the broken default: sentence with
+    // the built-in rules, or paragraph mode. Paragraph with an SRX is the
+    // same contradiction as in project.update.
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source,
+            "segmentation": "sentence",
+        }),
+    );
+    assert_eq!(imported["segmentCount"], 3);
+    assert_eq!(
+        harness.call_err(
+            "document.import",
+            json!({
+                "projectId": project_id,
+                "sourcePath": source,
+                "segmentation": "paragraph",
+                "srxPath": missing_srx,
+            }),
+        ),
+        "invalidParams"
+    );
+}
+
 #[test]
 fn project_archive_stamps_and_clears_archived_at() {
     let mut harness = Harness::new();
@@ -532,6 +763,185 @@ fn segment_and_tm_lists_page_from_sql() {
     let listed = harness.call("tm.list", json!({ "projectId": project_id, "limit": 1 }));
     assert_eq!(listed["entries"][0]["sourceText"], "Two.");
     assert_eq!(listed["total"], 2);
+}
+
+/// term.list and qa.list page from SQL like segment.list and tm.list do:
+/// stable windows in list order, totals independent of the window, omitted
+/// limits keeping the pre-paging full-list behavior, and identical answers
+/// after a restart (open() no longer hydrates either table).
+#[test]
+fn term_and_qa_lists_page_from_sql() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Paged", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    for (source, target) in [
+        ("coupling", "联轴器"),
+        ("actuator", "执行器"),
+        ("flange", "法兰"),
+        ("bracket", "支架"),
+        ("dowel", "定位销"),
+    ] {
+        harness.call(
+            "term.add",
+            json!({
+                "termbaseId": termbase_id,
+                "sourceTerm": source,
+                "targetTerm": target,
+                "targetLocale": "zh-CN",
+            }),
+        );
+    }
+
+    // Omitting the window keeps the pre-paging behavior: the whole termbase
+    // in source-term order, with the honest total alongside.
+    let full = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    assert_eq!(full["total"], 5);
+    let sources: Vec<&str> = full["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter_map(|entry| entry["sourceTerm"].as_str())
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["actuator", "bracket", "coupling", "dowel", "flange"]
+    );
+
+    // A middle window, an overhanging window, past-the-end, and limit 0.
+    let page = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 1, "limit": 2 }),
+    );
+    let rows = page["entries"].as_array().expect("entries");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["sourceTerm"], "bracket");
+    assert_eq!(rows[1]["sourceTerm"], "coupling");
+    assert_eq!(page["total"], 5);
+    let tail = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 4, "limit": 10 }),
+    );
+    assert_eq!(tail["entries"].as_array().expect("entries").len(), 1);
+    assert_eq!(tail["entries"][0]["sourceTerm"], "flange");
+    let past = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 10, "limit": 2 }),
+    );
+    assert_eq!(past["entries"].as_array().expect("entries").len(), 0);
+    assert_eq!(past["total"], 5);
+    assert_eq!(
+        harness.call_err(
+            "term.list",
+            json!({ "termbaseId": termbase_id, "limit": 0 })
+        ),
+        "invalidParams"
+    );
+
+    // Two number mismatches and one empty target give the QA run a stable
+    // multi-issue result to page over.
+    let document_id = harness.import_txt(
+        &project_id,
+        "qa-paged.txt",
+        "Count 1.\n\nCount 2.\n\nCount 3.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "数 9。");
+    harness.set_target(&segments[1], "数 8。");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let run_issues = run["issues"].as_array().expect("issues").clone();
+    assert!(run_issues.len() >= 3, "expected several issues");
+
+    // The full list equals the run result; a window is the matching slice
+    // of it, and the total never depends on the window.
+    let full = harness.call("qa.list", json!({ "documentId": document_id }));
+    let all_ids: Vec<&str> = full["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter_map(|issue| issue["id"].as_str())
+        .collect();
+    assert_eq!(full["total"], all_ids.len() as u64);
+    assert_eq!(
+        all_ids,
+        run_issues
+            .iter()
+            .filter_map(|issue| issue["id"].as_str())
+            .collect::<Vec<_>>(),
+        "qa.list order matches the run result"
+    );
+    let window = harness.call(
+        "qa.list",
+        json!({ "documentId": document_id, "offset": 1, "limit": 2 }),
+    );
+    assert_eq!(
+        window["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .filter_map(|issue| issue["id"].as_str())
+            .collect::<Vec<_>>(),
+        all_ids[1..3].to_vec()
+    );
+    assert_eq!(window["total"], all_ids.len() as u64);
+    let past = harness.call(
+        "qa.list",
+        json!({ "documentId": document_id, "offset": 99, "limit": 2 }),
+    );
+    assert_eq!(past["issues"].as_array().expect("issues").len(), 0);
+    assert_eq!(
+        harness.call_err("qa.list", json!({ "documentId": document_id, "limit": 0 })),
+        "invalidParams"
+    );
+
+    // Fixing one number resolves that issue; resolved rows keep their place
+    // in the total but sort last.
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "数 1。");
+    harness.call("qa.run", json!({ "documentId": document_id }));
+    let after = harness.call("qa.list", json!({ "documentId": document_id }));
+    let after_issues = after["issues"].as_array().expect("issues");
+    assert_eq!(after["total"], all_ids.len() as u64, "resolved rows remain");
+    assert_eq!(
+        after_issues
+            .last()
+            .map(|issue| issue["status"].as_str().expect("status")),
+        Some("resolved"),
+        "resolved issues sort last"
+    );
+    assert!(
+        after_issues
+            .iter()
+            .any(|issue| issue["status"] == "resolved" && issue["ruleId"] == "qa.number-mismatch"),
+        "the fixed number mismatch turned resolved"
+    );
+
+    // Restart: both lists answer from SQL identically, proving neither
+    // depended on rows hydrated at open.
+    harness.reopen();
+    let page = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 1, "limit": 2 }),
+    );
+    assert_eq!(page["entries"][0]["sourceTerm"], "bracket");
+    assert_eq!(page["total"], 5);
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    assert_eq!(listed["total"], all_ids.len() as u64);
+    assert_eq!(
+        listed["issues"]
+            .as_array()
+            .expect("issues")
+            .last()
+            .map(|issue| issue["status"].as_str().expect("status")),
+        Some("resolved")
+    );
 }
 
 #[test]
@@ -1425,6 +1835,83 @@ fn bilingual_docx_filter_reports_layout_format_and_roundtrips() {
         ),
         "exportBlocked"
     );
+}
+
+#[test]
+fn bilingual_docx_export_embeds_segment_anchors_only_when_requested() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual-anchored.docx");
+    tl_filter_docx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual DOCX fixture");
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-docx",
+        }),
+    );
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2, "fixture yields two bilingual rows");
+    harness.set_target(&segments[0], "你好世界更新");
+
+    let document_xml_of = |path: &str| -> String {
+        let package =
+            tl_filter_office::OfficePackage::open(std::path::Path::new(path)).expect("package");
+        String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part")
+    };
+
+    // The plain export — what「导出译文」writes — carries no preview anchors.
+    let plain_path = harness.path_of("bilingual-plain.docx");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+    assert!(!document_xml_of(&harness.path_of("bilingual-plain.docx")).contains("tlseg-"));
+
+    // The anchored export bookmarks every row's target-cell paragraph with
+    // its grid segment id, so the layout preview can jump from a click on
+    // the target cell — rows the user has not edited included.
+    let anchored_path = harness.path_of("bilingual-anchored.out.docx");
+    let result = harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": anchored_path,
+            "segmentAnchors": true,
+        }),
+    );
+    assert_eq!(result["translatedSegments"], 2);
+    let anchored_xml = document_xml_of(&harness.path_of("bilingual-anchored.out.docx"));
+    for segment in &segments {
+        let segment_id = segment["id"].as_str().expect("segment id");
+        assert!(
+            anchored_xml.contains(&format!("w:name=\"tlseg-{segment_id}\"")),
+            "missing anchor for segment {segment_id}"
+        );
+    }
+    // The anchored artifact still parses as the same bilingual table, with
+    // the edited row updated and the untouched row preserved.
+    let rows = tl_filter_docx::extract_bilingual_table_rows(
+        harness.path_of("bilingual-anchored.out.docx").as_ref(),
+    )
+    .expect("reparse anchored export");
+    let updated = rows
+        .iter()
+        .find(|row| row.table_index == 0 && row.row_number == 1)
+        .expect("first data row");
+    assert_eq!(updated.cells[1], "你好世界更新");
+    let untouched = rows
+        .iter()
+        .find(|row| row.table_index == 1 && row.row_number == 1)
+        .expect("second data row");
+    assert_eq!(untouched.cells[1], "第二译文");
 }
 
 #[test]

@@ -46,6 +46,8 @@ export interface WorkbenchViewProps {
   onStatusMessage: (message: string) => void;
   /** Reports whether a document is active, so menu enablement stays honest. */
   onDocumentOpenChange?: (open: boolean) => void;
+  /** Called with the stored project after the import-defaults auto-save. */
+  onProjectUpdated?: (project: Project) => void;
 }
 
 type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
@@ -104,6 +106,7 @@ export function WorkbenchView({
   engineState,
   onStatusMessage,
   onDocumentOpenChange,
+  onProjectUpdated,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
@@ -836,6 +839,7 @@ export function WorkbenchView({
           project={project}
           onClose={() => setImportOpen(false)}
           onImported={(result) => void handleImported(result)}
+          onProjectUpdated={onProjectUpdated}
         />
 
         {activeDocument ? (
