@@ -616,6 +616,207 @@ fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
 }
 
 #[test]
+fn term_update_and_delete_manage_a_mounted_termbase() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Industrial", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "actuator",
+            "targetTerm": "执行器",
+            "targetLocale": "zh-CN",
+        }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "actuator",
+            "targetTerm": "作动器",
+            "targetLocale": "zh-CN",
+            "forbidden": true,
+        }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "gasket",
+            "targetTerm": "垫片",
+            "targetLocale": "zh-CN",
+        }),
+    );
+
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries").clone();
+    assert_eq!(entries.len(), 2);
+    let actuator = &entries[0];
+    let gasket = &entries[1];
+    assert_eq!(actuator["sourceTerm"], "actuator");
+    assert_eq!(gasket["sourceTerm"], "gasket");
+    let actuator_id = actuator["id"].as_str().expect("entry id").to_string();
+    let gasket_id = gasket["id"].as_str().expect("entry id").to_string();
+    let forbidden_translation_id = actuator["translations"]
+        .as_array()
+        .expect("translations")
+        .iter()
+        .find(|translation| translation["forbidden"] == true)
+        .and_then(|translation| translation["id"].as_str())
+        .expect("forbidden translation id")
+        .to_string();
+
+    // Rename the source term; lookup follows the new spelling.
+    let renamed = harness.call(
+        "term.update",
+        json!({ "entryId": gasket_id, "sourceTerm": "sensor" }),
+    );
+    assert_eq!(renamed["entry"]["sourceTerm"], "sensor");
+    assert_eq!(renamed["entry"]["revision"], 2);
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the sensor today." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 1);
+    let stale = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the gasket today." }),
+    );
+    assert_eq!(stale["matches"].as_array().expect("matches").len(), 0);
+
+    // Edit one translation's text and clear its forbidden flag.
+    let edited = harness.call(
+        "term.update",
+        json!({
+            "entryId": actuator_id,
+            "translationId": forbidden_translation_id,
+            "targetTerm": "促动器",
+            "forbidden": false,
+        }),
+    );
+    let translations = edited["entry"]["translations"]
+        .as_array()
+        .expect("translations");
+    let edited_translation = translations
+        .iter()
+        .find(|translation| translation["id"] == forbidden_translation_id.as_str())
+        .expect("edited translation");
+    assert_eq!(edited_translation["term"], "促动器");
+    assert_eq!(edited_translation["forbidden"], false);
+    assert_eq!(edited_translation["preferred"], true);
+
+    // Honest failures: collisions, empty edits, and unknown ids.
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": gasket_id, "sourceTerm": "Actuator" }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({
+                "entryId": actuator_id,
+                "translationId": forbidden_translation_id,
+                "targetTerm": "执行器",
+            }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err("term.update", json!({ "entryId": actuator_id })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": actuator_id, "sourceTerm": "  " }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": actuator_id, "targetTerm": "促动装置" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": "missing", "sourceTerm": "x" }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({
+                "entryId": actuator_id,
+                "translationId": "missing",
+                "targetTerm": "x",
+            }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err("term.delete", json!({ "entryId": "missing" })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.delete",
+            json!({ "entryId": actuator_id, "translationId": "missing" }),
+        ),
+        "notFound"
+    );
+
+    // Remove one translation; the entry survives with the other one.
+    let trimmed = harness.call(
+        "term.delete",
+        json!({ "entryId": actuator_id, "translationId": forbidden_translation_id }),
+    );
+    let remaining = trimmed["entry"]["translations"]
+        .as_array()
+        .expect("translations");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0]["term"], "执行器");
+
+    // Remove the whole entry; list and lookup both drop it.
+    let removed = harness.call("term.delete", json!({ "entryId": gasket_id }));
+    assert!(removed["entry"].is_null());
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["sourceTerm"], "actuator");
+    let gone = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the sensor today." }),
+    );
+    assert_eq!(gone["matches"].as_array().expect("matches").len(), 0);
+
+    // Edits and deletes persist through the state store across a restart.
+    harness.reopen();
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["sourceTerm"], "actuator");
+    let translations = entries[0]["translations"].as_array().expect("translations");
+    assert_eq!(translations.len(), 1);
+    assert_eq!(translations[0]["term"], "执行器");
+}
+
+#[test]
 fn qa_run_applies_rule_library_and_terminology() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();

@@ -53,6 +53,8 @@ pub mod methods {
     pub const TERMBASE_IMPORT: &str = "termbase.import";
     pub const TERMBASE_EXPORT: &str = "termbase.export";
     pub const TERM_ADD: &str = "term.add";
+    pub const TERM_UPDATE: &str = "term.update";
+    pub const TERM_DELETE: &str = "term.delete";
     pub const TERM_LIST: &str = "term.list";
     pub const TERM_LOOKUP: &str = "term.lookup";
     pub const QA_RUN: &str = "qa.run";
@@ -131,6 +133,10 @@ pub struct RpcMethodCatalog {
     pub termbase_export: MethodContract<TermbaseExportParams, TermbaseExportResult>,
     #[serde(rename = "term.add")]
     pub term_add: MethodContract<TermAddParams, TermAddResult>,
+    #[serde(rename = "term.update")]
+    pub term_update: MethodContract<TermUpdateParams, TermUpdateResult>,
+    #[serde(rename = "term.delete")]
+    pub term_delete: MethodContract<TermDeleteParams, TermDeleteResult>,
     #[serde(rename = "term.list")]
     pub term_list: MethodContract<TermListParams, TermListResult>,
     #[serde(rename = "term.lookup")]
@@ -214,6 +220,8 @@ mod tests {
             methods::TERMBASE_IMPORT,
             methods::TERMBASE_EXPORT,
             methods::TERM_ADD,
+            methods::TERM_UPDATE,
+            methods::TERM_DELETE,
             methods::TERM_LIST,
             methods::TERM_LOOKUP,
             methods::QA_RUN,

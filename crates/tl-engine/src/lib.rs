@@ -260,6 +260,8 @@ impl Engine {
             methods::TERMBASE_IMPORT => to_value(self.termbase_import(parse(params)?)?),
             methods::TERMBASE_EXPORT => to_value(self.termbase_export(parse(params)?)?),
             methods::TERM_ADD => to_value(self.term_add(parse(params)?)?),
+            methods::TERM_UPDATE => to_value(self.term_update(parse(params)?)?),
+            methods::TERM_DELETE => to_value(self.term_delete(parse(params)?)?),
             methods::TERM_LIST => to_value(self.term_list(parse(params)?)?),
             methods::TERM_LOOKUP => to_value(self.term_lookup(parse(params)?)?),
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),

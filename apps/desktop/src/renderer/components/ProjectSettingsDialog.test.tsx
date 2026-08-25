@@ -631,6 +631,64 @@ describe("ProjectSettingsDialog", () => {
     expect(screen.getByText("已挂载")).toBeInTheDocument();
   });
 
+  it("opens and closes the term manager for a mounted termbase", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "term.list") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            entries: [
+              {
+                id: "te1",
+                termbaseId: "tb1",
+                sourceLocale: "en-US",
+                sourceTerm: "actuator",
+                partOfSpeech: null,
+                definition: null,
+                example: null,
+                domain: null,
+                status: "active",
+                revision: 1,
+                translations: [],
+                createdAtMs: 1,
+                updatedAtMs: 1,
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          termbases: [termbase("tb1", "产品术语")],
+          mounts: [mount("tb1")],
+        },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("产品术语")).toBeInTheDocument();
+    });
+    expect(calls.some(([method]) => method === "term.list")).toBe(false);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "管理术语库 产品术语 的术语" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("actuator")).toBeInTheDocument();
+    });
+    const listCall = calls.find(([method]) => method === "term.list");
+    expect(listCall?.[1]).toEqual({ termbaseId: "tb1" });
+
+    expect(screen.getByText("收起术语")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "管理术语库 产品术语 的术语" }),
+    );
+    expect(screen.queryByText("actuator")).not.toBeInTheDocument();
+  });
+
   it("creates and attaches a termbase through the engine", async () => {
     const calls: Array<[string, unknown]> = [];
     installBridge((method, params) => {

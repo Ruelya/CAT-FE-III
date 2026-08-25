@@ -68,12 +68,12 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract34;
-  "ai.agent.start": MethodContract32;
-  "ai.agent.status": MethodContract33;
-  "ai.assist": MethodContract31;
-  "ai.configure": MethodContract29;
-  "ai.status": MethodContract30;
+  "ai.agent.cancel": MethodContract36;
+  "ai.agent.start": MethodContract34;
+  "ai.agent.status": MethodContract35;
+  "ai.assist": MethodContract33;
+  "ai.configure": MethodContract31;
+  "ai.status": MethodContract32;
   "document.export": MethodContract10;
   "document.import": MethodContract8;
   "document.list": MethodContract9;
@@ -84,14 +84,16 @@ export interface RpcMethodCatalog {
   "project.get": MethodContract5;
   "project.list": MethodContract4;
   "project.update": MethodContract6;
-  "qa.list": MethodContract28;
-  "qa.run": MethodContract27;
+  "qa.list": MethodContract30;
+  "qa.run": MethodContract29;
   "segment.confirm": MethodContract13;
   "segment.list": MethodContract11;
   "segment.update": MethodContract12;
   "term.add": MethodContract24;
-  "term.list": MethodContract25;
-  "term.lookup": MethodContract26;
+  "term.delete": MethodContract26;
+  "term.list": MethodContract27;
+  "term.lookup": MethodContract28;
+  "term.update": MethodContract25;
   "termbase.attach": MethodContract20;
   "termbase.create": MethodContract18;
   "termbase.detach": MethodContract21;
@@ -106,7 +108,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract34 {
+export interface MethodContract36 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -146,7 +148,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract32 {
+export interface MethodContract34 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -162,7 +164,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract33 {
+export interface MethodContract35 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -173,7 +175,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract31 {
+export interface MethodContract33 {
   params: AiAssistParams;
   result: AiAssistResult;
 }
@@ -203,7 +205,7 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract29 {
+export interface MethodContract31 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -230,7 +232,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract30 {
+export interface MethodContract32 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -495,7 +497,7 @@ export interface ProjectUpdateParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract28 {
+export interface MethodContract30 {
   params: QaListParams;
   result: QaListResult;
 }
@@ -535,7 +537,7 @@ export interface NumberEvidence {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract27 {
+export interface MethodContract29 {
   params: QaRunParams;
   result: QaRunResult;
 }
@@ -688,7 +690,30 @@ export interface TermTranslation {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract25 {
+export interface MethodContract26 {
+  params: TermDeleteParams;
+  result: TermDeleteResult;
+}
+export interface TermDeleteParams {
+  entryId: string;
+  /**
+   * When set, removes only this translation and keeps the entry.
+   */
+  translationId?: string | null;
+  [k: string]: unknown;
+}
+export interface TermDeleteResult {
+  /**
+   * The surviving entry after a translation-level delete; `None` when the
+   * whole entry was removed.
+   */
+  entry?: TermEntry | null;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract27 {
   params: TermListParams;
   result: TermListResult;
 }
@@ -703,7 +728,7 @@ export interface TermListResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract26 {
+export interface MethodContract28 {
   params: TermLookupParams;
   result: TermLookupResult;
 }
@@ -727,6 +752,37 @@ export interface TermMatch {
   start: number;
   termbaseId: string;
   translations: TermTranslation[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract25 {
+  params: TermUpdateParams;
+  result: TermUpdateResult;
+}
+export interface TermUpdateParams {
+  entryId: string;
+  /**
+   * Marks the selected translation as forbidden (or preferred again).
+   */
+  forbidden?: boolean | null;
+  /**
+   * New source term for the entry. Left unchanged when omitted.
+   */
+  sourceTerm?: string | null;
+  /**
+   * New term text for the selected translation.
+   */
+  targetTerm?: string | null;
+  /**
+   * Translation being edited. Required for `target_term` / `forbidden`.
+   */
+  translationId?: string | null;
+  [k: string]: unknown;
+}
+export interface TermUpdateResult {
+  entry: TermEntry;
   [k: string]: unknown;
 }
 /**
