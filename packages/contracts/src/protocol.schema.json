@@ -1403,10 +1403,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConfigureParams"
+          "$ref": "#/$defs/QaWaiveParams"
         },
         "result": {
-          "$ref": "#/$defs/AiStatusResult"
+          "$ref": "#/$defs/QaWaiveResult"
         }
       },
       "additionalProperties": false,
@@ -1420,7 +1420,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiStatusParams"
+          "$ref": "#/$defs/AiConfigureParams"
         },
         "result": {
           "$ref": "#/$defs/AiStatusResult"
@@ -1437,10 +1437,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistParams"
+          "$ref": "#/$defs/AiStatusParams"
         },
         "result": {
-          "$ref": "#/$defs/AiAssistRunView"
+          "$ref": "#/$defs/AiStatusResult"
         }
       },
       "additionalProperties": false,
@@ -1454,7 +1454,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistStatusParams"
+          "$ref": "#/$defs/AiAssistParams"
         },
         "result": {
           "$ref": "#/$defs/AiAssistRunView"
@@ -1471,7 +1471,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistCancelParams"
+          "$ref": "#/$defs/AiAssistStatusParams"
         },
         "result": {
           "$ref": "#/$defs/AiAssistRunView"
@@ -1505,6 +1505,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiAssistCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract41": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
@@ -1517,7 +1534,7 @@
         "result"
       ]
     },
-    "MethodContract41": {
+    "MethodContract42": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1534,7 +1551,7 @@
         "result"
       ]
     },
-    "MethodContract42": {
+    "MethodContract43": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2011,6 +2028,14 @@
         "updatedAtMs": {
           "type": "integer",
           "format": "int64"
+        },
+        "waiveNote": {
+          "description": "Free-form note recorded with a waiver. Optional by design — waiving\nmust not demand a ritual reason. Non-null only while `status` is\n[`QaIssueStatus::Waived`].",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       },
       "required": [
@@ -2027,9 +2052,11 @@
       ]
     },
     "QaIssueStatus": {
+      "description": "Lifecycle of a persisted QA issue.\n\n- `Open`: the finding reproduced on the latest run and nobody accepted it.\n- `Waived`: a user explicitly accepted this exact finding (`qa.waive`).\n  A waiver is pinned to the issue fingerprint, which hashes the rule,\n  segment, and evidence — so it holds only while the very same evidence\n  keeps reproducing. If the evidence changes, the changed finding opens\n  as a new issue instead of hiding behind the old waiver.\n- `Resolved`: the finding stopped reproducing (e.g. the numbers now\n  actually match). Only `qa.run` moves issues here; waiving never does.",
       "type": "string",
       "enum": [
         "open",
+        "waived",
         "resolved"
       ]
     },
@@ -2068,7 +2095,7 @@
       "type": "object",
       "properties": {
         "issues": {
-          "description": "One window of the document's issues, open before resolved.",
+          "description": "One window of the document's issues: open first, then waived, then\nresolved.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/QaIssue"
@@ -2131,6 +2158,43 @@
         "info"
       ]
     },
+    "QaWaiveParams": {
+      "description": "`qa.waive` — record a human decision about one issue without pretending\nthe finding went away.\n\nWaiving never edits the segment, never confirms it, and never writes TM:\nthe numbers still disagree, and the issue row says so. The waiver sticks\nexactly as long as later runs reproduce the same fingerprint (rule +\nsegment + evidence). When the evidence changes, the old row resolves and\nthe changed finding opens as a brand-new issue — a waiver never carries\nover to evidence the user has not seen.",
+      "type": "object",
+      "properties": {
+        "issueId": {
+          "type": "string"
+        },
+        "note": {
+          "description": "Optional free-form note. Deliberately not required: an empty or\nomitted note is a perfectly valid waiver.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "waived": {
+          "description": "`true` waives an open issue; `false` restores a waived issue to open.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "issueId",
+        "waived"
+      ]
+    },
+    "QaWaiveResult": {
+      "type": "object",
+      "properties": {
+        "issue": {
+          "description": "The issue after the status change, straight from the store.",
+          "$ref": "#/$defs/QaIssue"
+        }
+      },
+      "required": [
+        "issue"
+      ]
+    },
     "RpcError": {
       "type": "object",
       "properties": {
@@ -2168,28 +2232,28 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract42"
+          "$ref": "#/$defs/MethodContract43"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract40"
-        },
-        "ai.agent.status": {
           "$ref": "#/$defs/MethodContract41"
         },
+        "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract42"
+        },
         "ai.assist.cancel": {
-          "$ref": "#/$defs/MethodContract39"
+          "$ref": "#/$defs/MethodContract40"
         },
         "ai.assist.start": {
-          "$ref": "#/$defs/MethodContract37"
-        },
-        "ai.assist.status": {
           "$ref": "#/$defs/MethodContract38"
         },
+        "ai.assist.status": {
+          "$ref": "#/$defs/MethodContract39"
+        },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract35"
+          "$ref": "#/$defs/MethodContract36"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract36"
+          "$ref": "#/$defs/MethodContract37"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract11"
@@ -2229,6 +2293,9 @@
         },
         "qa.run": {
           "$ref": "#/$defs/MethodContract33"
+        },
+        "qa.waive": {
+          "$ref": "#/$defs/MethodContract35"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract14"
@@ -2330,6 +2397,7 @@
         "term.lookup",
         "qa.run",
         "qa.list",
+        "qa.waive",
         "ai.configure",
         "ai.status",
         "ai.assist.start",

@@ -1720,6 +1720,169 @@ fn qa_run_applies_rule_library_and_terminology() {
     );
 }
 
+/// The full `qa.waive` lifecycle and its human red line.
+///
+/// Waiving records "a human accepted exactly this finding" without
+/// pretending the numbers now match: the segment stays a draft, nothing is
+/// confirmed, and no TM entry appears. The waiver sticks across reruns while
+/// the same fingerprint + evidence reproduce; changed numbers open a fresh
+/// issue instead of hiding behind the old waiver.
+#[test]
+fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "waive.txt",
+        "The amount is 30.\n\nThe size is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "金额是 40。");
+    harness.set_target(&segments[1], "大小是 60。");
+    // Post-draft snapshot: the red-line checks below compare against this.
+    let drafted = harness.segments(&document_id);
+
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(run["openIssues"], 2);
+    let issues = run["issues"].as_array().expect("issues").clone();
+    let first_issue = issues
+        .iter()
+        .find(|issue| issue["segmentId"] == segments[0]["id"])
+        .expect("issue on segment 0");
+    let first_issue_id = first_issue["id"].as_str().expect("issue id").to_string();
+    let first_fingerprint = first_issue["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_string();
+
+    // Waive with a note. The note is optional by design; this one proves it
+    // round-trips when given.
+    let waived = harness.call(
+        "qa.waive",
+        json!({ "issueId": first_issue_id, "waived": true, "note": "客户确认金额以译文为准" }),
+    );
+    assert_eq!(waived["issue"]["status"], "waived");
+    assert_eq!(waived["issue"]["waiveNote"], "客户确认金额以译文为准");
+    assert_eq!(
+        waived["issue"]["evidence"]["targetNumbers"][0], "40",
+        "the evidence still shows the mismatch; waiving does not rewrite it"
+    );
+
+    // Human red line: waive is not confirm and writes no TM. The segment is
+    // still a draft at the same revision, and the project memory is empty.
+    let segments_after = harness.segments(&document_id);
+    assert_eq!(segments_after[0]["state"], "draft");
+    assert_eq!(segments_after[0]["revision"], drafted[0]["revision"]);
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 0, "waiving must never write a TM entry");
+
+    // A rerun with unchanged text reproduces the same fingerprint and
+    // evidence, so the waiver holds and the issue is not counted as open.
+    let rerun = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(rerun["openIssues"], 1, "only the un-waived issue is open");
+    let rerun_first = rerun["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["id"].as_str() == Some(first_issue_id.as_str()))
+        .expect("waived issue survives the rerun")
+        .clone();
+    assert_eq!(rerun_first["status"], "waived");
+    assert_eq!(rerun_first["waiveNote"], "客户确认金额以译文为准");
+
+    // List order: open first, then waived; the waiver note pages through.
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    let listed_statuses: Vec<&str> = listed["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter_map(|issue| issue["status"].as_str())
+        .collect();
+    assert_eq!(listed_statuses, vec!["open", "waived"]);
+
+    // Restore flips the waived issue back to open and drops the note.
+    let restored = harness.call(
+        "qa.waive",
+        json!({ "issueId": first_issue_id, "waived": false }),
+    );
+    assert_eq!(restored["issue"]["status"], "open");
+    assert!(restored["issue"]["waiveNote"].is_null());
+
+    // Re-waive without any note: an empty note is a perfectly valid waiver.
+    let rewaived = harness.call(
+        "qa.waive",
+        json!({ "issueId": first_issue_id, "waived": true, "note": "   " }),
+    );
+    assert_eq!(rewaived["issue"]["status"], "waived");
+    assert!(rewaived["issue"]["waiveNote"].is_null());
+
+    // The waiver survives an engine restart: it lives on the SQL row.
+    harness.reopen();
+    let reloaded = harness.call("qa.list", json!({ "documentId": document_id }));
+    let reloaded_first = reloaded["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["id"].as_str() == Some(first_issue_id.as_str()))
+        .expect("waived issue after restart")
+        .clone();
+    assert_eq!(reloaded_first["status"], "waived");
+
+    // Changed evidence breaks the waiver honestly: a different wrong number
+    // is a new fingerprint, so a fresh open issue appears and the old waived
+    // row resolves (that exact finding no longer reproduces).
+    let segments_now = harness.segments(&document_id);
+    harness.set_target(&segments_now[0], "金额是 70。");
+    let changed = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(
+        changed["openIssues"], 2,
+        "the changed number must open a new issue instead of hiding behind the waiver"
+    );
+    let changed_issues = changed["issues"].as_array().expect("issues");
+    let old_row = changed_issues
+        .iter()
+        .find(|issue| issue["id"].as_str() == Some(first_issue_id.as_str()))
+        .expect("old issue row");
+    assert_eq!(old_row["status"], "resolved");
+    assert!(old_row["waiveNote"].is_null());
+    let new_row = changed_issues
+        .iter()
+        .find(|issue| {
+            issue["segmentId"] == segments[0]["id"]
+                && issue["ruleId"] == "qa.number-mismatch"
+                && issue["status"] == "open"
+        })
+        .expect("new open issue for the changed number");
+    assert_ne!(
+        new_row["fingerprint"].as_str(),
+        Some(first_fingerprint.as_str())
+    );
+    assert_eq!(new_row["evidence"]["targetNumbers"][0], "70");
+
+    // Honest errors: unknown issue, waiving what is already resolved, and
+    // restoring what is not waived.
+    assert_eq!(
+        harness.call_err("qa.waive", json!({ "issueId": "missing", "waived": true })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "issueId": first_issue_id, "waived": true })
+        ),
+        "conflict",
+        "a resolved issue has nothing left to waive"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "issueId": new_row["id"], "waived": false })
+        ),
+        "conflict",
+        "an open issue has nothing to restore"
+    );
+}
+
 #[test]
 fn bilingual_xlsx_filter_registers_imports_and_exports_via_explicit_id() {
     let mut harness = Harness::new();

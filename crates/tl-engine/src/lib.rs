@@ -348,6 +348,7 @@ impl Engine {
             methods::TERM_LOOKUP => to_value(self.term_lookup(parse(params)?)?),
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),
             methods::QA_LIST => to_value(self.qa_list(parse(params)?)?),
+            methods::QA_WAIVE => to_value(self.qa_waive(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
             methods::AI_STATUS => to_value(self.ai_status()),
             methods::AI_ASSIST_START => to_value(self.ai_assist_start(parse(params)?)?),

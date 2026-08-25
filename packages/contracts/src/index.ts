@@ -77,6 +77,7 @@ export const ENGINE_METHODS = [
   "term.lookup",
   "qa.run",
   "qa.list",
+  "qa.waive",
   "ai.configure",
   "ai.status",
   "ai.assist.start",

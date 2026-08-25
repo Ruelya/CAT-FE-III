@@ -63,6 +63,7 @@ pub mod methods {
     pub const TERM_LOOKUP: &str = "term.lookup";
     pub const QA_RUN: &str = "qa.run";
     pub const QA_LIST: &str = "qa.list";
+    pub const QA_WAIVE: &str = "qa.waive";
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
     pub const AI_ASSIST_START: &str = "ai.assist.start";
@@ -159,6 +160,8 @@ pub struct RpcMethodCatalog {
     pub qa_run: MethodContract<QaRunParams, QaRunResult>,
     #[serde(rename = "qa.list")]
     pub qa_list: MethodContract<QaListParams, QaListResult>,
+    #[serde(rename = "qa.waive")]
+    pub qa_waive: MethodContract<QaWaiveParams, QaWaiveResult>,
     #[serde(rename = "ai.configure")]
     pub ai_configure: MethodContract<AiConfigureParams, AiStatusResult>,
     #[serde(rename = "ai.status")]
@@ -248,6 +251,7 @@ mod tests {
             methods::TERM_LOOKUP,
             methods::QA_RUN,
             methods::QA_LIST,
+            methods::QA_WAIVE,
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
             methods::AI_ASSIST_START,

@@ -48,7 +48,19 @@ export type DocumentStatus = "active" | "failed" | "superseded";
 export type ProjectSegmentation = "sentence" | "paragraph";
 export type ProjectLifecycle = "active" | "archived" | "trash";
 export type QaSeverity = "error" | "warning" | "info";
-export type QaIssueStatus = "open" | "resolved";
+/**
+ * Lifecycle of a persisted QA issue.
+ *
+ * - `Open`: the finding reproduced on the latest run and nobody accepted it.
+ * - `Waived`: a user explicitly accepted this exact finding (`qa.waive`).
+ *   A waiver is pinned to the issue fingerprint, which hashes the rule,
+ *   segment, and evidence — so it holds only while the very same evidence
+ *   keeps reproducing. If the evidence changes, the changed finding opens
+ *   as a new issue instead of hiding behind the old waiver.
+ * - `Resolved`: the finding stopped reproducing (e.g. the numbers now
+ *   actually match). Only `qa.run` moves issues here; waiving never does.
+ */
+export type QaIssueStatus = "open" | "waived" | "resolved";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
 export type TermStatus = "candidate" | "active" | "deprecated";
 export type TermExchangeFormat = "csv" | "tsv" | "tbx";
@@ -81,14 +93,14 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract42;
-  "ai.agent.start": MethodContract40;
-  "ai.agent.status": MethodContract41;
-  "ai.assist.cancel": MethodContract39;
-  "ai.assist.start": MethodContract37;
-  "ai.assist.status": MethodContract38;
-  "ai.configure": MethodContract35;
-  "ai.status": MethodContract36;
+  "ai.agent.cancel": MethodContract43;
+  "ai.agent.start": MethodContract41;
+  "ai.agent.status": MethodContract42;
+  "ai.assist.cancel": MethodContract40;
+  "ai.assist.start": MethodContract38;
+  "ai.assist.status": MethodContract39;
+  "ai.configure": MethodContract36;
+  "ai.status": MethodContract37;
   "document.export": MethodContract11;
   "document.import": MethodContract8;
   "document.list": MethodContract9;
@@ -102,6 +114,7 @@ export interface RpcMethodCatalog {
   "project.update": MethodContract6;
   "qa.list": MethodContract34;
   "qa.run": MethodContract33;
+  "qa.waive": MethodContract35;
   "segment.confirm": MethodContract14;
   "segment.list": MethodContract12;
   "segment.update": MethodContract13;
@@ -127,7 +140,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract42 {
+export interface MethodContract43 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -167,7 +180,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract40 {
+export interface MethodContract41 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -183,7 +196,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract41 {
+export interface MethodContract42 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -194,7 +207,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract39 {
+export interface MethodContract40 {
   params: AiAssistCancelParams;
   result: AiAssistRunView;
 }
@@ -243,7 +256,7 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract37 {
+export interface MethodContract38 {
   params: AiAssistParams;
   result: AiAssistRunView;
 }
@@ -256,7 +269,7 @@ export interface AiAssistParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract38 {
+export interface MethodContract39 {
   params: AiAssistStatusParams;
   result: AiAssistRunView;
 }
@@ -267,7 +280,7 @@ export interface AiAssistStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract35 {
+export interface MethodContract36 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -294,7 +307,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract36 {
+export interface MethodContract37 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -683,7 +696,8 @@ export interface QaListParams {
 }
 export interface QaListResult {
   /**
-   * One window of the document's issues, open before resolved.
+   * One window of the document's issues: open first, then waived, then
+   * resolved.
    */
   issues: QaIssue[];
   /**
@@ -704,6 +718,12 @@ export interface QaIssue {
   severity: QaSeverity;
   status: QaIssueStatus;
   updatedAtMs: number;
+  /**
+   * Free-form note recorded with a waiver. Optional by design — waiving
+   * must not demand a ritual reason. Non-null only while `status` is
+   * [`QaIssueStatus::Waived`].
+   */
+  waiveNote?: string | null;
   [k: string]: unknown;
 }
 /**
@@ -733,6 +753,63 @@ export interface QaRunResult {
   checkedSegments: number;
   issues: QaIssue[];
   openIssues: number;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract35 {
+  params: QaWaiveParams;
+  result: QaWaiveResult;
+}
+/**
+ * `qa.waive` — record a human decision about one issue without pretending
+ * the finding went away.
+ *
+ * Waiving never edits the segment, never confirms it, and never writes TM:
+ * the numbers still disagree, and the issue row says so. The waiver sticks
+ * exactly as long as later runs reproduce the same fingerprint (rule +
+ * segment + evidence). When the evidence changes, the old row resolves and
+ * the changed finding opens as a brand-new issue — a waiver never carries
+ * over to evidence the user has not seen.
+ */
+export interface QaWaiveParams {
+  issueId: string;
+  /**
+   * Optional free-form note. Deliberately not required: an empty or
+   * omitted note is a perfectly valid waiver.
+   */
+  note?: string | null;
+  /**
+   * `true` waives an open issue; `false` restores a waived issue to open.
+   */
+  waived: boolean;
+  [k: string]: unknown;
+}
+export interface QaWaiveResult {
+  issue: QaIssue1;
+  [k: string]: unknown;
+}
+/**
+ * The issue after the status change, straight from the store.
+ */
+export interface QaIssue1 {
+  createdAtMs: number;
+  evidence: NumberEvidence;
+  fingerprint: string;
+  id: string;
+  message: string;
+  ruleId: string;
+  segmentId: string;
+  severity: QaSeverity;
+  status: QaIssueStatus;
+  updatedAtMs: number;
+  /**
+   * Free-form note recorded with a waiver. Optional by design — waiving
+   * must not demand a ritual reason. Non-null only while `status` is
+   * [`QaIssueStatus::Waived`].
+   */
+  waiveNote?: string | null;
   [k: string]: unknown;
 }
 /**
