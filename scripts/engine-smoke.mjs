@@ -1,8 +1,11 @@
 // End-to-end smoke of the tl-engine stdio protocol: handshake, project,
-// DOCX import, grid edit/confirm, exact TM, number QA, export, and the
-// honest AI degradation path. Run with: pnpm test:e2e:engine
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+// DOCX import, grid edit/confirm, exact + fuzzy TM, termbases, pretranslate,
+// QA rule library, export, the honest AI degradation path, and the
+// asynchronous agent run against a loopback SSE fixture.
+// Run with: pnpm test:e2e:engine
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -149,9 +152,80 @@ try {
     lookup.matches.length === 1 && lookup.matches[0].score === 100,
     "exact TM hit",
   );
+  assert(lookup.matches[0].grade === "exact", "exact TM grade");
 
-  // Number QA catches a wrong number.
-  const numeric = segments.find((segment) => /\d/.test(segment.sourceText));
+  // Fuzzy TM: a paraphrase of the confirmed source is recalled and reranked.
+  const fuzzy = await call("tm.lookup", {
+    projectId: project.id,
+    sourceText: `${first.sourceText} indeed`,
+    minScore: 50,
+  });
+  assert(
+    fuzzy.matches.length >= 1 && fuzzy.matches[0].grade === "fuzzy",
+    "fuzzy TM recall",
+  );
+
+  // Termbase: create, attach, add a term, and get an in-text hit.
+  const termbase = await call("termbase.create", {
+    name: "Smoke terms",
+    sourceLocale: "en-US",
+  });
+  await call("termbase.attach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
+  await call("term.add", {
+    termbaseId: termbase.id,
+    sourceTerm: "retention period",
+    targetTerm: "保留期",
+    targetLocale: "zh-CN",
+  });
+  const termHits = await call("term.lookup", {
+    projectId: project.id,
+    sourceText: "The retention period is 30 days.",
+  });
+  assert(
+    termHits.matches.length === 1 &&
+      termHits.matches[0].sourceTerm === "retention period",
+    "term hit over source text",
+  );
+
+  // TM import + pretranslate fill untranslated segments as drafts.
+  const tmCsvPath = join(dataDir, "smoke-tm.csv");
+  const pretranslatable = segments.find(
+    (segment) => segment.id !== first.id && !/\d/.test(segment.sourceText),
+  );
+  if (pretranslatable) {
+    writeFileSync(
+      tmCsvPath,
+      `source,target\n"${pretranslatable.sourceText.replaceAll('"', '""')}",冒烟预翻译。\n`,
+    );
+    const tmImport = await call("tm.import", {
+      projectId: project.id,
+      path: tmCsvPath,
+    });
+    assert(tmImport.imported === 1, "TM CSV import");
+    const pretranslated = await call("tm.pretranslate", {
+      documentId: imported.document.id,
+    });
+    assert(pretranslated.pretranslated >= 1, "pretranslate fills drafts");
+  }
+
+  // TM export round-trips through TMX.
+  const tmxPath = join(dataDir, "smoke-tm.tmx");
+  const tmExport = await call("tm.export", {
+    projectId: project.id,
+    path: tmxPath,
+  });
+  assert(tmExport.exported >= 1, "TM TMX export");
+  assert(existsSync(tmxPath), "TMX file exists");
+
+  // Number QA catches a wrong number. Re-list first: pretranslation may have
+  // bumped segment revisions.
+  const { segments: refreshed } = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const numeric = refreshed.find((segment) => /\d/.test(segment.sourceText));
   if (numeric && numeric.id !== first.id) {
     await call("segment.update", {
       segmentId: numeric.id,
@@ -172,24 +246,123 @@ try {
   assert(exported.translatedSegments >= 1, "translated units exported");
 
   // Honest AI degradation without a key.
+  const untranslated = segments.find(
+    (segment) => segment.id !== first.id && !/\d/.test(segment.sourceText),
+  );
+  assert(untranslated, "fixture keeps an untranslated segment");
   const aiStatus = await call("ai.status", {});
   assert(aiStatus.configured === false, "AI unconfigured by default");
   await expectError(
     "ai.assist",
-    { segmentId: first.id, action: "translate" },
+    { segmentId: untranslated.id, action: "translate" },
     "aiNotConfigured",
   );
   await expectError(
-    "ai.agent.run",
+    "ai.agent.start",
     { documentId: imported.document.id },
     "aiNotConfigured",
   );
+
+  // Loopback OpenAI-compatible SSE fixture: no real key ever leaves the box.
+  const aiReply = "冒烟代理草稿。";
+  const aiServer = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      const payload = JSON.stringify({
+        choices: [{ delta: { content: aiReply } }],
+      });
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.end(`data: ${payload}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise((resolveListen) =>
+    aiServer.listen(0, "127.0.0.1", resolveListen),
+  );
+  const configured = await call("ai.configure", {
+    provider: "openaiCompatible",
+    model: "fixture-model",
+    baseUrl: `http://127.0.0.1:${aiServer.address().port}`,
+    apiKey: "fixture-key",
+  });
+  assert(configured.configured === true, "loopback provider configured");
+
+  // Assist returns a candidate with a tag-integrity verdict and never
+  // touches confirmed segments.
+  const assist = await call("ai.assist", {
+    segmentId: untranslated.id,
+    action: "translate",
+  });
+  assert(assist.draftTarget === aiReply, "assist streams the fixture reply");
+  assert(assist.tagCheck.ok === true, "assist reports tag integrity");
+  await expectError(
+    "ai.assist",
+    { segmentId: first.id, action: "translate" },
+    "conflict",
+  );
+
+  // Agent run: async task order that parks at the human gate.
+  const beforeAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const pendingBefore = beforeAgent.segments.filter(
+    (segment) => segment.state === "untranslated" && !segment.targetText.trim(),
+  ).length;
+  assert(pendingBefore >= 1, "agent has untranslated segments to draft");
+  const startedRun = await call("ai.agent.start", {
+    documentId: imported.document.id,
+  });
+  assert(startedRun.status === "running", "agent run starts asynchronously");
+  assert(
+    startedRun.plannedSegments === pendingBefore,
+    "task order claims the pending segments",
+  );
+  let runView = startedRun;
+  const runDeadline = Date.now() + 30_000;
+  while (runView.status === "running") {
+    assert(Date.now() < runDeadline, "agent run finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 200));
+    runView = await call("ai.agent.status", { runId: startedRun.runId });
+  }
+  assert(
+    runView.status === "awaitingReview",
+    "agent parks at the human review gate",
+  );
+  assert(
+    runView.tmApplied + runView.aiDrafted === pendingBefore,
+    "every pending segment was drafted via TM or AI",
+  );
+  assert(runView.failedSegments === 0, "no drafting failures");
+  assert(
+    notifications.some((frame) => frame.method === "notify.ai.agent.step"),
+    "agent steps stream as notification frames",
+  );
+
+  // Human gate: drafts landed, nothing got confirmed or exported by the
+  // agent itself.
+  const afterAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const confirmedAfter = afterAgent.segments.filter(
+    (segment) => segment.state === "confirmed",
+  ).length;
+  assert(
+    confirmedAfter === 1,
+    "only the human-confirmed segment stays confirmed",
+  );
+  assert(
+    afterAgent.segments.every(
+      (segment) =>
+        segment.state !== "untranslated" || !segment.targetText.trim(),
+    ),
+    "agent drafts are drafts, not silent confirmations",
+  );
+  aiServer.close();
 
   // Clean shutdown.
   await call("engine.shutdown", {});
   await new Promise((resolveExit) => child.once("exit", resolveExit));
   console.log(
-    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation",
+    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async agent run parked at the human gate",
   );
 } catch (error) {
   child.kill();

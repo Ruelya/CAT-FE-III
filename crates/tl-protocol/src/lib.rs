@@ -19,6 +19,8 @@ pub mod segment;
 pub use segment::*;
 pub mod tm;
 pub use tm::*;
+pub mod term;
+pub use term::*;
 pub mod qa;
 pub use qa::*;
 pub mod ai;
@@ -39,12 +41,25 @@ pub mod methods {
     pub const SEGMENT_UPDATE: &str = "segment.update";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
     pub const TM_LOOKUP: &str = "tm.lookup";
+    pub const TM_IMPORT: &str = "tm.import";
+    pub const TM_EXPORT: &str = "tm.export";
+    pub const TM_PRETRANSLATE: &str = "tm.pretranslate";
+    pub const TERMBASE_CREATE: &str = "termbase.create";
+    pub const TERMBASE_LIST: &str = "termbase.list";
+    pub const TERMBASE_ATTACH: &str = "termbase.attach";
+    pub const TERMBASE_IMPORT: &str = "termbase.import";
+    pub const TERMBASE_EXPORT: &str = "termbase.export";
+    pub const TERM_ADD: &str = "term.add";
+    pub const TERM_LIST: &str = "term.list";
+    pub const TERM_LOOKUP: &str = "term.lookup";
     pub const QA_RUN: &str = "qa.run";
     pub const QA_LIST: &str = "qa.list";
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
     pub const AI_ASSIST: &str = "ai.assist";
-    pub const AI_AGENT_RUN: &str = "ai.agent.run";
+    pub const AI_AGENT_START: &str = "ai.agent.start";
+    pub const AI_AGENT_STATUS: &str = "ai.agent.status";
+    pub const AI_AGENT_CANCEL: &str = "ai.agent.cancel";
 }
 
 pub mod notifications {
@@ -89,6 +104,28 @@ pub struct RpcMethodCatalog {
     pub segment_confirm: MethodContract<SegmentConfirmParams, SegmentConfirmResult>,
     #[serde(rename = "tm.lookup")]
     pub tm_lookup: MethodContract<TmLookupParams, TmLookupResult>,
+    #[serde(rename = "tm.import")]
+    pub tm_import: MethodContract<TmImportParams, TmImportResult>,
+    #[serde(rename = "tm.export")]
+    pub tm_export: MethodContract<TmExportParams, TmExportResult>,
+    #[serde(rename = "tm.pretranslate")]
+    pub tm_pretranslate: MethodContract<TmPretranslateParams, TmPretranslateResult>,
+    #[serde(rename = "termbase.create")]
+    pub termbase_create: MethodContract<TermbaseCreateParams, tl_asset::Termbase>,
+    #[serde(rename = "termbase.list")]
+    pub termbase_list: MethodContract<TermbaseListParams, TermbaseListResult>,
+    #[serde(rename = "termbase.attach")]
+    pub termbase_attach: MethodContract<TermbaseAttachParams, TermbaseAttachResult>,
+    #[serde(rename = "termbase.import")]
+    pub termbase_import: MethodContract<TermbaseImportParams, TermbaseImportResult>,
+    #[serde(rename = "termbase.export")]
+    pub termbase_export: MethodContract<TermbaseExportParams, TermbaseExportResult>,
+    #[serde(rename = "term.add")]
+    pub term_add: MethodContract<TermAddParams, TermAddResult>,
+    #[serde(rename = "term.list")]
+    pub term_list: MethodContract<TermListParams, TermListResult>,
+    #[serde(rename = "term.lookup")]
+    pub term_lookup: MethodContract<TermLookupParams, TermLookupResult>,
     #[serde(rename = "qa.run")]
     pub qa_run: MethodContract<QaRunParams, QaRunResult>,
     #[serde(rename = "qa.list")]
@@ -99,8 +136,12 @@ pub struct RpcMethodCatalog {
     pub ai_status: MethodContract<AiStatusParams, AiStatusResult>,
     #[serde(rename = "ai.assist")]
     pub ai_assist: MethodContract<AiAssistParams, AiAssistResult>,
-    #[serde(rename = "ai.agent.run")]
-    pub ai_agent_run: MethodContract<AgentRunParams, AgentRunResult>,
+    #[serde(rename = "ai.agent.start")]
+    pub ai_agent_start: MethodContract<AgentStartParams, AgentRunView>,
+    #[serde(rename = "ai.agent.status")]
+    pub ai_agent_status: MethodContract<AgentStatusParams, AgentRunView>,
+    #[serde(rename = "ai.agent.cancel")]
+    pub ai_agent_cancel: MethodContract<AgentCancelParams, AgentRunView>,
 }
 
 /// Notification-name-keyed catalog for the reserved notification frames.
@@ -152,12 +193,25 @@ mod tests {
             methods::SEGMENT_UPDATE,
             methods::SEGMENT_CONFIRM,
             methods::TM_LOOKUP,
+            methods::TM_IMPORT,
+            methods::TM_EXPORT,
+            methods::TM_PRETRANSLATE,
+            methods::TERMBASE_CREATE,
+            methods::TERMBASE_LIST,
+            methods::TERMBASE_ATTACH,
+            methods::TERMBASE_IMPORT,
+            methods::TERMBASE_EXPORT,
+            methods::TERM_ADD,
+            methods::TERM_LIST,
+            methods::TERM_LOOKUP,
             methods::QA_RUN,
             methods::QA_LIST,
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
             methods::AI_ASSIST,
-            methods::AI_AGENT_RUN,
+            methods::AI_AGENT_START,
+            methods::AI_AGENT_STATUS,
+            methods::AI_AGENT_CANCEL,
         ];
         assert_eq!(properties.len(), expected.len());
         for method in expected {

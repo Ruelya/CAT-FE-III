@@ -90,26 +90,22 @@ impl AiEventSink for DiscardSink {
 }
 
 pub fn run_completion(
-    runtime: &AiRuntime,
+    profile: &AiProviderProfile,
+    credential: &SecretString,
     messages: Vec<AiMessage>,
     source_text: &str,
     source_locale: &str,
     target_locale: &str,
+    cancellation: &AtomicBool,
 ) -> Result<ProviderCompletion, AiCoreError> {
     let request = ProviderRequest {
-        profile: runtime.profile.clone(),
+        profile: profile.clone(),
         messages,
         source_text: source_text.to_string(),
         source_locale: source_locale.to_string(),
         target_locale: target_locale.to_string(),
     };
-    let cancellation = AtomicBool::new(false);
-    tl_ai::execute_provider(
-        &request,
-        &runtime.credential,
-        &cancellation,
-        &mut DiscardSink,
-    )
+    tl_ai::execute_provider(&request, credential, cancellation, &mut DiscardSink)
 }
 
 #[cfg(test)]

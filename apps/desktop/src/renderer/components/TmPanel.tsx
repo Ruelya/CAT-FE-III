@@ -11,6 +11,16 @@ export interface TmPanelProps {
   onApply: (targetText: string) => void;
 }
 
+const GRADE_LABEL: Record<TmMatchItem["grade"], string> = {
+  exact: "精确",
+  inContext: "上下文",
+  fuzzy: "模糊",
+};
+
+function gradeTone(grade: TmMatchItem["grade"]): "ok" | "accent" {
+  return grade === "fuzzy" ? "accent" : "ok";
+}
+
 export function TmPanel({ projectId, activeSegment, onApply }: TmPanelProps) {
   const [matches, setMatches] = useState<TmMatchItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +52,7 @@ export function TmPanel({ projectId, activeSegment, onApply }: TmPanelProps) {
   }, [projectId, activeSegment]);
 
   return (
-    <Panel title="翻译记忆（精确匹配）" className="dock-panel">
+    <Panel title="翻译记忆" className="dock-panel">
       {!activeSegment ? (
         <EmptyState title="未选中句段" hint="在网格中选中句段后自动查询 TM。" />
       ) : error ? (
@@ -51,15 +61,18 @@ export function TmPanel({ projectId, activeSegment, onApply }: TmPanelProps) {
         </div>
       ) : matches.length === 0 ? (
         <EmptyState
-          title="无精确匹配"
-          hint="确认句段后会写入项目 TM；相同源文将在此显示 100% 匹配。"
+          title="无匹配"
+          hint="确认句段后会写入项目 TM；相同源文显示 100% 精确匹配，相似源文按分值显示模糊匹配。"
         />
       ) : (
         <div className="dock-stack">
           {matches.map((match) => (
             <div key={match.entry.id} className="match-card">
               <div className="match-card__row">
-                <Badge tone="accent">{match.score}%</Badge>
+                <span className="match-card__grade">
+                  <Badge tone={gradeTone(match.grade)}>{match.score}%</Badge>
+                  <Badge tone="neutral">{GRADE_LABEL[match.grade]}</Badge>
+                </span>
                 <Button
                   size="sm"
                   variant="outline"

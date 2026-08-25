@@ -33,35 +33,51 @@
     "notifications"
   ],
   "$defs": {
-    "AgentRunParams": {
+    "AgentCancelParams": {
       "type": "object",
       "properties": {
-        "documentId": {
+        "runId": {
           "type": "string"
-        },
-        "instruction": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "maxSegments": {
-          "description": "Upper bound on segments the agent may translate in one run.",
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
         }
       },
       "required": [
-        "documentId"
+        "runId"
       ]
     },
-    "AgentRunResult": {
+    "AgentRunStatus": {
+      "description": "Lifecycle of an agent run. The run never confirms segments, never signs\noff, and never exports: it always parks at `awaitingReview` for a human.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "running",
+            "canceled",
+            "failed"
+          ]
+        },
+        {
+          "description": "Terminal human gate: drafts are in the grid, a person decides what\ngets confirmed or exported.",
+          "type": "string",
+          "const": "awaitingReview"
+        }
+      ]
+    },
+    "AgentRunView": {
+      "description": "The observable task order for one agent run.",
       "type": "object",
       "properties": {
+        "aiDrafted": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
         "documentId": {
           "type": "string"
         },
@@ -71,6 +87,12 @@
           "minimum": 0
         },
         "openQaIssues": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "plannedSegments": {
+          "description": "Untranslated segments claimed by this run at start time.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0
@@ -87,28 +109,66 @@
             "$ref": "#/$defs/AgentStep"
           }
         },
-        "translatedSegments": {
+        "tmApplied": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
         }
       },
       "required": [
         "runId",
         "documentId",
         "status",
-        "steps",
-        "translatedSegments",
+        "cancelRequested",
+        "plannedSegments",
+        "tmApplied",
+        "aiDrafted",
         "failedSegments",
-        "openQaIssues"
+        "openQaIssues",
+        "steps",
+        "createdAtMs",
+        "updatedAtMs"
       ]
     },
-    "AgentRunStatus": {
-      "type": "string",
-      "enum": [
-        "completed",
-        "completedWithIssues",
-        "failed"
+    "AgentStartParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maxSegments": {
+          "description": "Upper bound on segments the agent may touch in one run.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "AgentStatusParams": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
       ]
     },
     "AgentStep": {
@@ -143,16 +203,30 @@
       ]
     },
     "AgentStepKind": {
-      "type": "string",
-      "enum": [
-        "plan",
-        "translate",
-        "qa",
-        "summary"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "qa",
+            "summary",
+            "cancel"
+          ]
+        },
+        {
+          "description": "Exact TM reuse during pretranslation.",
+          "type": "string",
+          "const": "tm"
+        },
+        {
+          "description": "AI drafting for a TM miss.",
+          "type": "string",
+          "const": "translate"
+        }
       ]
     },
     "AgentStepNotification": {
-      "description": "Payload for the reserved `notify.ai.agent.step` frame emitted while a run\nis in flight.",
+      "description": "Payload for the reserved `notify.ai.agent.step` frame emitted while a run\nis in flight. `runStatus` lets clients notice the terminal transition\nwithout polling.",
       "type": "object",
       "properties": {
         "documentId": {
@@ -161,6 +235,9 @@
         "runId": {
           "type": "string"
         },
+        "runStatus": {
+          "$ref": "#/$defs/AgentRunStatus"
+        },
         "step": {
           "$ref": "#/$defs/AgentStep"
         }
@@ -168,6 +245,7 @@
       "required": [
         "runId",
         "documentId",
+        "runStatus",
         "step"
       ]
     },
@@ -230,13 +308,18 @@
         },
         "provider": {
           "$ref": "#/$defs/AiProviderKind"
+        },
+        "tagCheck": {
+          "description": "Placeholder/tag integrity of the draft against the segment source.",
+          "$ref": "#/$defs/TagIntegrityReport"
         }
       },
       "required": [
         "draftTarget",
         "provider",
         "model",
-        "elapsedMs"
+        "elapsedMs",
+        "tagCheck"
       ]
     },
     "AiConfigureParams": {
@@ -470,8 +553,22 @@
         "projectId": {
           "type": "string"
         },
+        "segmentation": {
+          "description": "Segmentation mode: `sentence` (default) or `paragraph`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sourcePath": {
           "type": "string"
+        },
+        "srxPath": {
+          "description": "Path to a custom SRX ruleset used for sentence segmentation. When\nomitted, the built-in rules for the project source locale apply.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -739,10 +836,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaRunParams"
+          "$ref": "#/$defs/TmImportParams"
         },
         "result": {
-          "$ref": "#/$defs/QaRunResult"
+          "$ref": "#/$defs/TmImportResult"
         }
       },
       "additionalProperties": false,
@@ -756,10 +853,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/QaListParams"
+          "$ref": "#/$defs/TmExportParams"
         },
         "result": {
-          "$ref": "#/$defs/QaListResult"
+          "$ref": "#/$defs/TmExportResult"
         }
       },
       "additionalProperties": false,
@@ -773,10 +870,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConfigureParams"
+          "$ref": "#/$defs/TmPretranslateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiStatusResult"
+          "$ref": "#/$defs/TmPretranslateResult"
         }
       },
       "additionalProperties": false,
@@ -790,10 +887,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiStatusParams"
+          "$ref": "#/$defs/TermbaseCreateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiStatusResult"
+          "$ref": "#/$defs/Termbase"
         }
       },
       "additionalProperties": false,
@@ -807,10 +904,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistParams"
+          "$ref": "#/$defs/TermbaseListParams"
         },
         "result": {
-          "$ref": "#/$defs/AiAssistResult"
+          "$ref": "#/$defs/TermbaseListResult"
         }
       },
       "additionalProperties": false,
@@ -824,10 +921,27 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentRunParams"
+          "$ref": "#/$defs/TermbaseAttachParams"
         },
         "result": {
-          "$ref": "#/$defs/AgentRunResult"
+          "$ref": "#/$defs/TermbaseAttachResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract19": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseImportResult"
         }
       },
       "additionalProperties": false,
@@ -853,6 +967,176 @@
         "result"
       ]
     },
+    "MethodContract20": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseExportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseExportResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract21": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermAddParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermAddResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract22": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract23": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermLookupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermLookupResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract24": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaRunParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaRunResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract25": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract26": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiConfigureParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiStatusResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract27": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiStatusResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract28": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract29": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
     "MethodContract3": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
@@ -862,6 +1146,40 @@
         },
         "result": {
           "$ref": "#/$defs/Project"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract30": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract31": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -990,16 +1308,38 @@
       ]
     },
     "NumberEvidence": {
+      "description": "Evidence attached to a QA issue. Historically number-only; general rules\nreuse the same shape with free-form source/target values.",
       "type": "object",
       "properties": {
+        "relatedSegmentIds": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
         "sourceNumbers": {
           "type": "array",
           "items": {
             "type": "string"
           }
         },
+        "sourceValues": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
         "targetNumbers": {
           "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "targetValues": {
+          "type": "array",
+          "default": [],
           "items": {
             "type": "string"
           }
@@ -1355,17 +1695,23 @@
       "description": "Method-name-keyed catalog. Field renames must match [`methods`] constants;\nthe test below keeps them honest.",
       "type": "object",
       "properties": {
-        "ai.agent.run": {
-          "$ref": "#/$defs/MethodContract18"
+        "ai.agent.cancel": {
+          "$ref": "#/$defs/MethodContract31"
+        },
+        "ai.agent.start": {
+          "$ref": "#/$defs/MethodContract29"
+        },
+        "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract30"
         },
         "ai.assist": {
-          "$ref": "#/$defs/MethodContract17"
+          "$ref": "#/$defs/MethodContract28"
         },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract15"
+          "$ref": "#/$defs/MethodContract26"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract16"
+          "$ref": "#/$defs/MethodContract27"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract8"
@@ -1392,10 +1738,10 @@
           "$ref": "#/$defs/MethodContract4"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract14"
+          "$ref": "#/$defs/MethodContract25"
         },
         "qa.run": {
-          "$ref": "#/$defs/MethodContract13"
+          "$ref": "#/$defs/MethodContract24"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract11"
@@ -1406,8 +1752,41 @@
         "segment.update": {
           "$ref": "#/$defs/MethodContract10"
         },
+        "term.add": {
+          "$ref": "#/$defs/MethodContract21"
+        },
+        "term.list": {
+          "$ref": "#/$defs/MethodContract22"
+        },
+        "term.lookup": {
+          "$ref": "#/$defs/MethodContract23"
+        },
+        "termbase.attach": {
+          "$ref": "#/$defs/MethodContract18"
+        },
+        "termbase.create": {
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract19"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract17"
+        },
+        "tm.export": {
+          "$ref": "#/$defs/MethodContract14"
+        },
+        "tm.import": {
+          "$ref": "#/$defs/MethodContract13"
+        },
         "tm.lookup": {
           "$ref": "#/$defs/MethodContract12"
+        },
+        "tm.pretranslate": {
+          "$ref": "#/$defs/MethodContract15"
         }
       },
       "additionalProperties": false,
@@ -1424,12 +1803,25 @@
         "segment.update",
         "segment.confirm",
         "tm.lookup",
+        "tm.import",
+        "tm.export",
+        "tm.pretranslate",
+        "termbase.create",
+        "termbase.list",
+        "termbase.attach",
+        "termbase.import",
+        "termbase.export",
+        "term.add",
+        "term.list",
+        "term.lookup",
         "qa.run",
         "qa.list",
         "ai.configure",
         "ai.status",
         "ai.assist",
-        "ai.agent.run"
+        "ai.agent.start",
+        "ai.agent.status",
+        "ai.agent.cancel"
       ]
     },
     "RpcNotification": {
@@ -1665,6 +2057,30 @@
         "ok"
       ]
     },
+    "TagIntegrityReport": {
+      "description": "Verdict on whether a proposal preserves the source's placeholder tokens.\n\n`missing` lists tokens the proposal dropped, `extra` lists tokens it\ninvented; both are multiset differences, so a duplicated token counts.",
+      "type": "object",
+      "properties": {
+        "extra": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ]
+    },
     "TaskPackageProjectReference": {
       "type": "object",
       "properties": {
@@ -1689,6 +2105,551 @@
       "required": [
         "packageId",
         "originProjectId"
+      ]
+    },
+    "TermAddParams": {
+      "type": "object",
+      "properties": {
+        "definition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "forbidden": {
+          "description": "Marks the target as forbidden instead of preferred.",
+          "type": "boolean",
+          "default": false
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "type": "string"
+        },
+        "targetTerm": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "sourceTerm",
+        "targetTerm",
+        "targetLocale"
+      ]
+    },
+    "TermAddResult": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/TermEntry"
+        }
+      },
+      "required": [
+        "entry"
+      ]
+    },
+    "TermEntry": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "definition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "example": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "partOfSpeech": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TermStatus"
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermTranslation"
+          }
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "termbaseId",
+        "sourceLocale",
+        "sourceTerm",
+        "status",
+        "revision",
+        "translations",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermExchangeFormat": {
+      "type": "string",
+      "enum": [
+        "csv",
+        "tsv",
+        "tbx"
+      ]
+    },
+    "TermListParams": {
+      "type": "object",
+      "properties": {
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId"
+      ]
+    },
+    "TermListResult": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermEntry"
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ]
+    },
+    "TermLookupParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "sourceText"
+      ]
+    },
+    "TermLookupResult": {
+      "type": "object",
+      "properties": {
+        "matches": {
+          "description": "Hits over the normalized source text, ordered by span position. Spans\nare Unicode-scalar offsets into the normalized text.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermMatch"
+          }
+        }
+      },
+      "required": [
+        "matches"
+      ]
+    },
+    "TermMatch": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "sourceTerm": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "translations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermTranslation"
+          }
+        }
+      },
+      "required": [
+        "termbaseId",
+        "entryId",
+        "sourceTerm",
+        "translations",
+        "start",
+        "end"
+      ]
+    },
+    "TermStatus": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "active",
+        "deprecated"
+      ]
+    },
+    "TermTranslation": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "forbidden": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "preferred": {
+          "type": "boolean"
+        },
+        "term": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "entryId",
+        "locale",
+        "term",
+        "preferred",
+        "forbidden",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "Termbase": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "sourceLocale": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sourceLocale",
+        "writable",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
+      ]
+    },
+    "TermbaseAttachParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "termbaseId"
+      ]
+    },
+    "TermbaseAttachResult": {
+      "type": "object",
+      "properties": {
+        "mount": {
+          "$ref": "#/$defs/TermbaseMount"
+        }
+      },
+      "required": [
+        "mount"
+      ]
+    },
+    "TermbaseCreateParams": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "sourceLocale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sourceLocale"
+      ]
+    },
+    "TermbaseExportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TermExchangeFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "path"
+      ]
+    },
+    "TermbaseExportResult": {
+      "type": "object",
+      "properties": {
+        "exported": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "outputPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outputPath",
+        "exported"
+      ]
+    },
+    "TermbaseImportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "Explicit exchange format. When omitted, inferred from the extension.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TermExchangeFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        },
+        "targetLocale": {
+          "description": "Fallback target locale for rows/entries that do not carry one.",
+          "type": "string"
+        },
+        "termbaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "termbaseId",
+        "path",
+        "targetLocale"
+      ]
+    },
+    "TermbaseImportResult": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "description": "New term entries created.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "imported": {
+          "description": "Entries read from the file.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "merged": {
+          "description": "Existing entries that gained or refreshed translations.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "imported",
+        "added",
+        "merged"
+      ]
+    },
+    "TermbaseListParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "description": "When set, `mounts` is restricted to this project.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "TermbaseListResult": {
+      "type": "object",
+      "properties": {
+        "mounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TermbaseMount"
+          }
+        },
+        "termbases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Termbase"
+          }
+        }
+      },
+      "required": [
+        "termbases",
+        "mounts"
+      ]
+    },
+    "TermbaseMount": {
+      "type": "object",
+      "properties": {
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "termbaseId": {
+          "type": "string"
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projectId",
+        "termbaseId",
+        "priority",
+        "writable",
+        "enabled",
+        "revision",
+        "createdAtMs",
+        "updatedAtMs"
       ]
     },
     "TmEntry": {
@@ -1735,9 +2696,136 @@
         "confirmedAtMs"
       ]
     },
+    "TmExchangeFormat": {
+      "type": "string",
+      "enum": [
+        "tmx",
+        "csv",
+        "tsv"
+      ]
+    },
+    "TmExportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TmExchangeFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "path"
+      ]
+    },
+    "TmExportResult": {
+      "type": "object",
+      "properties": {
+        "exported": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "outputPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outputPath",
+        "exported"
+      ]
+    },
+    "TmImportParams": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "Explicit exchange format. When omitted, inferred from the extension.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TmExchangeFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "path"
+      ]
+    },
+    "TmImportResult": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "description": "New TM entries created.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "imported": {
+          "description": "Units read from the file.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "updated": {
+          "description": "Existing entries whose target was replaced.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "imported",
+        "added",
+        "updated"
+      ]
+    },
     "TmLookupParams": {
       "type": "object",
       "properties": {
+        "limit": {
+          "description": "Maximum matches to return; defaults to [`TM_LOOKUP_DEFAULT_LIMIT`].",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "minScore": {
+          "description": "Fuzzy score floor (1..=100); defaults to\n[`TM_LOOKUP_DEFAULT_MIN_SCORE`]. Exact matches always pass.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "default": null,
+          "maximum": 255,
+          "minimum": 0
+        },
         "projectId": {
           "type": "string"
         },
@@ -1758,10 +2846,17 @@
           "items": {
             "$ref": "#/$defs/TmMatchItem"
           }
+        },
+        "totalMatches": {
+          "description": "Total candidates that met the floor before the limit was applied, so\nclients can tell when a `limit` cut the list short.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
-        "matches"
+        "matches",
+        "totalMatches"
       ]
     },
     "TmMatchGrade": {
@@ -1775,6 +2870,11 @@
           "description": "Exact source and matching neighbour context. Reserved for later phases.",
           "type": "string",
           "const": "inContext"
+        },
+        {
+          "description": "Recalled by similarity; score reflects the fuzzy match quality.",
+          "type": "string",
+          "const": "fuzzy"
         }
       ]
     },
@@ -1799,6 +2899,69 @@
         "entry",
         "score",
         "grade"
+      ]
+    },
+    "TmPretranslateParams": {
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "minScore": {
+          "description": "Score threshold (1..=100) a match must reach to be applied; defaults\nto [`TM_PRETRANSLATE_DEFAULT_MIN_SCORE`].",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "default": null,
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "TmPretranslateResult": {
+      "type": "object",
+      "properties": {
+        "checked": {
+          "description": "Untranslated segments examined.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "exact": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "fuzzy": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "pretranslated": {
+          "description": "Segments filled from the TM (exact + fuzzy).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "segments": {
+          "description": "The segments that changed, at their new revisions.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        }
+      },
+      "required": [
+        "checked",
+        "pretranslated",
+        "exact",
+        "fuzzy",
+        "segments"
       ]
     }
   }
