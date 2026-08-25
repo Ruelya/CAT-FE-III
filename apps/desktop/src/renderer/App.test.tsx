@@ -28,6 +28,10 @@ function installBridge(initial: EngineStatusPayload): Bridge {
     relaunchEngine,
     // ProjectsView mounts underneath the gate and lists projects.
     invoke: vi.fn().mockResolvedValue({ ok: true, result: { projects: [] } }),
+    // App is the single writer of the menu context and subscribes to menu
+    // commands; the gate tests only need inert stubs for both.
+    setMenuContext: vi.fn(),
+    onMenuCommand: () => () => {},
   };
   Object.defineProperty(window, "tl", {
     value: api,
