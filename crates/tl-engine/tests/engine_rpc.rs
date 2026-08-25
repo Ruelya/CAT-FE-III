@@ -119,6 +119,243 @@ impl Harness {
 }
 
 #[test]
+fn project_update_edits_name_and_language_pair_while_empty() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Rename plus a full language-pair change on an asset-free project.
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "name": "  Renamed  ",
+            "sourceLocale": "de-DE",
+            "targetLocale": "fr-FR",
+        }),
+    );
+    assert_eq!(updated["name"], "Renamed");
+    assert_eq!(updated["sourceLocale"], "de-DE");
+    assert_eq!(updated["targetLocale"], "fr-FR");
+    assert_eq!(updated["revision"], 2);
+
+    // Omitted fields stay unchanged; identical values do not bump revision.
+    let same = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "name": "Renamed" }),
+    );
+    assert_eq!(same["revision"], 2);
+    assert_eq!(same["sourceLocale"], "de-DE");
+
+    // Provided-but-empty fields are rejected, as is an unknown project.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "name": "   " }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "sourceLocale": "" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err("project.update", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+
+    // The update survives an engine restart through state.json.
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["name"], "Renamed");
+    assert_eq!(reloaded["sourceLocale"], "de-DE");
+    assert_eq!(reloaded["targetLocale"], "fr-FR");
+}
+
+#[test]
+fn project_update_rejects_language_change_once_assets_exist() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // An attached termbase alone pins the pair; detaching unpins it.
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Pinning", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "targetLocale": "fr-FR" }),
+        ),
+        "conflict"
+    );
+    harness.call(
+        "termbase.detach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "targetLocale": "fr-FR" }),
+    );
+    assert_eq!(updated["targetLocale"], "fr-FR");
+
+    // Imported documents and TM entries pin the pair for good (no removal
+    // methods exist), but renaming stays allowed.
+    harness.import_txt(&project_id, "pin.txt", "Pinned content.\n");
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "targetLocale": "ja-JP" }),
+        ),
+        "conflict"
+    );
+    // Re-asserting the current pair is a no-op, not a conflict.
+    let unchanged = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "name": "Still editable",
+            "sourceLocale": "en-US",
+            "targetLocale": "fr-FR",
+        }),
+    );
+    assert_eq!(unchanged["name"], "Still editable");
+    assert_eq!(unchanged["targetLocale"], "fr-FR");
+}
+
+#[test]
+fn project_archive_stamps_and_clears_archived_at() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    let archived = harness.call("project.archive", json!({ "projectId": project_id }));
+    assert_eq!(archived["lifecycle"], "archived");
+    assert!(archived["archivedAtMs"].as_i64().expect("stamp") > 0);
+    assert_eq!(archived["revision"], 2);
+
+    // Idempotent: archiving again changes nothing.
+    let again = harness.call(
+        "project.archive",
+        json!({ "projectId": project_id, "archived": true }),
+    );
+    assert_eq!(again["revision"], 2);
+
+    // The lifecycle survives a restart.
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["lifecycle"], "archived");
+    assert!(reloaded["archivedAtMs"].is_i64());
+
+    // Restore clears the stamp.
+    let restored = harness.call(
+        "project.archive",
+        json!({ "projectId": project_id, "archived": false }),
+    );
+    assert_eq!(restored["lifecycle"], "active");
+    assert!(restored["archivedAtMs"].is_null());
+    assert_eq!(restored["revision"], 3);
+
+    assert_eq!(
+        harness.call_err("project.archive", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+}
+
+#[test]
+fn termbase_detach_removes_mount_and_compacts_priorities() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let mut termbase_ids = Vec::new();
+    for name in ["First", "Second"] {
+        let termbase = harness.call(
+            "termbase.create",
+            json!({ "name": name, "sourceLocale": "en-US" }),
+        );
+        let id = termbase["id"].as_str().expect("termbase id").to_string();
+        harness.call(
+            "termbase.attach",
+            json!({ "projectId": project_id, "termbaseId": id }),
+        );
+        termbase_ids.push(id);
+    }
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_ids[0],
+            "sourceTerm": "actuator",
+            "targetTerm": "执行器",
+            "targetLocale": "zh-CN",
+        }),
+    );
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Check the actuator." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 1);
+
+    // Detach the priority-0 mount: the survivor compacts to priority 0 and
+    // the entries stop hitting term.lookup.
+    let detached = harness.call(
+        "termbase.detach",
+        json!({ "projectId": project_id, "termbaseId": termbase_ids[0] }),
+    );
+    assert_eq!(detached["mount"]["termbaseId"], termbase_ids[0].as_str());
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts.len(), 1);
+    assert_eq!(mounts[0]["termbaseId"], termbase_ids[1].as_str());
+    assert_eq!(mounts[0]["priority"], 0);
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Check the actuator." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 0);
+
+    // The next attach lands on priority 1 without colliding.
+    let reattached = harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_ids[0] }),
+    );
+    assert_eq!(reattached["mount"]["priority"], 1);
+
+    // Detaching an unattached termbase is an honest notFound, and both ids
+    // are validated. The termbase itself is never deleted by a detach.
+    let stray = harness.call(
+        "termbase.create",
+        json!({ "name": "Stray", "sourceLocale": "en-US" }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "termbase.detach",
+            json!({ "projectId": project_id, "termbaseId": stray["id"] }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "termbase.detach",
+            json!({ "projectId": "missing", "termbaseId": termbase_ids[0] }),
+        ),
+        "notFound"
+    );
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["termbases"].as_array().expect("termbases").len(), 3);
+
+    // Mount removal persists across a restart.
+    harness.reopen();
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts.len(), 2);
+}
+
+#[test]
 fn fuzzy_tm_lookup_recalls_and_reranks() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();
@@ -268,6 +505,261 @@ fn tm_import_export_roundtrip_and_pretranslate() {
 }
 
 #[test]
+fn tm_list_pages_and_filters() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let csv_path = harness.write_file(
+        "memory.csv",
+        "source,target\nThe retention period is 30 days.,保留期为 30 天。\nSave your work often.,请经常保存工作。\n",
+    );
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path }),
+    );
+    // A later human confirmation lands the newest entry.
+    let document_id = harness.import_txt(&project_id, "job.txt", "Cats sleep in sunlight.\n");
+    let segments = harness.segments(&document_id);
+    let updated = harness.set_target(&segments[0], "猫在阳光下睡觉。");
+    harness.confirm(&updated);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["total"], 3);
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["sourceText"], "Cats sleep in sunlight.");
+
+    // Case-insensitive substring filter over source and target.
+    let filtered = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "RETENTION" }),
+    );
+    assert_eq!(filtered["total"], 1);
+    assert_eq!(
+        filtered["entries"][0]["sourceText"],
+        "The retention period is 30 days."
+    );
+    let by_target = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "保存工作" }),
+    );
+    assert_eq!(by_target["total"], 1);
+    let none = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "nowhere" }),
+    );
+    assert_eq!(none["total"], 0);
+    assert_eq!(none["entries"].as_array().expect("entries").len(), 0);
+
+    // Paging keeps the honest pre-page total.
+    let page = harness.call("tm.list", json!({ "projectId": project_id, "limit": 2 }));
+    assert_eq!(page["total"], 3);
+    assert_eq!(page["entries"].as_array().expect("entries").len(), 2);
+    let rest = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "limit": 2, "offset": 2 }),
+    );
+    assert_eq!(rest["total"], 3);
+    assert_eq!(rest["entries"].as_array().expect("entries").len(), 1);
+    let past_end = harness.call("tm.list", json!({ "projectId": project_id, "offset": 99 }));
+    assert_eq!(past_end["total"], 3);
+    assert_eq!(past_end["entries"].as_array().expect("entries").len(), 0);
+
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": project_id, "limit": 0 })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+}
+
+#[test]
+fn tm_update_and_delete_keep_index_and_confirm_path_coherent() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "source.txt",
+        "The retention period is 30 days.\n\nCats enjoy sleeping in warm sunlight.\n",
+    );
+    let segments = harness.segments(&document_id);
+    let first = harness.set_target(&segments[0], "保留期为 30 天。");
+    harness.confirm(&first);
+    let second = harness.set_target(&segments[1], "猫喜欢在温暖的阳光下睡觉。");
+    harness.confirm(&second);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["total"], 2);
+    let entry_of = |listed: &Value, source: &str| -> String {
+        listed["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .find(|entry| entry["sourceText"] == source)
+            .and_then(|entry| entry["id"].as_str())
+            .expect("entry id")
+            .to_string()
+    };
+    let retention_id = entry_of(&listed, "The retention period is 30 days.");
+    let cats_id = entry_of(&listed, "Cats enjoy sleeping in warm sunlight.");
+
+    // Target-only edit: lookup returns the curated translation.
+    let updated = harness.call(
+        "tm.update",
+        json!({
+            "entryId": retention_id,
+            "sourceText": "The retention period is 30 days.",
+            "targetText": "保留期共 30 天。",
+        }),
+    );
+    assert_eq!(updated["entry"]["targetText"], "保留期共 30 天。");
+    let lookup = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The retention period is 30 days." }),
+    );
+    assert_eq!(lookup["matches"][0]["grade"], "exact");
+    assert_eq!(
+        lookup["matches"][0]["entry"]["targetText"],
+        "保留期共 30 天。"
+    );
+
+    // Source edit re-keys the hash and the fuzzy index.
+    harness.call(
+        "tm.update",
+        json!({
+            "entryId": retention_id,
+            "sourceText": "The data retention window is 30 days.",
+            "targetText": "数据保留窗口为 30 天。",
+        }),
+    );
+    let old_source = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The retention period is 30 days." }),
+    );
+    assert!(
+        old_source["matches"]
+            .as_array()
+            .expect("matches")
+            .iter()
+            .all(|item| item["grade"] != "exact"),
+        "old source must no longer match exactly"
+    );
+    let new_source = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 30 days." }),
+    );
+    assert_eq!(new_source["matches"][0]["grade"], "exact");
+    assert_eq!(
+        new_source["matches"][0]["entry"]["targetText"],
+        "数据保留窗口为 30 天。"
+    );
+    let fuzzy = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 45 days." }),
+    );
+    assert_eq!(fuzzy["matches"][0]["grade"], "fuzzy");
+    assert_eq!(fuzzy["matches"][0]["entry"]["id"], retention_id.as_str());
+
+    // One entry per normalized source per memory stays enforced.
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({
+                "entryId": cats_id,
+                "sourceText": "The data retention window is 30 days.",
+                "targetText": "重复源文。",
+            }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({ "entryId": retention_id, "sourceText": "  ", "targetText": "x" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({ "entryId": "missing", "sourceText": "a", "targetText": "b" }),
+        ),
+        "notFound"
+    );
+
+    // Delete removes the entry from lookup, fuzzy recall, and the list.
+    let deleted = harness.call("tm.delete", json!({ "entryId": cats_id }));
+    assert_eq!(
+        deleted["entry"]["sourceText"],
+        "Cats enjoy sleeping in warm sunlight."
+    );
+    let exact_gone = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Cats enjoy sleeping in warm sunlight." }),
+    );
+    assert_eq!(exact_gone["totalMatches"], 0);
+    let fuzzy_gone = harness.call(
+        "tm.lookup",
+        json!({
+            "projectId": project_id,
+            "sourceText": "Cats enjoy sleeping in the warm sunlight.",
+        }),
+    );
+    assert_eq!(fuzzy_gone["totalMatches"], 0);
+    assert_eq!(
+        harness.call("tm.list", json!({ "projectId": project_id }))["total"],
+        1
+    );
+    assert_eq!(
+        harness.call_err("tm.delete", json!({ "entryId": cats_id })),
+        "notFound"
+    );
+
+    // Edits and deletions survive an engine restart via state.json, and the
+    // rebuilt fuzzy index matches the persisted entries.
+    harness.reopen();
+    assert_eq!(
+        harness.call("tm.list", json!({ "projectId": project_id }))["total"],
+        1
+    );
+    let after_restart = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 45 days." }),
+    );
+    assert_eq!(after_restart["matches"][0]["grade"], "fuzzy");
+    assert_eq!(
+        harness.call(
+            "tm.lookup",
+            json!({
+                "projectId": project_id,
+                "sourceText": "Cats enjoy sleeping in warm sunlight.",
+            }),
+        )["totalMatches"],
+        0
+    );
+
+    // The human confirm path keeps writing TM after manage operations.
+    let segments = harness.segments(&document_id);
+    harness.confirm(&segments[1]);
+    let relisted = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(relisted["total"], 2);
+
+    // Pretranslation picks up the curated target for the edited source.
+    let job_id = harness.import_txt(
+        &project_id,
+        "job.txt",
+        "The data retention window is 30 days.\n",
+    );
+    let pretranslated = harness.call("tm.pretranslate", json!({ "documentId": job_id }));
+    assert_eq!(pretranslated["exact"], 1);
+    assert_eq!(
+        pretranslated["segments"][0]["targetText"],
+        "数据保留窗口为 30 天。"
+    );
+}
+
+#[test]
 fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();
@@ -379,6 +871,207 @@ fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
 }
 
 #[test]
+fn term_update_and_delete_manage_a_mounted_termbase() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Industrial", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "actuator",
+            "targetTerm": "执行器",
+            "targetLocale": "zh-CN",
+        }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "actuator",
+            "targetTerm": "作动器",
+            "targetLocale": "zh-CN",
+            "forbidden": true,
+        }),
+    );
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_id,
+            "sourceTerm": "gasket",
+            "targetTerm": "垫片",
+            "targetLocale": "zh-CN",
+        }),
+    );
+
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries").clone();
+    assert_eq!(entries.len(), 2);
+    let actuator = &entries[0];
+    let gasket = &entries[1];
+    assert_eq!(actuator["sourceTerm"], "actuator");
+    assert_eq!(gasket["sourceTerm"], "gasket");
+    let actuator_id = actuator["id"].as_str().expect("entry id").to_string();
+    let gasket_id = gasket["id"].as_str().expect("entry id").to_string();
+    let forbidden_translation_id = actuator["translations"]
+        .as_array()
+        .expect("translations")
+        .iter()
+        .find(|translation| translation["forbidden"] == true)
+        .and_then(|translation| translation["id"].as_str())
+        .expect("forbidden translation id")
+        .to_string();
+
+    // Rename the source term; lookup follows the new spelling.
+    let renamed = harness.call(
+        "term.update",
+        json!({ "entryId": gasket_id, "sourceTerm": "sensor" }),
+    );
+    assert_eq!(renamed["entry"]["sourceTerm"], "sensor");
+    assert_eq!(renamed["entry"]["revision"], 2);
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the sensor today." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 1);
+    let stale = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the gasket today." }),
+    );
+    assert_eq!(stale["matches"].as_array().expect("matches").len(), 0);
+
+    // Edit one translation's text and clear its forbidden flag.
+    let edited = harness.call(
+        "term.update",
+        json!({
+            "entryId": actuator_id,
+            "translationId": forbidden_translation_id,
+            "targetTerm": "促动器",
+            "forbidden": false,
+        }),
+    );
+    let translations = edited["entry"]["translations"]
+        .as_array()
+        .expect("translations");
+    let edited_translation = translations
+        .iter()
+        .find(|translation| translation["id"] == forbidden_translation_id.as_str())
+        .expect("edited translation");
+    assert_eq!(edited_translation["term"], "促动器");
+    assert_eq!(edited_translation["forbidden"], false);
+    assert_eq!(edited_translation["preferred"], true);
+
+    // Honest failures: collisions, empty edits, and unknown ids.
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": gasket_id, "sourceTerm": "Actuator" }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({
+                "entryId": actuator_id,
+                "translationId": forbidden_translation_id,
+                "targetTerm": "执行器",
+            }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err("term.update", json!({ "entryId": actuator_id })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": actuator_id, "sourceTerm": "  " }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": actuator_id, "targetTerm": "促动装置" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({ "entryId": "missing", "sourceTerm": "x" }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.update",
+            json!({
+                "entryId": actuator_id,
+                "translationId": "missing",
+                "targetTerm": "x",
+            }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err("term.delete", json!({ "entryId": "missing" })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "term.delete",
+            json!({ "entryId": actuator_id, "translationId": "missing" }),
+        ),
+        "notFound"
+    );
+
+    // Remove one translation; the entry survives with the other one.
+    let trimmed = harness.call(
+        "term.delete",
+        json!({ "entryId": actuator_id, "translationId": forbidden_translation_id }),
+    );
+    let remaining = trimmed["entry"]["translations"]
+        .as_array()
+        .expect("translations");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0]["term"], "执行器");
+
+    // Remove the whole entry; list and lookup both drop it.
+    let removed = harness.call("term.delete", json!({ "entryId": gasket_id }));
+    assert!(removed["entry"].is_null());
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["sourceTerm"], "actuator");
+    let gone = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Replace the sensor today." }),
+    );
+    assert_eq!(gone["matches"].as_array().expect("matches").len(), 0);
+
+    // Edits and deletes persist through the state store across a restart.
+    harness.reopen();
+    let listed = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["sourceTerm"], "actuator");
+    let translations = entries[0]["translations"].as_array().expect("translations");
+    assert_eq!(translations.len(), 1);
+    assert_eq!(translations[0]["term"], "执行器");
+}
+
+#[test]
 fn qa_run_applies_rule_library_and_terminology() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();
@@ -468,6 +1161,165 @@ fn qa_run_applies_rule_library_and_terminology() {
             .iter()
             .all(|issue| issue["status"] == "resolved"),
         "number issue should be resolved"
+    );
+}
+
+#[test]
+fn bilingual_xlsx_filter_registers_imports_and_exports_via_explicit_id() {
+    let mut harness = Harness::new();
+
+    // Both bilingual table modes are registered engine capabilities.
+    let ready = harness.call(
+        "engine.initialize",
+        json!({
+            "protocolVersion": tl_protocol::PROTOCOL_VERSION,
+            "clientName": "test",
+            "clientVersion": "0",
+        }),
+    );
+    let filters = ready["capabilities"]["filters"]
+        .as_array()
+        .expect("filters");
+    for id in ["builtin.bilingual-xlsx", "builtin.bilingual-docx"] {
+        assert!(
+            filters.iter().any(|filter| filter == id),
+            "{id} missing from {filters:?}"
+        );
+    }
+
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual.xlsx");
+    tl_filter_xlsx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual XLSX fixture");
+
+    // Without an explicit filter id, probing still picks the ordinary XLSX
+    // filter: the bilingual mode never hijacks automatic selection.
+    let probed = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": source_path }),
+    );
+    assert_eq!(probed["document"]["filterId"], "builtin.xlsx");
+
+    // The explicit id runs the bilingual table mode: rows become segments
+    // with their existing targets carried over as drafts.
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-xlsx",
+        }),
+    );
+    assert_eq!(imported["document"]["filterId"], "builtin.bilingual-xlsx");
+    assert_eq!(imported["document"]["format"], "bilingual-xlsx");
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0]["sourceText"], "Hello");
+    assert_eq!(segments[0]["targetText"], "Existing");
+    assert_eq!(segments[0]["state"], "draft");
+    assert_eq!(segments[1]["sourceText"], "Second");
+    assert_eq!(segments[1]["targetText"], "第二");
+
+    // Edit one row, export, and reparse the workbook: only target cells
+    // change and the untouched row keeps its original translation.
+    harness.set_target(&segments[0], "你好更新");
+    let output_path = harness.path_of("bilingual.out.xlsx");
+    let exported = harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": output_path }),
+    );
+    assert_eq!(exported["translatedSegments"], 2);
+    let rows = tl_filter_xlsx::extract_bilingual_table_rows(
+        harness.path_of("bilingual.out.xlsx").as_ref(),
+    )
+    .expect("reparse exported workbook");
+    let updated = rows.iter().find(|row| row.row_number == 2).expect("row 2");
+    assert_eq!(updated.cells[0], "Hello");
+    assert_eq!(updated.cells[1], "你好更新");
+    let untouched = rows.iter().find(|row| row.row_number == 3).expect("row 3");
+    assert_eq!(untouched.cells[1], "第二");
+
+    // The human overwrite rule stays: an existing output path is refused.
+    assert_eq!(
+        harness.call_err(
+            "document.export",
+            json!({
+                "documentId": document_id,
+                "outputPath": harness.path_of("bilingual.out.xlsx"),
+            }),
+        ),
+        "exportBlocked"
+    );
+}
+
+#[test]
+fn bilingual_docx_filter_reports_layout_format_and_roundtrips() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual.docx");
+    tl_filter_docx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual DOCX fixture");
+
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-docx",
+        }),
+    );
+    assert_eq!(imported["document"]["filterId"], "builtin.bilingual-docx");
+    // The exact format id the desktop layout preview keys on: its export
+    // artifact really is a DOCX file rendered by the same pipeline.
+    assert_eq!(imported["document"]["format"], "bilingual-docx");
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0]["sourceText"], "Hello world");
+    assert_eq!(segments[0]["targetText"], "Existing target");
+    assert_eq!(segments[1]["sourceText"], "Second source");
+    assert_eq!(segments[1]["targetText"], "第二译文");
+
+    harness.set_target(&segments[0], "你好世界更新");
+    let output_path = harness.path_of("bilingual.out.docx");
+    let exported = harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": output_path }),
+    );
+    assert_eq!(exported["translatedSegments"], 2);
+    let rows = tl_filter_docx::extract_bilingual_table_rows(
+        harness.path_of("bilingual.out.docx").as_ref(),
+    )
+    .expect("reparse exported document");
+    let updated = rows
+        .iter()
+        .find(|row| row.table_index == 0 && row.row_number == 1)
+        .expect("first data row");
+    assert_eq!(updated.cells[0], "Hello world");
+    assert_eq!(updated.cells[1], "你好世界更新");
+    let untouched = rows
+        .iter()
+        .find(|row| row.table_index == 1 && row.row_number == 1)
+        .expect("second data row");
+    assert_eq!(untouched.cells[1], "第二译文");
+
+    // No clobber on re-export.
+    assert_eq!(
+        harness.call_err(
+            "document.export",
+            json!({
+                "documentId": document_id,
+                "outputPath": harness.path_of("bilingual.out.docx"),
+            }),
+        ),
+        "exportBlocked"
     );
 }
 

@@ -40,15 +40,18 @@ use tl_protocol::{
     AiAssistParams, AiAssistResult, AiConfigureParams, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
     DocumentListResult, EngineCapabilities, EngineReadyNotification, InitializeParams,
-    InitializeResult, PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult,
-    QaRunParams, RpcError, RpcErrorCode, RpcNotification, RpcRequest, RpcResponse,
-    SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
-    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods, notifications,
+    InitializeResult, PROTOCOL_VERSION, ProjectArchiveParams, ProjectCreateParams,
+    ProjectGetParams, ProjectListResult, ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode,
+    RpcNotification, RpcRequest, RpcResponse, SegmentConfirmParams, SegmentConfirmResult,
+    SegmentListParams, SegmentListResult, SegmentUpdateParams, SegmentUpdateResult, ShutdownResult,
+    methods, notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
 pub use agent::AgentEvent;
 pub use store::{DocumentRecord, EngineState};
+
+use store::StateDelta;
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
 
@@ -114,6 +117,11 @@ pub struct Engine {
     /// Fuzzy recall indexes, one per translation memory, rebuilt on open and
     /// maintained on every TM write.
     tm_indexes: BTreeMap<String, TmIndex>,
+    /// Exact-match index `(memory_id, source_hash) -> entry id`, rebuilt on
+    /// open and maintained on every TM insert. Mirrors the unique
+    /// `(memory_id, source_hash)` index in the SQLite store, and replaces
+    /// the linear scans the JSON store used for upserts and exact lookups.
+    tm_exact: BTreeMap<(String, String), String>,
     agent_runs: BTreeMap<String, AgentRunState>,
     agent_events_tx: Sender<AgentEvent>,
     agent_events_rx: Option<Receiver<AgentEvent>>,
@@ -131,6 +139,26 @@ fn to_value<T: Serialize>(value: T) -> Result<Value, EngineError> {
     serde_json::to_value(value).map_err(|error| EngineError::Internal(error.to_string()))
 }
 
+/// `None` keeps the current value; `Some` is trimmed and must not be empty.
+fn resolve_update_field(
+    value: Option<String>,
+    current: &str,
+    label: &str,
+) -> Result<String, EngineError> {
+    match value {
+        None => Ok(current.to_string()),
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(EngineError::InvalidParams(format!(
+                    "{label} must not be empty"
+                )));
+            }
+            Ok(trimmed.to_string())
+        }
+    }
+}
+
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Self, EngineError> {
         let (store, state) = store::Store::open(data_dir)?;
@@ -143,6 +171,11 @@ impl Engine {
             Arc::new(tl_filter_xliff::XliffFilter),
             Arc::new(tl_filter_xlsx::XlsxFilter),
             Arc::new(tl_filter_pptx::PptxFilter),
+            // Explicit two-column bilingual table modes. Both probe as
+            // no-match, so ordinary .docx/.xlsx probing is unchanged; they
+            // only run when document.import names their filter id.
+            Arc::new(tl_filter_docx::BilingualDocxFilter),
+            Arc::new(tl_filter_xlsx::BilingualXlsxFilter),
         ];
         for filter in filters {
             registry
@@ -150,11 +183,16 @@ impl Engine {
                 .map_err(|error| EngineError::Internal(error.to_string()))?;
         }
         let mut tm_indexes: BTreeMap<String, TmIndex> = BTreeMap::new();
+        let mut tm_exact: BTreeMap<(String, String), String> = BTreeMap::new();
         for entry in state.tm_entries.values() {
             tm_indexes
                 .entry(entry.memory_id.clone())
                 .or_default()
                 .insert(&entry.id, &entry.source_text);
+            tm_exact.insert(
+                (entry.memory_id.clone(), entry.source_hash.clone()),
+                entry.id.clone(),
+            );
         }
         let (agent_events_tx, agent_events_rx) = channel();
         Ok(Self {
@@ -164,6 +202,7 @@ impl Engine {
             registry,
             ai: None,
             tm_indexes,
+            tm_exact,
             agent_runs: BTreeMap::new(),
             agent_events_tx,
             agent_events_rx: Some(agent_events_rx),
@@ -215,6 +254,8 @@ impl Engine {
             methods::PROJECT_CREATE => to_value(self.project_create(parse(params)?)?),
             methods::PROJECT_LIST => to_value(self.project_list()),
             methods::PROJECT_GET => to_value(self.project_get(parse(params)?)?),
+            methods::PROJECT_UPDATE => to_value(self.project_update(parse(params)?)?),
+            methods::PROJECT_ARCHIVE => to_value(self.project_archive(parse(params)?)?),
             methods::DOCUMENT_IMPORT => to_value(self.document_import(parse(params)?)?),
             methods::DOCUMENT_LIST => to_value(self.document_list(parse(params)?)?),
             methods::DOCUMENT_EXPORT => to_value(self.document_export(parse(params)?)?),
@@ -222,15 +263,21 @@ impl Engine {
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
             methods::SEGMENT_CONFIRM => to_value(self.segment_confirm(parse(params)?)?),
             methods::TM_LOOKUP => to_value(self.tm_lookup(parse(params)?)?),
+            methods::TM_LIST => to_value(self.tm_list(parse(params)?)?),
+            methods::TM_UPDATE => to_value(self.tm_update(parse(params)?)?),
+            methods::TM_DELETE => to_value(self.tm_delete(parse(params)?)?),
             methods::TM_IMPORT => to_value(self.tm_import(parse(params)?)?),
             methods::TM_EXPORT => to_value(self.tm_export(parse(params)?)?),
             methods::TM_PRETRANSLATE => to_value(self.tm_pretranslate(parse(params)?)?),
             methods::TERMBASE_CREATE => to_value(self.termbase_create(parse(params)?)?),
             methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
             methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),
+            methods::TERMBASE_DETACH => to_value(self.termbase_detach(parse(params)?)?),
             methods::TERMBASE_IMPORT => to_value(self.termbase_import(parse(params)?)?),
             methods::TERMBASE_EXPORT => to_value(self.termbase_export(parse(params)?)?),
             methods::TERM_ADD => to_value(self.term_add(parse(params)?)?),
+            methods::TERM_UPDATE => to_value(self.term_update(parse(params)?)?),
+            methods::TERM_DELETE => to_value(self.term_delete(parse(params)?)?),
             methods::TERM_LIST => to_value(self.term_list(parse(params)?)?),
             methods::TERM_LOOKUP => to_value(self.term_lookup(parse(params)?)?),
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),
@@ -298,10 +345,13 @@ impl Engine {
             updated_at_ms: now,
             archived_at_ms: None,
         };
+        self.store.apply(&StateDelta {
+            projects: vec![project.clone()],
+            ..Default::default()
+        })?;
         self.state
             .projects
             .insert(project.id.clone(), project.clone());
-        self.store.save(&self.state)?;
         Ok(project)
     }
 
@@ -317,6 +367,131 @@ impl Engine {
             .get(&params.project_id)
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("project {}", params.project_id)))
+    }
+
+    /// Rename and/or change the language pair. Omitted fields stay unchanged.
+    ///
+    /// Language-pair rule (documented on [`ProjectUpdateParams`]): locales may
+    /// only change while the project holds no linguistic assets. Imported
+    /// documents were segmented with the old source locale, and TM entries /
+    /// termbase mounts carry translations for the old pair, so changing the
+    /// pair over them would silently serve wrong-language matches. The engine
+    /// rejects that with `conflict` instead of allowing it with a warning.
+    fn project_update(&mut self, params: ProjectUpdateParams) -> Result<Project, EngineError> {
+        let project = self.require_project(&params.project_id)?.clone();
+        let name = resolve_update_field(params.name, &project.name, "project name")?;
+        let source_locale = resolve_update_field(
+            params.source_locale,
+            &project.source_locale,
+            "source locale",
+        )?;
+        let target_locale = resolve_update_field(
+            params.target_locale,
+            &project.target_locale,
+            "target locale",
+        )?;
+        let language_changed =
+            source_locale != project.source_locale || target_locale != project.target_locale;
+        if language_changed {
+            let blockers = self.language_change_blockers(&project.id);
+            if !blockers.is_empty() {
+                return Err(EngineError::Conflict(format!(
+                    "cannot change the language pair: the project already has {}; \
+                     export or remove them first",
+                    blockers.join(", ")
+                )));
+            }
+        }
+        if name == project.name && !language_changed {
+            return Ok(project);
+        }
+        let now = now_ms();
+        let stored = self
+            .state
+            .projects
+            .get_mut(&params.project_id)
+            .expect("project just resolved");
+        stored.name = name;
+        stored.source_locale = source_locale;
+        stored.target_locale = target_locale;
+        stored.revision += 1;
+        stored.updated_at_ms = now;
+        let updated = stored.clone();
+        self.store.apply(&StateDelta {
+            projects: vec![updated.clone()],
+            ..Default::default()
+        })?;
+        Ok(updated)
+    }
+
+    /// Assets that pin the project's language pair, as human-readable counts.
+    fn language_change_blockers(&self, project_id: &str) -> Vec<String> {
+        let mut blockers = Vec::new();
+        let documents = self
+            .state
+            .documents
+            .values()
+            .filter(|record| record.document.project_id == project_id)
+            .count();
+        if documents > 0 {
+            blockers.push(format!("{documents} imported document(s)"));
+        }
+        let memory_id = Self::project_memory_id(project_id);
+        let tm_entries = self
+            .state
+            .tm_entries
+            .values()
+            .filter(|entry| entry.memory_id == memory_id)
+            .count();
+        if tm_entries > 0 {
+            blockers.push(format!("{tm_entries} TM entry(ies)"));
+        }
+        let mounts = self
+            .state
+            .termbase_mounts
+            .iter()
+            .filter(|mount| mount.project_id == project_id)
+            .count();
+        if mounts > 0 {
+            blockers.push(format!("{mounts} attached termbase(s)"));
+        }
+        blockers
+    }
+
+    /// Archive (`archived: true`) or restore (`archived: false`) a project.
+    /// Archiving stamps `archived_at_ms`; restoring clears it. Both
+    /// directions are idempotent and return the stored project.
+    fn project_archive(&mut self, params: ProjectArchiveParams) -> Result<Project, EngineError> {
+        let project = self.require_project(&params.project_id)?.clone();
+        let already_there = if params.archived {
+            project.lifecycle == ProjectLifecycle::Archived
+        } else {
+            project.lifecycle == ProjectLifecycle::Active
+        };
+        if already_there {
+            return Ok(project);
+        }
+        let now = now_ms();
+        let stored = self
+            .state
+            .projects
+            .get_mut(&params.project_id)
+            .expect("project just resolved");
+        if params.archived {
+            stored.lifecycle = ProjectLifecycle::Archived;
+            stored.archived_at_ms = Some(now);
+        } else {
+            stored.lifecycle = ProjectLifecycle::Active;
+            stored.archived_at_ms = None;
+        }
+        stored.revision += 1;
+        stored.updated_at_ms = now;
+        let updated = stored.clone();
+        self.store.apply(&StateDelta {
+            projects: vec![updated.clone()],
+            ..Default::default()
+        })?;
+        Ok(updated)
     }
 
     fn require_project(&self, project_id: &str) -> Result<&Project, EngineError> {
@@ -427,11 +602,19 @@ impl Engine {
             segment_ids: prepared.segments.iter().map(|s| s.id.clone()).collect(),
             segment_leading: prepared.leading,
         };
-        for segment in prepared.segments {
+        // Persist first: if the write fails, memory stays consistent with
+        // the database and the import surfaces as an error.
+        let delta = StateDelta {
+            documents: vec![record.clone()],
+            segments: prepared.segments,
+            segment_leading: record.segment_leading.clone(),
+            ..Default::default()
+        };
+        self.store.apply(&delta)?;
+        for segment in delta.segments {
             self.state.segments.insert(segment.id.clone(), segment);
         }
         self.state.documents.insert(document_id, record);
-        self.store.save(&self.state)?;
         Ok(DocumentImportResult {
             document,
             segment_count,
@@ -518,7 +701,10 @@ impl Engine {
         segment.revision += 1;
         segment.updated_at_ms = now;
         let updated = segment.clone();
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            segments: vec![updated.clone()],
+            ..Default::default()
+        })?;
         Ok(SegmentUpdateResult { segment: updated })
     }
 
@@ -593,7 +779,13 @@ impl Engine {
                 propagated.push(sibling.clone());
             }
         }
-        self.store.save(&self.state)?;
+        let mut delta = StateDelta {
+            segments: vec![confirmed.clone()],
+            tm_entries: vec![tm_entry.clone()],
+            ..Default::default()
+        };
+        delta.segments.extend(propagated.iter().cloned());
+        self.store.apply(&delta)?;
         Ok(SegmentConfirmResult {
             segment: confirmed,
             tm_entry,
@@ -742,17 +934,15 @@ impl Engine {
 
         // Phase 1 of the run: exact TM pretranslation, cheap and local.
         let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
+        let mut tm_applied_segments: Vec<Segment> = Vec::new();
         for segment_id in &pending {
             let Some(segment) = self.state.segments.get(segment_id).cloned() else {
                 continue;
             };
             let tm_hit = self
-                .state
-                .tm_entries
-                .values()
-                .find(|entry| {
-                    entry.memory_id == memory_id && entry.source_hash == segment.source_hash
-                })
+                .tm_exact
+                .get(&(memory_id.clone(), segment.source_hash.clone()))
+                .and_then(|entry_id| self.state.tm_entries.get(entry_id))
                 .map(|entry| entry.target_text.clone());
             match tm_hit {
                 Some(target) if !target.trim().is_empty() => {
@@ -761,6 +951,7 @@ impl Engine {
                         stored.state = SegmentState::Draft;
                         stored.revision += 1;
                         stored.updated_at_ms = now;
+                        tm_applied_segments.push(stored.clone());
                     }
                     view.tm_applied += 1;
                     push_agent_step(
@@ -778,8 +969,11 @@ impl Engine {
                 }),
             }
         }
-        if view.tm_applied > 0 {
-            self.store.save(&self.state)?;
+        if !tm_applied_segments.is_empty() {
+            self.store.apply(&StateDelta {
+                segments: tm_applied_segments,
+                ..Default::default()
+            })?;
         }
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -886,11 +1080,13 @@ impl Engine {
                             return Ok(());
                         }
                         let now = now_ms();
+                        let mut drafted_segments = Vec::new();
                         if let Some(stored) = self.state.segments.get_mut(&segment_id) {
                             stored.target_text = draft.target;
                             stored.state = SegmentState::Draft;
                             stored.revision += 1;
                             stored.updated_at_ms = now;
+                            drafted_segments.push(stored.clone());
                         }
                         run.view.ai_drafted += 1;
                         push_agent_step(
@@ -901,7 +1097,10 @@ impl Engine {
                             Some(segment_id),
                             format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
                         );
-                        self.store.save(&self.state)?;
+                        self.store.apply(&StateDelta {
+                            segments: drafted_segments,
+                            ..Default::default()
+                        })?;
                     }
                     Ok(_) => {
                         run.view.failed_segments += 1;

@@ -34,6 +34,8 @@ pub mod methods {
     pub const PROJECT_CREATE: &str = "project.create";
     pub const PROJECT_LIST: &str = "project.list";
     pub const PROJECT_GET: &str = "project.get";
+    pub const PROJECT_UPDATE: &str = "project.update";
+    pub const PROJECT_ARCHIVE: &str = "project.archive";
     pub const DOCUMENT_IMPORT: &str = "document.import";
     pub const DOCUMENT_LIST: &str = "document.list";
     pub const DOCUMENT_EXPORT: &str = "document.export";
@@ -41,15 +43,21 @@ pub mod methods {
     pub const SEGMENT_UPDATE: &str = "segment.update";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
     pub const TM_LOOKUP: &str = "tm.lookup";
+    pub const TM_LIST: &str = "tm.list";
+    pub const TM_UPDATE: &str = "tm.update";
+    pub const TM_DELETE: &str = "tm.delete";
     pub const TM_IMPORT: &str = "tm.import";
     pub const TM_EXPORT: &str = "tm.export";
     pub const TM_PRETRANSLATE: &str = "tm.pretranslate";
     pub const TERMBASE_CREATE: &str = "termbase.create";
     pub const TERMBASE_LIST: &str = "termbase.list";
     pub const TERMBASE_ATTACH: &str = "termbase.attach";
+    pub const TERMBASE_DETACH: &str = "termbase.detach";
     pub const TERMBASE_IMPORT: &str = "termbase.import";
     pub const TERMBASE_EXPORT: &str = "termbase.export";
     pub const TERM_ADD: &str = "term.add";
+    pub const TERM_UPDATE: &str = "term.update";
+    pub const TERM_DELETE: &str = "term.delete";
     pub const TERM_LIST: &str = "term.list";
     pub const TERM_LOOKUP: &str = "term.lookup";
     pub const QA_RUN: &str = "qa.run";
@@ -90,6 +98,10 @@ pub struct RpcMethodCatalog {
     pub project_list: MethodContract<ProjectListParams, ProjectListResult>,
     #[serde(rename = "project.get")]
     pub project_get: MethodContract<ProjectGetParams, tl_domain::Project>,
+    #[serde(rename = "project.update")]
+    pub project_update: MethodContract<ProjectUpdateParams, tl_domain::Project>,
+    #[serde(rename = "project.archive")]
+    pub project_archive: MethodContract<ProjectArchiveParams, tl_domain::Project>,
     #[serde(rename = "document.import")]
     pub document_import: MethodContract<DocumentImportParams, DocumentImportResult>,
     #[serde(rename = "document.list")]
@@ -104,6 +116,12 @@ pub struct RpcMethodCatalog {
     pub segment_confirm: MethodContract<SegmentConfirmParams, SegmentConfirmResult>,
     #[serde(rename = "tm.lookup")]
     pub tm_lookup: MethodContract<TmLookupParams, TmLookupResult>,
+    #[serde(rename = "tm.list")]
+    pub tm_list: MethodContract<TmListParams, TmListResult>,
+    #[serde(rename = "tm.update")]
+    pub tm_update: MethodContract<TmUpdateParams, TmUpdateResult>,
+    #[serde(rename = "tm.delete")]
+    pub tm_delete: MethodContract<TmDeleteParams, TmDeleteResult>,
     #[serde(rename = "tm.import")]
     pub tm_import: MethodContract<TmImportParams, TmImportResult>,
     #[serde(rename = "tm.export")]
@@ -116,12 +134,18 @@ pub struct RpcMethodCatalog {
     pub termbase_list: MethodContract<TermbaseListParams, TermbaseListResult>,
     #[serde(rename = "termbase.attach")]
     pub termbase_attach: MethodContract<TermbaseAttachParams, TermbaseAttachResult>,
+    #[serde(rename = "termbase.detach")]
+    pub termbase_detach: MethodContract<TermbaseDetachParams, TermbaseDetachResult>,
     #[serde(rename = "termbase.import")]
     pub termbase_import: MethodContract<TermbaseImportParams, TermbaseImportResult>,
     #[serde(rename = "termbase.export")]
     pub termbase_export: MethodContract<TermbaseExportParams, TermbaseExportResult>,
     #[serde(rename = "term.add")]
     pub term_add: MethodContract<TermAddParams, TermAddResult>,
+    #[serde(rename = "term.update")]
+    pub term_update: MethodContract<TermUpdateParams, TermUpdateResult>,
+    #[serde(rename = "term.delete")]
+    pub term_delete: MethodContract<TermDeleteParams, TermDeleteResult>,
     #[serde(rename = "term.list")]
     pub term_list: MethodContract<TermListParams, TermListResult>,
     #[serde(rename = "term.lookup")]
@@ -186,6 +210,8 @@ mod tests {
             methods::PROJECT_CREATE,
             methods::PROJECT_LIST,
             methods::PROJECT_GET,
+            methods::PROJECT_UPDATE,
+            methods::PROJECT_ARCHIVE,
             methods::DOCUMENT_IMPORT,
             methods::DOCUMENT_LIST,
             methods::DOCUMENT_EXPORT,
@@ -193,15 +219,21 @@ mod tests {
             methods::SEGMENT_UPDATE,
             methods::SEGMENT_CONFIRM,
             methods::TM_LOOKUP,
+            methods::TM_LIST,
+            methods::TM_UPDATE,
+            methods::TM_DELETE,
             methods::TM_IMPORT,
             methods::TM_EXPORT,
             methods::TM_PRETRANSLATE,
             methods::TERMBASE_CREATE,
             methods::TERMBASE_LIST,
             methods::TERMBASE_ATTACH,
+            methods::TERMBASE_DETACH,
             methods::TERMBASE_IMPORT,
             methods::TERMBASE_EXPORT,
             methods::TERM_ADD,
+            methods::TERM_UPDATE,
+            methods::TERM_DELETE,
             methods::TERM_LIST,
             methods::TERM_LOOKUP,
             methods::QA_RUN,

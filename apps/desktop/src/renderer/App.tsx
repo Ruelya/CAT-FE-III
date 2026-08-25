@@ -5,6 +5,7 @@ import { Button, StatusDot } from "@translunar/ui";
 
 import type { EngineStatusPayload } from "../shared/desktop-api.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
+import { TmManageDialog } from "./components/TmManageDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
 
@@ -46,6 +47,8 @@ export function App() {
   );
   const [project, setProject] = useState<Project | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [documentOpen, setDocumentOpen] = useState(false);
+  const [tmManageOpen, setTmManageOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
     "INSTRUMENT · Translunar CAT 绿场骨架",
   );
@@ -65,6 +68,33 @@ export function App() {
       unsubscribe();
     };
   }, []);
+
+  // Single writer of the menu context: the application menu enables items
+  // only for state that is actually open (no project -> almost everything
+  // disabled; workbench reports document state via onDocumentOpenChange).
+  useEffect(() => {
+    window.tl.setMenuContext({
+      projectOpen: project !== null,
+      documentOpen: project !== null && documentOpen,
+    });
+  }, [project, documentOpen]);
+
+  // Shell-level menu commands; workbench-level ones are handled inside
+  // WorkbenchView. Both go through the same actions as the header buttons.
+  // The menu disables these without a project, but guard anyway so a stray
+  // command can never queue a settings dialog for a future project.
+  useEffect(() => {
+    return window.tl.onMenuCommand((command) => {
+      if (command === "open-project-settings") {
+        if (project) {
+          setSettingsOpen(true);
+        }
+      } else if (command === "close-project") {
+        setSettingsOpen(false);
+        setProject(null);
+      }
+    });
+  }, [project]);
 
   const handleStatusMessage = useCallback((message: string) => {
     setStatusMessage(message);
@@ -94,6 +124,13 @@ export function App() {
               <Button
                 size="sm"
                 variant="ghost"
+                onClick={() => setTmManageOpen(true)}
+              >
+                TM 管理
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setProject(null)}
               >
                 返回项目列表
@@ -114,6 +151,7 @@ export function App() {
         <WorkbenchView
           project={project}
           onStatusMessage={handleStatusMessage}
+          onDocumentOpenChange={setDocumentOpen}
         />
       ) : (
         <ProjectsView
@@ -131,6 +169,14 @@ export function App() {
           open={settingsOpen}
           project={project}
           onClose={() => setSettingsOpen(false)}
+          onProjectUpdated={setProject}
+        />
+      ) : null}
+      {project ? (
+        <TmManageDialog
+          open={tmManageOpen}
+          project={project}
+          onClose={() => setTmManageOpen(false)}
         />
       ) : null}
     </div>

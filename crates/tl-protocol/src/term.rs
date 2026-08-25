@@ -41,6 +41,21 @@ pub struct TermbaseAttachResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct TermbaseDetachParams {
+    pub project_id: String,
+    pub termbase_id: String,
+}
+
+/// Carries the removed mount. Detaching a termbase that is not attached fails
+/// with `notFound` instead of pretending success.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseDetachResult {
+    pub mount: TermbaseMount,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TermAddParams {
     pub termbase_id: String,
     pub source_term: String,
@@ -59,6 +74,47 @@ pub struct TermAddParams {
 #[serde(rename_all = "camelCase")]
 pub struct TermAddResult {
     pub entry: TermEntry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermUpdateParams {
+    pub entry_id: String,
+    /// New source term for the entry. Left unchanged when omitted.
+    #[serde(default)]
+    pub source_term: Option<String>,
+    /// Translation being edited. Required for `target_term` / `forbidden`.
+    #[serde(default)]
+    pub translation_id: Option<String>,
+    /// New term text for the selected translation.
+    #[serde(default)]
+    pub target_term: Option<String>,
+    /// Marks the selected translation as forbidden (or preferred again).
+    #[serde(default)]
+    pub forbidden: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermUpdateResult {
+    pub entry: TermEntry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermDeleteParams {
+    pub entry_id: String,
+    /// When set, removes only this translation and keeps the entry.
+    #[serde(default)]
+    pub translation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermDeleteResult {
+    /// The surviving entry after a translation-level delete; `None` when the
+    /// whole entry was removed.
+    pub entry: Option<TermEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

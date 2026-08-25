@@ -51,12 +51,99 @@ async function shot(name: string) {
   await page.screenshot({ path: join(shotsDir, name), fullPage: false });
 }
 
+interface MenuItemSnapshot {
+  label: string;
+  enabled: boolean;
+  accelerator: string | null;
+  registerAccelerator: boolean;
+}
+
+// Playwright cannot drive native menus, so menu assertions run as pure
+// main-process evaluations (template state) plus programmatic item clicks
+// (the same handler a real click invokes) — no flaky native UI involved.
+async function snapshotMenuItems(): Promise<MenuItemSnapshot[]> {
+  return app.evaluate(({ Menu }) => {
+    const snapshots: Array<{
+      label: string;
+      enabled: boolean;
+      accelerator: string | null;
+      registerAccelerator: boolean;
+    }> = [];
+    const menu = Menu.getApplicationMenu();
+    if (!menu) {
+      return snapshots;
+    }
+    const walk = (items: Electron.MenuItem[]): void => {
+      for (const item of items) {
+        snapshots.push({
+          label: item.label,
+          enabled: item.enabled,
+          accelerator: item.accelerator ?? null,
+          registerAccelerator: item.registerAccelerator,
+        });
+        if (item.submenu) {
+          walk(item.submenu.items);
+        }
+      }
+    };
+    walk(menu.items);
+    return snapshots;
+  });
+}
+
+async function findMenuItem(label: string): Promise<MenuItemSnapshot | null> {
+  const items = await snapshotMenuItems();
+  return items.find((item) => item.label === label) ?? null;
+}
+
+/** Clicks a menu item from the main process; refuses when disabled. */
+async function clickMenuItem(label: string): Promise<boolean> {
+  return app.evaluate(({ Menu }, itemLabel) => {
+    const menu = Menu.getApplicationMenu();
+    if (!menu) {
+      return false;
+    }
+    const walk = (items: Electron.MenuItem[]): Electron.MenuItem | null => {
+      for (const item of items) {
+        if (item.label === itemLabel) {
+          return item;
+        }
+        if (item.submenu) {
+          const hit = walk(item.submenu.items);
+          if (hit) {
+            return hit;
+          }
+        }
+      }
+      return null;
+    };
+    const item = walk(menu.items);
+    if (!item || !item.enabled) {
+      return false;
+    }
+    // Electron types `MenuItem.click` loosely as `Function`.
+    (item.click as unknown as () => void)();
+    return true;
+  }, label);
+}
+
 test("vertical slice through the INSTRUMENT workbench", async () => {
   // Engine handshake surfaces in the header.
   await expect(page.locator(".app-header__engine")).toContainText("pid", {
     timeout: 30_000,
   });
   await shot("01-projects-empty.png");
+
+  // The app ships a real localized menu instead of Electron's default
+  // English one, and it is honest: no project open means the workbench
+  // commands are disabled.
+  const topLabels = await app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()?.items.map((item) => item.label),
+  );
+  expect(topLabels).toEqual(["文件", "编辑", "视图", "导航", "帮助"]);
+  expect((await findMenuItem("导入文档…"))?.enabled).toBe(false);
+  expect((await findMenuItem("导出译文…"))?.enabled).toBe(false);
+  expect(await clickMenuItem("导出译文…")).toBe(false);
 
   // Create a project.
   await page.getByPlaceholder("例如：产品手册 v3").fill("演示项目");
@@ -198,10 +285,14 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Project settings: language pair fixed, TM and termbase files move
-  // through the dedicated dialog channels against the real engine.
+  // Project settings: the project info form edits name and language pair
+  // through project.update, and TM and termbase files move through the
+  // dedicated dialog channels against the real engine.
   await page.getByRole("button", { name: "项目设置" }).click();
-  await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
+  const settingsForm = page.locator(".tl-dialog");
+  await expect(settingsForm.getByLabel("项目名称")).toHaveValue("演示项目");
+  await expect(settingsForm.getByLabel("源语言")).toHaveValue("en-US");
+  await expect(settingsForm.getByLabel("目标语言")).toHaveValue("zh-CN");
 
   // External TM import: a real CSV through tm.import, honest counts back.
   const tmCsvPath = join(workDir, "external-tm.csv");
@@ -262,6 +353,38 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   );
   expect(existsSync(termExportPath)).toBe(true);
   expect(statSync(termExportPath).size).toBeGreaterThan(0);
+
+  // Term management: the mounted termbase is not write-only. List the
+  // imported entries, edit one source/target pair through term.update,
+  // then delete that entry through term.delete (leaving "retention"
+  // untouched for the dock assertions below).
+  const settingsDialog = page.locator(".tl-dialog");
+  await page
+    .getByRole("button", { name: "管理术语库 产品术语 的术语" })
+    .click();
+  await expect(settingsDialog).toContainText("2 条术语");
+  await expect(settingsDialog).toContainText("billing cycle");
+  await settingsDialog
+    .getByRole("button", { name: "编辑译文 账单周期" })
+    .click();
+  await settingsDialog
+    .getByLabel("源术语", { exact: true })
+    .fill("billing period");
+  await settingsDialog.getByLabel("目标术语", { exact: true }).fill("账期");
+  await settingsDialog.getByRole("button", { name: "保存修改" }).click();
+  await expect(settingsDialog).toContainText("billing period");
+  await expect(settingsDialog).toContainText("账期");
+  await shot("11a-term-manage.png");
+
+  // Deleting takes an explicit confirmation and reports the real count.
+  await settingsDialog
+    .getByRole("button", { name: "删除术语 billing period" })
+    .click();
+  await settingsDialog
+    .getByRole("button", { name: "确认删除术语 billing period" })
+    .click();
+  await expect(settingsDialog).toContainText("1 条术语");
+  await expect(settingsDialog).not.toContainText("billing period");
 
   await shot("11-settings.png");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
@@ -398,4 +521,49 @@ test("import dialog segmentation options shape the grid", async () => {
   await expect(rows.first()).toContainText("Alpha part;");
   await expect(rows.nth(1)).toContainText("beta part. Still the same segment.");
   await shot("14-custom-srx.png");
+});
+
+// Runs with the state left by the previous tests: project open, document
+// open. Menu assertions stay in the main process (template snapshot +
+// programmatic clicks) — Playwright never touches the native menu bar.
+test("application menu mirrors workbench state and shortcuts", async () => {
+  // With a document open, every workbench command is enabled.
+  for (const label of [
+    "导入文档…",
+    "导出译文…",
+    "项目设置…",
+    "返回项目列表",
+    "确认当前句段",
+    "译文预览…",
+    "翻译记忆面板",
+    "QA 面板",
+    "筛选句段",
+    "一致性检索（取选中文本）",
+  ]) {
+    expect((await findMenuItem(label))?.enabled, label).toBe(true);
+  }
+
+  // Renderer-owned chords (already handled by workbench keydown/textarea
+  // handlers) are displayed but not registered, so the menu never swallows
+  // them; menu-owned accelerators are registered normally.
+  const items = await snapshotMenuItems();
+  const byLabel = new Map(items.map((item) => [item.label, item]));
+  expect(byLabel.get("一致性检索（取选中文本）")?.accelerator).toBe("F3");
+  expect(byLabel.get("一致性检索（取选中文本）")?.registerAccelerator).toBe(
+    false,
+  );
+  expect(byLabel.get("确认当前句段")?.registerAccelerator).toBe(false);
+  expect(byLabel.get("筛选句段")?.registerAccelerator).toBe(false);
+  expect(byLabel.get("导入文档…")?.accelerator).toBe("CmdOrCtrl+O");
+  expect(byLabel.get("导入文档…")?.registerAccelerator).toBe(true);
+
+  // Menu clicks reach the renderer over IPC and drive the same commands as
+  // the workbench buttons: dock switch, then the preview dialog.
+  expect(await clickMenuItem("QA 面板")).toBe(true);
+  await expect(page.getByRole("button", { name: "运行数字 QA" })).toBeVisible();
+
+  expect(await clickMenuItem("译文预览…")).toBe(true);
+  await expect(page.locator(".tl-dialog")).toContainText("译文预览");
+  await page.getByRole("button", { name: "关闭对话框" }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
 });

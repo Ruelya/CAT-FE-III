@@ -32,6 +32,36 @@ export type DocxPreviewResponse =
   | { ok: true; data: ArrayBuffer; translatedSegments: number }
   | { ok: false; error: EngineRpcErrorShape };
 
+/**
+ * Commands the application menu can dispatch to the renderer. Every command
+ * maps onto an action the workbench already exposes (button or shortcut);
+ * the menu never grows behavior of its own.
+ */
+export type MenuCommand =
+  | "import-document"
+  | "export-document"
+  | "open-project-settings"
+  | "close-project"
+  | "open-preview"
+  | "open-concordance"
+  | "focus-filter"
+  | "confirm-segment"
+  | "show-dock-tm"
+  | "show-dock-term"
+  | "show-dock-concordance"
+  | "show-dock-qa"
+  | "show-dock-ai"
+  | "show-dock-agent";
+
+/**
+ * Renderer-reported state that drives menu item enablement, so the menu
+ * stays honest: items are disabled when no project/document is open.
+ */
+export interface MenuContext {
+  projectOpen: boolean;
+  documentOpen: boolean;
+}
+
 export interface DesktopApi {
   invoke(method: string, params: unknown): Promise<EngineInvokeResponse>;
   engineStatus(): Promise<EngineStatusPayload>;
@@ -50,6 +80,10 @@ export interface DesktopApi {
   /** SRX segmentation ruleset for document.import. */
   chooseSrxFile(): Promise<string | null>;
   renderDocxPreview(documentId: string): Promise<DocxPreviewResponse>;
+  /** Application menu clicks arrive here as workbench commands. */
+  onMenuCommand(listener: (command: MenuCommand) => void): () => void;
+  /** Report open-project/document state so menu enablement stays honest. */
+  setMenuContext(context: MenuContext): void;
 }
 
 export const IPC_CHANNELS = {
@@ -65,6 +99,8 @@ export const IPC_CHANNELS = {
   chooseTermbaseExport: "tl:dialog:choose-termbase-export",
   chooseSrx: "tl:dialog:choose-srx",
   previewDocx: "tl:preview:docx",
+  menuCommand: "tl:menu:command",
+  menuContext: "tl:menu:context",
 } as const;
 
 declare global {

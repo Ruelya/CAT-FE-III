@@ -8,6 +8,10 @@ use tl_domain::{Segment, TmEntry};
 pub const TM_LOOKUP_DEFAULT_LIMIT: u32 = 20;
 /// Hard ceiling on an explicit lookup `limit`.
 pub const TM_LOOKUP_MAX_LIMIT: u32 = 500;
+/// Default page size applied when a list omits `limit`.
+pub const TM_LIST_DEFAULT_LIMIT: u32 = 100;
+/// Hard ceiling on an explicit list `limit`.
+pub const TM_LIST_MAX_LIMIT: u32 = 500;
 /// Default fuzzy floor applied when a lookup omits `min_score`.
 pub const TM_LOOKUP_DEFAULT_MIN_SCORE: u8 = 60;
 /// Default threshold applied when pretranslation omits `min_score`.
@@ -54,6 +58,58 @@ pub struct TmLookupResult {
     /// Total candidates that met the floor before the limit was applied, so
     /// clients can tell when a `limit` cut the list short.
     pub total_matches: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmListParams {
+    pub project_id: String,
+    /// Case-insensitive substring filter over source and target text.
+    #[serde(default)]
+    pub query: Option<String>,
+    /// Maximum entries to return; defaults to [`TM_LIST_DEFAULT_LIMIT`].
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Entries to skip before the page starts; defaults to 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmListResult {
+    /// One page of entries, most recently confirmed first.
+    pub entries: Vec<TmEntry>,
+    /// Entries that matched the filter before `offset`/`limit`, so clients
+    /// can page honestly.
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmUpdateParams {
+    pub entry_id: String,
+    pub source_text: String,
+    pub target_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmUpdateResult {
+    pub entry: TmEntry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmDeleteParams {
+    pub entry_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmDeleteResult {
+    /// The removed entry, echoed so clients can report what was deleted.
+    pub entry: TmEntry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

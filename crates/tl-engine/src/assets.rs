@@ -13,16 +13,19 @@ use tl_asset::{
 };
 use tl_domain::{SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
 use tl_protocol::{
-    TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE, TM_LOOKUP_MAX_LIMIT,
-    TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult, TermExchangeFormat,
-    TermListParams, TermListResult, TermLookupParams, TermLookupResult, TermbaseAttachParams,
-    TermbaseAttachResult, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
-    TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseListResult,
-    TmExchangeFormat, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
+    TM_LIST_DEFAULT_LIMIT, TM_LIST_MAX_LIMIT, TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE,
+    TM_LOOKUP_MAX_LIMIT, TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult,
+    TermDeleteParams, TermDeleteResult, TermExchangeFormat, TermListParams, TermListResult,
+    TermLookupParams, TermLookupResult, TermUpdateParams, TermUpdateResult, TermbaseAttachParams,
+    TermbaseAttachResult, TermbaseCreateParams, TermbaseDetachParams, TermbaseDetachResult,
+    TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
+    TermbaseListParams, TermbaseListResult, TmDeleteParams, TmDeleteResult, TmExchangeFormat,
+    TmExportParams, TmExportResult, TmImportParams, TmImportResult, TmListParams, TmListResult,
     TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams,
-    TmPretranslateResult,
+    TmPretranslateResult, TmUpdateParams, TmUpdateResult,
 };
 
+use crate::store::StateDelta;
 use crate::{Engine, EngineError, now_ms};
 
 impl Engine {
@@ -31,7 +34,9 @@ impl Engine {
     }
 
     /// Insert or refresh the TM entry for one normalized source in a memory.
-    /// Returns the entry and whether it was newly added.
+    /// Returns the entry and whether it was newly added. The lookup goes
+    /// through the exact-match index, so upserting stays O(log n) instead of
+    /// scanning the whole table. Callers persist the returned entry.
     #[expect(clippy::too_many_arguments, reason = "internal upsert plumbing")]
     pub(crate) fn upsert_tm_entry(
         &mut self,
@@ -44,41 +49,36 @@ impl Engine {
         origin_segment_id: &str,
         now: i64,
     ) -> (TmEntry, bool) {
-        let existing = self
-            .state
-            .tm_entries
-            .values_mut()
-            .find(|entry| entry.memory_id == memory_id && entry.source_hash == source_hash);
-        match existing {
-            Some(entry) => {
-                entry.target_text = target_text.to_string();
-                entry.origin_document_id = origin_document_id.to_string();
-                entry.origin_segment_id = origin_segment_id.to_string();
-                entry.confirmed_at_ms = now;
-                (entry.clone(), false)
-            }
-            None => {
-                let entry = TmEntry {
-                    id: new_id(),
-                    memory_id: memory_id.to_string(),
-                    source_text: source_text.to_string(),
-                    target_text: target_text.to_string(),
-                    source_hash: source_hash.to_string(),
-                    origin_project_id: project_id.to_string(),
-                    origin_document_id: origin_document_id.to_string(),
-                    origin_segment_id: origin_segment_id.to_string(),
-                    confirmed_at_ms: now,
-                };
-                self.tm_indexes
-                    .entry(memory_id.to_string())
-                    .or_default()
-                    .insert(&entry.id, &entry.source_text);
-                self.state
-                    .tm_entries
-                    .insert(entry.id.clone(), entry.clone());
-                (entry, true)
-            }
+        let key = (memory_id.to_string(), source_hash.to_string());
+        if let Some(entry_id) = self.tm_exact.get(&key)
+            && let Some(entry) = self.state.tm_entries.get_mut(entry_id)
+        {
+            entry.target_text = target_text.to_string();
+            entry.origin_document_id = origin_document_id.to_string();
+            entry.origin_segment_id = origin_segment_id.to_string();
+            entry.confirmed_at_ms = now;
+            return (entry.clone(), false);
         }
+        let entry = TmEntry {
+            id: new_id(),
+            memory_id: memory_id.to_string(),
+            source_text: source_text.to_string(),
+            target_text: target_text.to_string(),
+            source_hash: source_hash.to_string(),
+            origin_project_id: project_id.to_string(),
+            origin_document_id: origin_document_id.to_string(),
+            origin_segment_id: origin_segment_id.to_string(),
+            confirmed_at_ms: now,
+        };
+        self.tm_indexes
+            .entry(memory_id.to_string())
+            .or_default()
+            .insert(&entry.id, &entry.source_text);
+        self.tm_exact.insert(key, entry.id.clone());
+        self.state
+            .tm_entries
+            .insert(entry.id.clone(), entry.clone());
+        (entry, true)
     }
 
     /// Exact + fuzzy matches for one source text against one memory, sorted
@@ -92,14 +92,16 @@ impl Engine {
     ) -> (Vec<TmMatchItem>, u32) {
         let hash = sha256_hex(normalize_text(source_text).as_bytes());
         let mut matches: Vec<TmMatchItem> = Vec::new();
-        for entry in self.state.tm_entries.values() {
-            if entry.memory_id == memory_id && entry.source_hash == hash {
-                matches.push(TmMatchItem {
-                    entry: entry.clone(),
-                    score: 100,
-                    grade: TmMatchGrade::Exact,
-                });
-            }
+        if let Some(entry) = self
+            .tm_exact
+            .get(&(memory_id.to_string(), hash.clone()))
+            .and_then(|entry_id| self.state.tm_entries.get(entry_id))
+        {
+            matches.push(TmMatchItem {
+                entry: entry.clone(),
+                score: 100,
+                grade: TmMatchGrade::Exact,
+            });
         }
         if let Some(index) = self.tm_indexes.get(memory_id) {
             for entry_id in index.recall(source_text, min_score) {
@@ -152,6 +154,150 @@ impl Engine {
         })
     }
 
+    /// One page of a project's TM entries, newest confirmation first, with an
+    /// optional case-insensitive substring filter over source and target.
+    pub(crate) fn tm_list(&self, params: TmListParams) -> Result<TmListResult, EngineError> {
+        self.require_project(&params.project_id)?;
+        let limit = match params.limit {
+            None => TM_LIST_DEFAULT_LIMIT,
+            Some(0) => {
+                return Err(EngineError::InvalidParams(
+                    "limit must be at least 1".to_string(),
+                ));
+            }
+            Some(value) => value.min(TM_LIST_MAX_LIMIT),
+        };
+        let offset = params.offset.unwrap_or(0) as usize;
+        let query = params
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_lowercase);
+        let memory_id = Self::project_memory_id(&params.project_id);
+        let mut entries: Vec<&TmEntry> = self
+            .state
+            .tm_entries
+            .values()
+            .filter(|entry| entry.memory_id == memory_id)
+            .filter(|entry| match query.as_deref() {
+                Some(needle) => {
+                    entry.source_text.to_lowercase().contains(needle)
+                        || entry.target_text.to_lowercase().contains(needle)
+                }
+                None => true,
+            })
+            .collect();
+        entries.sort_by(|left, right| {
+            right
+                .confirmed_at_ms
+                .cmp(&left.confirmed_at_ms)
+                .then(left.id.cmp(&right.id))
+        });
+        let total = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        let page: Vec<TmEntry> = entries
+            .into_iter()
+            .skip(offset)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(TmListResult {
+            entries: page,
+            total,
+        })
+    }
+
+    /// Edit one TM entry's source and target text. A changed source re-keys
+    /// the entry (hash + fuzzy index) so lookup, pretranslation, and the
+    /// confirm-time upsert all see the edited text.
+    pub(crate) fn tm_update(
+        &mut self,
+        params: TmUpdateParams,
+    ) -> Result<TmUpdateResult, EngineError> {
+        let source_text = params.source_text.trim().to_string();
+        let target_text = params.target_text.trim().to_string();
+        if source_text.is_empty() || target_text.is_empty() {
+            return Err(EngineError::InvalidParams(
+                "source and target text must not be empty".to_string(),
+            ));
+        }
+        let (memory_id, old_source_text, old_source_hash) = {
+            let entry =
+                self.state.tm_entries.get(&params.entry_id).ok_or_else(|| {
+                    EngineError::NotFound(format!("TM entry {}", params.entry_id))
+                })?;
+            (
+                entry.memory_id.clone(),
+                entry.source_text.clone(),
+                entry.source_hash.clone(),
+            )
+        };
+        let source_hash = sha256_hex(normalize_text(&source_text).as_bytes());
+        // One entry per normalized source per memory: the confirm-time upsert
+        // relies on it, so an edit must not create a silent duplicate.
+        if self.state.tm_entries.values().any(|entry| {
+            entry.id != params.entry_id
+                && entry.memory_id == memory_id
+                && entry.source_hash == source_hash
+        }) {
+            return Err(EngineError::Conflict(
+                "another TM entry in this memory already covers that source text".to_string(),
+            ));
+        }
+        let now = now_ms();
+        let entry = self
+            .state
+            .tm_entries
+            .get_mut(&params.entry_id)
+            .expect("TM entry just resolved");
+        entry.source_text = source_text;
+        entry.target_text = target_text;
+        entry.source_hash = source_hash;
+        entry.confirmed_at_ms = now;
+        let updated = entry.clone();
+        if updated.source_text != old_source_text {
+            // Re-key the fuzzy index so recall follows the edited source.
+            self.tm_indexes
+                .entry(memory_id.clone())
+                .or_default()
+                .insert(&updated.id, &updated.source_text);
+        }
+        if updated.source_hash != old_source_hash {
+            // Re-key the exact-match index the same way; the confirm-time
+            // upsert and exact lookup both resolve through it.
+            self.tm_exact.remove(&(memory_id.clone(), old_source_hash));
+            self.tm_exact
+                .insert((memory_id, updated.source_hash.clone()), updated.id.clone());
+        }
+        self.store.apply(&StateDelta {
+            tm_entries: vec![updated.clone()],
+            ..Default::default()
+        })?;
+        Ok(TmUpdateResult { entry: updated })
+    }
+
+    /// Remove one TM entry from its memory and from the fuzzy index.
+    pub(crate) fn tm_delete(
+        &mut self,
+        params: TmDeleteParams,
+    ) -> Result<TmDeleteResult, EngineError> {
+        let entry = self
+            .state
+            .tm_entries
+            .remove(&params.entry_id)
+            .ok_or_else(|| EngineError::NotFound(format!("TM entry {}", params.entry_id)))?;
+        if let Some(index) = self.tm_indexes.get_mut(&entry.memory_id) {
+            index.remove(&entry.id);
+        }
+        self.tm_exact
+            .remove(&(entry.memory_id.clone(), entry.source_hash.clone()));
+        self.store.apply(&StateDelta {
+            deleted_tm_entries: vec![entry.id.clone()],
+            ..Default::default()
+        })?;
+        Ok(TmDeleteResult { entry })
+    }
+
     pub(crate) fn tm_import(
         &mut self,
         params: TmImportParams,
@@ -180,9 +326,10 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut updated = 0_u32;
+        let mut changed_entries = Vec::with_capacity(units.len());
         for unit in &units {
             let hash = sha256_hex(normalize_text(&unit.source_text).as_bytes());
-            let (_, is_new) = self.upsert_tm_entry(
+            let (entry, is_new) = self.upsert_tm_entry(
                 &memory_id,
                 &project.id,
                 &unit.source_text,
@@ -192,13 +339,19 @@ impl Engine {
                 "",
                 unit.created_at_ms.unwrap_or(now),
             );
+            changed_entries.push(entry);
             if is_new {
                 added += 1;
             } else {
                 updated += 1;
             }
         }
-        self.store.save(&self.state)?;
+        // One transaction for the whole file; duplicate ids inside the batch
+        // upsert in order, so the last occurrence wins, same as in memory.
+        self.store.apply(&StateDelta {
+            tm_entries: changed_entries,
+            ..Default::default()
+        })?;
         Ok(TmImportResult {
             imported: u32::try_from(units.len()).unwrap_or(u32::MAX),
             added,
@@ -300,15 +453,17 @@ impl Engine {
                 }
             }
         }
-        if !changed.is_empty() {
-            self.store.save(&self.state)?;
-        }
+        let delta = StateDelta {
+            segments: changed,
+            ..Default::default()
+        };
+        self.store.apply(&delta)?;
         Ok(TmPretranslateResult {
             checked,
             pretranslated: exact + fuzzy,
             exact,
             fuzzy,
-            segments: changed,
+            segments: delta.segments,
         })
     }
 
@@ -338,10 +493,13 @@ impl Engine {
             created_at_ms: now,
             updated_at_ms: now,
         };
+        self.store.apply(&StateDelta {
+            termbases: vec![termbase.clone()],
+            ..Default::default()
+        })?;
         self.state
             .termbases
             .insert(termbase.id.clone(), termbase.clone());
-        self.store.save(&self.state)?;
         Ok(termbase)
     }
 
@@ -412,9 +570,63 @@ impl Engine {
             created_at_ms: now,
             updated_at_ms: now,
         };
+        self.store.apply(&StateDelta {
+            termbase_mounts: vec![mount.clone()],
+            ..Default::default()
+        })?;
         self.state.termbase_mounts.push(mount.clone());
-        self.store.save(&self.state)?;
         Ok(TermbaseAttachResult { mount })
+    }
+
+    pub(crate) fn termbase_detach(
+        &mut self,
+        params: TermbaseDetachParams,
+    ) -> Result<TermbaseDetachResult, EngineError> {
+        self.require_project(&params.project_id)?;
+        self.require_termbase(&params.termbase_id)?;
+        let position = self
+            .state
+            .termbase_mounts
+            .iter()
+            .position(|mount| {
+                mount.project_id == params.project_id && mount.termbase_id == params.termbase_id
+            })
+            .ok_or_else(|| {
+                EngineError::NotFound(format!(
+                    "termbase {} is not attached to project {}",
+                    params.termbase_id, params.project_id
+                ))
+            })?;
+        let removed = self.state.termbase_mounts.remove(position);
+        // Re-compact the remaining priorities for this project so the next
+        // attach (priority = current mount count) can never collide.
+        let now = now_ms();
+        let mut recompacted: Vec<TermbaseMount> = Vec::new();
+        let mut remaining: Vec<&mut TermbaseMount> = self
+            .state
+            .termbase_mounts
+            .iter_mut()
+            .filter(|mount| mount.project_id == params.project_id)
+            .collect();
+        remaining.sort_by_key(|mount| mount.priority);
+        for (index, mount) in remaining.into_iter().enumerate() {
+            let priority = index as u32;
+            if mount.priority != priority {
+                mount.priority = priority;
+                mount.revision += 1;
+                mount.updated_at_ms = now;
+                recompacted.push(mount.clone());
+            }
+        }
+        self.store.apply(&StateDelta {
+            termbase_mounts: recompacted,
+            deleted_termbase_mounts: vec![(
+                removed.project_id.clone(),
+                removed.termbase_id.clone(),
+            )],
+            ..Default::default()
+        })?;
+        Ok(TermbaseDetachResult { mount: removed })
     }
 
     fn require_termbase(&self, termbase_id: &str) -> Result<&Termbase, EngineError> {
@@ -503,8 +715,182 @@ impl Engine {
         entry.revision += 1;
         entry.updated_at_ms = now;
         let result = entry.clone();
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            term_entries: vec![result.clone()],
+            ..Default::default()
+        })?;
         Ok(TermAddResult { entry: result })
+    }
+
+    /// Edit an existing entry: rename the source term and/or edit one
+    /// translation's text or forbidden flag. One call, one atomic save.
+    pub(crate) fn term_update(
+        &mut self,
+        params: TermUpdateParams,
+    ) -> Result<TermUpdateResult, EngineError> {
+        let entry = self
+            .state
+            .term_entries
+            .get(&params.entry_id)
+            .ok_or_else(|| EngineError::NotFound(format!("term entry {}", params.entry_id)))?;
+        let termbase_id = entry.termbase_id.clone();
+
+        let new_source = match params.source_term.as_deref() {
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Err(EngineError::InvalidParams(
+                        "source term must not be empty".to_string(),
+                    ));
+                }
+                Some(trimmed.to_string())
+            }
+            None => None,
+        };
+        let new_target = match params.target_term.as_deref() {
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Err(EngineError::InvalidParams(
+                        "target term must not be empty".to_string(),
+                    ));
+                }
+                Some(trimmed.to_string())
+            }
+            None => None,
+        };
+        let edits_translation = new_target.is_some() || params.forbidden.is_some();
+        if new_source.is_none() && !edits_translation {
+            return Err(EngineError::InvalidParams(
+                "nothing to update: pass sourceTerm, targetTerm, or forbidden".to_string(),
+            ));
+        }
+        if edits_translation && params.translation_id.is_none() {
+            return Err(EngineError::InvalidParams(
+                "translationId is required to edit a translation".to_string(),
+            ));
+        }
+
+        // Renaming must not collide with another entry in the same termbase;
+        // term.add and termbase.import both dedupe on the normalized source.
+        if let Some(source) = new_source.as_deref() {
+            let normalized = normalize_match_key(source);
+            let collision = self.state.term_entries.values().any(|other| {
+                other.id != params.entry_id
+                    && other.termbase_id == termbase_id
+                    && normalize_match_key(&other.source_term) == normalized
+            });
+            if collision {
+                return Err(EngineError::Conflict(format!(
+                    "term \"{source}\" already exists in this termbase"
+                )));
+            }
+        }
+
+        let now = now_ms();
+        let entry = self
+            .state
+            .term_entries
+            .get_mut(&params.entry_id)
+            .expect("term entry just resolved");
+        if let Some(translation_id) = params.translation_id.as_deref() {
+            let index = entry
+                .translations
+                .iter()
+                .position(|translation| translation.id == translation_id)
+                .ok_or_else(|| EngineError::NotFound(format!("translation {translation_id}")))?;
+            // The edited text must not duplicate a sibling translation for
+            // the same locale.
+            if let Some(target) = new_target.as_deref() {
+                let normalized = normalize_match_key(target);
+                let locale = entry.translations[index].locale.clone();
+                let duplicate = entry.translations.iter().any(|other| {
+                    other.id != translation_id
+                        && other.locale == locale
+                        && normalize_match_key(&other.term) == normalized
+                });
+                if duplicate {
+                    return Err(EngineError::Conflict(format!(
+                        "translation \"{target}\" already exists for locale {locale}"
+                    )));
+                }
+            }
+            let translation = &mut entry.translations[index];
+            if let Some(target) = new_target {
+                translation.term = target;
+            }
+            if let Some(forbidden) = params.forbidden {
+                translation.forbidden = forbidden;
+                translation.preferred = !forbidden;
+            }
+            translation.updated_at_ms = now;
+        }
+        if let Some(source) = new_source {
+            entry.source_term = source;
+        }
+        entry.revision += 1;
+        entry.updated_at_ms = now;
+        let result = entry.clone();
+        self.store.apply(&StateDelta {
+            term_entries: vec![result.clone()],
+            ..Default::default()
+        })?;
+        Ok(TermUpdateResult { entry: result })
+    }
+
+    /// Delete a whole entry, or just one of its translations when
+    /// `translation_id` is set.
+    pub(crate) fn term_delete(
+        &mut self,
+        params: TermDeleteParams,
+    ) -> Result<TermDeleteResult, EngineError> {
+        if !self.state.term_entries.contains_key(&params.entry_id) {
+            return Err(EngineError::NotFound(format!(
+                "term entry {}",
+                params.entry_id
+            )));
+        }
+        let (result, delta) = match params.translation_id.as_deref() {
+            Some(translation_id) => {
+                let entry = self
+                    .state
+                    .term_entries
+                    .get_mut(&params.entry_id)
+                    .expect("term entry just checked");
+                let index = entry
+                    .translations
+                    .iter()
+                    .position(|translation| translation.id == translation_id)
+                    .ok_or_else(|| {
+                        EngineError::NotFound(format!("translation {translation_id}"))
+                    })?;
+                entry.translations.remove(index);
+                entry.revision += 1;
+                entry.updated_at_ms = now_ms();
+                let updated = entry.clone();
+                (
+                    TermDeleteResult {
+                        entry: Some(updated.clone()),
+                    },
+                    StateDelta {
+                        term_entries: vec![updated],
+                        ..Default::default()
+                    },
+                )
+            }
+            None => {
+                self.state.term_entries.remove(&params.entry_id);
+                (
+                    TermDeleteResult { entry: None },
+                    StateDelta {
+                        deleted_term_entries: vec![params.entry_id.clone()],
+                        ..Default::default()
+                    },
+                )
+            }
+        };
+        self.store.apply(&delta)?;
+        Ok(result)
     }
 
     pub(crate) fn term_list(&self, params: TermListParams) -> Result<TermListResult, EngineError> {
@@ -615,6 +1001,7 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut merged = 0_u32;
+        let mut changed_entries = Vec::with_capacity(parsed.len());
         for exchange in &parsed {
             let normalized_source = normalize_match_key(&exchange.source_term);
             if normalized_source.is_empty() {
@@ -683,13 +1070,19 @@ impl Engine {
             }
             entry.revision += 1;
             entry.updated_at_ms = now;
+            changed_entries.push(entry.clone());
             if is_new {
                 added += 1;
             } else {
                 merged += 1;
             }
         }
-        self.store.save(&self.state)?;
+        // Duplicate entry ids inside the batch upsert in order; the last
+        // occurrence carries the accumulated translations, so it wins.
+        self.store.apply(&StateDelta {
+            term_entries: changed_entries,
+            ..Default::default()
+        })?;
         Ok(TermbaseImportResult {
             imported: u32::try_from(parsed.len()).unwrap_or(u32::MAX),
             added,
