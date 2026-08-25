@@ -34,7 +34,8 @@
 //!   project's attached termbases — transiently, never the whole table).
 //! - `qa_issues` is read per document from SQL (`qa.list` pages the join
 //!   through the document's segments; `qa.run` reconciles one document's
-//!   issues transiently and writes only the rows that changed).
+//!   issues transiently and writes only the rows that changed; `qa.waive`
+//!   point-reads and point-writes a single row).
 //!
 //! Honest limits of what remains memory-resident, loaded once at open:
 //!
@@ -75,12 +76,18 @@ const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
 /// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
 /// DESC, id` walks this index instead of sorting the memory per request.
 const SCHEMA_V2: &str = "
 CREATE INDEX tm_entries_by_memory_recency ON tm_entries(memory_id, confirmed_at_ms DESC, id);
+";
+
+/// `qa.waive` support: the optional note recorded with a waiver. NULL for
+/// every non-waived row (and for all rows written by earlier builds).
+const SCHEMA_V3: &str = "
+ALTER TABLE qa_issues ADD COLUMN waive_note TEXT;
 ";
 
 const SCHEMA_V1: &str = "
@@ -285,6 +292,12 @@ pub struct StateDelta {
     pub deleted_term_entries: Vec<String>,
     /// `(project_id, termbase_id)` mount rows removed by termbase.detach.
     pub deleted_termbase_mounts: Vec<(String, String)>,
+    /// Document ids removed by document.remove. Each id cascades inside the
+    /// same transaction: the document's QA issues (through the segment
+    /// join), its segments, and the document row itself. TM entries are
+    /// deliberately not part of the cascade — confirmed translations
+    /// outlive the document they came from.
+    pub deleted_documents: Vec<String>,
 }
 
 impl StateDelta {
@@ -300,6 +313,7 @@ impl StateDelta {
             && self.deleted_tm_entries.is_empty()
             && self.deleted_term_entries.is_empty()
             && self.deleted_termbase_mounts.is_empty()
+            && self.deleted_documents.is_empty()
     }
 }
 
@@ -692,10 +706,10 @@ impl Store {
 
     // ---- QA reads (per document through the segment join) ----
 
-    /// One page of a document's issues in list order — open before
-    /// resolved, then oldest first, then id — joined through the document's
-    /// segments so only this document's rows leave SQL. `limit: None`
-    /// returns everything from `offset` on.
+    /// One page of a document's issues in list order — open first, then
+    /// waived, then resolved, each group oldest first, then id — joined
+    /// through the document's segments so only this document's rows leave
+    /// SQL. `limit: None` returns everything from `offset` on.
     pub fn document_qa_issues_page(
         &self,
         document_id: &str,
@@ -708,7 +722,8 @@ impl Store {
                 "SELECT {QA_ISSUE_COLUMNS} FROM qa_issues q
                  JOIN segments s ON s.id = q.segment_id
                  WHERE s.document_id = ?1
-                 ORDER BY (q.status = ?2), q.created_at_ms, q.id LIMIT ?3 OFFSET ?4"
+                 ORDER BY (q.status = ?2) * 2 + (q.status = ?3),
+                   q.created_at_ms, q.id LIMIT ?4 OFFSET ?5"
             ))
             .map_err(db_err)?;
         let limit = limit.map_or(-1_i64, i64::from);
@@ -717,6 +732,7 @@ impl Store {
                 params![
                     document_id,
                     enum_text(&QaIssueStatus::Resolved)?,
+                    enum_text(&QaIssueStatus::Waived)?,
                     limit,
                     i64::from(offset)
                 ],
@@ -724,6 +740,20 @@ impl Store {
             )
             .map_err(db_err)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// One issue by id, for `qa.waive`. Point query on the primary key.
+    pub fn qa_issue_by_id(&self, issue_id: &str) -> io::Result<Option<QaIssue>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {QA_ISSUE_COLUMNS} FROM qa_issues q WHERE q.id = ?1"
+            ))
+            .map_err(db_err)?;
+        statement
+            .query_row([issue_id], qa_issue_from_row)
+            .optional()
+            .map_err(db_err)
     }
 
     pub fn document_qa_issue_count(&self, document_id: &str) -> io::Result<u32> {
@@ -755,7 +785,7 @@ const TERM_ENTRY_COLUMNS: &str = "id, termbase_id, source_locale, source_term, \
 /// Qualified with the `q.` alias because every QA read joins through the
 /// document's segments.
 const QA_ISSUE_COLUMNS: &str = "q.id, q.segment_id, q.rule_id, q.severity, q.status, \
-     q.message, q.fingerprint, q.evidence, q.created_at_ms, q.updated_at_ms";
+     q.message, q.fingerprint, q.evidence, q.waive_note, q.created_at_ms, q.updated_at_ms";
 
 fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
     Ok(Segment {
@@ -815,8 +845,9 @@ fn qa_issue_from_row(row: &Row) -> rusqlite::Result<QaIssue> {
         message: row.get(5)?,
         fingerprint: row.get(6)?,
         evidence: json_column(row, 7)?,
-        created_at_ms: row.get(8)?,
-        updated_at_ms: row.get(9)?,
+        waive_note: row.get(8)?,
+        created_at_ms: row.get(9)?,
+        updated_at_ms: row.get(10)?,
     })
 }
 
@@ -934,6 +965,24 @@ fn legacy_state_delta(state: &LegacyState) -> StateDelta {
 fn write_delta(conn: &Connection, delta: &StateDelta) -> io::Result<()> {
     // Deletions first: a detach that re-compacts the remaining mount
     // priorities must remove the old row before upserting the survivors.
+    for document_id in &delta.deleted_documents {
+        // Cascade order matters: QA issues reference segments, so they go
+        // before the segment rows their join runs through, and the document
+        // row goes last. All inside the caller's single transaction.
+        let mut statement = conn
+            .prepare_cached(
+                "DELETE FROM qa_issues WHERE segment_id IN
+                   (SELECT id FROM segments WHERE document_id = ?1)",
+            )
+            .map_err(db_err)?;
+        statement.execute(params![document_id]).map_err(db_err)?;
+        delete_row(
+            conn,
+            "DELETE FROM segments WHERE document_id = ?1",
+            document_id,
+        )?;
+        delete_row(conn, "DELETE FROM documents WHERE id = ?1", document_id)?;
+    }
     for entry_id in &delta.deleted_tm_entries {
         delete_row(conn, "DELETE FROM tm_entries WHERE id = ?1", entry_id)?;
     }
@@ -1147,13 +1196,14 @@ fn upsert_qa_issue(conn: &Connection, issue: &QaIssue) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
             "INSERT INTO qa_issues (id, segment_id, rule_id, severity, status, message,
-               fingerprint, evidence, created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+               fingerprint, evidence, waive_note, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                severity = excluded.severity,
                status = excluded.status,
                message = excluded.message,
                evidence = excluded.evidence,
+               waive_note = excluded.waive_note,
                updated_at_ms = excluded.updated_at_ms",
         )
         .map_err(db_err)?;
@@ -1167,6 +1217,7 @@ fn upsert_qa_issue(conn: &Connection, issue: &QaIssue) -> io::Result<()> {
             issue.message,
             issue.fingerprint,
             json_text(&issue.evidence)?,
+            issue.waive_note,
             issue.created_at_ms,
             issue.updated_at_ms,
         ])
@@ -1576,6 +1627,7 @@ mod tests {
                 target_numbers: vec!["60".to_string()],
                 ..Default::default()
             },
+            waive_note: None,
             created_at_ms: 5,
             updated_at_ms: 5,
         };
@@ -1797,14 +1849,16 @@ mod tests {
             message: format!("issue {id}"),
             fingerprint: format!("fp-{id}"),
             evidence: NumberEvidence::default(),
+            waive_note: None,
             created_at_ms,
             updated_at_ms: created_at_ms,
         }
     }
 
     /// Term entries window per termbase in source-term order; QA issues
-    /// window per document (open before resolved, oldest first) through the
-    /// segment join. Rows of other termbases / documents never leak in.
+    /// window per document (open, then waived, then resolved, oldest first)
+    /// through the segment join. Rows of other termbases / documents never
+    /// leak in.
     #[test]
     fn pages_term_entries_and_qa_issues_from_sql() {
         let directory = tempfile::tempdir().expect("tempdir");
@@ -1819,6 +1873,7 @@ mod tests {
             sample_qa_issue("qa-resolved", "s0", QaIssueStatus::Resolved, 1),
             sample_qa_issue("qa-late", "s1", QaIssueStatus::Open, 9),
             sample_qa_issue("qa-early", "s1", QaIssueStatus::Open, 2),
+            sample_qa_issue("qa-waived", "s0", QaIssueStatus::Waived, 1),
             sample_qa_issue("qa-foreign", "elsewhere", QaIssueStatus::Open, 1),
         ];
         store
@@ -1873,8 +1928,8 @@ mod tests {
                 .iter()
                 .map(|issue| issue.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["qa-early", "qa-late", "qa-resolved"],
-            "open first, then oldest, resolved last; foreign document excluded"
+            vec!["qa-early", "qa-late", "qa-waived", "qa-resolved"],
+            "open first, then waived, resolved last; foreign document excluded"
         );
         assert_eq!(
             store
@@ -1885,7 +1940,60 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["qa-late"]
         );
-        assert_eq!(store.document_qa_issue_count("d1").expect("count"), 3);
+        assert_eq!(store.document_qa_issue_count("d1").expect("count"), 4);
+        assert_eq!(
+            store.qa_issue_by_id("qa-waived").expect("by id"),
+            Some(sample_qa_issue("qa-waived", "s0", QaIssueStatus::Waived, 1))
+        );
+        assert_eq!(store.qa_issue_by_id("missing").expect("by id"), None);
+    }
+
+    /// One deleted document id cascades to its QA issues and segments in
+    /// the same transaction, while sibling documents and the TM table stay
+    /// untouched — and the deletion survives a reopen.
+    #[test]
+    fn deleted_document_cascades_to_segments_and_qa_issues() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let (mut store, _) = Store::open(directory.path()).expect("open");
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 2), sample_record("d2", "p1", 1)],
+                segments: vec![
+                    sample_segment("s1", "d1", 0),
+                    sample_segment("s2", "d1", 1),
+                    sample_segment("s3", "d2", 0),
+                ],
+                tm_entries: vec![sample_tm_entry("tm1", "tm-p1", "hash-s1")],
+                qa_issues: vec![
+                    sample_qa_issue("qa-doomed", "s1", QaIssueStatus::Open, 1),
+                    sample_qa_issue("qa-kept", "s3", QaIssueStatus::Open, 2),
+                ],
+                ..Default::default()
+            })
+            .expect("seed");
+
+        store
+            .apply(&StateDelta {
+                deleted_documents: vec!["d1".to_string()],
+                ..Default::default()
+            })
+            .expect("remove document");
+        drop(store);
+
+        let (reopened, state) = Store::open(directory.path()).expect("reopen");
+        assert!(!state.documents.contains_key("d1"), "document row is gone");
+        assert!(state.documents.contains_key("d2"), "sibling document stays");
+        assert_eq!(reopened.document_segment_count("d1").expect("count"), 0);
+        assert_eq!(reopened.document_qa_issue_count("d1").expect("count"), 0);
+        assert_eq!(reopened.segment("s1").expect("segment"), None);
+        assert_eq!(reopened.document_segment_count("d2").expect("count"), 1);
+        assert_eq!(reopened.document_qa_issue_count("d2").expect("count"), 1);
+        assert_eq!(
+            reopened.tm_entry_count("tm-p1", None).expect("tm count"),
+            1,
+            "TM entries outlive the document they came from"
+        );
     }
 
     /// Updates rewrite the mutable columns only: segment leading text and
@@ -2140,5 +2248,51 @@ mod tests {
         drop(conn);
         let error = Store::open(directory.path()).expect_err("newer schema must refuse");
         assert!(error.to_string().contains("newer"));
+    }
+
+    /// A database written before migration 3 (no `waive_note` column yet)
+    /// upgrades in place: legacy QA rows read back with no note, and the new
+    /// column round-trips a waiver afterwards.
+    #[test]
+    fn migrates_pre_waiver_databases_and_reads_legacy_qa_rows() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut conn =
+            Connection::open(directory.path().join(DB_FILE_NAME)).expect("raw connection");
+        let tx = conn.transaction().expect("tx");
+        tx.execute_batch(SCHEMA_V1).expect("v1");
+        tx.execute_batch(SCHEMA_V2).expect("v2");
+        tx.commit().expect("commit");
+        conn.pragma_update(None, "user_version", 2)
+            .expect("version");
+        // A QA row exactly as a pre-waiver engine wrote it.
+        conn.execute(
+            "INSERT INTO qa_issues (id, segment_id, rule_id, severity, status, message,
+               fingerprint, evidence, created_at_ms, updated_at_ms)
+             VALUES ('qa1', 's1', 'qa.number-mismatch', 'error', 'open', 'numbers differ',
+               'fp1', '{\"sourceNumbers\":[\"30\"],\"targetNumbers\":[\"60\"]}', 5, 5)",
+            [],
+        )
+        .expect("legacy row");
+        drop(conn);
+
+        let (mut store, _) = Store::open(directory.path()).expect("open migrates to v3");
+        let issue = store
+            .qa_issue_by_id("qa1")
+            .expect("read")
+            .expect("legacy row survives");
+        assert_eq!(issue.status, QaIssueStatus::Open);
+        assert_eq!(issue.waive_note, None);
+
+        let mut waived = issue;
+        waived.status = QaIssueStatus::Waived;
+        waived.waive_note = Some("accepted".to_string());
+        waived.updated_at_ms = 6;
+        store
+            .apply(&StateDelta {
+                qa_issues: vec![waived.clone()],
+                ..Default::default()
+            })
+            .expect("apply waiver");
+        assert_eq!(store.qa_issue_by_id("qa1").expect("read"), Some(waived));
     }
 }

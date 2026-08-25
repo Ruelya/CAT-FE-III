@@ -1,4 +1,4 @@
-//! Document domain: import, listing, and export.
+//! Document domain: import, listing, removal, and export.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,31 @@ pub struct DocumentListParams {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentListResult {
     pub documents: Vec<Document>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentRemoveParams {
+    pub document_id: String,
+}
+
+/// What `document.remove` deleted and what it deliberately kept. The
+/// document row, its segments, and its QA issues are gone (one SQLite
+/// transaction); the project TM — including entries confirmed from this
+/// document — and termbases are untouched by design.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentRemoveResult {
+    /// The removed document's last metadata, echoed for the status line.
+    pub document: Document,
+    pub removed_segments: u32,
+    pub removed_qa_issues: u32,
+    /// Whether the engine deleted its own managed copy of the imported
+    /// source file (the copy under the engine data directory). The original
+    /// file at the import path is never touched, and a managed path that
+    /// resolves outside the data directory (possible for legacy imports) is
+    /// left alone too — the engine cannot tell who owns it.
+    pub managed_copy_deleted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

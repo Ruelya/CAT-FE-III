@@ -38,6 +38,7 @@ pub mod methods {
     pub const PROJECT_ARCHIVE: &str = "project.archive";
     pub const DOCUMENT_IMPORT: &str = "document.import";
     pub const DOCUMENT_LIST: &str = "document.list";
+    pub const DOCUMENT_REMOVE: &str = "document.remove";
     pub const DOCUMENT_EXPORT: &str = "document.export";
     pub const SEGMENT_LIST: &str = "segment.list";
     pub const SEGMENT_UPDATE: &str = "segment.update";
@@ -62,6 +63,7 @@ pub mod methods {
     pub const TERM_LOOKUP: &str = "term.lookup";
     pub const QA_RUN: &str = "qa.run";
     pub const QA_LIST: &str = "qa.list";
+    pub const QA_WAIVE: &str = "qa.waive";
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
     pub const AI_ASSIST_START: &str = "ai.assist.start";
@@ -108,6 +110,8 @@ pub struct RpcMethodCatalog {
     pub document_import: MethodContract<DocumentImportParams, DocumentImportResult>,
     #[serde(rename = "document.list")]
     pub document_list: MethodContract<DocumentListParams, DocumentListResult>,
+    #[serde(rename = "document.remove")]
+    pub document_remove: MethodContract<DocumentRemoveParams, DocumentRemoveResult>,
     #[serde(rename = "document.export")]
     pub document_export: MethodContract<DocumentExportParams, DocumentExportResult>,
     #[serde(rename = "segment.list")]
@@ -156,6 +160,8 @@ pub struct RpcMethodCatalog {
     pub qa_run: MethodContract<QaRunParams, QaRunResult>,
     #[serde(rename = "qa.list")]
     pub qa_list: MethodContract<QaListParams, QaListResult>,
+    #[serde(rename = "qa.waive")]
+    pub qa_waive: MethodContract<QaWaiveParams, QaWaiveResult>,
     #[serde(rename = "ai.configure")]
     pub ai_configure: MethodContract<AiConfigureParams, AiStatusResult>,
     #[serde(rename = "ai.status")]
@@ -220,6 +226,7 @@ mod tests {
             methods::PROJECT_ARCHIVE,
             methods::DOCUMENT_IMPORT,
             methods::DOCUMENT_LIST,
+            methods::DOCUMENT_REMOVE,
             methods::DOCUMENT_EXPORT,
             methods::SEGMENT_LIST,
             methods::SEGMENT_UPDATE,
@@ -244,6 +251,7 @@ mod tests {
             methods::TERM_LOOKUP,
             methods::QA_RUN,
             methods::QA_LIST,
+            methods::QA_WAIVE,
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
             methods::AI_ASSIST_START,

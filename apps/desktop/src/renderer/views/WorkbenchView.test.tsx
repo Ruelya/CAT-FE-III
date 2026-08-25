@@ -559,6 +559,145 @@ describe("WorkbenchView engine-down honesty", () => {
   });
 });
 
+describe("WorkbenchView document removal", () => {
+  const DOCUMENT_2 = {
+    ...DOCUMENT,
+    id: "d2",
+    name: "second.txt",
+    segmentCount: 1,
+  };
+  const SEGMENT_2: Segment = {
+    ...SEGMENT,
+    id: "s2",
+    documentId: "d2",
+    sourceText: "Second file text.",
+    targetText: "第二个文档。",
+  };
+
+  /** Bridge whose document list shrinks when document.remove is called. */
+  function installRemoveBridge(initial: Array<typeof DOCUMENT>) {
+    const handlers = baseHandlers();
+    let documents = [...initial];
+    const removeCalls: unknown[] = [];
+    handlers["document.list"] = () => ({ documents });
+    handlers["segment.list"] = (params) => ({
+      segments:
+        (params as { documentId: string }).documentId === "d2"
+          ? [SEGMENT_2]
+          : [SEGMENT],
+    });
+    handlers["document.remove"] = (params) => {
+      removeCalls.push(params);
+      const id = (params as { documentId: string }).documentId;
+      const removed = documents.find((item) => item.id === id);
+      if (!removed) {
+        return new EngineFailure("notFound", `document ${id}`);
+      }
+      documents = documents.filter((item) => item.id !== id);
+      return {
+        document: removed,
+        removedSegments: 1,
+        removedQaIssues: 0,
+        managedCopyDeleted: true,
+      };
+    };
+    const bridge = installBridge(handlers);
+    return { bridge, removeCalls };
+  }
+
+  it("removes only after the two-step confirm and selects the neighbor", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT, DOCUMENT_2]);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    // First click only arms the confirm; nothing reaches the engine yet.
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    expect(removeCalls).toHaveLength(0);
+    expect(
+      screen.getByRole("group", { name: "确认移除 guide.txt" }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    await waitFor(() => {
+      expect(removeCalls).toHaveLength(1);
+    });
+    expect(removeCalls[0]).toMatchObject({ documentId: "d1" });
+
+    // The removed document leaves the list and its neighbor opens.
+    await waitFor(() => {
+      expect(screen.queryByText("guide.txt")).not.toBeInTheDocument();
+    });
+    const nextEditor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(nextEditor.value).toBe("第二个文档。");
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已移除「guide.txt」：删除 1 个句段、0 条 QA 记录；项目 TM、术语库与原始文件保留",
+    );
+  });
+
+  it("取消 disarms the pending remove without calling the engine", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT]);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(removeCalls).toHaveLength(0);
+    // Back to the armed-off state; the document is still listed and open.
+    expect(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("shows the empty states after removing the last document", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT]);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    await waitFor(() => {
+      expect(removeCalls).toHaveLength(1);
+    });
+    // No document is open anymore: the rail and the grid both say so, and
+    // the import path stays available.
+    expect(await screen.findByText("暂无文档")).toBeInTheDocument();
+    expect(screen.getByText("选择或导入一个文档")).toBeInTheDocument();
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入" })).toBeEnabled();
+  });
+});
+
 describe("WorkbenchView export overwrite confirm", () => {
   /** Bridge where the engine blocks the plain export but honors overwrite. */
   function installExportBridge() {
@@ -657,5 +796,125 @@ describe("WorkbenchView export overwrite confirm", () => {
     expect(onStatusMessage).toHaveBeenCalledWith(
       "已取消导出：保留现有文件，未做任何修改",
     );
+  });
+});
+
+describe("WorkbenchView QA waive", () => {
+  const QA_ISSUE = {
+    id: "issue-1",
+    segmentId: "s1",
+    ruleId: "qa.number-mismatch",
+    severity: "error",
+    status: "open",
+    message: "数字不一致：源 30 / 译 40",
+    fingerprint: "fp-1",
+    evidence: {
+      sourceNumbers: ["30"],
+      targetNumbers: ["40"],
+      sourceValues: [],
+      targetValues: [],
+      relatedSegmentIds: [],
+    },
+    waiveNote: null,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+
+  it("忽略/恢复 go through qa.waive and never confirm or write TM", async () => {
+    const handlers = baseHandlers();
+    handlers["qa.list"] = () => ({ issues: [QA_ISSUE], total: 1 });
+    let waiveParams: unknown = null;
+    handlers["qa.waive"] = (params) => {
+      waiveParams = params;
+      return { issue: { ...QA_ISSUE, status: "waived", updatedAtMs: 2 } };
+    };
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    expect(await screen.findByText("质量检查（未解决 1）")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "忽略" }));
+    await waitFor(() => {
+      expect(waiveParams).toEqual({ issueId: "issue-1", waived: true });
+    });
+    // The open count drops honestly and the card says what really happened:
+    // parked by a human, not fixed, nothing confirmed, nothing in TM.
+    expect(await screen.findByText("质量检查（未解决 0）")).toBeInTheDocument();
+    expect(screen.getByText("已忽略")).toBeInTheDocument();
+    expect(
+      screen.getByText(/已忽略：问题仍存在，未确认句段、未写入 TM/),
+    ).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已忽略 QA 问题：问题并未修复，未确认句段、未写入 TM",
+    );
+    // Red line: waiving is not confirming. No confirm and no TM/segment
+    // write may ever ride along with a waive.
+    const methods = bridge.invoke.mock.calls.map(
+      ([method]) => method as string,
+    );
+    for (const forbidden of [
+      "segment.confirm",
+      "segment.update",
+      "tm.update",
+      "tm.import",
+    ]) {
+      expect(methods).not.toContain(forbidden);
+    }
+
+    // 恢复 flips the same issue back to open through the same endpoint.
+    handlers["qa.waive"] = (params) => {
+      waiveParams = params;
+      return { issue: { ...QA_ISSUE, updatedAtMs: 3 } };
+    };
+    await userEvent.click(screen.getByRole("button", { name: "恢复" }));
+    await waitFor(() => {
+      expect(waiveParams).toEqual({ issueId: "issue-1", waived: false });
+    });
+    expect(await screen.findByText("质量检查（未解决 1）")).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith("已恢复 QA 问题为未解决");
+  });
+
+  it("keeps the issue open and reports honestly when qa.waive fails", async () => {
+    const handlers = baseHandlers();
+    handlers["qa.list"] = () => ({ issues: [QA_ISSUE], total: 1 });
+    handlers["qa.waive"] = () =>
+      new EngineFailure("engineDown", "engine process is not running");
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    await userEvent.click(await screen.findByRole("button", { name: "忽略" }));
+
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        expect.stringContaining("忽略失败"),
+      );
+    });
+    // The issue must not be presented as waived anywhere.
+    expect(screen.getByText("质量检查（未解决 1）")).toBeInTheDocument();
+    expect(screen.getByText("未解决")).toBeInTheDocument();
+    expect(screen.queryByText("已忽略")).not.toBeInTheDocument();
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).startsWith("已忽略"),
+      ),
+    ).toBe(false);
+    // The button unlocks so the user can retry once the engine is back.
+    expect(screen.getByRole("button", { name: "忽略" })).toBeEnabled();
   });
 });
