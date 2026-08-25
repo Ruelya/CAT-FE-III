@@ -1,8 +1,10 @@
 // End-to-end smoke of the tl-engine stdio protocol: handshake, project,
-// DOCX import, grid edit/confirm, exact TM, number QA, export, and the
-// honest AI degradation path. Run with: pnpm test:e2e:engine
+// DOCX import, grid edit/confirm, exact TM, number QA, export, the honest
+// AI degradation path, and the asynchronous agent run against a loopback
+// SSE fixture. Run with: pnpm test:e2e:engine
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -172,24 +174,123 @@ try {
   assert(exported.translatedSegments >= 1, "translated units exported");
 
   // Honest AI degradation without a key.
+  const untranslated = segments.find(
+    (segment) => segment.id !== first.id && !/\d/.test(segment.sourceText),
+  );
+  assert(untranslated, "fixture keeps an untranslated segment");
   const aiStatus = await call("ai.status", {});
   assert(aiStatus.configured === false, "AI unconfigured by default");
   await expectError(
     "ai.assist",
-    { segmentId: first.id, action: "translate" },
+    { segmentId: untranslated.id, action: "translate" },
     "aiNotConfigured",
   );
   await expectError(
-    "ai.agent.run",
+    "ai.agent.start",
     { documentId: imported.document.id },
     "aiNotConfigured",
   );
+
+  // Loopback OpenAI-compatible SSE fixture: no real key ever leaves the box.
+  const aiReply = "冒烟代理草稿。";
+  const aiServer = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      const payload = JSON.stringify({
+        choices: [{ delta: { content: aiReply } }],
+      });
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.end(`data: ${payload}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise((resolveListen) =>
+    aiServer.listen(0, "127.0.0.1", resolveListen),
+  );
+  const configured = await call("ai.configure", {
+    provider: "openaiCompatible",
+    model: "fixture-model",
+    baseUrl: `http://127.0.0.1:${aiServer.address().port}`,
+    apiKey: "fixture-key",
+  });
+  assert(configured.configured === true, "loopback provider configured");
+
+  // Assist returns a candidate with a tag-integrity verdict and never
+  // touches confirmed segments.
+  const assist = await call("ai.assist", {
+    segmentId: untranslated.id,
+    action: "translate",
+  });
+  assert(assist.draftTarget === aiReply, "assist streams the fixture reply");
+  assert(assist.tagCheck.ok === true, "assist reports tag integrity");
+  await expectError(
+    "ai.assist",
+    { segmentId: first.id, action: "translate" },
+    "conflict",
+  );
+
+  // Agent run: async task order that parks at the human gate.
+  const beforeAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const pendingBefore = beforeAgent.segments.filter(
+    (segment) => segment.state === "untranslated" && !segment.targetText.trim(),
+  ).length;
+  assert(pendingBefore >= 1, "agent has untranslated segments to draft");
+  const startedRun = await call("ai.agent.start", {
+    documentId: imported.document.id,
+  });
+  assert(startedRun.status === "running", "agent run starts asynchronously");
+  assert(
+    startedRun.plannedSegments === pendingBefore,
+    "task order claims the pending segments",
+  );
+  let runView = startedRun;
+  const runDeadline = Date.now() + 30_000;
+  while (runView.status === "running") {
+    assert(Date.now() < runDeadline, "agent run finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 200));
+    runView = await call("ai.agent.status", { runId: startedRun.runId });
+  }
+  assert(
+    runView.status === "awaitingReview",
+    "agent parks at the human review gate",
+  );
+  assert(
+    runView.tmApplied + runView.aiDrafted === pendingBefore,
+    "every pending segment was drafted via TM or AI",
+  );
+  assert(runView.failedSegments === 0, "no drafting failures");
+  assert(
+    notifications.some((frame) => frame.method === "notify.ai.agent.step"),
+    "agent steps stream as notification frames",
+  );
+
+  // Human gate: drafts landed, nothing got confirmed or exported by the
+  // agent itself.
+  const afterAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const confirmedAfter = afterAgent.segments.filter(
+    (segment) => segment.state === "confirmed",
+  ).length;
+  assert(
+    confirmedAfter === 1,
+    "only the human-confirmed segment stays confirmed",
+  );
+  assert(
+    afterAgent.segments.every(
+      (segment) =>
+        segment.state !== "untranslated" || !segment.targetText.trim(),
+    ),
+    "agent drafts are drafts, not silent confirmations",
+  );
+  aiServer.close();
 
   // Clean shutdown.
   await call("engine.shutdown", {});
   await new Promise((resolveExit) => child.once("exit", resolveExit));
   console.log(
-    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation",
+    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async agent run parked at the human gate",
   );
 } catch (error) {
   child.kill();
