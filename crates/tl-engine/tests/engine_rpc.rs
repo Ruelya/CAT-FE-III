@@ -2367,3 +2367,50 @@ fn document_remove_deletes_rows_keeps_assets_and_survives_restart() {
         "notFound"
     );
 }
+
+/// Where `document.remove` meets `qa.waive`: the cascade drops waived
+/// issues along with open ones. A waiver is a human decision about one
+/// document's finding, so it must not outlive the document — after the
+/// removal (and a restart) no waived row remains for the old issue id.
+#[test]
+fn document_remove_drops_waived_issues_with_the_document() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "waived-then-removed.txt",
+        "The amount is 30.\n\nThe size is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "金额是 40。");
+    harness.set_target(&segments[1], "大小是 60。");
+
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(run["openIssues"], 2);
+    let waived_id = run["issues"][0]["id"]
+        .as_str()
+        .expect("issue id")
+        .to_string();
+    let waived = harness.call(
+        "qa.waive",
+        json!({ "issueId": waived_id, "waived": true, "note": "客户已确认" }),
+    );
+    assert_eq!(waived["issue"]["status"], "waived");
+
+    // The removal counts the waived row alongside the open one.
+    let removed = harness.call("document.remove", json!({ "documentId": document_id }));
+    assert_eq!(removed["removedQaIssues"].as_u64(), Some(2));
+
+    // Gone from SQLite, not just from engine memory: after a restart the
+    // document's QA list is gone and the waived issue id no longer resolves
+    // for a restore attempt.
+    harness.reopen();
+    assert_eq!(
+        harness.call_err("qa.list", json!({ "documentId": document_id })),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err("qa.waive", json!({ "issueId": waived_id, "waived": false })),
+        "notFound"
+    );
+}
