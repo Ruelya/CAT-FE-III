@@ -432,6 +432,156 @@ describe("WorkbenchView application menu commands", () => {
   });
 });
 
+describe("WorkbenchView find next/prev", () => {
+  // s1 and s3 both contain "day" (case-insensitive); s2 does not.
+  const FIND_SEGMENTS: Segment[] = [
+    {
+      ...SEGMENT,
+      id: "s1",
+      ordinal: 0,
+      sourceText: "First day of work.",
+      targetText: "第一天。",
+    },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Nothing to see here.",
+      targetText: "无关内容。",
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Every DAY counts.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  function installFindBridge() {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: FIND_SEGMENTS });
+    return installBridge(handlers);
+  }
+
+  it("jumps through matches with F4/Shift+F4, wrapping honestly and hiding nothing", async () => {
+    installFindBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "day");
+    // The find box navigates only; unlike the filter it hides no rows.
+    expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
+    expect(screen.getByText("First day of work.")).toBeInTheDocument();
+
+    // F4 skips the non-matching s2 and lands on s3 (no wrap, no status).
+    fireEvent.keyDown(window, { key: "F4" });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).includes("已从头继续"),
+      ),
+    ).toBe(false);
+
+    // Next from the last match wraps to the top and says so.
+    fireEvent.keyDown(window, { key: "F4" });
+    expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "查找「day」：已从头继续，跳到句段 #1",
+    );
+
+    // Previous from the first match wraps to the end and says so.
+    fireEvent.keyDown(window, { key: "F4", shiftKey: true });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "查找「day」：已从末尾继续，跳到句段 #3",
+    );
+
+    // Every row is still rendered; find never engaged the hide-filter.
+    expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
+    expect(screen.getByText("First day of work.")).toBeInTheDocument();
+  });
+
+  it("reports 没有匹配 and stays on the current segment", async () => {
+    installFindBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "missing");
+    fireEvent.keyDown(window, { key: "F4" });
+    expect(onStatusMessage).toHaveBeenCalledWith("查找「missing」：没有匹配");
+    // The selection did not move anywhere.
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("drives the same jumps from the menu 查找下一个/查找上一个 commands", async () => {
+    const bridge = installFindBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "day");
+    act(() => {
+      bridge.emitMenuCommand("find-next");
+    });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+    act(() => {
+      bridge.emitMenuCommand("find-prev");
+    });
+    expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("focuses the find box when F4 is pressed with an empty query", async () => {
+    installFindBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "F4" });
+    expect(document.activeElement).toBe(screen.getByLabelText("查找跳转"));
+  });
+
+  it("keeps the F3 chord on concordance, untouched by find next", async () => {
+    installFindBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "F3" });
+    expect(await screen.findByLabelText(/检索词/)).toBeInTheDocument();
+  });
+});
+
 describe("WorkbenchView engine-down honesty", () => {
   it("keeps a persistent unsaved alert when the engine never acks a draft write", async () => {
     const handlers = baseHandlers();
