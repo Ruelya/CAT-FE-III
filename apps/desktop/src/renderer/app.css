@@ -841,6 +841,52 @@ body {
   color: var(--tl-color-text-muted);
 }
 
+/* TM manage dialog */
+
+.tm-manage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+}
+
+.tm-manage__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tl-space-3);
+}
+
+.tm-manage__toolbar .tl-field {
+  flex: 1;
+}
+
+.tm-manage__count {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.tm-manage__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tl-space-2);
+}
+
+.tm-manage__confirm {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  margin-right: auto;
+}
+
+.tm-manage__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tl-space-3);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
 /* Document import dialog. */
 
 .import-form {

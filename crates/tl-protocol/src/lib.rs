@@ -43,6 +43,9 @@ pub mod methods {
     pub const SEGMENT_UPDATE: &str = "segment.update";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
     pub const TM_LOOKUP: &str = "tm.lookup";
+    pub const TM_LIST: &str = "tm.list";
+    pub const TM_UPDATE: &str = "tm.update";
+    pub const TM_DELETE: &str = "tm.delete";
     pub const TM_IMPORT: &str = "tm.import";
     pub const TM_EXPORT: &str = "tm.export";
     pub const TM_PRETRANSLATE: &str = "tm.pretranslate";
@@ -113,6 +116,12 @@ pub struct RpcMethodCatalog {
     pub segment_confirm: MethodContract<SegmentConfirmParams, SegmentConfirmResult>,
     #[serde(rename = "tm.lookup")]
     pub tm_lookup: MethodContract<TmLookupParams, TmLookupResult>,
+    #[serde(rename = "tm.list")]
+    pub tm_list: MethodContract<TmListParams, TmListResult>,
+    #[serde(rename = "tm.update")]
+    pub tm_update: MethodContract<TmUpdateParams, TmUpdateResult>,
+    #[serde(rename = "tm.delete")]
+    pub tm_delete: MethodContract<TmDeleteParams, TmDeleteResult>,
     #[serde(rename = "tm.import")]
     pub tm_import: MethodContract<TmImportParams, TmImportResult>,
     #[serde(rename = "tm.export")]
@@ -210,6 +219,9 @@ mod tests {
             methods::SEGMENT_UPDATE,
             methods::SEGMENT_CONFIRM,
             methods::TM_LOOKUP,
+            methods::TM_LIST,
+            methods::TM_UPDATE,
+            methods::TM_DELETE,
             methods::TM_IMPORT,
             methods::TM_EXPORT,
             methods::TM_PRETRANSLATE,

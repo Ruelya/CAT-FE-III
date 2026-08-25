@@ -5,6 +5,7 @@ import { Button, StatusDot } from "@translunar/ui";
 
 import type { EngineStatusPayload } from "../shared/desktop-api.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
+import { TmManageDialog } from "./components/TmManageDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
 
@@ -47,6 +48,7 @@ export function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [documentOpen, setDocumentOpen] = useState(false);
+  const [tmManageOpen, setTmManageOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
     "INSTRUMENT · Translunar CAT 绿场骨架",
   );
@@ -122,6 +124,13 @@ export function App() {
               <Button
                 size="sm"
                 variant="ghost"
+                onClick={() => setTmManageOpen(true)}
+              >
+                TM 管理
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setProject(null)}
               >
                 返回项目列表
@@ -161,6 +170,13 @@ export function App() {
           project={project}
           onClose={() => setSettingsOpen(false)}
           onProjectUpdated={setProject}
+        />
+      ) : null}
+      {project ? (
+        <TmManageDialog
+          open={tmManageOpen}
+          project={project}
+          onClose={() => setTmManageOpen(false)}
         />
       ) : null}
     </div>
