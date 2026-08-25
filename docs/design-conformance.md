@@ -1,5 +1,11 @@
 # Design language conformance
 
+> **Historical record (pre-greenfield).** This conformance report measured the
+> previous renderer, which was removed in the greenfield reset along with its
+> evidence harnesses (`ui-audit`, `ui-shots`, `ui:perf`). The current renderer
+> uses the INSTRUMENT token set in `packages/ui/src/tokens.css` and has not
+> been through this qualification.
+
 A per-item check of the renderer against
 [`.trellis/spec/frontend/design-language.md`](../.trellis/spec/frontend/design-language.md).
 Every row names the evidence, so a reviewer can reproduce the claim instead of

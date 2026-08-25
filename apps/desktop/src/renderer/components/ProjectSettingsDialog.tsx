@@ -567,8 +567,8 @@ export function ProjectSettingsDialog({
           <p className="settings__note">
             挂载后，术语面板会对当前句段做 term.lookup
             命中，并支持快速添加术语；「管理术语」可逐条查看、编辑与删除；
-            卸载只解除挂载，不删除术语库本身；
-            CSV/TSV/TBX 批量导入与导出走上方按钮，结果以引擎实际计数为准。
+            卸载只解除挂载，不删除术语库本身； CSV/TSV/TBX
+            批量导入与导出走上方按钮，结果以引擎实际计数为准。
           </p>
         </section>
 

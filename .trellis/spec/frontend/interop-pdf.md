@@ -1,5 +1,10 @@
 # Frontend Interop, PDF/OCR, Task Packages, Reimport (P3)
 
+> **Historical / not current greenfield.** The P3 surfaces described here
+> (PDF page review, OCR, interop panels, offline task packages, reimport)
+> belonged to the pre-greenfield renderer and were removed in the greenfield
+> reset. None of these features exist in the current tree.
+
 ## 1. Scope / Trigger
 
 Use this contract when changing:

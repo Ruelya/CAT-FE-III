@@ -1,5 +1,14 @@
 # Backend Directory Structure
 
+> **Historical / not current greenfield.** This layout describes the
+> pre-greenfield workspace. The current crates are `tl-domain`, `tl-protocol`,
+> `tl-engine` (with rusqlite `engine.sqlite` persistence in `src/store.rs`;
+> there is no separate storage crate), `tl-filter-core` / `tl-filter-{docx,text,html,xliff,office,
+> xlsx,pptx}`, `tl-segmentation`, `tl-editor`, `tl-asset`, `tl-qa`, `tl-ai`,
+> and `tl-ai-quality`, all named `tl-*` rather than `translunar-*`. The
+> placement principles (inward dependencies, wire types in the protocol crate,
+> filters never open persistence) still apply.
+
 ## Scope
 
 The backend is a Rust workspace. Keep domain behavior, wire contracts,

@@ -1,5 +1,11 @@
 # Frontend Editor Operations and Asset Hub (P2)
 
+> **Historical / not current greenfield.** The P2 surfaces described here
+> (editor command registry, Asset Hub, curation) belonged to the
+> pre-greenfield renderer and were removed in the greenfield reset. The
+> current workbench is `views/WorkbenchView.tsx` plus the panel components
+> under `components/`.
+
 ## 1. Scope / Trigger
 
 Use this contract when changing Workbench editor commands/panels, segment
