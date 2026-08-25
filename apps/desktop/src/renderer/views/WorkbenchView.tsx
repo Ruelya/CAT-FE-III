@@ -9,6 +9,8 @@ import type {
 } from "@translunar/contracts";
 import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
 
+import type { MenuCommand } from "../../shared/desktop-api.js";
+
 import { AiStatusProvider } from "../lib/ai-status.js";
 import { callEngine, describeError } from "../lib/engine.js";
 import {
@@ -34,9 +36,21 @@ import { PreviewDialog } from "../components/PreviewDialog.js";
 export interface WorkbenchViewProps {
   project: Project;
   onStatusMessage: (message: string) => void;
+  /** Reports whether a document is active, so menu enablement stays honest. */
+  onDocumentOpenChange?: (open: boolean) => void;
 }
 
 type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
+
+/** Menu dock commands map onto the same tabs the dock buttons switch. */
+const DOCK_COMMANDS: Partial<Record<MenuCommand, DockTab>> = {
+  "show-dock-tm": "tm",
+  "show-dock-term": "term",
+  "show-dock-concordance": "concordance",
+  "show-dock-qa": "qa",
+  "show-dock-ai": "ai",
+  "show-dock-agent": "agent",
+};
 
 const STATE_FILTER_OPTIONS: Array<[SegmentStateFilter, string]> = [
   ["all", "全部状态"],
@@ -67,6 +81,7 @@ function readTextSelection(): string {
 export function WorkbenchView({
   project,
   onStatusMessage,
+  onDocumentOpenChange,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
@@ -79,6 +94,7 @@ export function WorkbenchView({
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const gridRef = useRef<SegmentGridHandle | null>(null);
+  const filterInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
   const activeDocument = useMemo(
@@ -90,6 +106,10 @@ export function WorkbenchView({
     () => segments.find((segment) => segment.id === activeSegmentId) ?? null,
     [segments, activeSegmentId],
   );
+
+  useEffect(() => {
+    onDocumentOpenChange?.(activeDocument !== null);
+  }, [activeDocument, onDocumentOpenChange]);
 
   const refreshDocuments = useCallback(async () => {
     const result = await callEngine("document.list", { projectId: project.id });
@@ -335,22 +355,113 @@ export function WorkbenchView({
     [filteredSegments],
   );
 
-  // F3 opens concordance seeded with the current text selection, in line
-  // with the classic CAT shortcut.
+  // Opens concordance seeded with the current text selection, in line with
+  // the classic CAT shortcut. Shared by the F3 chord and the menu command
+  // so both take the exact same path.
+  const openConcordance = useCallback(() => {
+    const selection = readTextSelection();
+    if (selection.length > 0) {
+      setConcordanceSeed(selection);
+    }
+    setTab("concordance");
+  }, []);
+
+  const focusFilter = useCallback(() => {
+    const input = filterInputRef.current;
+    if (!input) {
+      return false;
+    }
+    input.focus();
+    input.select();
+    return true;
+  }, []);
+
+  // Workbench keymap (renderer-owned; the application menu displays these
+  // accelerators but does not register them, so the raw events land here):
+  // F3 concordance, Ctrl/Cmd+F focus the segment filter.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "F3") {
+      if (event.key === "F3") {
+        event.preventDefault();
+        openConcordance();
         return;
       }
-      event.preventDefault();
-      const selection = readTextSelection();
-      if (selection.length > 0) {
-        setConcordanceSeed(selection);
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        (event.key === "f" || event.key === "F")
+      ) {
+        if (focusFilter()) {
+          event.preventDefault();
+        }
       }
-      setTab("concordance");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openConcordance, focusFilter]);
+
+  // Application menu commands. Every branch reuses the exact handler the
+  // corresponding button/shortcut already calls; state guards keep the
+  // commands honest even if a click races a state change.
+  const handleMenuCommand = useCallback(
+    (command: MenuCommand) => {
+      const dockTab = DOCK_COMMANDS[command];
+      if (dockTab) {
+        setTab(dockTab);
+        return;
+      }
+      switch (command) {
+        case "import-document":
+          if (!busy) {
+            setImportOpen(true);
+          }
+          break;
+        case "export-document":
+          if (!busy) {
+            void exportDocument();
+          }
+          break;
+        case "open-preview":
+          if (activeDocument) {
+            setPreviewOpen(true);
+          }
+          break;
+        case "open-concordance":
+          openConcordance();
+          break;
+        case "focus-filter":
+          focusFilter();
+          break;
+        case "confirm-segment":
+          if (!gridRef.current?.confirmActive()) {
+            onStatusMessage("没有正在编辑的句段，无法确认");
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      busy,
+      exportDocument,
+      activeDocument,
+      openConcordance,
+      focusFilter,
+      onStatusMessage,
+    ],
+  );
+
+  // Subscribe once; dispatch through a ref so command handling always sees
+  // the latest workbench state without resubscribing across the bridge.
+  const menuCommandRef = useRef(handleMenuCommand);
+  useEffect(() => {
+    menuCommandRef.current = handleMenuCommand;
+  }, [handleMenuCommand]);
+  useEffect(() => {
+    return window.tl.onMenuCommand((command) => {
+      menuCommandRef.current(command);
+    });
   }, []);
 
   return (
@@ -454,6 +565,7 @@ export function WorkbenchView({
                     ))}
                   </select>
                   <input
+                    ref={filterInputRef}
                     className="grid-toolbar__search"
                     aria-label="按文本筛选"
                     placeholder="筛选源文 / 译文…"
