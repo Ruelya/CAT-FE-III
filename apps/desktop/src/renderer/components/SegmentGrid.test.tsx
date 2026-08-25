@@ -215,7 +215,11 @@ describe("SegmentGrid", () => {
       />,
     );
     const editor = screen.getByLabelText("句段 1 译文");
-    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, isComposing: true });
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
     expect(onConfirm).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
     expect(onConfirm).toHaveBeenCalledTimes(1);
