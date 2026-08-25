@@ -5,17 +5,15 @@ mod connector;
 pub use connector::*;
 
 use std::fmt;
-use std::io::{BufRead, BufReader, Read};
 use std::net::IpAddr;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use regex::Regex;
-use reqwest::StatusCode;
-use reqwest::blocking::{Client, Response};
 use reqwest::header::{AUTHORIZATION, HeaderMap, RETRY_AFTER};
 use reqwest::redirect::Policy;
+use reqwest::{Client, Response, StatusCode};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -765,6 +763,23 @@ impl AiCoreError {
     }
 }
 
+/// How often the cancellation watcher re-checks the flag while a provider
+/// call is in flight. This bounds the cancel-to-abort latency.
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Execute one provider call with honest, abortive cancellation.
+///
+/// The public signature stays synchronous (worker threads call it directly),
+/// but the transport is the async reqwest client driven by a private
+/// current-thread runtime. The provider future races a watcher that polls
+/// `cancellation` every [`CANCEL_POLL_INTERVAL`]; when the flag flips, the
+/// future is dropped, which closes the underlying connection — a hung
+/// connect or a stalled SSE read no longer holds the caller until the
+/// profile timeout. Cancel latency is bounded by the poll interval plus the
+/// time to drop the connection, not by `timeout_ms`.
+///
+/// The profile timeout still applies to runs that are *not* canceled: a hung
+/// provider fails with [`AiCoreError::Timeout`] after `timeout_ms` as before.
 pub fn execute_provider(
     request: &ProviderRequest,
     credential: &SecretString,
@@ -775,6 +790,33 @@ pub fn execute_provider(
     if cancellation.load(Ordering::Relaxed) {
         return Err(AiCoreError::Canceled);
     }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| AiCoreError::Unavailable { retryable: false })?;
+    runtime.block_on(async {
+        tokio::select! {
+            outcome = execute_provider_call(request, credential, cancellation, sink) => outcome,
+            _ = watch_cancellation(cancellation) => Err(AiCoreError::Canceled),
+        }
+    })
+}
+
+async fn watch_cancellation(cancellation: &AtomicBool) {
+    loop {
+        if cancellation.load(Ordering::Relaxed) {
+            return;
+        }
+        tokio::time::sleep(CANCEL_POLL_INTERVAL).await;
+    }
+}
+
+async fn execute_provider_call(
+    request: &ProviderRequest,
+    credential: &SecretString,
+    cancellation: &AtomicBool,
+    sink: &mut dyn AiEventSink,
+) -> Result<ProviderCompletion, AiCoreError> {
     let descriptor = provider_descriptor(request.profile.kind);
     let client = Client::builder()
         .connect_timeout(Duration::from_millis(u64::from(
@@ -788,16 +830,16 @@ pub fn execute_provider(
     let started = Instant::now();
     let (text, usage) = match descriptor.protocol {
         AiProviderProtocol::OpenaiChatCompletions => {
-            execute_openai(&client, request, credential, cancellation, sink)?
+            execute_openai(&client, request, credential, cancellation, sink).await?
         }
         AiProviderProtocol::AnthropicMessages => {
-            execute_anthropic(&client, request, credential, cancellation, sink)?
+            execute_anthropic(&client, request, credential, cancellation, sink).await?
         }
         AiProviderProtocol::GeminiGenerateContent => {
-            execute_gemini(&client, request, credential, cancellation, sink)?
+            execute_gemini(&client, request, credential, cancellation, sink).await?
         }
         AiProviderProtocol::DeeplTranslate => {
-            execute_deepl(&client, request, credential, cancellation, sink)?
+            execute_deepl(&client, request, credential, cancellation, sink).await?
         }
     };
     if text.trim().is_empty() {
@@ -810,7 +852,7 @@ pub fn execute_provider(
     })
 }
 
-fn execute_openai(
+async fn execute_openai(
     client: &Client,
     request: &ProviderRequest,
     credential: &SecretString,
@@ -838,6 +880,7 @@ fn execute_openai(
             "stream_options": { "include_usage": true },
         }))
         .send()
+        .await
         .map_err(map_reqwest_error)?;
     parse_sse_response(
         response,
@@ -846,9 +889,10 @@ fn execute_openai(
         sink,
         parse_openai_event,
     )
+    .await
 }
 
-fn execute_anthropic(
+async fn execute_anthropic(
     client: &Client,
     request: &ProviderRequest,
     credential: &SecretString,
@@ -886,6 +930,7 @@ fn execute_anthropic(
             "messages": messages,
         }))
         .send()
+        .await
         .map_err(map_reqwest_error)?;
     parse_sse_response(
         response,
@@ -894,9 +939,10 @@ fn execute_anthropic(
         sink,
         parse_anthropic_event,
     )
+    .await
 }
 
-fn execute_gemini(
+async fn execute_gemini(
     client: &Client,
     request: &ProviderRequest,
     credential: &SecretString,
@@ -937,6 +983,7 @@ fn execute_gemini(
             "contents": contents,
         }))
         .send()
+        .await
         .map_err(map_reqwest_error)?;
     parse_sse_response(
         response,
@@ -945,9 +992,10 @@ fn execute_gemini(
         sink,
         parse_gemini_event,
     )
+    .await
 }
 
-fn execute_deepl(
+async fn execute_deepl(
     client: &Client,
     request: &ProviderRequest,
     credential: &SecretString,
@@ -967,12 +1015,13 @@ fn execute_deepl(
             ("target_lang", deepl_locale(&request.target_locale)),
         ])
         .send()
+        .await
         .map_err(map_reqwest_error)?;
     let mut response = ensure_success(response)?;
     if cancellation.load(Ordering::Relaxed) {
         return Err(AiCoreError::Canceled);
     }
-    let body = read_bounded(&mut response, request.profile.max_response_bytes)?;
+    let body = read_bounded(&mut response, request.profile.max_response_bytes).await?;
     let value: Value = serde_json::from_slice(&body).map_err(|_| AiCoreError::Protocol)?;
     let text = value
         .pointer("/translations/0/text")
@@ -1016,59 +1065,99 @@ struct ParsedProviderEvent {
     done: bool,
 }
 
-fn parse_sse_response(
+/// Accumulated SSE parse state: the pending `data:` payload and the merged
+/// text/usage result.
+#[derive(Default)]
+struct SseState {
+    data: String,
+    text: String,
+    usage: AiUsage,
+}
+
+async fn parse_sse_response(
     response: Response,
     max_response_bytes: u32,
     cancellation: &AtomicBool,
     sink: &mut dyn AiEventSink,
     parser: EventParser,
 ) -> Result<(String, AiUsage), AiCoreError> {
-    let response = ensure_success(response)?;
-    let mut reader = BufReader::new(response);
-    let mut line = String::new();
-    let mut data = String::new();
-    let mut total_bytes = 0usize;
+    let mut response = ensure_success(response)?;
     let limit = usize::try_from(max_response_bytes).map_err(|_| AiCoreError::ResponseTooLarge)?;
-    let mut text = String::new();
-    let mut usage = AiUsage::default();
+    let mut state = SseState::default();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut total_bytes = 0usize;
     loop {
         if cancellation.load(Ordering::Relaxed) {
             return Err(AiCoreError::Canceled);
         }
-        line.clear();
-        let bytes = reader.read_line(&mut line).map_err(map_io_error)?;
-        if bytes == 0 {
-            if !data.is_empty() {
-                apply_provider_event(parser(data.trim_end())?, &mut text, &mut usage, sink)?;
-            }
-            break;
-        }
-        total_bytes = total_bytes.saturating_add(bytes);
-        if total_bytes > limit {
-            return Err(AiCoreError::ResponseTooLarge);
-        }
-        if line.len() > MAX_SSE_LINE_BYTES {
-            return Err(AiCoreError::ResponseTooLarge);
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            if !data.is_empty() {
-                let event = parser(data.trim_end())?;
-                let done = event.done;
-                apply_provider_event(event, &mut text, &mut usage, sink)?;
-                data.clear();
-                if done {
-                    break;
+        match response.chunk().await.map_err(map_reqwest_error)? {
+            Some(chunk) => {
+                total_bytes = total_bytes.saturating_add(chunk.len());
+                if total_bytes > limit {
+                    return Err(AiCoreError::ResponseTooLarge);
+                }
+                pending.extend_from_slice(&chunk);
+                while let Some(position) = pending.iter().position(|byte| *byte == b'\n') {
+                    let line: Vec<u8> = pending.drain(..=position).collect();
+                    let line = String::from_utf8_lossy(&line);
+                    if process_sse_line(&line, &mut state, sink, parser)? {
+                        return Ok((state.text, state.usage));
+                    }
+                }
+                if pending.len() > MAX_SSE_LINE_BYTES {
+                    return Err(AiCoreError::ResponseTooLarge);
                 }
             }
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix("data:") {
-            data.push_str(value.trim_start());
-            data.push('\n');
+            None => {
+                if !pending.is_empty() {
+                    let line = String::from_utf8_lossy(&pending).to_string();
+                    if process_sse_line(&line, &mut state, sink, parser)? {
+                        return Ok((state.text, state.usage));
+                    }
+                }
+                if !state.data.is_empty() {
+                    apply_provider_event(
+                        parser(state.data.trim_end())?,
+                        &mut state.text,
+                        &mut state.usage,
+                        sink,
+                    )?;
+                }
+                return Ok((state.text, state.usage));
+            }
         }
     }
-    Ok((text, usage))
+}
+
+/// Feed one SSE line into the parse state. Returns `true` when the stream
+/// reported its terminal event and reading must stop.
+fn process_sse_line(
+    line: &str,
+    state: &mut SseState,
+    sink: &mut dyn AiEventSink,
+    parser: EventParser,
+) -> Result<bool, AiCoreError> {
+    if line.len() > MAX_SSE_LINE_BYTES {
+        return Err(AiCoreError::ResponseTooLarge);
+    }
+    let trimmed = line.trim_end_matches(['\r', '\n']);
+    if trimmed.is_empty() {
+        if !state.data.is_empty() {
+            let event = parser(state.data.trim_end())?;
+            let done = event.done;
+            apply_provider_event(event, &mut state.text, &mut state.usage, sink)?;
+            state.data.clear();
+            if done {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if let Some(value) = trimmed.strip_prefix("data:") {
+        state.data.push_str(value.trim_start());
+        state.data.push('\n');
+    }
+    Ok(false)
 }
 
 fn apply_provider_event(
@@ -1207,15 +1296,17 @@ fn retry_after_ms(headers: &HeaderMap) -> Option<u64> {
         .map(|seconds| seconds.saturating_mul(1_000).min(300_000))
 }
 
-fn read_bounded(response: &mut Response, max_response_bytes: u32) -> Result<Vec<u8>, AiCoreError> {
-    let limit = u64::from(max_response_bytes);
+async fn read_bounded(
+    response: &mut Response,
+    max_response_bytes: u32,
+) -> Result<Vec<u8>, AiCoreError> {
+    let limit = usize::try_from(max_response_bytes).map_err(|_| AiCoreError::ResponseTooLarge)?;
     let mut body = Vec::new();
-    response
-        .take(limit.saturating_add(1))
-        .read_to_end(&mut body)
-        .map_err(map_io_error)?;
-    if u64::try_from(body.len()).unwrap_or(u64::MAX) > limit {
-        return Err(AiCoreError::ResponseTooLarge);
+    while let Some(chunk) = response.chunk().await.map_err(map_reqwest_error)? {
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err(AiCoreError::ResponseTooLarge);
+        }
+        body.extend_from_slice(&chunk);
     }
     Ok(body)
 }
@@ -1227,17 +1318,6 @@ fn map_reqwest_error(error: reqwest::Error) -> AiCoreError {
         AiCoreError::Unavailable { retryable: true }
     } else {
         AiCoreError::Protocol
-    }
-}
-
-fn map_io_error(error: std::io::Error) -> AiCoreError {
-    if matches!(
-        error.kind(),
-        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-    ) {
-        AiCoreError::Timeout
-    } else {
-        AiCoreError::Unavailable { retryable: true }
     }
 }
 
@@ -1712,7 +1792,7 @@ pub fn check_tag_integrity(source: &str, candidate: &str) -> TagIntegrityReport 
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::thread;
@@ -2102,6 +2182,51 @@ mod tests {
         let copy = secret.duplicate();
         assert_eq!(copy.expose(), "api-key");
         assert_eq!(format!("{copy:?}"), "SecretString([REDACTED])");
+    }
+
+    #[test]
+    fn cancellation_aborts_an_in_flight_request_without_waiting_for_the_timeout() {
+        // The fixture accepts the connection, swallows the request, and never
+        // answers: a cooperative-only cancel would sit in the read until the
+        // 60 s profile timeout. The abortive cancel must return within the
+        // poll interval plus connection-drop time.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind hanging fixture");
+        let address = listener.local_addr().expect("fixture address");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept fixture request");
+            let mut sink = [0u8; 4096];
+            while stream.read(&mut sink).is_ok_and(|bytes| bytes > 0) {
+                // Keep the socket open, never reply.
+            }
+        });
+
+        let mut request = test_request(
+            AiProviderKind::OpenaiCompatible,
+            format!("http://{address}/v1"),
+        );
+        request.profile.timeout_ms = 60_000;
+        let credential = SecretString::new("secret".to_string()).expect("credential");
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let canceler = Arc::clone(&cancellation);
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            canceler.store(true, Ordering::Relaxed);
+        });
+
+        let clock = Instant::now();
+        let error = execute_provider(
+            &request,
+            &credential,
+            &cancellation,
+            &mut CollectSink::default(),
+        )
+        .expect_err("canceled request must not succeed");
+        assert!(matches!(error, AiCoreError::Canceled), "got {error:?}");
+        assert!(
+            clock.elapsed() < Duration::from_secs(5),
+            "cancel aborted the hung request in {:?}, far below the 60 s timeout",
+            clock.elapsed()
+        );
     }
 
     #[test]
