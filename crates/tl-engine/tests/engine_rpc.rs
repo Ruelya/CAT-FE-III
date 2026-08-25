@@ -472,6 +472,165 @@ fn qa_run_applies_rule_library_and_terminology() {
 }
 
 #[test]
+fn bilingual_xlsx_filter_registers_imports_and_exports_via_explicit_id() {
+    let mut harness = Harness::new();
+
+    // Both bilingual table modes are registered engine capabilities.
+    let ready = harness.call(
+        "engine.initialize",
+        json!({
+            "protocolVersion": tl_protocol::PROTOCOL_VERSION,
+            "clientName": "test",
+            "clientVersion": "0",
+        }),
+    );
+    let filters = ready["capabilities"]["filters"]
+        .as_array()
+        .expect("filters");
+    for id in ["builtin.bilingual-xlsx", "builtin.bilingual-docx"] {
+        assert!(
+            filters.iter().any(|filter| filter == id),
+            "{id} missing from {filters:?}"
+        );
+    }
+
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual.xlsx");
+    tl_filter_xlsx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual XLSX fixture");
+
+    // Without an explicit filter id, probing still picks the ordinary XLSX
+    // filter: the bilingual mode never hijacks automatic selection.
+    let probed = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": source_path }),
+    );
+    assert_eq!(probed["document"]["filterId"], "builtin.xlsx");
+
+    // The explicit id runs the bilingual table mode: rows become segments
+    // with their existing targets carried over as drafts.
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-xlsx",
+        }),
+    );
+    assert_eq!(imported["document"]["filterId"], "builtin.bilingual-xlsx");
+    assert_eq!(imported["document"]["format"], "bilingual-xlsx");
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0]["sourceText"], "Hello");
+    assert_eq!(segments[0]["targetText"], "Existing");
+    assert_eq!(segments[0]["state"], "draft");
+    assert_eq!(segments[1]["sourceText"], "Second");
+    assert_eq!(segments[1]["targetText"], "第二");
+
+    // Edit one row, export, and reparse the workbook: only target cells
+    // change and the untouched row keeps its original translation.
+    harness.set_target(&segments[0], "你好更新");
+    let output_path = harness.path_of("bilingual.out.xlsx");
+    let exported = harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": output_path }),
+    );
+    assert_eq!(exported["translatedSegments"], 2);
+    let rows = tl_filter_xlsx::extract_bilingual_table_rows(
+        harness.path_of("bilingual.out.xlsx").as_ref(),
+    )
+    .expect("reparse exported workbook");
+    let updated = rows.iter().find(|row| row.row_number == 2).expect("row 2");
+    assert_eq!(updated.cells[0], "Hello");
+    assert_eq!(updated.cells[1], "你好更新");
+    let untouched = rows.iter().find(|row| row.row_number == 3).expect("row 3");
+    assert_eq!(untouched.cells[1], "第二");
+
+    // The human overwrite rule stays: an existing output path is refused.
+    assert_eq!(
+        harness.call_err(
+            "document.export",
+            json!({
+                "documentId": document_id,
+                "outputPath": harness.path_of("bilingual.out.xlsx"),
+            }),
+        ),
+        "exportBlocked"
+    );
+}
+
+#[test]
+fn bilingual_docx_filter_reports_layout_format_and_roundtrips() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source_path = harness.path_of("bilingual.docx");
+    tl_filter_docx::fixture::write_bilingual_fixture(source_path.as_ref())
+        .expect("write bilingual DOCX fixture");
+
+    let imported = harness.call(
+        "document.import",
+        json!({
+            "projectId": project_id,
+            "sourcePath": source_path,
+            "filterId": "builtin.bilingual-docx",
+        }),
+    );
+    assert_eq!(imported["document"]["filterId"], "builtin.bilingual-docx");
+    // The exact format id the desktop layout preview keys on: its export
+    // artifact really is a DOCX file rendered by the same pipeline.
+    assert_eq!(imported["document"]["format"], "bilingual-docx");
+    let document_id = imported["document"]["id"]
+        .as_str()
+        .expect("document id")
+        .to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 2);
+    assert_eq!(segments[0]["sourceText"], "Hello world");
+    assert_eq!(segments[0]["targetText"], "Existing target");
+    assert_eq!(segments[1]["sourceText"], "Second source");
+    assert_eq!(segments[1]["targetText"], "第二译文");
+
+    harness.set_target(&segments[0], "你好世界更新");
+    let output_path = harness.path_of("bilingual.out.docx");
+    let exported = harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": output_path }),
+    );
+    assert_eq!(exported["translatedSegments"], 2);
+    let rows = tl_filter_docx::extract_bilingual_table_rows(
+        harness.path_of("bilingual.out.docx").as_ref(),
+    )
+    .expect("reparse exported document");
+    let updated = rows
+        .iter()
+        .find(|row| row.table_index == 0 && row.row_number == 1)
+        .expect("first data row");
+    assert_eq!(updated.cells[0], "Hello world");
+    assert_eq!(updated.cells[1], "你好世界更新");
+    let untouched = rows
+        .iter()
+        .find(|row| row.table_index == 1 && row.row_number == 1)
+        .expect("second data row");
+    assert_eq!(untouched.cells[1], "第二译文");
+
+    // No clobber on re-export.
+    assert_eq!(
+        harness.call_err(
+            "document.export",
+            json!({
+                "documentId": document_id,
+                "outputPath": harness.path_of("bilingual.out.docx"),
+            }),
+        ),
+        "exportBlocked"
+    );
+}
+
+#[test]
 fn custom_srx_controls_segmentation_and_export_reassembles() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();

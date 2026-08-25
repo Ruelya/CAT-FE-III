@@ -143,6 +143,11 @@ impl Engine {
             Arc::new(tl_filter_xliff::XliffFilter),
             Arc::new(tl_filter_xlsx::XlsxFilter),
             Arc::new(tl_filter_pptx::PptxFilter),
+            // Explicit two-column bilingual table modes. Both probe as
+            // no-match, so ordinary .docx/.xlsx probing is unchanged; they
+            // only run when document.import names their filter id.
+            Arc::new(tl_filter_docx::BilingualDocxFilter),
+            Arc::new(tl_filter_xlsx::BilingualXlsxFilter),
         ];
         for filter in filters {
             registry
