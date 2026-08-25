@@ -285,6 +285,12 @@ pub struct StateDelta {
     pub deleted_term_entries: Vec<String>,
     /// `(project_id, termbase_id)` mount rows removed by termbase.detach.
     pub deleted_termbase_mounts: Vec<(String, String)>,
+    /// Document ids removed by document.remove. Each id cascades inside the
+    /// same transaction: the document's QA issues (through the segment
+    /// join), its segments, and the document row itself. TM entries are
+    /// deliberately not part of the cascade — confirmed translations
+    /// outlive the document they came from.
+    pub deleted_documents: Vec<String>,
 }
 
 impl StateDelta {
@@ -300,6 +306,7 @@ impl StateDelta {
             && self.deleted_tm_entries.is_empty()
             && self.deleted_term_entries.is_empty()
             && self.deleted_termbase_mounts.is_empty()
+            && self.deleted_documents.is_empty()
     }
 }
 
@@ -934,6 +941,24 @@ fn legacy_state_delta(state: &LegacyState) -> StateDelta {
 fn write_delta(conn: &Connection, delta: &StateDelta) -> io::Result<()> {
     // Deletions first: a detach that re-compacts the remaining mount
     // priorities must remove the old row before upserting the survivors.
+    for document_id in &delta.deleted_documents {
+        // Cascade order matters: QA issues reference segments, so they go
+        // before the segment rows their join runs through, and the document
+        // row goes last. All inside the caller's single transaction.
+        let mut statement = conn
+            .prepare_cached(
+                "DELETE FROM qa_issues WHERE segment_id IN
+                   (SELECT id FROM segments WHERE document_id = ?1)",
+            )
+            .map_err(db_err)?;
+        statement.execute(params![document_id]).map_err(db_err)?;
+        delete_row(
+            conn,
+            "DELETE FROM segments WHERE document_id = ?1",
+            document_id,
+        )?;
+        delete_row(conn, "DELETE FROM documents WHERE id = ?1", document_id)?;
+    }
     for entry_id in &delta.deleted_tm_entries {
         delete_row(conn, "DELETE FROM tm_entries WHERE id = ?1", entry_id)?;
     }
@@ -1886,6 +1911,54 @@ mod tests {
             vec!["qa-late"]
         );
         assert_eq!(store.document_qa_issue_count("d1").expect("count"), 3);
+    }
+
+    /// One deleted document id cascades to its QA issues and segments in
+    /// the same transaction, while sibling documents and the TM table stay
+    /// untouched — and the deletion survives a reopen.
+    #[test]
+    fn deleted_document_cascades_to_segments_and_qa_issues() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let (mut store, _) = Store::open(directory.path()).expect("open");
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 2), sample_record("d2", "p1", 1)],
+                segments: vec![
+                    sample_segment("s1", "d1", 0),
+                    sample_segment("s2", "d1", 1),
+                    sample_segment("s3", "d2", 0),
+                ],
+                tm_entries: vec![sample_tm_entry("tm1", "tm-p1", "hash-s1")],
+                qa_issues: vec![
+                    sample_qa_issue("qa-doomed", "s1", QaIssueStatus::Open, 1),
+                    sample_qa_issue("qa-kept", "s3", QaIssueStatus::Open, 2),
+                ],
+                ..Default::default()
+            })
+            .expect("seed");
+
+        store
+            .apply(&StateDelta {
+                deleted_documents: vec!["d1".to_string()],
+                ..Default::default()
+            })
+            .expect("remove document");
+        drop(store);
+
+        let (reopened, state) = Store::open(directory.path()).expect("reopen");
+        assert!(!state.documents.contains_key("d1"), "document row is gone");
+        assert!(state.documents.contains_key("d2"), "sibling document stays");
+        assert_eq!(reopened.document_segment_count("d1").expect("count"), 0);
+        assert_eq!(reopened.document_qa_issue_count("d1").expect("count"), 0);
+        assert_eq!(reopened.segment("s1").expect("segment"), None);
+        assert_eq!(reopened.document_segment_count("d2").expect("count"), 1);
+        assert_eq!(reopened.document_qa_issue_count("d2").expect("count"), 1);
+        assert_eq!(
+            reopened.tm_entry_count("tm-p1", None).expect("tm count"),
+            1,
+            "TM entries outlive the document they came from"
+        );
     }
 
     /// Updates rewrite the mutable columns only: segment leading text and

@@ -14,8 +14,9 @@ use tl_engine::{Engine, EngineEvent};
 use tl_protocol::{
     AgentRunStatus, AgentRunView, AgentStartParams, AgentStepKind, AiAssistAction, AiAssistParams,
     AiAssistRunStatus, AiAssistRunView, AiStatusResult, DocumentExportResult, DocumentImportResult,
-    InitializeResult, PROTOCOL_VERSION, QaRunResult, RpcErrorCode, RpcNotification, RpcRequest,
-    SegmentConfirmResult, SegmentListResult, SegmentUpdateResult, TmLookupResult, methods,
+    DocumentRemoveResult, InitializeResult, PROTOCOL_VERSION, QaRunResult, RpcErrorCode,
+    RpcNotification, RpcRequest, SegmentConfirmResult, SegmentListResult, SegmentUpdateResult,
+    TmLookupResult, methods,
 };
 
 fn fixture_docx() -> PathBuf {
@@ -1085,6 +1086,17 @@ fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
         RpcErrorCode::Conflict
     );
 
+    // Removing the document out from under the live run is refused the same
+    // honest way — its workers still land drafts on these segments.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::DOCUMENT_REMOVE,
+            json!({"documentId": imported.document.id}),
+        ),
+        RpcErrorCode::Conflict
+    );
+
     let canceled: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_CANCEL,
@@ -1116,6 +1128,14 @@ fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
         ),
         RpcErrorCode::NotFound
     );
+
+    // Once the run is terminal the document can be removed.
+    let removed: DocumentRemoveResult = call(
+        &mut engine,
+        methods::DOCUMENT_REMOVE,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(removed.document.id, imported.document.id);
 }
 
 #[test]
