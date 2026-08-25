@@ -13,14 +13,15 @@ use tl_asset::{
 };
 use tl_domain::{SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
 use tl_protocol::{
-    TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE, TM_LOOKUP_MAX_LIMIT,
-    TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult, TermExchangeFormat,
-    TermListParams, TermListResult, TermLookupParams, TermLookupResult, TermbaseAttachParams,
-    TermbaseAttachResult, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
-    TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseListResult,
-    TmExchangeFormat, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
-    TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams,
-    TmPretranslateResult,
+    TM_LIST_DEFAULT_LIMIT, TM_LIST_MAX_LIMIT, TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE,
+    TM_LOOKUP_MAX_LIMIT, TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult,
+    TermExchangeFormat, TermListParams, TermListResult, TermLookupParams, TermLookupResult,
+    TermbaseAttachParams, TermbaseAttachResult, TermbaseCreateParams, TermbaseExportParams,
+    TermbaseExportResult, TermbaseImportParams, TermbaseImportResult, TermbaseListParams,
+    TermbaseListResult, TmDeleteParams, TmDeleteResult, TmExchangeFormat, TmExportParams,
+    TmExportResult, TmImportParams, TmImportResult, TmListParams, TmListResult, TmLookupParams,
+    TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams, TmPretranslateResult,
+    TmUpdateParams, TmUpdateResult,
 };
 
 use crate::{Engine, EngineError, now_ms};
@@ -150,6 +151,131 @@ impl Engine {
             matches,
             total_matches,
         })
+    }
+
+    /// One page of a project's TM entries, newest confirmation first, with an
+    /// optional case-insensitive substring filter over source and target.
+    pub(crate) fn tm_list(&self, params: TmListParams) -> Result<TmListResult, EngineError> {
+        self.require_project(&params.project_id)?;
+        let limit = match params.limit {
+            None => TM_LIST_DEFAULT_LIMIT,
+            Some(0) => {
+                return Err(EngineError::InvalidParams(
+                    "limit must be at least 1".to_string(),
+                ));
+            }
+            Some(value) => value.min(TM_LIST_MAX_LIMIT),
+        };
+        let offset = params.offset.unwrap_or(0) as usize;
+        let query = params
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_lowercase);
+        let memory_id = Self::project_memory_id(&params.project_id);
+        let mut entries: Vec<&TmEntry> = self
+            .state
+            .tm_entries
+            .values()
+            .filter(|entry| entry.memory_id == memory_id)
+            .filter(|entry| match query.as_deref() {
+                Some(needle) => {
+                    entry.source_text.to_lowercase().contains(needle)
+                        || entry.target_text.to_lowercase().contains(needle)
+                }
+                None => true,
+            })
+            .collect();
+        entries.sort_by(|left, right| {
+            right
+                .confirmed_at_ms
+                .cmp(&left.confirmed_at_ms)
+                .then(left.id.cmp(&right.id))
+        });
+        let total = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+        let page: Vec<TmEntry> = entries
+            .into_iter()
+            .skip(offset)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(TmListResult {
+            entries: page,
+            total,
+        })
+    }
+
+    /// Edit one TM entry's source and target text. A changed source re-keys
+    /// the entry (hash + fuzzy index) so lookup, pretranslation, and the
+    /// confirm-time upsert all see the edited text.
+    pub(crate) fn tm_update(
+        &mut self,
+        params: TmUpdateParams,
+    ) -> Result<TmUpdateResult, EngineError> {
+        let source_text = params.source_text.trim().to_string();
+        let target_text = params.target_text.trim().to_string();
+        if source_text.is_empty() || target_text.is_empty() {
+            return Err(EngineError::InvalidParams(
+                "source and target text must not be empty".to_string(),
+            ));
+        }
+        let (memory_id, old_source_text) = {
+            let entry =
+                self.state.tm_entries.get(&params.entry_id).ok_or_else(|| {
+                    EngineError::NotFound(format!("TM entry {}", params.entry_id))
+                })?;
+            (entry.memory_id.clone(), entry.source_text.clone())
+        };
+        let source_hash = sha256_hex(normalize_text(&source_text).as_bytes());
+        // One entry per normalized source per memory: the confirm-time upsert
+        // relies on it, so an edit must not create a silent duplicate.
+        if self.state.tm_entries.values().any(|entry| {
+            entry.id != params.entry_id
+                && entry.memory_id == memory_id
+                && entry.source_hash == source_hash
+        }) {
+            return Err(EngineError::Conflict(
+                "another TM entry in this memory already covers that source text".to_string(),
+            ));
+        }
+        let now = now_ms();
+        let entry = self
+            .state
+            .tm_entries
+            .get_mut(&params.entry_id)
+            .expect("TM entry just resolved");
+        entry.source_text = source_text;
+        entry.target_text = target_text;
+        entry.source_hash = source_hash;
+        entry.confirmed_at_ms = now;
+        let updated = entry.clone();
+        if updated.source_text != old_source_text {
+            // Re-key the fuzzy index so recall follows the edited source.
+            self.tm_indexes
+                .entry(memory_id)
+                .or_default()
+                .insert(&updated.id, &updated.source_text);
+        }
+        self.store.save(&self.state)?;
+        Ok(TmUpdateResult { entry: updated })
+    }
+
+    /// Remove one TM entry from its memory and from the fuzzy index.
+    pub(crate) fn tm_delete(
+        &mut self,
+        params: TmDeleteParams,
+    ) -> Result<TmDeleteResult, EngineError> {
+        let entry = self
+            .state
+            .tm_entries
+            .remove(&params.entry_id)
+            .ok_or_else(|| EngineError::NotFound(format!("TM entry {}", params.entry_id)))?;
+        if let Some(index) = self.tm_indexes.get_mut(&entry.memory_id) {
+            index.remove(&entry.id);
+        }
+        self.store.save(&self.state)?;
+        Ok(TmDeleteResult { entry })
     }
 
     pub(crate) fn tm_import(
