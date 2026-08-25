@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
-  AgentRunResult,
+  AgentRunView,
   AgentStep,
   AgentStepNotification,
 } from "@translunar/contracts";
@@ -14,12 +14,15 @@ import {
 } from "@translunar/ui";
 import type { BadgeTone } from "@translunar/ui";
 
+import { useAiStatus } from "../lib/ai-status.js";
 import { callEngine, describeError, isAiNotConfigured } from "../lib/engine.js";
 
 export interface AgentPanelProps {
   documentId: string | null;
   onCompleted: () => void;
   onStatusMessage: (message: string) => void;
+  /** Human gate: jump into the export flow. The agent never exports. */
+  onGoExport: () => void;
 }
 
 const STEP_TONE: Record<AgentStep["status"], BadgeTone> = {
@@ -30,22 +33,63 @@ const STEP_TONE: Record<AgentStep["status"], BadgeTone> = {
 
 const STEP_LABEL: Record<AgentStep["kind"], string> = {
   plan: "规划",
-  translate: "翻译",
+  tm: "TM 预翻",
+  translate: "AI 起草",
   qa: "质检",
   summary: "总结",
+  cancel: "取消",
 };
+
+const RUN_STATUS_LABEL: Record<AgentRunView["status"], string> = {
+  running: "运行中",
+  awaitingReview: "等待人工审核",
+  canceled: "已取消",
+  failed: "失败",
+};
+
+const RUN_STATUS_TONE: Record<AgentRunView["status"], BadgeTone> = {
+  running: "neutral",
+  awaitingReview: "warn",
+  canceled: "neutral",
+  failed: "danger",
+};
+
+const POLL_INTERVAL_MS = 800;
 
 export function AgentPanel({
   documentId,
   onCompleted,
   onStatusMessage,
+  onGoExport,
 }: AgentPanelProps) {
+  const { configured } = useAiStatus();
   const [instruction, setInstruction] = useState("");
-  const [running, setRunning] = useState(false);
-  const [steps, setSteps] = useState<AgentStep[]>([]);
-  const [result, setResult] = useState<AgentRunResult | null>(null);
+  const [run, setRun] = useState<AgentRunView | null>(null);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const runningDocument = useRef<string | null>(null);
+  const completedRuns = useRef<Set<string>>(new Set());
+
+  const running = run?.status === "running";
+
+  const finishRun = useCallback(
+    (finished: AgentRunView) => {
+      if (completedRuns.current.has(finished.runId)) {
+        return;
+      }
+      completedRuns.current.add(finished.runId);
+      if (finished.status === "awaitingReview") {
+        onStatusMessage(
+          `Agent 已完成并停在人工审核门：TM ${finished.tmApplied}，AI 草稿 ${finished.aiDrafted}，失败 ${finished.failedSegments}，QA 未解决 ${finished.openQaIssues}`,
+        );
+      } else if (finished.status === "canceled") {
+        onStatusMessage("Agent 运行已取消，已生成的草稿保留在网格中");
+      } else {
+        onStatusMessage("Agent 运行失败，请查看步骤详情");
+      }
+      onCompleted();
+    },
+    [onCompleted, onStatusMessage],
+  );
 
   // Live step feed from the engine's reserved notification frames.
   useEffect(() => {
@@ -54,96 +98,171 @@ export function AgentPanel({
         return;
       }
       const payload = notification.params as AgentStepNotification;
-      if (
-        runningDocument.current &&
-        payload.documentId === runningDocument.current
-      ) {
-        setSteps((current) => [...current, payload.step]);
-      }
+      setRun((current) => {
+        if (!current || current.runId !== payload.runId) {
+          return current;
+        }
+        const steps = current.steps.some(
+          (step) => step.index === payload.step.index,
+        )
+          ? current.steps
+          : [...current.steps, payload.step];
+        return { ...current, status: payload.runStatus, steps };
+      });
     });
   }, []);
 
-  const run = useCallback(async () => {
-    if (!documentId) {
+  // Poll run status while running: counts and terminal transitions arrive
+  // even if a notification frame is missed.
+  useEffect(() => {
+    if (!run || run.status !== "running") {
       return;
     }
-    setRunning(true);
+    const timer = setInterval(() => {
+      void callEngine("ai.agent.status", { runId: run.runId })
+        .then((view) => {
+          setRun((current) =>
+            current && current.runId === view.runId ? view : current,
+          );
+          if (view.status !== "running") {
+            finishRun(view);
+          }
+        })
+        .catch(() => {
+          // Engine unreachable; keep the last known view.
+        });
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [run, finishRun]);
+
+  const start = useCallback(async () => {
+    if (!documentId || !configured) {
+      return;
+    }
+    setStarting(true);
     setError(null);
-    setSteps([]);
-    setResult(null);
-    runningDocument.current = documentId;
     try {
-      const runResult = await callEngine("ai.agent.run", {
+      const view = await callEngine("ai.agent.start", {
         documentId,
         instruction: instruction.trim() ? instruction.trim() : null,
         maxSegments: null,
       });
-      setResult(runResult);
-      setSteps(runResult.steps);
+      setRun(view);
       onStatusMessage(
-        `Agent 运行结束：翻译 ${runResult.translatedSegments}，失败 ${runResult.failedSegments}，QA 未解决 ${runResult.openQaIssues}`,
+        `Agent 任务单已创建：${view.plannedSegments} 个未翻译句段，TM 预翻 ${view.tmApplied} 个`,
       );
-      onCompleted();
-    } catch (runError) {
-      if (isAiNotConfigured(runError)) {
+      if (view.status !== "running") {
+        finishRun(view);
+      }
+    } catch (startError) {
+      if (isAiNotConfigured(startError)) {
         setError(
           "Agent 需要已配置的 AI 供应商才会启动——它不会假装完成任务。请先在「AI 辅助」页配置密钥。",
         );
       } else {
-        setError(`Agent 运行失败：${describeError(runError)}`);
+        setError(`Agent 启动失败：${describeError(startError)}`);
       }
     } finally {
-      setRunning(false);
-      runningDocument.current = null;
+      setStarting(false);
     }
-  }, [documentId, instruction, onCompleted, onStatusMessage]);
+  }, [documentId, configured, instruction, onStatusMessage, finishRun]);
 
-  const statusTone: BadgeTone =
-    result?.status === "completed"
-      ? "ok"
-      : result?.status === "completedWithIssues"
-        ? "warn"
-        : result?.status === "failed"
-          ? "danger"
-          : "neutral";
+  const cancel = useCallback(async () => {
+    if (!run) {
+      return;
+    }
+    try {
+      const view = await callEngine("ai.agent.cancel", { runId: run.runId });
+      setRun(view);
+      onStatusMessage("已请求取消 Agent 运行");
+    } catch (cancelError) {
+      setError(`取消失败：${describeError(cancelError)}`);
+    }
+  }, [run, onStatusMessage]);
 
   return (
     <Panel
       title="Agent 模式"
       className="dock-panel"
-      actions={result ? <Badge tone={statusTone}>{result.status}</Badge> : null}
+      actions={
+        run ? (
+          <Badge tone={RUN_STATUS_TONE[run.status]}>
+            {RUN_STATUS_LABEL[run.status]}
+          </Badge>
+        ) : null
+      }
     >
       <div className="dock-stack">
-        <div className="honest-note">
-          Agent 会规划并执行：优先复用精确 TM，其余句段调用 AI
-          起草，最后运行数字 QA 并汇报。每一步通过引擎通知帧实时回传。
-        </div>
+        {!configured ? (
+          <div className="honest-note" role="note">
+            Agent 需要已配置的 AI 供应商密钥才能启动——没有密钥时它不会启动，
+            更不会伪造译文。请先在「AI 辅助」页配置。
+          </div>
+        ) : (
+          <div className="honest-note">
+            任务单：TM 预翻 → AI 起草未命中段 → 数字 QA。步骤实时回传、可随时
+            取消；运行结束停在人工审核门，Agent 不确认句段、不导出。
+          </div>
+        )}
         <TextAreaField
           label="任务指令（可选）"
           value={instruction}
           placeholder="例如：品牌名保留英文，语气正式。"
           onChange={(event) => setInstruction(event.target.value)}
         />
-        <Button
-          variant="primary"
-          disabled={!documentId || running}
-          onClick={() => void run()}
-        >
-          {running ? "运行中…" : "对当前文档运行 Agent"}
-        </Button>
+        <div className="tl-toolbar">
+          <Button
+            variant="primary"
+            disabled={!documentId || !configured || starting || running}
+            onClick={() => void start()}
+          >
+            {running ? "运行中…" : starting ? "启动中…" : "创建任务单并运行"}
+          </Button>
+          {running ? (
+            <Button variant="outline" onClick={() => void cancel()}>
+              {run?.cancelRequested ? "正在取消…" : "取消运行"}
+            </Button>
+          ) : null}
+        </div>
         {error ? (
           <div className="honest-note" data-tone="danger" role="alert">
             {error}
           </div>
         ) : null}
-        {steps.length === 0 && !error ? (
+        {run ? (
+          <div className="agent-run-summary" data-testid="agent-run-summary">
+            <span>计划 {run.plannedSegments}</span>
+            <span>TM {run.tmApplied}</span>
+            <span>AI 草稿 {run.aiDrafted}</span>
+            <span>失败 {run.failedSegments}</span>
+            <span>QA 未解决 {run.openQaIssues}</span>
+          </div>
+        ) : null}
+        {run?.status === "awaitingReview" ? (
+          <div className="agent-gate" data-testid="agent-human-gate">
+            <p className="agent-gate__text">
+              已停在人工审核门：草稿在编辑网格中等待检查。确认句段与导出由你
+              决定，Agent 不会代做。
+            </p>
+            <div className="tl-toolbar">
+              <Button size="sm" variant="primary" onClick={onCompleted}>
+                去工作台查看草稿
+              </Button>
+              <Button size="sm" variant="outline" onClick={onGoExport}>
+                去导出…
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {!run && !error ? (
           <EmptyState
             title="尚未运行"
-            hint="运行后会在此显示规划、逐句翻译、质检与总结的实时步骤。"
+            hint="创建任务单后会在此显示 TM 预翻、AI 起草、质检与总结的实时步骤。"
           />
-        ) : (
+        ) : null}
+        {run && run.steps.length > 0 ? (
           <div className="dock-stack">
-            {steps.map((step) => (
+            {run.steps.map((step) => (
               <div key={`${step.index}-${step.kind}`} className="agent-step">
                 <div className="agent-step__meta">
                   <Badge tone={STEP_TONE[step.status]}>
@@ -158,7 +277,7 @@ export function AgentPanel({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </Panel>
   );
