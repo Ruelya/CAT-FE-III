@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { Project, TermbaseListResult } from "@translunar/contracts";
+import type {
+  Project,
+  Termbase,
+  TermbaseListResult,
+} from "@translunar/contracts";
 import { Badge, Button, Dialog, TextField } from "@translunar/ui";
 
 import { callEngine, describeError } from "../lib/engine.js";
@@ -13,10 +17,9 @@ export interface ProjectSettingsDialogProps {
 
 /**
  * Project settings. The language pair stays read-only (the protocol has no
- * project.update), the termbase section manages real mounts through
- * termbase.list/create/attach, and the external-TM row stays honestly
- * disabled: the engine has tm.import, but the desktop shell has no TM file
- * picker channel yet.
+ * project.update), the termbase section manages real mounts plus CSV/TSV/TBX
+ * import and export, and the external-TM row imports TMX/CSV/TSV through the
+ * dedicated file channel into the project TM via tm.import.
  */
 export function ProjectSettingsDialog({
   open,
@@ -27,6 +30,7 @@ export function ProjectSettingsDialog({
   const [newTermbaseName, setNewTermbaseName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const refreshTermbases = useCallback(async () => {
     const result = await callEngine("termbase.list", {
@@ -39,49 +43,128 @@ export function ProjectSettingsDialog({
     if (!open) {
       return;
     }
+    setInfo(null);
+    setError(null);
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
   }, [open, refreshTermbases]);
 
-  const createAndAttach = useCallback(async () => {
+  const runAction = useCallback(async (action: () => Promise<void>) => {
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
-      const termbase = await callEngine("termbase.create", {
-        name: newTermbaseName.trim(),
-        sourceLocale: project.sourceLocale,
-      });
-      await callEngine("termbase.attach", {
-        projectId: project.id,
-        termbaseId: termbase.id,
-      });
-      setNewTermbaseName("");
-      await refreshTermbases();
-    } catch (createError) {
-      setError(describeError(createError));
+      await action();
+    } catch (actionError) {
+      setError(describeError(actionError));
     } finally {
       setBusy(false);
     }
-  }, [newTermbaseName, project.id, project.sourceLocale, refreshTermbases]);
+  }, []);
+
+  const createAndAttach = useCallback(
+    () =>
+      runAction(async () => {
+        const termbase = await callEngine("termbase.create", {
+          name: newTermbaseName.trim(),
+          sourceLocale: project.sourceLocale,
+        });
+        await callEngine("termbase.attach", {
+          projectId: project.id,
+          termbaseId: termbase.id,
+        });
+        setNewTermbaseName("");
+        await refreshTermbases();
+      }),
+    [
+      runAction,
+      newTermbaseName,
+      project.id,
+      project.sourceLocale,
+      refreshTermbases,
+    ],
+  );
 
   const attachExisting = useCallback(
-    async (termbaseId: string) => {
-      setBusy(true);
-      setError(null);
-      try {
+    (termbaseId: string) =>
+      runAction(async () => {
         await callEngine("termbase.attach", {
           projectId: project.id,
           termbaseId,
         });
         await refreshTermbases();
-      } catch (attachError) {
-        setError(describeError(attachError));
-      } finally {
-        setBusy(false);
+      }),
+    [runAction, project.id, refreshTermbases],
+  );
+
+  const importTm = useCallback(async () => {
+    const path = await window.tl.chooseTmFile();
+    if (!path) {
+      return;
+    }
+    await runAction(async () => {
+      const result = await callEngine("tm.import", {
+        projectId: project.id,
+        path,
+      });
+      setInfo(
+        `TM 导入完成：读取 ${result.imported} 条，新增 ${result.added}，更新 ${result.updated}。`,
+      );
+    });
+  }, [runAction, project.id]);
+
+  const exportTm = useCallback(async () => {
+    const path = await window.tl.chooseExportPath(`${project.name}-tm.tmx`);
+    if (!path) {
+      return;
+    }
+    await runAction(async () => {
+      const result = await callEngine("tm.export", {
+        projectId: project.id,
+        path,
+      });
+      setInfo(`TM 导出完成：${result.exported} 条 → ${result.outputPath}`);
+    });
+  }, [runAction, project.id, project.name]);
+
+  const importTerms = useCallback(
+    async (termbase: Termbase) => {
+      const path = await window.tl.chooseTermFile();
+      if (!path) {
+        return;
       }
+      await runAction(async () => {
+        const result = await callEngine("termbase.import", {
+          termbaseId: termbase.id,
+          path,
+          targetLocale: project.targetLocale,
+        });
+        setInfo(
+          `「${termbase.name}」导入完成：读取 ${result.imported} 条，新增 ${result.added}，合并 ${result.merged}。`,
+        );
+      });
     },
-    [project.id, refreshTermbases],
+    [runAction, project.targetLocale],
+  );
+
+  const exportTerms = useCallback(
+    async (termbase: Termbase) => {
+      const path = await window.tl.chooseExportPath(`${termbase.name}.csv`);
+      if (!path) {
+        return;
+      }
+      await runAction(async () => {
+        const result = await callEngine("termbase.export", {
+          termbaseId: termbase.id,
+          path,
+        });
+        setInfo(
+          `「${termbase.name}」导出完成：${result.exported} 条 → ${result.outputPath}`,
+        );
+      });
+    },
+    [runAction],
   );
 
   const mountedIds = new Set(
@@ -131,14 +214,27 @@ export function ProjectSettingsDialog({
             「预翻译」按阈值批量填充草稿。
           </p>
           <div className="settings__row">
-            <Button size="sm" variant="outline" disabled>
-              挂载外部 TM…
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void importTm()}
+            >
+              导入外部 TM…
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void exportTm()}
+            >
+              导出 TM…
             </Button>
           </div>
-          <div className="honest-note">
-            引擎已支持 tm.import（TMX/CSV/TSV），但桌面端尚未提供 TM
-            文件选择通道。此按钮在通道接入前保持禁用——不做假成功。
-          </div>
+          <p className="settings__note">
+            支持 TMX / CSV / TSV。导入合并进项目 TM：相同源文更新译文，
+            其余新增；导出包含项目 TM 全部条目。
+          </p>
         </section>
 
         <section className="settings__section">
@@ -149,7 +245,25 @@ export function ProjectSettingsDialog({
             mounted.map((termbase) => (
               <div className="settings__row" key={termbase.id}>
                 <span>{termbase.name}</span>
-                <Badge tone="ok">已挂载</Badge>
+                <span className="settings__row-actions">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void importTerms(termbase)}
+                  >
+                    导入术语…
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => void exportTerms(termbase)}
+                  >
+                    导出…
+                  </Button>
+                  <Badge tone="ok">已挂载</Badge>
+                </span>
               </div>
             ))
           )}
@@ -190,7 +304,7 @@ export function ProjectSettingsDialog({
           </form>
           <p className="settings__note">
             挂载后，术语面板会对当前句段做 term.lookup
-            命中，并支持快速添加术语；CSV/TBX 批量导入待文件通道接入。
+            命中，并支持快速添加术语；批量导入支持 CSV / TSV / TBX。
           </p>
         </section>
 
@@ -205,6 +319,11 @@ export function ProjectSettingsDialog({
           </p>
         </section>
 
+        {info ? (
+          <div className="honest-note" data-tone="ok" role="status">
+            {info}
+          </div>
+        ) : null}
         {error ? (
           <div className="honest-note" data-tone="danger" role="alert">
             {error}

@@ -1,10 +1,15 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { BrowserWindow, app, dialog, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../shared/desktop-api.js";
-import type { EngineInvokeResponse } from "../shared/desktop-api.js";
+import type {
+  DocxPreviewResponse,
+  EngineInvokeResponse,
+} from "../shared/desktop-api.js";
 import { EngineRpcError, EngineSupervisor } from "./engine-supervisor.js";
 
 function resolveEngineBinary(): string {
@@ -157,6 +162,98 @@ function registerIpc(): void {
       }
       const result = await dialog.showSaveDialog(options);
       return result.canceled || !result.filePath ? null : result.filePath;
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseTm, async () => {
+    // E2E seam, same rationale as TL_FAKE_OPEN_PATH.
+    const fakeTm = process.env.TL_FAKE_TM_PATH;
+    if (fakeTm && fakeTm.trim().length > 0) {
+      return fakeTm;
+    }
+    const result = await dialog.showOpenDialog({
+      title: "选择要导入的翻译记忆文件",
+      properties: ["openFile"],
+      filters: [{ name: "翻译记忆", extensions: ["tmx", "csv", "tsv"] }],
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? null
+      : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.chooseTerm, async () => {
+    const fakeTerm = process.env.TL_FAKE_TERM_PATH;
+    if (fakeTerm && fakeTerm.trim().length > 0) {
+      return fakeTerm;
+    }
+    const result = await dialog.showOpenDialog({
+      title: "选择要导入的术语文件",
+      properties: ["openFile"],
+      filters: [{ name: "术语表", extensions: ["csv", "tsv", "tbx"] }],
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? null
+      : (result.filePaths[0] ?? null);
+  });
+
+  // Layout preview: run the real export pipeline against a temp path and
+  // hand the DOCX bytes to the renderer. The temp dir is always cleaned up;
+  // the engine refuses pre-existing paths, so each call gets a fresh dir.
+  ipcMain.handle(
+    IPC_CHANNELS.previewDocx,
+    async (_event, documentId: unknown): Promise<DocxPreviewResponse> => {
+      if (typeof documentId !== "string" || documentId.length === 0) {
+        return {
+          ok: false,
+          error: {
+            code: "invalidRequest",
+            message: "documentId must be a non-empty string",
+          },
+        };
+      }
+      if (!supervisor) {
+        return {
+          ok: false,
+          error: {
+            code: "engineDown",
+            message: "engine supervisor not started",
+          },
+        };
+      }
+      const previewDir = await mkdtemp(join(tmpdir(), "tl-preview-"));
+      const outputPath = join(previewDir, "preview.docx");
+      try {
+        const result = (await supervisor.request("document.export", {
+          documentId,
+          outputPath,
+        })) as { translatedSegments?: unknown };
+        const bytes = await readFile(outputPath);
+        // Copy into a plain ArrayBuffer so structured clone over IPC is
+        // exact-sized (a Buffer view can sit inside a larger pool).
+        const copy = new Uint8Array(bytes.byteLength);
+        copy.set(bytes);
+        const data = copy.buffer;
+        return {
+          ok: true,
+          data,
+          translatedSegments:
+            typeof result.translatedSegments === "number"
+              ? result.translatedSegments
+              : 0,
+        };
+      } catch (error) {
+        if (error instanceof EngineRpcError) {
+          return {
+            ok: false,
+            error: { code: error.code, message: error.message },
+          };
+        }
+        const message =
+          error instanceof Error ? error.message : "unknown error";
+        return { ok: false, error: { code: "internal", message } };
+      } finally {
+        await rm(previewDir, { recursive: true, force: true });
+      }
     },
   );
 }

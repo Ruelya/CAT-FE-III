@@ -521,6 +521,10 @@ body {
   border-left-color: var(--tl-status-danger);
 }
 
+.honest-note[data-tone="ok"] {
+  border-left-color: var(--tl-status-ok);
+}
+
 .ai-draft {
   border: 1px solid var(--tl-color-accent);
   border-radius: var(--tl-radius-sm);
@@ -676,6 +680,30 @@ body {
 
 /* Preview dialog */
 
+.preview__tabs {
+  display: flex;
+  gap: var(--tl-space-2);
+  margin-bottom: var(--tl-space-4);
+}
+
+.preview__tabs button {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface);
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+}
+
+.preview__tabs button[data-active="true"] {
+  background: var(--tl-color-accent-faint);
+  border-color: var(--tl-color-accent);
+  color: var(--tl-color-text);
+  font-weight: 600;
+}
+
 .preview__summary {
   margin: 0 0 var(--tl-space-4);
   font-size: var(--tl-text-sm);
@@ -734,6 +762,23 @@ body {
   border-bottom: 1px dashed var(--tl-status-warn);
 }
 
+.preview__segment[data-active="true"] {
+  background: var(--tl-color-accent-faint);
+  outline: 1px solid var(--tl-color-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* docx-preview renders its own page chrome inside this container. */
+.preview__docx {
+  overflow: auto;
+}
+
+.preview__docx .docx-wrapper {
+  background: var(--tl-color-sunken);
+  padding: var(--tl-space-5);
+}
+
 .preview__legend {
   display: flex;
   align-items: center;
@@ -787,6 +832,13 @@ body {
   font-family: var(--tl-font-mono);
   font-size: var(--tl-text-md);
   font-weight: 600;
+}
+
+.settings__row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin-left: auto;
 }
 
 .settings__note {
