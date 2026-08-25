@@ -293,12 +293,130 @@ pub fn match_score(query: &str, candidate: &str) -> MatchScore {
         intersection / union
     };
     let edit = normalized_edit_similarity(&query_key, &candidate_key);
-    let score = ((jaccard * 0.65 + edit * 0.35) * 100.0)
+    let score = ((jaccard * JACCARD_WEIGHT + edit * EDIT_WEIGHT) * 100.0)
         .round()
         .clamp(0.0, 99.0) as u8;
     MatchScore {
         score,
         substitutions: substitutions(query, candidate),
+    }
+}
+
+const JACCARD_WEIGHT: f64 = 0.65;
+const EDIT_WEIGHT: f64 = 0.35;
+
+/// In-memory recall index over TM source texts.
+///
+/// Recall is exhaustive with respect to the requested score floor: a candidate
+/// is skipped only when a provable upper bound on its [`match_score`] falls
+/// below `min_score`. There is no fixed candidate cap and no silent
+/// truncation; callers apply their own explicit result limit after reranking.
+#[derive(Debug, Default)]
+pub struct TmIndex {
+    postings: BTreeMap<String, BTreeSet<usize>>,
+    entries: Vec<TmIndexEntry>,
+    slots: BTreeMap<String, usize>,
+}
+
+#[derive(Debug)]
+struct TmIndexEntry {
+    id: String,
+    token_count: usize,
+    key_chars: usize,
+}
+
+impl TmIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// Insert or refresh one entry keyed by its stable id.
+    pub fn insert(&mut self, id: &str, source_text: &str) {
+        if self.slots.contains_key(id) {
+            // Source text is immutable per entry id in practice; a re-insert
+            // with different text must rebuild the posting lists for the slot.
+            self.remove(id);
+        }
+        let key = exact_key(source_text);
+        let tokens = similarity_tokens(&key);
+        let slot = self.entries.len();
+        for token in &tokens {
+            self.postings.entry(token.clone()).or_default().insert(slot);
+        }
+        self.entries.push(TmIndexEntry {
+            id: id.to_string(),
+            token_count: tokens.len(),
+            key_chars: key.chars().count(),
+        });
+        self.slots.insert(id.to_string(), slot);
+    }
+
+    pub fn remove(&mut self, id: &str) {
+        if let Some(slot) = self.slots.remove(id) {
+            for posting in self.postings.values_mut() {
+                posting.remove(&slot);
+            }
+            // Keep the slot allocated but inert so other slots stay stable.
+            self.entries[slot].token_count = 0;
+        }
+    }
+
+    /// Return every entry id whose best possible [`match_score`] against
+    /// `query` can reach `min_score`. The bound uses the exact Jaccard overlap
+    /// from the posting lists plus a length-ratio ceiling on edit similarity,
+    /// so pruned entries provably score below the floor.
+    pub fn recall(&self, query: &str, min_score: u8) -> Vec<String> {
+        let key = exact_key(query);
+        let query_tokens = similarity_tokens(&key);
+        let query_chars = key.chars().count();
+        let floor = f64::from(min_score);
+        let mut overlaps: BTreeMap<usize, usize> = BTreeMap::new();
+        for token in &query_tokens {
+            if let Some(posting) = self.postings.get(token) {
+                for slot in posting {
+                    *overlaps.entry(*slot).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut result = Vec::new();
+        let consider_zero_overlap = floor <= EDIT_WEIGHT * 100.0;
+        let candidates: Vec<usize> = if consider_zero_overlap {
+            (0..self.entries.len()).collect()
+        } else {
+            overlaps.keys().copied().collect()
+        };
+        for slot in candidates {
+            let entry = &self.entries[slot];
+            if !self.slots.get(&entry.id).is_some_and(|live| *live == slot) {
+                continue;
+            }
+            let intersection = overlaps.get(&slot).copied().unwrap_or(0) as f64;
+            let union = (query_tokens.len() + entry.token_count) as f64 - intersection;
+            let jaccard = if union <= 0.0 {
+                0.0
+            } else {
+                intersection / union
+            };
+            let max_chars = query_chars.max(entry.key_chars) as f64;
+            let edit_ceiling = if max_chars == 0.0 {
+                1.0
+            } else {
+                query_chars.min(entry.key_chars) as f64 / max_chars
+            };
+            let bound = (jaccard * JACCARD_WEIGHT + edit_ceiling * EDIT_WEIGHT) * 100.0;
+            if bound + 0.5 >= floor {
+                result.push(entry.id.clone());
+            }
+        }
+        result
     }
 }
 
@@ -1386,5 +1504,70 @@ mod tests {
         let error = parse_tm_csv(Cursor::new("source,target\nhello,\n"), "en", "zh")
             .expect_err("invalid row");
         assert!(matches!(error, AssetError::Invalid { row: 2, .. }));
+    }
+
+    #[test]
+    fn tm_index_recall_never_prunes_reachable_scores() {
+        let mut index = TmIndex::new();
+        let corpus = [
+            ("close", "The retention period is 30 days."),
+            ("paraphrase", "The retention period is 30 days at most."),
+            ("unrelated", "Cats enjoy sleeping in warm sunlight."),
+            ("cjk", "保留期为 30 天。"),
+            ("cjk-close", "保留期为 60 天。"),
+        ];
+        for (id, text) in corpus {
+            index.insert(id, text);
+        }
+        assert_eq!(index.len(), corpus.len());
+
+        for min_score in [30_u8, 50, 60, 75, 90] {
+            let recalled = index.recall("The retention period is 30 days.", min_score);
+            for (id, text) in corpus {
+                let score = match_score("The retention period is 30 days.", text).score;
+                if score >= min_score {
+                    assert!(
+                        recalled.contains(&id.to_string()),
+                        "entry {id} scores {score} but was pruned at floor {min_score}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tm_index_scales_without_hidden_caps() {
+        let mut index = TmIndex::new();
+        for value in 0..6_000 {
+            index.insert(
+                &format!("entry-{value}"),
+                &format!("Shared clause number {value} applies to the agreement."),
+            );
+        }
+        assert_eq!(index.len(), 6_000);
+        // Every generated sentence normalizes numbers away, so all entries
+        // share the same exact key and every one must be recalled.
+        let recalled = index.recall("Shared clause number 42 applies to the agreement.", 90);
+        assert_eq!(recalled.len(), 6_000);
+    }
+
+    #[test]
+    fn tm_index_remove_and_reinsert_keep_recall_consistent() {
+        let mut index = TmIndex::new();
+        index.insert("a", "Delete this sentence.");
+        index.insert("b", "Keep this sentence.");
+        index.remove("a");
+        assert_eq!(index.len(), 1);
+        assert!(
+            !index
+                .recall("Delete this sentence.", 30)
+                .contains(&"a".to_string())
+        );
+        index.insert("a", "Delete this sentence again.");
+        assert!(
+            index
+                .recall("Delete this sentence again.", 60)
+                .contains(&"a".to_string())
+        );
     }
 }
