@@ -13,7 +13,7 @@ export interface TermPanelProps {
   projectId: string;
   targetLocale: string;
   activeSegment: Segment | null;
-  /** Insert a term translation into the active segment's draft. */
+  /** Insert a term translation at the caret of the active target editor. */
   onInsert: (term: string) => void;
 }
 
