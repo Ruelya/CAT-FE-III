@@ -6,7 +6,7 @@ use std::thread;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use tl_engine::{AgentEvent, Engine};
+use tl_engine::{Engine, EngineEvent};
 use tl_protocol::{EngineFrame, RpcError, RpcErrorCode, RpcRequest, RpcResponse, methods};
 use tracing::{error, info};
 
@@ -19,10 +19,10 @@ struct Arguments {
 }
 
 /// One unit of work for the single-threaded engine loop: either a protocol
-/// frame from stdin or an event from an agent worker thread.
+/// frame from stdin or an event from a worker thread (agent or assist).
 enum LoopInput {
     Line(String),
-    Agent(AgentEvent),
+    Worker(EngineEvent),
     StdinClosed,
 }
 
@@ -48,11 +48,11 @@ fn main() -> Result<()> {
         &EngineFrame::Notification(engine.ready_notification()),
     )?;
 
-    // Fan stdin lines and agent worker events into one channel so the engine
-    // stays single-threaded while long AI drafting runs stream in between
-    // protocol frames instead of blocking them.
+    // Fan stdin lines and worker events into one channel so the engine stays
+    // single-threaded while long AI calls (agent drafting, assist requests)
+    // stream in between protocol frames instead of blocking them.
     let (input_tx, input_rx) = mpsc::channel::<LoopInput>();
-    let agent_events = engine.take_agent_events();
+    let engine_events = engine.take_engine_events();
     let stdin_tx = input_tx.clone();
     thread::spawn(move || {
         let stdin = io::stdin();
@@ -65,8 +65,8 @@ fn main() -> Result<()> {
         let _ = stdin_tx.send(LoopInput::StdinClosed);
     });
     thread::spawn(move || {
-        for event in agent_events {
-            if input_tx.send(LoopInput::Agent(event)).is_err() {
+        for event in engine_events {
+            if input_tx.send(LoopInput::Worker(event)).is_err() {
                 return;
             }
         }
@@ -110,15 +110,15 @@ fn main() -> Result<()> {
                     break;
                 }
             }
-            LoopInput::Agent(event) => {
+            LoopInput::Worker(event) => {
                 let mut notify = |notification| {
                     let _ = write_frame(
                         &mut *out.borrow_mut(),
                         &EngineFrame::Notification(notification),
                     );
                 };
-                if let Err(agent_error) = engine.handle_agent_event(event, &mut notify) {
-                    error!(%agent_error, "agent event failed");
+                if let Err(worker_error) = engine.handle_engine_event(event, &mut notify) {
+                    error!(%worker_error, "worker event failed");
                 }
             }
             LoopInput::StdinClosed => break,

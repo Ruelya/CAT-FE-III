@@ -56,6 +56,25 @@ const CONFIGURED_STATUS: EngineInvokeResponse = {
   result: { configured: true, provider: "openai", model: "gpt-test" },
 };
 
+const RUNNING_ASSIST = {
+  assistId: "assist-1",
+  segmentId: "s1",
+  action: "translate",
+  status: "running",
+  cancelRequested: false,
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
+
+function doneAssist(result: unknown): unknown {
+  return {
+    ...RUNNING_ASSIST,
+    status: "done",
+    result,
+    updatedAtMs: 2,
+  };
+}
+
 afterEach(() => {
   Reflect.deleteProperty(window, "tl");
 });
@@ -119,16 +138,19 @@ describe("AiPanel", () => {
       if (method === "ai.status") {
         return Promise.resolve(CONFIGURED_STATUS);
       }
-      if (method === "ai.assist") {
+      if (method === "ai.assist.start") {
+        return Promise.resolve({ ok: true, result: RUNNING_ASSIST });
+      }
+      if (method === "ai.assist.status") {
         return Promise.resolve({
           ok: true,
-          result: {
+          result: doneAssist({
             draftTarget: "点击按钮继续。",
             provider: "openai",
             model: "gpt-test",
             elapsedMs: 12,
             tagCheck: { ok: false, missing: ["{button}"], extra: [] },
-          },
+          }),
         });
       }
       return Promise.resolve({
@@ -160,15 +182,18 @@ describe("AiPanel", () => {
       if (method === "ai.status") {
         return Promise.resolve(CONFIGURED_STATUS);
       }
+      if (method === "ai.assist.start") {
+        return Promise.resolve({ ok: true, result: RUNNING_ASSIST });
+      }
       return Promise.resolve({
         ok: true,
-        result: {
+        result: doneAssist({
           draftTarget: "点击 {button} 继续。",
           provider: "openai",
           model: "gpt-test",
           elapsedMs: 9,
           tagCheck: { ok: true, missing: [], extra: [] },
-        },
+        }),
       });
     });
     installBridge(invoke);
@@ -181,8 +206,91 @@ describe("AiPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("标签完整")).toBeInTheDocument();
     });
+    expect(invoke).toHaveBeenCalledWith(
+      "ai.assist.start",
+      expect.objectContaining({ segmentId: "s1", action: "translate" }),
+    );
+    expect(invoke).toHaveBeenCalledWith("ai.assist.status", {
+      assistId: "assist-1",
+    });
     await userEvent.click(screen.getByRole("button", { name: "应用为草稿" }));
     expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 继续。");
+  });
+
+  it("surfaces a failed assist run instead of pretending", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve(CONFIGURED_STATUS);
+      }
+      if (method === "ai.assist.start") {
+        return Promise.resolve({ ok: true, result: RUNNING_ASSIST });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          ...RUNNING_ASSIST,
+          status: "failed",
+          errorMessage: "AI call failed: AI provider is unavailable",
+          updatedAtMs: 2,
+        },
+      });
+    });
+    installBridge(invoke);
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText("AI 翻译")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "AI 翻译" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "AI provider is unavailable",
+      );
+    });
+    expect(screen.queryByTestId("ai-candidate")).not.toBeInTheDocument();
+  });
+
+  it("cancels an in-flight assist and frees the buttons", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve(CONFIGURED_STATUS);
+      }
+      if (method === "ai.assist.start" || method === "ai.assist.status") {
+        // The provider never answers: the run stays in flight.
+        return Promise.resolve({ ok: true, result: RUNNING_ASSIST });
+      }
+      if (method === "ai.assist.cancel") {
+        return Promise.resolve({
+          ok: true,
+          result: { ...RUNNING_ASSIST, cancelRequested: true },
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        error: { code: "internal", message: `unexpected ${method}` },
+      });
+    });
+    installBridge(invoke);
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByText("AI 翻译")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "AI 翻译" }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "取消请求" }),
+      ).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "取消请求" }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("ai.assist.cancel", {
+        assistId: "assist-1",
+      });
+    });
+    // The panel frees up without a candidate; no result is faked.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "AI 翻译" })).toBeEnabled();
+    });
+    expect(screen.queryByTestId("ai-candidate")).not.toBeInTheDocument();
   });
 
   it("refuses to touch confirmed segments", async () => {
