@@ -1,5 +1,12 @@
 # Backend Error Handling
 
+> **Note (greenfield).** Sections referencing `crates/storage`, task packages,
+> plugins, or the AI allowlist describe the pre-greenfield engine and are
+> historical. Current error boundaries are `FilterError` in
+> `crates/tl-filter-core`, `EngineError` in `crates/tl-engine/src/lib.rs`, and
+> `RpcErrorCode` (camelCase on the wire) in
+> `crates/tl-protocol/src/envelope.rs`. The general principles still apply.
+
 ## Error Ownership
 
 Each library boundary exposes a typed `thiserror` enum. Examples are

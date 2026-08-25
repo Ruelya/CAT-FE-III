@@ -3,7 +3,7 @@
 ## Logging Boundary
 
 The engine uses `tracing` and initializes one JSON formatter in
-`crates/engine/src/main.rs`. Diagnostics always go to stderr. Stdout is
+`crates/tl-engine/src/main.rs`. Diagnostics always go to stderr. Stdout is
 reserved exclusively for newline-delimited JSON-RPC responses; any ordinary
 print to stdout corrupts the process protocol.
 

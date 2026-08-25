@@ -1,5 +1,10 @@
 # Option 2 spike: keep the engine, replace the editor surface
 
+> **Historical research record (pre-greenfield).** This spike was explored
+> against the previous implementation (`translunar-engine`,
+> `crates/filter-xliff`, the old renderer), which was removed in the
+> greenfield reset. Kept as a decision record.
+
 | Item | Value |
 | --- | --- |
 | Date | 2026-08-16 |
