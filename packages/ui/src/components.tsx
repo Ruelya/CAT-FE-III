@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -137,6 +138,101 @@ export function EmptyState({ title, hint, action }: EmptyStateProps) {
       {hint ? <p className="tl-empty__hint">{hint}</p> : null}
       {action}
     </div>
+  );
+}
+
+export interface DialogProps {
+  title: string;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  /** Wider layout for document-scale content such as previews. */
+  wide?: boolean;
+}
+
+export function Dialog({
+  title,
+  open,
+  onClose,
+  children,
+  footer,
+  wide,
+}: DialogProps) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+  return (
+    <div
+      className="tl-dialog-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className="tl-dialog"
+        data-wide={wide ? "true" : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header className="tl-dialog__header">
+          <h2 className="tl-dialog__title">{title}</h2>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClose}
+            aria-label="关闭对话框"
+          >
+            ✕
+          </Button>
+        </header>
+        <div className="tl-dialog__body">{children}</div>
+        {footer ? <footer className="tl-dialog__footer">{footer}</footer> : null}
+      </div>
+    </div>
+  );
+}
+
+export interface MeterProps {
+  /** 0..=1 fill ratio; values outside the range are clamped. */
+  ratio: number;
+  label?: string;
+}
+
+export function Meter({ ratio, label }: MeterProps) {
+  const clamped = Math.min(1, Math.max(0, ratio));
+  return (
+    <span
+      className="tl-meter"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(clamped * 100)}
+      aria-label={label}
+      title={label}
+    >
+      <span
+        className="tl-meter__fill"
+        style={{ width: `${(clamped * 100).toFixed(1)}%` }}
+      />
+    </span>
   );
 }
 
