@@ -110,17 +110,20 @@ struct AgentRunState {
 pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
+    /// Metadata working set only (projects, document metadata, termbases,
+    /// term entries, mounts, QA issues). Segments and TM entries are never
+    /// held here; they are read from SQLite per document / per page.
     state: EngineState,
     registry: FilterRegistry,
     ai: Option<aiops::AiRuntime>,
-    /// Fuzzy recall indexes, one per translation memory, rebuilt on open and
-    /// maintained on every TM write.
+    /// Fuzzy recall indexes, one per translation memory, rebuilt on open by
+    /// streaming `(id, memory_id, source_text)` from the store and
+    /// maintained on every TM insert. Memory-resident by design: recall
+    /// needs token postings for the whole memory, but it keeps tokens and
+    /// entry ids only — candidate rows are fetched from SQL at lookup time.
+    /// Exact matches don't come through here at all; they are point queries
+    /// on the store's unique `(memory_id, source_hash)` index.
     tm_indexes: BTreeMap<String, TmIndex>,
-    /// Exact-match index `(memory_id, source_hash) -> entry id`, rebuilt on
-    /// open and maintained on every TM insert. Mirrors the unique
-    /// `(memory_id, source_hash)` index in the SQLite store, and replaces
-    /// the linear scans the JSON store used for upserts and exact lookups.
-    tm_exact: BTreeMap<(String, String), String>,
     agent_runs: BTreeMap<String, AgentRunState>,
     agent_events_tx: Sender<AgentEvent>,
     agent_events_rx: Option<Receiver<AgentEvent>>,
@@ -156,18 +159,15 @@ impl Engine {
                 .register(filter)
                 .map_err(|error| EngineError::Internal(error.to_string()))?;
         }
+        // One streaming pass to seed the fuzzy recall index; the rows
+        // themselves are not retained.
         let mut tm_indexes: BTreeMap<String, TmIndex> = BTreeMap::new();
-        let mut tm_exact: BTreeMap<(String, String), String> = BTreeMap::new();
-        for entry in state.tm_entries.values() {
+        store.for_each_tm_index_seed(|id, memory_id, source_text| {
             tm_indexes
-                .entry(entry.memory_id.clone())
+                .entry(memory_id.to_string())
                 .or_default()
-                .insert(&entry.id, &entry.source_text);
-            tm_exact.insert(
-                (entry.memory_id.clone(), entry.source_hash.clone()),
-                entry.id.clone(),
-            );
-        }
+                .insert(id, source_text);
+        })?;
         let (agent_events_tx, agent_events_rx) = channel();
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
@@ -176,7 +176,6 @@ impl Engine {
             registry,
             ai: None,
             tm_indexes,
-            tm_exact,
             agent_runs: BTreeMap::new(),
             agent_events_tx,
             agent_events_rx: Some(agent_events_rx),
@@ -235,6 +234,7 @@ impl Engine {
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
             methods::SEGMENT_CONFIRM => to_value(self.segment_confirm(parse(params)?)?),
             methods::TM_LOOKUP => to_value(self.tm_lookup(parse(params)?)?),
+            methods::TM_LIST => to_value(self.tm_list(parse(params)?)?),
             methods::TM_IMPORT => to_value(self.tm_import(parse(params)?)?),
             methods::TM_EXPORT => to_value(self.tm_export(parse(params)?)?),
             methods::TM_PRETRANSLATE => to_value(self.tm_pretranslate(parse(params)?)?),
@@ -440,21 +440,17 @@ impl Engine {
         let record = DocumentRecord {
             document: document.clone(),
             managed_source_path: managed_source_path.display().to_string(),
-            segment_ids: prepared.segments.iter().map(|s| s.id.clone()).collect(),
-            segment_leading: prepared.leading,
         };
         // Persist first: if the write fails, memory stays consistent with
-        // the database and the import surfaces as an error.
+        // the database and the import surfaces as an error. Segment rows and
+        // their leading text live in SQL only; RAM keeps the metadata record.
         let delta = StateDelta {
             documents: vec![record.clone()],
             segments: prepared.segments,
-            segment_leading: record.segment_leading.clone(),
+            segment_leading: prepared.leading,
             ..Default::default()
         };
         self.store.apply(&delta)?;
-        for segment in delta.segments {
-            self.state.segments.insert(segment.id.clone(), segment);
-        }
         self.state.documents.insert(document_id, record);
         Ok(DocumentImportResult {
             document,
@@ -487,12 +483,12 @@ impl Engine {
                 output.display()
             )));
         }
-        let segments: Vec<Segment> = record
-            .segment_ids
-            .iter()
-            .filter_map(|id| self.state.segments.get(id).cloned())
-            .collect();
-        let merged = export::merge_for_export(&segments, &record.segment_leading);
+        // One document materialized transiently for the outgoing file; the
+        // rest of the segments table stays on disk.
+        let (segments, leading) = self
+            .store
+            .document_segments_with_leading(&record.document.id)?;
+        let merged = export::merge_for_export(&segments, &leading);
         let filter = self.registry.resolve(&record.document.filter_id)?;
         let source = PathBuf::from(&record.managed_source_path);
         let report = filter.export(tl_filter_core::ExportRequest {
@@ -507,14 +503,26 @@ impl Engine {
         })
     }
 
+    /// Pages straight from SQL over the `(document_id, ordinal)` index; no
+    /// full RAM copy of the segments table backs this anymore. Omitting
+    /// `limit` returns the whole document, as before.
     fn segment_list(&self, params: SegmentListParams) -> Result<SegmentListResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
-        let segments = record
-            .segment_ids
-            .iter()
-            .filter_map(|id| self.state.segments.get(id).cloned())
-            .collect();
-        Ok(SegmentListResult { segments })
+        if params.limit == Some(0) {
+            return Err(EngineError::InvalidParams(
+                "limit must be at least 1".to_string(),
+            ));
+        }
+        let segments = self.store.document_segments_page(
+            &record.document.id,
+            params.offset.unwrap_or(0),
+            params.limit,
+        )?;
+        let total_segments = self.store.document_segment_count(&record.document.id)?;
+        Ok(SegmentListResult {
+            segments,
+            total_segments,
+        })
     }
 
     fn segment_update(
@@ -522,10 +530,10 @@ impl Engine {
         params: SegmentUpdateParams,
     ) -> Result<SegmentUpdateResult, EngineError> {
         let now = now_ms();
-        let segment = self
-            .state
-            .segments
-            .get_mut(&params.segment_id)
+        // Fetch-mutate-persist against the row itself; there is no RAM copy.
+        let mut segment = self
+            .store
+            .segment(&params.segment_id)?
             .ok_or_else(|| EngineError::NotFound(format!("segment {}", params.segment_id)))?;
         if segment.revision != params.base_revision {
             return Err(EngineError::Conflict(format!(
@@ -541,12 +549,11 @@ impl Engine {
         };
         segment.revision += 1;
         segment.updated_at_ms = now;
-        let updated = segment.clone();
         self.store.apply(&StateDelta {
-            segments: vec![updated.clone()],
+            segments: vec![segment.clone()],
             ..Default::default()
         })?;
-        Ok(SegmentUpdateResult { segment: updated })
+        Ok(SegmentUpdateResult { segment })
     }
 
     fn segment_confirm(
@@ -554,10 +561,9 @@ impl Engine {
         params: SegmentConfirmParams,
     ) -> Result<SegmentConfirmResult, EngineError> {
         let now = now_ms();
-        let segment = self
-            .state
-            .segments
-            .get_mut(&params.segment_id)
+        let mut segment = self
+            .store
+            .segment(&params.segment_id)?
             .ok_or_else(|| EngineError::NotFound(format!("segment {}", params.segment_id)))?;
         if segment.revision != params.base_revision {
             return Err(EngineError::Conflict(format!(
@@ -573,7 +579,7 @@ impl Engine {
         segment.state = SegmentState::Confirmed;
         segment.revision += 1;
         segment.updated_at_ms = now;
-        let confirmed = segment.clone();
+        let confirmed = segment;
 
         let project_id = self
             .state
@@ -587,6 +593,7 @@ impl Engine {
         // Upsert the project TM entry for this normalized source.
         let memory_id = Self::project_memory_id(&project_id);
         let (tm_entry, _) = self.upsert_tm_entry(
+            &mut BTreeMap::new(),
             &memory_id,
             &project_id,
             &confirmed.source_text,
@@ -595,30 +602,22 @@ impl Engine {
             &confirmed.document_id,
             &confirmed.id,
             now,
-        );
+        )?;
 
         // Propagate to untranslated duplicates across the project as drafts.
-        let project_document_ids: Vec<String> = self
-            .state
-            .documents
-            .values()
-            .filter(|record| record.document.project_id == project_id)
-            .map(|record| record.document.id.clone())
-            .collect();
-        let mut propagated = Vec::new();
-        for sibling in self.state.segments.values_mut() {
-            if sibling.id != confirmed.id
-                && project_document_ids.contains(&sibling.document_id)
-                && sibling.source_hash == confirmed.source_hash
-                && sibling.state == SegmentState::Untranslated
-                && sibling.target_text.trim().is_empty()
-            {
-                sibling.target_text = confirmed.target_text.clone();
-                sibling.state = SegmentState::Draft;
-                sibling.revision += 1;
-                sibling.updated_at_ms = now;
-                propagated.push(sibling.clone());
-            }
+        // The source-hash index narrows this to the matching rows; the old
+        // code scanned every segment of every document in RAM.
+        let mut propagated =
+            self.store
+                .untranslated_siblings(&project_id, &confirmed.source_hash, &confirmed.id)?;
+        // SQL filtered on state; whitespace-only targets are a Rust-side
+        // check so the trim semantics stay identical to the editor's.
+        propagated.retain(|sibling| sibling.target_text.trim().is_empty());
+        for sibling in &mut propagated {
+            sibling.target_text = confirmed.target_text.clone();
+            sibling.state = SegmentState::Draft;
+            sibling.revision += 1;
+            sibling.updated_at_ms = now;
         }
         let mut delta = StateDelta {
             segments: vec![confirmed.clone()],
@@ -658,10 +657,8 @@ impl Engine {
 
     fn ai_assist(&mut self, params: AiAssistParams) -> Result<AiAssistResult, EngineError> {
         let segment = self
-            .state
-            .segments
-            .get(&params.segment_id)
-            .cloned()
+            .store
+            .segment(&params.segment_id)?
             .ok_or_else(|| EngineError::NotFound(format!("segment {}", params.segment_id)))?;
         let record = self.require_document(&segment.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
@@ -733,17 +730,14 @@ impl Engine {
             .max_segments
             .unwrap_or(AGENT_DEFAULT_MAX_SEGMENTS)
             .max(1) as usize;
-        let pending: Vec<String> = record
-            .segment_ids
-            .iter()
-            .filter(|id| {
-                self.state.segments.get(*id).is_some_and(|segment| {
-                    segment.state == SegmentState::Untranslated
-                        && segment.target_text.trim().is_empty()
-                })
-            })
+        // Only the document's untranslated rows leave SQL, and only up to
+        // the planning cap after the whitespace-target filter.
+        let pending: Vec<Segment> = self
+            .store
+            .untranslated_document_segments(&document_id)?
+            .into_iter()
+            .filter(|segment| segment.target_text.trim().is_empty())
             .take(max_segments)
-            .cloned()
             .collect();
 
         let now = now_ms();
@@ -774,38 +768,34 @@ impl Engine {
         );
 
         // Phase 1 of the run: exact TM pretranslation, cheap and local.
+        // Exact hits are point queries on the unique (memory, hash) index.
         let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
         let mut tm_applied_segments: Vec<Segment> = Vec::new();
-        for segment_id in &pending {
-            let Some(segment) = self.state.segments.get(segment_id).cloned() else {
-                continue;
-            };
+        for mut segment in pending {
             let tm_hit = self
-                .tm_exact
-                .get(&(memory_id.clone(), segment.source_hash.clone()))
-                .and_then(|entry_id| self.state.tm_entries.get(entry_id))
-                .map(|entry| entry.target_text.clone());
+                .store
+                .tm_entry_by_source(&memory_id, &segment.source_hash)?
+                .map(|entry| entry.target_text);
             match tm_hit {
                 Some(target) if !target.trim().is_empty() => {
-                    if let Some(stored) = self.state.segments.get_mut(segment_id) {
-                        stored.target_text = target;
-                        stored.state = SegmentState::Draft;
-                        stored.revision += 1;
-                        stored.updated_at_ms = now;
-                        tm_applied_segments.push(stored.clone());
-                    }
+                    let segment_id = segment.id.clone();
+                    segment.target_text = target;
+                    segment.state = SegmentState::Draft;
+                    segment.revision += 1;
+                    segment.updated_at_ms = now;
+                    tm_applied_segments.push(segment);
                     view.tm_applied += 1;
                     push_agent_step(
                         &mut view,
                         notify,
                         AgentStepKind::Tm,
                         AgentStepStatus::Done,
-                        Some(segment_id.clone()),
+                        Some(segment_id),
                         "复用精确 TM 匹配，落为草稿".to_string(),
                     );
                 }
                 _ => misses.push(agent::AgentWorkItem {
-                    segment_id: segment_id.clone(),
+                    segment_id: segment.id.clone(),
                     source_text: segment.source_text.clone(),
                 }),
             }
@@ -881,12 +871,14 @@ impl Engine {
                 }
                 match outcome {
                     Ok(draft) if !draft.target.trim().is_empty() => {
-                        let still_pending =
-                            self.state.segments.get(&segment_id).is_some_and(|segment| {
-                                segment.state == SegmentState::Untranslated
-                                    && segment.target_text.trim().is_empty()
-                            });
-                        if !still_pending {
+                        // Fetch the live row: a human may have edited it
+                        // while the provider call was in flight.
+                        let stored = self.store.segment(&segment_id)?;
+                        let still_pending = stored.as_ref().is_some_and(|segment| {
+                            segment.state == SegmentState::Untranslated
+                                && segment.target_text.trim().is_empty()
+                        });
+                        let Some(mut stored) = stored.filter(|_| still_pending) else {
                             push_agent_step(
                                 &mut run.view,
                                 notify,
@@ -896,14 +888,8 @@ impl Engine {
                                 "句段在运行期间被人工修改，保留人工内容".to_string(),
                             );
                             return Ok(());
-                        }
-                        let source_text = self
-                            .state
-                            .segments
-                            .get(&segment_id)
-                            .map(|segment| segment.source_text.clone())
-                            .unwrap_or_default();
-                        let integrity = check_tag_integrity(&source_text, &draft.target);
+                        };
+                        let integrity = check_tag_integrity(&stored.source_text, &draft.target);
                         if !integrity.ok {
                             run.view.failed_segments += 1;
                             push_agent_step(
@@ -921,14 +907,10 @@ impl Engine {
                             return Ok(());
                         }
                         let now = now_ms();
-                        let mut drafted_segments = Vec::new();
-                        if let Some(stored) = self.state.segments.get_mut(&segment_id) {
-                            stored.target_text = draft.target;
-                            stored.state = SegmentState::Draft;
-                            stored.revision += 1;
-                            stored.updated_at_ms = now;
-                            drafted_segments.push(stored.clone());
-                        }
+                        stored.target_text = draft.target;
+                        stored.state = SegmentState::Draft;
+                        stored.revision += 1;
+                        stored.updated_at_ms = now;
                         run.view.ai_drafted += 1;
                         push_agent_step(
                             &mut run.view,
@@ -939,7 +921,7 @@ impl Engine {
                             format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
                         );
                         self.store.apply(&StateDelta {
-                            segments: drafted_segments,
+                            segments: vec![stored],
                             ..Default::default()
                         })?;
                     }
