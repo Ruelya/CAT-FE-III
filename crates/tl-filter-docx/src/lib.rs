@@ -74,6 +74,11 @@ pub struct BilingualTableRow {
     pub cells: Vec<String>,
     pub target_ranges: Vec<XmlTextRange>,
     pub target_insert_at: Option<usize>,
+    /// Byte offset immediately before the run that owns the target cell's
+    /// first text — a schema-valid in-paragraph slot for a `w:bookmarkStart`
+    /// segment anchor on anchored (preview) exports. `None` when the target
+    /// cell has no text-bearing run.
+    pub target_anchor_insert_at: Option<usize>,
 }
 
 /// Read logical table rows from the main document part without changing the
@@ -86,10 +91,32 @@ pub fn extract_bilingual_table_rows(source: &Path) -> Result<Vec<BilingualTableR
 }
 
 /// Rebuild a bilingual table DOCX, replacing only target-cell text ranges.
+/// Equivalent to [`export_bilingual_table_anchored`] with no anchors, so the
+/// user-facing export path stays byte-identical to the pre-anchor pipeline.
 pub fn export_bilingual_table(
     source: &Path,
     output: &Path,
     segments: &[Segment],
+) -> Result<u32, DocxError> {
+    export_bilingual_table_anchored(source, output, segments, &BTreeMap::new())
+}
+
+/// Rebuild a bilingual table DOCX, replacing only target-cell text ranges.
+///
+/// For every structural path in `segment_anchors` whose row still exists, a
+/// zero-width bookmark pair named `tlseg-{segment id}` is inserted inside the
+/// target-cell paragraph, immediately before the run that owns the cell's
+/// first text — the same schema-valid slot the plain DOCX filter uses — so
+/// docx-preview renders `<span id="tlseg-…">` and the layout preview can map
+/// a click on a target cell back to its grid segment. Anchoring is
+/// independent of translation state; a row whose target cell offers no run
+/// and receives no translation simply stays unanchored, degrading one click
+/// rather than the export.
+pub fn export_bilingual_table_anchored(
+    source: &Path,
+    output: &Path,
+    segments: &[Segment],
+    segment_anchors: &BTreeMap<String, String>,
 ) -> Result<u32, DocxError> {
     if source == output {
         return Err(DocxError::InvalidPackage(
@@ -113,7 +140,21 @@ pub fn export_bilingual_table(
         .collect::<BTreeMap<_, _>>();
     let mut replacements = Vec::new();
     let mut applied = BTreeSet::new();
+    let mut next_anchor_id = ANCHOR_BOOKMARK_ID_BASE;
     for row in rows {
+        let anchor = segment_anchors.get(row.structural_path.as_str());
+        if let Some(segment_id) = anchor
+            && let Some(insert_at) = row.target_anchor_insert_at
+        {
+            replacements.push(ByteReplacement {
+                start: insert_at,
+                end: insert_at,
+                bytes: anchor_bookmark_bytes(segment_id, next_anchor_id),
+            });
+            next_anchor_id = next_anchor_id.checked_add(1).ok_or_else(|| {
+                DocxError::InvalidPackage("anchor bookmark id overflow".to_string())
+            })?;
+        }
         let Some(target) = targets.get(row.structural_path.as_str()) else {
             continue;
         };
@@ -124,7 +165,18 @@ pub fn export_bilingual_table(
                     row.structural_path
                 ))
             })?;
-            let mut bytes = b"<w:p><w:r><w:t>".to_vec();
+            let mut bytes = b"<w:p>".to_vec();
+            // An empty target cell offered no run to anchor before, so the
+            // generated paragraph carries the bookmark itself.
+            if let Some(segment_id) = anchor
+                && row.target_anchor_insert_at.is_none()
+            {
+                bytes.extend_from_slice(&anchor_bookmark_bytes(segment_id, next_anchor_id));
+                next_anchor_id = next_anchor_id.checked_add(1).ok_or_else(|| {
+                    DocxError::InvalidPackage("anchor bookmark id overflow".to_string())
+                })?;
+            }
+            bytes.extend_from_slice(b"<w:r><w:t>");
             bytes.extend_from_slice(&tl_filter_office::escape_xml_text(target));
             bytes.extend_from_slice(b"</w:t></w:r></w:p>");
             replacements.push(ByteReplacement {
@@ -602,13 +654,17 @@ impl DocumentFilter for BilingualDocxFilter {
     }
 
     fn export(&self, request: ExportRequest<'_>) -> Result<ExportReport, FilterError> {
-        // `segment_anchors` is intentionally ignored: bilingual rows write
-        // into existing table-cell text ranges and the byte-range parser does
-        // not track a schema-valid in-paragraph slot for a bookmark, so this
-        // format has no layout click-jump yet. The preview UI says so.
-        let translated_segments =
-            export_bilingual_table(request.source, request.output, request.segments)
-                .map_err(map_docx_error)?;
+        // Preview-only anchors ride the same request field the plain DOCX
+        // filter uses: each anchored row gets a `tlseg-{segment id}` bookmark
+        // inside its target-cell paragraph. An empty map keeps user-facing
+        // exports byte-identical to the pre-anchor pipeline.
+        let translated_segments = export_bilingual_table_anchored(
+            request.source,
+            request.output,
+            request.segments,
+            &request.segment_anchors,
+        )
+        .map_err(map_docx_error)?;
         Ok(ExportReport {
             output_path: request.output.display().to_string(),
             translated_segments,
@@ -923,7 +979,19 @@ fn parse_bilingual_table_rows(
                             text: String::new(),
                             ranges: Vec::new(),
                             insert_at: None,
+                            anchor_insert_at: None,
+                            pending_run_start: None,
                         });
+                    }
+                    b"r" if table_depth == 1 && cell.is_some() => {
+                        // Remember where the run's start tag begins: when this
+                        // run turns out to own the cell's first text, that
+                        // offset is a schema-valid slot for an anchor bookmark
+                        // (inside the paragraph, sibling of the run). Nested
+                        // tables sit at depth > 1 and never anchor.
+                        if let Some(current) = cell.as_mut() {
+                            current.pending_run_start = Some(before);
+                        }
                     }
                     b"t" if table_depth == 1 && cell.is_some() => {
                         text = Some((
@@ -964,6 +1032,9 @@ fn parse_bilingual_table_rows(
                         if let Some((start, value)) = text.take()
                             && let Some(current) = cell.as_mut()
                         {
+                            if current.anchor_insert_at.is_none() {
+                                current.anchor_insert_at = current.pending_run_start;
+                            }
                             current.text.push_str(&value);
                             current.ranges.push(XmlTextRange {
                                 start,
@@ -1021,6 +1092,10 @@ fn parse_bilingual_table_rows(
                                     .cells
                                     .get(1)
                                     .and_then(|cell| cell.insert_at),
+                                target_anchor_insert_at: current_row
+                                    .cells
+                                    .get(1)
+                                    .and_then(|cell| cell.anchor_insert_at),
                                 cells,
                             });
                             if rows.len() > 100_000 {
@@ -1068,6 +1143,10 @@ struct TableCellBuilder {
     text: String,
     ranges: Vec<XmlTextRange>,
     insert_at: Option<usize>,
+    /// In-paragraph offset before the run owning the cell's first text.
+    anchor_insert_at: Option<usize>,
+    /// Start offset of the most recently opened run in this cell.
+    pending_run_start: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -1519,6 +1598,149 @@ mod tests {
         let metadata: BTreeMap<String, String> =
             serde_json::from_str(&document.units[0].notes[0].text).expect("decode row metadata");
         assert_eq!(metadata.get("Context").map(String::as_str), Some("Legal"));
+    }
+
+    #[test]
+    fn bilingual_anchored_export_bookmarks_target_cells_and_stays_out_of_plain_exports() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("bilingual.docx");
+        let plain = temp.path().join("plain.docx");
+        let anchored = temp.path().join("anchored.docx");
+        fixture::write_bilingual_fixture(&source).expect("write bilingual fixture");
+        let rows = extract_bilingual_table_rows(&source).expect("extract bilingual rows");
+        let data_rows = rows
+            .iter()
+            .filter(|row| row.row_number == 1)
+            .collect::<Vec<_>>();
+        assert_eq!(data_rows.len(), 2);
+        let units = data_rows
+            .iter()
+            .enumerate()
+            .map(|(ordinal, row)| {
+                ImportedUnit::plain(
+                    u32::try_from(ordinal).expect("ordinal"),
+                    row.structural_path.clone(),
+                    row.cells[0].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut segments = segments_for(&units);
+        segments[0].target_text = "你好世界更新".to_string();
+        segments[0].state = SegmentState::Confirmed;
+        let anchors: BTreeMap<String, String> = segments
+            .iter()
+            .map(|segment| (segment.structural_path.clone(), segment.id.clone()))
+            .collect();
+
+        assert_eq!(
+            export_bilingual_table_anchored(&source, &anchored, &segments, &anchors)
+                .expect("anchored bilingual export"),
+            1
+        );
+        let package = OfficePackage::open(&anchored).expect("anchored package");
+        let xml = String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part");
+        // Every anchored row gets a bookmark pair named after its grid
+        // segment — the untranslated row included, because the layout preview
+        // renders and must jump from that row too.
+        for segment in &segments {
+            assert!(
+                xml.contains(&format!(
+                    "w:name=\"{ANCHOR_BOOKMARK_PREFIX}{}\"",
+                    segment.id
+                )),
+                "missing anchor for {}",
+                segment.structural_path
+            );
+        }
+        // The anchor sits inside the target-cell paragraph: after the row's
+        // source text (split across two runs in the fixture), immediately
+        // before the run holding the translation.
+        let source_at = xml.find("world").expect("source cell offset");
+        let anchor_at = xml
+            .find(&format!("{ANCHOR_BOOKMARK_PREFIX}{}", segments[0].id))
+            .expect("anchor offset");
+        let target_at = xml.find("你好世界更新").expect("translation offset");
+        assert!(source_at < anchor_at && anchor_at < target_at);
+        assert!(xml.contains(&format!(
+            "w:name=\"{ANCHOR_BOOKMARK_PREFIX}{}\"/><w:bookmarkEnd",
+            segments[0].id
+        )));
+        // The anchored artifact still parses as a bilingual table with the
+        // translation applied and the untouched row's target preserved.
+        let reparsed = extract_bilingual_table_rows(&anchored).expect("reparse anchored output");
+        let translated = reparsed
+            .iter()
+            .find(|row| row.structural_path == segments[0].structural_path)
+            .expect("translated row");
+        assert_eq!(translated.cells[0], "Hello world");
+        assert_eq!(translated.cells[1], "你好世界更新");
+        let untouched = reparsed
+            .iter()
+            .find(|row| row.structural_path == segments[1].structural_path)
+            .expect("untranslated row");
+        assert_eq!(untouched.cells[1], "第二译文");
+
+        // A plain export stays byte-honest: no anchors leak into user exports.
+        export_bilingual_table(&source, &plain, &segments).expect("plain bilingual export");
+        let plain_package = OfficePackage::open(&plain).expect("plain package");
+        let plain_xml = String::from_utf8(
+            plain_package
+                .require("word/document.xml")
+                .expect("main")
+                .to_vec(),
+        )
+        .expect("utf-8 document part");
+        assert!(!plain_xml.contains(ANCHOR_BOOKMARK_PREFIX));
+    }
+
+    #[test]
+    fn bilingual_anchored_export_embeds_anchor_in_a_generated_target_paragraph() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let source = temp.path().join("empty-target.docx");
+        let anchored = temp.path().join("anchored.docx");
+        fixture::write_bilingual_empty_target_fixture(&source).expect("write empty-target fixture");
+        let rows = extract_bilingual_table_rows(&source).expect("extract bilingual rows");
+        let data = rows
+            .iter()
+            .find(|row| row.table_index == 0 && row.row_number == 1)
+            .expect("first data row");
+        // The empty target cell offers no run to anchor before.
+        assert!(data.target_anchor_insert_at.is_none());
+        let units = vec![ImportedUnit::plain(
+            0,
+            data.structural_path.clone(),
+            data.cells[0].clone(),
+        )];
+        let mut segments = segments_for(&units);
+        segments[0].target_text = "新译文".to_string();
+        let anchors = BTreeMap::from([(data.structural_path.clone(), segments[0].id.clone())]);
+
+        assert_eq!(
+            export_bilingual_table_anchored(&source, &anchored, &segments, &anchors)
+                .expect("anchored bilingual export"),
+            1
+        );
+        let package = OfficePackage::open(&anchored).expect("anchored package");
+        let xml = String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part");
+        // The generated target paragraph carries the bookmark itself, before
+        // the run holding the translation.
+        assert!(xml.contains(&format!(
+            "w:name=\"{ANCHOR_BOOKMARK_PREFIX}{}\"/><w:bookmarkEnd",
+            segments[0].id
+        )));
+        let anchor_at = xml
+            .find(&format!("{ANCHOR_BOOKMARK_PREFIX}{}", segments[0].id))
+            .expect("anchor offset");
+        let target_at = xml.find("新译文").expect("translation offset");
+        assert!(anchor_at < target_at);
+        let reparsed = extract_bilingual_table_rows(&anchored).expect("reparse anchored output");
+        let translated = reparsed
+            .iter()
+            .find(|row| row.structural_path == data.structural_path)
+            .expect("translated row");
+        assert_eq!(translated.cells[1], "新译文");
     }
 
     #[test]

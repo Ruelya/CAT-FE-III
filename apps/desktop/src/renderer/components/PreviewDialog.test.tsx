@@ -39,10 +39,10 @@ const SEGMENTS = [
   segment("s3", 2, "p:1", "Untranslated one."),
 ];
 
-function renderDialog(
+function dialogElement(
   overrides: Partial<Parameters<typeof PreviewDialog>[0]> = {},
 ) {
-  return render(
+  return (
     <PreviewDialog
       open
       documentId="d1"
@@ -53,8 +53,14 @@ function renderDialog(
       onClose={vi.fn()}
       onJump={vi.fn()}
       {...overrides}
-    />,
+    />
   );
+}
+
+function renderDialog(
+  overrides: Partial<Parameters<typeof PreviewDialog>[0]> = {},
+) {
+  return render(dialogElement(overrides));
 }
 
 function installPreviewBridge(
@@ -164,7 +170,8 @@ describe("PreviewDialog", () => {
     expect(screen.queryByText(/不支持点段跳转/)).not.toBeInTheDocument();
   });
 
-  it("keeps the honest no-jump footer for bilingual DOCX layout views", async () => {
+  it("jumps from an anchored target cell in the bilingual layout view", async () => {
+    const onJump = vi.fn();
     installPreviewBridge(
       vi.fn().mockResolvedValue({
         ok: true,
@@ -172,12 +179,83 @@ describe("PreviewDialog", () => {
         translatedSegments: 1,
       }),
     );
-    renderDialog({ documentFormat: "bilingual-docx" });
+    // Stub the docx-preview output for a bilingual table row: the target-cell
+    // paragraph carries the export-embedded anchor, the source cell does not.
+    renderAsyncMock.mockImplementation(
+      (_data: ArrayBuffer, container: HTMLElement) => {
+        container.innerHTML = [
+          '<section class="docx"><table><tr>',
+          "<td><p><span>Source-cell paragraph</span></p></td>",
+          '<td><p><span id="tlseg-s1"></span><span>第一句。第二句。</span></p></td>',
+          "</tr></table></section>",
+        ].join("");
+        return Promise.resolve();
+      },
+    );
+    renderDialog({ documentFormat: "bilingual-docx", onJump });
     await userEvent.click(screen.getByRole("tab", { name: /版式视图/ }));
     await waitFor(() => {
-      expect(screen.getByText(/暂不支持点段跳转/)).toBeInTheDocument();
+      expect(screen.getByText("第一句。第二句。")).toBeInTheDocument();
     });
-    expect(screen.queryByText(/点击段落可跳转/)).not.toBeInTheDocument();
+    // Clicking inside the anchored target cell jumps to the row's segment.
+    await userEvent.click(screen.getByText("第一句。第二句。"));
+    expect(onJump).toHaveBeenCalledWith("s1");
+    // Clicking the un-anchored source cell does nothing — no fake jumps.
+    await userEvent.click(screen.getByText("Source-cell paragraph"));
+    expect(onJump).toHaveBeenCalledTimes(1);
+    // The footer names the real interaction and no longer claims click jump
+    // is unsupported.
+    expect(
+      screen.getByText(/点击译文单元格可跳转到编辑网格/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/不支持点段跳转/)).not.toBeInTheDocument();
+  });
+
+  it("regenerates the layout when segments change while the dialog stays open", async () => {
+    const renderDocxPreview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        data: new ArrayBuffer(8),
+        translatedSegments: 2,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: new ArrayBuffer(8),
+        translatedSegments: 3,
+      });
+    installPreviewBridge(renderDocxPreview);
+    const view = renderDialog({ layoutRefreshDelayMs: 50 });
+    await userEvent.click(screen.getByRole("tab", { name: /版式视图/ }));
+    await waitFor(() => {
+      expect(screen.getByText(/已回填 2 个已译单元/)).toBeInTheDocument();
+    });
+
+    // Two rapid grid edits while the dialog stays open: the layout view
+    // announces it is syncing and coalesces the burst into one re-export.
+    const draft = [
+      ...SEGMENTS.slice(0, 2),
+      segment("s3", 2, "p:1", "Untranslated one.", "补译草稿", "draft"),
+    ];
+    view.rerender(dialogElement({ layoutRefreshDelayMs: 50, segments: draft }));
+    const confirmed = [
+      ...SEGMENTS.slice(0, 2),
+      segment("s3", 2, "p:1", "Untranslated one.", "补译完成。"),
+    ];
+    view.rerender(
+      dialogElement({ layoutRefreshDelayMs: 50, segments: confirmed }),
+    );
+    expect(screen.getByText(/正在重新生成版式预览/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/已回填 3 个已译单元/)).toBeInTheDocument();
+    });
+    expect(renderDocxPreview).toHaveBeenCalledTimes(2);
+    expect(renderAsyncMock).toHaveBeenCalledTimes(2);
+
+    // Tab switches alone never re-run the export pipeline.
+    await userEvent.click(screen.getByRole("tab", { name: /校对视图/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /版式视图/ }));
+    expect(renderDocxPreview).toHaveBeenCalledTimes(2);
   });
 
   it("shows an honest error when the export pipeline refuses", async () => {
