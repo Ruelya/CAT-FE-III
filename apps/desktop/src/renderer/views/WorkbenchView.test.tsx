@@ -324,7 +324,13 @@ describe("WorkbenchView application menu commands", () => {
     render(
       <WorkbenchView project={PROJECT} onStatusMessage={onStatusMessage} />,
     );
-    await screen.findByLabelText("句段 1 译文");
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    // Wait for the editor to re-seed from the saved target: the draft then
+    // matches, so confirm goes straight to segment.confirm (no update).
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
     act(() => {
       bridge.emitMenuCommand("confirm-segment");
     });
