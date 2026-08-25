@@ -14,8 +14,9 @@ use tl_asset::{
 use tl_domain::{SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
 use tl_protocol::{
     TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE, TM_LOOKUP_MAX_LIMIT,
-    TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult, TermExchangeFormat,
-    TermListParams, TermListResult, TermLookupParams, TermLookupResult, TermbaseAttachParams,
+    TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult, TermDeleteParams,
+    TermDeleteResult, TermExchangeFormat, TermListParams, TermListResult, TermLookupParams,
+    TermLookupResult, TermUpdateParams, TermUpdateResult, TermbaseAttachParams,
     TermbaseAttachResult, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
     TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseListResult,
     TmExchangeFormat, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
@@ -505,6 +506,161 @@ impl Engine {
         let result = entry.clone();
         self.store.save(&self.state)?;
         Ok(TermAddResult { entry: result })
+    }
+
+    /// Edit an existing entry: rename the source term and/or edit one
+    /// translation's text or forbidden flag. One call, one atomic save.
+    pub(crate) fn term_update(
+        &mut self,
+        params: TermUpdateParams,
+    ) -> Result<TermUpdateResult, EngineError> {
+        let entry = self
+            .state
+            .term_entries
+            .get(&params.entry_id)
+            .ok_or_else(|| EngineError::NotFound(format!("term entry {}", params.entry_id)))?;
+        let termbase_id = entry.termbase_id.clone();
+
+        let new_source = match params.source_term.as_deref() {
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Err(EngineError::InvalidParams(
+                        "source term must not be empty".to_string(),
+                    ));
+                }
+                Some(trimmed.to_string())
+            }
+            None => None,
+        };
+        let new_target = match params.target_term.as_deref() {
+            Some(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Err(EngineError::InvalidParams(
+                        "target term must not be empty".to_string(),
+                    ));
+                }
+                Some(trimmed.to_string())
+            }
+            None => None,
+        };
+        let edits_translation = new_target.is_some() || params.forbidden.is_some();
+        if new_source.is_none() && !edits_translation {
+            return Err(EngineError::InvalidParams(
+                "nothing to update: pass sourceTerm, targetTerm, or forbidden".to_string(),
+            ));
+        }
+        if edits_translation && params.translation_id.is_none() {
+            return Err(EngineError::InvalidParams(
+                "translationId is required to edit a translation".to_string(),
+            ));
+        }
+
+        // Renaming must not collide with another entry in the same termbase;
+        // term.add and termbase.import both dedupe on the normalized source.
+        if let Some(source) = new_source.as_deref() {
+            let normalized = normalize_match_key(source);
+            let collision = self.state.term_entries.values().any(|other| {
+                other.id != params.entry_id
+                    && other.termbase_id == termbase_id
+                    && normalize_match_key(&other.source_term) == normalized
+            });
+            if collision {
+                return Err(EngineError::Conflict(format!(
+                    "term \"{source}\" already exists in this termbase"
+                )));
+            }
+        }
+
+        let now = now_ms();
+        let entry = self
+            .state
+            .term_entries
+            .get_mut(&params.entry_id)
+            .expect("term entry just resolved");
+        if let Some(translation_id) = params.translation_id.as_deref() {
+            let index = entry
+                .translations
+                .iter()
+                .position(|translation| translation.id == translation_id)
+                .ok_or_else(|| EngineError::NotFound(format!("translation {translation_id}")))?;
+            // The edited text must not duplicate a sibling translation for
+            // the same locale.
+            if let Some(target) = new_target.as_deref() {
+                let normalized = normalize_match_key(target);
+                let locale = entry.translations[index].locale.clone();
+                let duplicate = entry.translations.iter().any(|other| {
+                    other.id != translation_id
+                        && other.locale == locale
+                        && normalize_match_key(&other.term) == normalized
+                });
+                if duplicate {
+                    return Err(EngineError::Conflict(format!(
+                        "translation \"{target}\" already exists for locale {locale}"
+                    )));
+                }
+            }
+            let translation = &mut entry.translations[index];
+            if let Some(target) = new_target {
+                translation.term = target;
+            }
+            if let Some(forbidden) = params.forbidden {
+                translation.forbidden = forbidden;
+                translation.preferred = !forbidden;
+            }
+            translation.updated_at_ms = now;
+        }
+        if let Some(source) = new_source {
+            entry.source_term = source;
+        }
+        entry.revision += 1;
+        entry.updated_at_ms = now;
+        let result = entry.clone();
+        self.store.save(&self.state)?;
+        Ok(TermUpdateResult { entry: result })
+    }
+
+    /// Delete a whole entry, or just one of its translations when
+    /// `translation_id` is set.
+    pub(crate) fn term_delete(
+        &mut self,
+        params: TermDeleteParams,
+    ) -> Result<TermDeleteResult, EngineError> {
+        if !self.state.term_entries.contains_key(&params.entry_id) {
+            return Err(EngineError::NotFound(format!(
+                "term entry {}",
+                params.entry_id
+            )));
+        }
+        let result = match params.translation_id.as_deref() {
+            Some(translation_id) => {
+                let entry = self
+                    .state
+                    .term_entries
+                    .get_mut(&params.entry_id)
+                    .expect("term entry just checked");
+                let index = entry
+                    .translations
+                    .iter()
+                    .position(|translation| translation.id == translation_id)
+                    .ok_or_else(|| {
+                        EngineError::NotFound(format!("translation {translation_id}"))
+                    })?;
+                entry.translations.remove(index);
+                entry.revision += 1;
+                entry.updated_at_ms = now_ms();
+                TermDeleteResult {
+                    entry: Some(entry.clone()),
+                }
+            }
+            None => {
+                self.state.term_entries.remove(&params.entry_id);
+                TermDeleteResult { entry: None }
+            }
+        };
+        self.store.save(&self.state)?;
+        Ok(result)
     }
 
     pub(crate) fn term_list(&self, params: TermListParams) -> Result<TermListResult, EngineError> {
