@@ -120,6 +120,16 @@ function registerIpc(): void {
     );
   });
 
+  ipcMain.handle(IPC_CHANNELS.relaunch, () => {
+    return (
+      supervisor?.relaunch() ?? {
+        state: "down",
+        restarts: 0,
+        lastError: "not started",
+      }
+    );
+  });
+
   // E2E seam on every dialog channel: native dialogs cannot be driven by
   // automation, so an env var can stand in for the user's pick.
   async function openFileDialog(

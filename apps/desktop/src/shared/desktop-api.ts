@@ -65,6 +65,13 @@ export interface MenuContext {
 export interface DesktopApi {
   invoke(method: string, params: unknown): Promise<EngineInvokeResponse>;
   engineStatus(): Promise<EngineStatusPayload>;
+  /**
+   * Manual relaunch after the engine parked in `down` (crash budget
+   * exhausted, spawn failure, or failed handshake). Resolves with the
+   * status right after the new spawn attempt; readiness still arrives
+   * through onEngineStatus.
+   */
+  relaunchEngine(): Promise<EngineStatusPayload>;
   onEngineStatus(listener: (status: EngineStatusPayload) => void): () => void;
   onNotification(
     listener: (notification: EngineNotificationPayload) => void,
@@ -90,6 +97,7 @@ export const IPC_CHANNELS = {
   invoke: "tl:engine:invoke",
   statusGet: "tl:engine:status:get",
   statusEvent: "tl:engine:status",
+  relaunch: "tl:engine:relaunch",
   notification: "tl:engine:notification",
   chooseSource: "tl:dialog:choose-source",
   chooseExport: "tl:dialog:choose-export",

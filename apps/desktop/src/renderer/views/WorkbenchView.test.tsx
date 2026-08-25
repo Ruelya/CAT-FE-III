@@ -103,7 +103,18 @@ const TERM_MATCH = {
   ],
 };
 
-/** Engine responses shared by both tests; per-test handlers layer on top. */
+/**
+ * Sentinel a handler can return to make the bridge answer with an engine
+ * error response instead of a result.
+ */
+class EngineFailure {
+  constructor(
+    public readonly code: string,
+    public readonly message: string,
+  ) {}
+}
+
+/** Engine responses shared by the tests; per-test handlers layer on top. */
 function baseHandlers(): Record<string, (params: unknown) => unknown> {
   return {
     "ai.status": () => ({ configured: false }),
@@ -135,7 +146,14 @@ function installBridge(
           error: { code: "notFound", message: `no handler for ${method}` },
         });
       }
-      return Promise.resolve({ ok: true, result: handler(params) });
+      const value = handler(params);
+      if (value instanceof EngineFailure) {
+        return Promise.resolve({
+          ok: false,
+          error: { code: value.code, message: value.message },
+        });
+      }
+      return Promise.resolve({ ok: true, result: value });
     },
   );
   const chooseExportPath = vi.fn((): Promise<string | null> => {
@@ -173,7 +191,13 @@ function installBridge(
 describe("WorkbenchView term insertion", () => {
   it("inserts a dock term at the grid editor caret without saving", async () => {
     const { invoke } = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     const editor =
       await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
     // The editor re-seeds from the saved target in an effect after mounting.
@@ -209,7 +233,13 @@ describe("WorkbenchView term insertion", () => {
       };
     };
     installBridge(handlers);
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     await screen.findByLabelText("句段 1 译文");
     // Filter the active row out of the grid so no editor is mounted.
     await userEvent.type(screen.getByLabelText("按文本筛选"), "无匹配文本");
@@ -236,6 +266,7 @@ describe("WorkbenchView application menu commands", () => {
     render(
       <WorkbenchView
         project={PROJECT}
+        engineState="ready"
         onStatusMessage={vi.fn()}
         onDocumentOpenChange={onDocumentOpenChange}
       />,
@@ -250,7 +281,13 @@ describe("WorkbenchView application menu commands", () => {
 
   it("switches dock tabs through the same setTab path as the dock buttons", async () => {
     const bridge = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     await screen.findByLabelText("句段 1 译文");
     act(() => {
       bridge.emitMenuCommand("show-dock-qa");
@@ -266,7 +303,13 @@ describe("WorkbenchView application menu commands", () => {
 
   it("opens the import dialog from the menu like the 导入 button", async () => {
     const bridge = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     await screen.findByLabelText("句段 1 译文");
     act(() => {
       bridge.emitMenuCommand("import-document");
@@ -276,7 +319,13 @@ describe("WorkbenchView application menu commands", () => {
 
   it("routes menu export through the same chooseExportPath dialog", async () => {
     const bridge = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     await screen.findByLabelText("句段 1 译文");
     act(() => {
       bridge.emitMenuCommand("export-document");
@@ -295,7 +344,13 @@ describe("WorkbenchView application menu commands", () => {
 
   it("seeds concordance from the live selection like the F3 chord", async () => {
     const bridge = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     const editor =
       await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
     await waitFor(() => {
@@ -322,7 +377,11 @@ describe("WorkbenchView application menu commands", () => {
     const bridge = installBridge(handlers);
     const onStatusMessage = vi.fn();
     render(
-      <WorkbenchView project={PROJECT} onStatusMessage={onStatusMessage} />,
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
     );
     const editor =
       await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
@@ -353,7 +412,13 @@ describe("WorkbenchView application menu commands", () => {
 
   it("focuses the segment filter via the menu command and the Ctrl+F chord", async () => {
     const bridge = installBridge(baseHandlers());
-    render(<WorkbenchView project={PROJECT} onStatusMessage={vi.fn()} />);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
     await screen.findByLabelText("句段 1 译文");
     const filter = screen.getByLabelText("按文本筛选");
     act(() => {
@@ -364,5 +429,132 @@ describe("WorkbenchView application menu commands", () => {
     (document.activeElement as HTMLElement).blur();
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     expect(document.activeElement).toBe(filter);
+  });
+});
+
+describe("WorkbenchView engine-down honesty", () => {
+  it("keeps a persistent unsaved alert when the engine never acks a draft write", async () => {
+    const handlers = baseHandlers();
+    let updateResponse: unknown = new EngineFailure(
+      "engineDown",
+      "engine process is not running",
+    );
+    handlers["segment.update"] = () => updateResponse;
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+
+    // A blocking-style inline alert, not just a statusbar toast.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("句段 #1 的草稿未被引擎确认写入");
+    expect(alert).toHaveTextContent("engine process is not running");
+    // The editor still holds the user's text; nothing was lost or reset.
+    expect(editor.value).toBe("文件的为 30 天。");
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 草稿未保存：引擎未确认写入",
+    );
+    // The segment must NOT be presented as saved anywhere.
+    expect(onStatusMessage).not.toHaveBeenCalledWith("句段 #1 草稿已保存");
+
+    // Once the engine acks a later save of the same segment, the alert goes.
+    updateResponse = {
+      segment: { ...SEGMENT, revision: 2 },
+    };
+    await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 草稿已保存");
+  });
+
+  it("flags an unacked confirm without pretending it reached the TM", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.confirm"] = () =>
+      new EngineFailure("timeout", "segment.confirm timed out");
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("句段 #1 的确认未被引擎确认写入");
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 未确认：引擎未确认写入",
+    );
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).includes("已确认并写入 TM"),
+      ),
+    ).toBe(false);
+  });
+
+  it("resyncs documents and segments from the engine after a crash recovery", async () => {
+    const { invoke } = installBridge(baseHandlers());
+    const onStatusMessage = vi.fn();
+    const view = render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const callsBefore = invoke.mock.calls.filter(
+      ([method]) => method === "segment.list",
+    ).length;
+
+    // Engine crashes (gate blocks the UI at App level), then recovers.
+    view.rerender(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="restarting"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    view.rerender(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "引擎已恢复，文档与句段已从引擎重新同步",
+      );
+    });
+    const callsAfter = invoke.mock.calls.filter(
+      ([method]) => method === "segment.list",
+    ).length;
+    expect(callsAfter).toBeGreaterThan(callsBefore);
+    expect(
+      invoke.mock.calls.filter(([method]) => method === "document.list").length,
+    ).toBeGreaterThan(1);
   });
 });
