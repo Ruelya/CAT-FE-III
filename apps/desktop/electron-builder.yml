@@ -1,0 +1,44 @@
+# Minimal packaging: an unsigned, unpackaged directory artifact that honors
+# the packaged-main engine contract (process.resourcesPath/engine/tl-engine).
+# No installers, no code signing, no notarization, no auto-update.
+appId: app.translunar.cat
+productName: Translunar CAT
+copyright: Copyright © Translunar contributors
+directories:
+  output: release
+# The renderer bundle inlines every production dependency and main/preload
+# import only electron + node builtins, so node_modules stays out of the asar.
+files:
+  - dist/**/*
+  - package.json
+  - "!node_modules"
+# scripts/desktop-stage-engine.mjs copies the release tl-engine binary into
+# .package-engine/ before electron-builder runs. The `from` path must stay
+# relative: electron-builder joins it against the project directory, and
+# absolute temp paths silently drop the binary on Windows.
+extraResources:
+  - from: .package-engine/
+    to: engine
+# Ship only locales the product UI supports. Full Chromium locale packs add
+# ~45 MB and are unused by Translunar CAT.
+electronLanguages:
+  - en-US
+  - zh-CN
+asar: true
+linux:
+  executableName: translunar-cat
+  target:
+    - dir
+  artifactName: translunar-cat-${version}-linux-${arch}.${ext}
+# The win/mac sections below are config-only: this repository packages on
+# Linux and has never exercised them. They stay on the honest `dir` target
+# until a native-runner packaging task proves out real installers.
+win:
+  target:
+    - dir
+  artifactName: translunar-cat-${version}-win-${arch}.${ext}
+mac:
+  target:
+    - dir
+  category: public.app-category.productivity
+  artifactName: translunar-cat-${version}-mac-${arch}.${ext}
