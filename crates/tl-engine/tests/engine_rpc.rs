@@ -1883,6 +1883,118 @@ fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
     );
 }
 
+/// Deterministic tag/placeholder integrity is part of every `qa.run`:
+/// dropped source tokens and invented target tokens are flagged with the
+/// tokens as evidence, waivers ride the fingerprint exactly like the number
+/// rule (same tokens → the waiver holds; different tokens → a fresh open
+/// issue), and waiving a tag issue never confirms the segment or writes TM.
+#[test]
+fn qa_flags_tag_placeholder_integrity_with_sticky_waivers_and_no_tm_writes() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "tags.txt",
+        "Click {button} or {link} to continue.\n\nSave the file.\n",
+    );
+    let segments = harness.segments(&document_id);
+    // Both placeholders dropped from the target.
+    harness.set_target(&segments[0], "点击以继续。");
+    // The target invents markup the source never had.
+    harness.set_target(&segments[1], "保存<b>文件</b>。");
+    let drafted = harness.segments(&document_id);
+
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let issues = run["issues"].as_array().expect("issues").clone();
+    let missing = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.tag-placeholder_missing")
+        .expect("missing-placeholder issue");
+    assert_eq!(missing["segmentId"], segments[0]["id"]);
+    assert_eq!(missing["severity"], "error");
+    assert_eq!(missing["status"], "open");
+    assert_eq!(
+        missing["evidence"]["sourceValues"],
+        json!(["{button}", "{link}"])
+    );
+    let extra = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.tag-placeholder_extra")
+        .expect("extra-placeholder issue");
+    assert_eq!(extra["segmentId"], segments[1]["id"]);
+    assert_eq!(extra["severity"], "error");
+    assert_eq!(extra["evidence"]["targetValues"], json!(["</b>", "<b>"]));
+
+    // Waive the missing-placeholder issue; the waiver rides the fingerprint.
+    let missing_id = missing["id"].as_str().expect("issue id").to_string();
+    let missing_fingerprint = missing["fingerprint"]
+        .as_str()
+        .expect("fingerprint")
+        .to_string();
+    let waived = harness.call(
+        "qa.waive",
+        json!({ "issueId": missing_id, "waived": true, "note": "占位符由排版阶段补齐" }),
+    );
+    assert_eq!(waived["issue"]["status"], "waived");
+
+    // Human red line: waiving a tag issue confirms nothing and writes no TM.
+    let after = harness.segments(&document_id);
+    assert_eq!(after[0]["state"], "draft");
+    assert_eq!(after[0]["revision"], drafted[0]["revision"]);
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 0, "waiving a QA issue must never write TM");
+
+    // Unchanged text on a rerun: same tokens, same fingerprint, the waiver
+    // holds and the issue is not reopened.
+    let rerun = harness.call("qa.run", json!({ "documentId": document_id }));
+    let rerun_issue = rerun["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["id"].as_str() == Some(missing_id.as_str()))
+        .expect("waived issue survives the rerun")
+        .clone();
+    assert_eq!(rerun_issue["status"], "waived");
+
+    // Restoring one placeholder changes the evidence: the old waived row
+    // resolves and a fresh open issue appears for the still-missing token.
+    let segments_now = harness.segments(&document_id);
+    harness.set_target(&segments_now[0], "点击 {button} 以继续。");
+    let changed = harness.call("qa.run", json!({ "documentId": document_id }));
+    let changed_issues = changed["issues"].as_array().expect("issues");
+    let old_row = changed_issues
+        .iter()
+        .find(|issue| issue["id"].as_str() == Some(missing_id.as_str()))
+        .expect("old issue row");
+    assert_eq!(old_row["status"], "resolved");
+    let new_row = changed_issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.tag-placeholder_missing" && issue["status"] == "open")
+        .expect("fresh open issue for the remaining token");
+    assert_ne!(
+        new_row["fingerprint"].as_str(),
+        Some(missing_fingerprint.as_str())
+    );
+    assert_eq!(new_row["evidence"]["sourceValues"], json!(["{link}"]));
+
+    // Restoring every token on both segments resolves the tag family.
+    let segments_now = harness.segments(&document_id);
+    harness.set_target(&segments_now[0], "点击 {button} 或 {link} 以继续。");
+    harness.set_target(&segments_now[1], "保存文件。");
+    let fixed = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert!(
+        fixed["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .filter(|issue| issue["ruleId"]
+                .as_str()
+                .is_some_and(|rule| rule.starts_with("qa.tag-")))
+            .all(|issue| issue["status"] == "resolved"),
+        "fixed tokens must resolve every tag issue"
+    );
+}
+
 #[test]
 fn bilingual_xlsx_filter_registers_imports_and_exports_via_explicit_id() {
     let mut harness = Harness::new();

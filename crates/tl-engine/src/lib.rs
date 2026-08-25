@@ -1513,7 +1513,7 @@ impl Engine {
                             AgentStepStatus::Done,
                             None,
                             format!(
-                                "数字 QA 检查 {} 个句段，{} 个未解决问题",
+                                "QA 检查 {} 个句段，{} 个未解决问题",
                                 qa.checked_segments, qa.open_issues
                             ),
                         );

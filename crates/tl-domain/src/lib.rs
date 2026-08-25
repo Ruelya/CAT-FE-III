@@ -13,6 +13,23 @@ static NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?x)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?").expect("valid number regex")
 });
 
+/// Placeholder-like tokens a translation must carry through verbatim:
+/// `{name}` / `{{var}}` braces, printf conversions, markup tags, entities.
+/// This is the only inline tag/placeholder shape the segment model stores —
+/// literal tokens inside the text — shared by AI draft gating and QA.
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        \{\{[^{}]*\}\}                                  # {{handlebars}}
+        | \{[^{}\s][^{}]*\}                             # {brace} placeholders
+        | %(?:\d+\$)?[-+ 0\#]*\d*(?:\.\d+)?[sdifucxXeg@] # printf-style
+        | </?[A-Za-z][A-Za-z0-9:._-]*(?:\s[^<>]*)?/?>   # markup tags
+        | &\#?[A-Za-z0-9]+;                             # character entities
+    ",
+    )
+    .expect("valid placeholder regex")
+});
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SegmentState {
@@ -581,6 +598,47 @@ pub fn number_issue_fingerprint(segment_id: &str, evidence: &NumberEvidence) -> 
     )
 }
 
+pub fn placeholder_tokens(text: &str) -> Vec<String> {
+    PLACEHOLDER_RE
+        .find_iter(text)
+        .map(|found| found.as_str().to_string())
+        .collect()
+}
+
+/// Multiset difference of placeholder tokens between source and target.
+///
+/// `missing` lists tokens the target dropped, `extra` lists tokens it
+/// invented; a duplicated token counts once per missing/extra occurrence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlaceholderMismatch {
+    pub missing: Vec<String>,
+    pub extra: Vec<String>,
+}
+
+pub fn placeholder_mismatch(source: &str, target: &str) -> Option<PlaceholderMismatch> {
+    let mut counts: BTreeMap<String, i64> = BTreeMap::new();
+    for token in placeholder_tokens(source) {
+        *counts.entry(token).or_default() += 1;
+    }
+    for token in placeholder_tokens(target) {
+        *counts.entry(token).or_default() -= 1;
+    }
+    let mut mismatch = PlaceholderMismatch::default();
+    for (token, balance) in counts {
+        for _ in 0..balance.max(0) {
+            mismatch.missing.push(token.clone());
+        }
+        for _ in 0..(-balance).max(0) {
+            mismatch.extra.push(token.clone());
+        }
+    }
+    if mismatch.missing.is_empty() && mismatch.extra.is_empty() {
+        None
+    } else {
+        Some(mismatch)
+    }
+}
+
 fn normalize_number(value: &str) -> String {
     let without_grouping = value.replace(',', "");
     match without_grouping.parse::<f64>() {
@@ -616,6 +674,29 @@ mod tests {
     #[test]
     fn treats_grouping_and_full_width_as_equal() {
         assert!(number_mismatch("USD 1,200.00", "１２００ 美元").is_none());
+    }
+
+    #[test]
+    fn detects_missing_and_extra_placeholders_as_multisets() {
+        let mismatch = placeholder_mismatch(
+            "Click {button} to run %s. See <b>docs</b>.",
+            "点击 {button} 运行。<b>见<i>文档</i></b>。",
+        )
+        .expect("mismatch");
+        assert_eq!(mismatch.missing, vec!["%s"]);
+        assert_eq!(mismatch.extra, vec!["</i>", "<i>"]);
+
+        let duplicated = placeholder_mismatch("{{name}} and {{name}}", "{{name}} 已就绪")
+            .expect("duplicated token counts");
+        assert_eq!(duplicated.missing, vec!["{{name}}"]);
+        assert!(duplicated.extra.is_empty());
+    }
+
+    #[test]
+    fn intact_placeholders_and_plain_text_report_no_mismatch() {
+        assert!(placeholder_mismatch("Save {file} as &amp;", "另存 {file} 为 &amp;").is_none());
+        assert!(placeholder_mismatch("Plain sentence.", "普通句子。").is_none());
+        assert!(placeholder_tokens("保留期为 30 天。").is_empty());
     }
 
     #[test]

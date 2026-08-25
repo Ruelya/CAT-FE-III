@@ -81,7 +81,7 @@ const finishedView: AgentRunView = {
       index: 2,
       kind: "qa",
       status: "done",
-      detail: "数字 QA 检查 3 个句段，1 个未解决问题",
+      detail: "QA 检查 3 个句段，1 个未解决问题",
     },
     {
       index: 3,
