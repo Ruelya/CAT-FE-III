@@ -6,6 +6,8 @@ import type {
   EngineInvokeResponse,
   EngineNotificationPayload,
   EngineStatusPayload,
+  MenuCommand,
+  MenuContext,
 } from "../shared/desktop-api.js";
 
 const CHANNELS = {
@@ -21,6 +23,8 @@ const CHANNELS = {
   chooseTermbaseExport: "tl:dialog:choose-termbase-export",
   chooseSrx: "tl:dialog:choose-srx",
   previewDocx: "tl:preview:docx",
+  menuCommand: "tl:menu:command",
+  menuContext: "tl:menu:context",
 } as const;
 
 const api: DesktopApi = {
@@ -95,6 +99,15 @@ const api: DesktopApi = {
       CHANNELS.previewDocx,
       documentId,
     ) as Promise<DocxPreviewResponse>;
+  },
+  onMenuCommand(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, command: MenuCommand) =>
+      listener(command);
+    electron.ipcRenderer.on(CHANNELS.menuCommand, handler);
+    return () => electron.ipcRenderer.off(CHANNELS.menuCommand, handler);
+  },
+  setMenuContext(context: MenuContext): void {
+    electron.ipcRenderer.send(CHANNELS.menuContext, context);
   },
 };
 

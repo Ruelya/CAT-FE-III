@@ -23,6 +23,13 @@ export interface SegmentGridHandle {
    * so callers can fall back.
    */
   insertAtCaret: (text: string) => boolean;
+  /**
+   * Confirm the segment currently being edited with the live (unsaved)
+   * editor text — the same command the editor's Ctrl+Enter chord fires.
+   * Returns false when no editor is mounted or an IME composition is in
+   * flight, so callers can report honestly instead of guessing.
+   */
+  confirmActive: () => boolean;
 }
 
 export interface SegmentGridProps {
@@ -126,8 +133,15 @@ export function SegmentGrid({
         spliceIntoEditor(textarea, text);
         return true;
       },
+      confirmActive: () => {
+        if (!textareaRef.current || !activeSegment || composingRef.current) {
+          return false;
+        }
+        onConfirm(activeSegment, draft);
+        return true;
+      },
     }),
-    [spliceIntoEditor],
+    [spliceIntoEditor, activeSegment, draft, onConfirm],
   );
 
   const virtualized = segments.length > VIRTUAL_THRESHOLD;

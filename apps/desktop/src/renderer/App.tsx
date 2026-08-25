@@ -46,6 +46,7 @@ export function App() {
   );
   const [project, setProject] = useState<Project | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [documentOpen, setDocumentOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
     "INSTRUMENT · Translunar CAT 绿场骨架",
   );
@@ -65,6 +66,33 @@ export function App() {
       unsubscribe();
     };
   }, []);
+
+  // Single writer of the menu context: the application menu enables items
+  // only for state that is actually open (no project -> almost everything
+  // disabled; workbench reports document state via onDocumentOpenChange).
+  useEffect(() => {
+    window.tl.setMenuContext({
+      projectOpen: project !== null,
+      documentOpen: project !== null && documentOpen,
+    });
+  }, [project, documentOpen]);
+
+  // Shell-level menu commands; workbench-level ones are handled inside
+  // WorkbenchView. Both go through the same actions as the header buttons.
+  // The menu disables these without a project, but guard anyway so a stray
+  // command can never queue a settings dialog for a future project.
+  useEffect(() => {
+    return window.tl.onMenuCommand((command) => {
+      if (command === "open-project-settings") {
+        if (project) {
+          setSettingsOpen(true);
+        }
+      } else if (command === "close-project") {
+        setSettingsOpen(false);
+        setProject(null);
+      }
+    });
+  }, [project]);
 
   const handleStatusMessage = useCallback((message: string) => {
     setStatusMessage(message);
@@ -114,6 +142,7 @@ export function App() {
         <WorkbenchView
           project={project}
           onStatusMessage={handleStatusMessage}
+          onDocumentOpenChange={setDocumentOpen}
         />
       ) : (
         <ProjectsView

@@ -12,6 +12,10 @@
   "include": [
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    // Main-process pure-module tests (e.g. menu template construction) run
+    // under vitest with this project's settings; the electron tsconfig
+    // excludes *.test.ts from the build.
+    "src/main/**/*.test.ts"
   ]
 }
