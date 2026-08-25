@@ -268,6 +268,261 @@ fn tm_import_export_roundtrip_and_pretranslate() {
 }
 
 #[test]
+fn tm_list_pages_and_filters() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let csv_path = harness.write_file(
+        "memory.csv",
+        "source,target\nThe retention period is 30 days.,保留期为 30 天。\nSave your work often.,请经常保存工作。\n",
+    );
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path }),
+    );
+    // A later human confirmation lands the newest entry.
+    let document_id = harness.import_txt(&project_id, "job.txt", "Cats sleep in sunlight.\n");
+    let segments = harness.segments(&document_id);
+    let updated = harness.set_target(&segments[0], "猫在阳光下睡觉。");
+    harness.confirm(&updated);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["total"], 3);
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["sourceText"], "Cats sleep in sunlight.");
+
+    // Case-insensitive substring filter over source and target.
+    let filtered = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "RETENTION" }),
+    );
+    assert_eq!(filtered["total"], 1);
+    assert_eq!(
+        filtered["entries"][0]["sourceText"],
+        "The retention period is 30 days."
+    );
+    let by_target = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "保存工作" }),
+    );
+    assert_eq!(by_target["total"], 1);
+    let none = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "query": "nowhere" }),
+    );
+    assert_eq!(none["total"], 0);
+    assert_eq!(none["entries"].as_array().expect("entries").len(), 0);
+
+    // Paging keeps the honest pre-page total.
+    let page = harness.call("tm.list", json!({ "projectId": project_id, "limit": 2 }));
+    assert_eq!(page["total"], 3);
+    assert_eq!(page["entries"].as_array().expect("entries").len(), 2);
+    let rest = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "limit": 2, "offset": 2 }),
+    );
+    assert_eq!(rest["total"], 3);
+    assert_eq!(rest["entries"].as_array().expect("entries").len(), 1);
+    let past_end = harness.call("tm.list", json!({ "projectId": project_id, "offset": 99 }));
+    assert_eq!(past_end["total"], 3);
+    assert_eq!(past_end["entries"].as_array().expect("entries").len(), 0);
+
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": project_id, "limit": 0 })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+}
+
+#[test]
+fn tm_update_and_delete_keep_index_and_confirm_path_coherent() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "source.txt",
+        "The retention period is 30 days.\n\nCats enjoy sleeping in warm sunlight.\n",
+    );
+    let segments = harness.segments(&document_id);
+    let first = harness.set_target(&segments[0], "保留期为 30 天。");
+    harness.confirm(&first);
+    let second = harness.set_target(&segments[1], "猫喜欢在温暖的阳光下睡觉。");
+    harness.confirm(&second);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["total"], 2);
+    let entry_of = |listed: &Value, source: &str| -> String {
+        listed["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .find(|entry| entry["sourceText"] == source)
+            .and_then(|entry| entry["id"].as_str())
+            .expect("entry id")
+            .to_string()
+    };
+    let retention_id = entry_of(&listed, "The retention period is 30 days.");
+    let cats_id = entry_of(&listed, "Cats enjoy sleeping in warm sunlight.");
+
+    // Target-only edit: lookup returns the curated translation.
+    let updated = harness.call(
+        "tm.update",
+        json!({
+            "entryId": retention_id,
+            "sourceText": "The retention period is 30 days.",
+            "targetText": "保留期共 30 天。",
+        }),
+    );
+    assert_eq!(updated["entry"]["targetText"], "保留期共 30 天。");
+    let lookup = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The retention period is 30 days." }),
+    );
+    assert_eq!(lookup["matches"][0]["grade"], "exact");
+    assert_eq!(
+        lookup["matches"][0]["entry"]["targetText"],
+        "保留期共 30 天。"
+    );
+
+    // Source edit re-keys the hash and the fuzzy index.
+    harness.call(
+        "tm.update",
+        json!({
+            "entryId": retention_id,
+            "sourceText": "The data retention window is 30 days.",
+            "targetText": "数据保留窗口为 30 天。",
+        }),
+    );
+    let old_source = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The retention period is 30 days." }),
+    );
+    assert!(
+        old_source["matches"]
+            .as_array()
+            .expect("matches")
+            .iter()
+            .all(|item| item["grade"] != "exact"),
+        "old source must no longer match exactly"
+    );
+    let new_source = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 30 days." }),
+    );
+    assert_eq!(new_source["matches"][0]["grade"], "exact");
+    assert_eq!(
+        new_source["matches"][0]["entry"]["targetText"],
+        "数据保留窗口为 30 天。"
+    );
+    let fuzzy = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 45 days." }),
+    );
+    assert_eq!(fuzzy["matches"][0]["grade"], "fuzzy");
+    assert_eq!(fuzzy["matches"][0]["entry"]["id"], retention_id.as_str());
+
+    // One entry per normalized source per memory stays enforced.
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({
+                "entryId": cats_id,
+                "sourceText": "The data retention window is 30 days.",
+                "targetText": "重复源文。",
+            }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({ "entryId": retention_id, "sourceText": "  ", "targetText": "x" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.update",
+            json!({ "entryId": "missing", "sourceText": "a", "targetText": "b" }),
+        ),
+        "notFound"
+    );
+
+    // Delete removes the entry from lookup, fuzzy recall, and the list.
+    let deleted = harness.call("tm.delete", json!({ "entryId": cats_id }));
+    assert_eq!(
+        deleted["entry"]["sourceText"],
+        "Cats enjoy sleeping in warm sunlight."
+    );
+    let exact_gone = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Cats enjoy sleeping in warm sunlight." }),
+    );
+    assert_eq!(exact_gone["totalMatches"], 0);
+    let fuzzy_gone = harness.call(
+        "tm.lookup",
+        json!({
+            "projectId": project_id,
+            "sourceText": "Cats enjoy sleeping in the warm sunlight.",
+        }),
+    );
+    assert_eq!(fuzzy_gone["totalMatches"], 0);
+    assert_eq!(
+        harness.call("tm.list", json!({ "projectId": project_id }))["total"],
+        1
+    );
+    assert_eq!(
+        harness.call_err("tm.delete", json!({ "entryId": cats_id })),
+        "notFound"
+    );
+
+    // Edits and deletions survive an engine restart via state.json, and the
+    // rebuilt fuzzy index matches the persisted entries.
+    harness.reopen();
+    assert_eq!(
+        harness.call("tm.list", json!({ "projectId": project_id }))["total"],
+        1
+    );
+    let after_restart = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "The data retention window is 45 days." }),
+    );
+    assert_eq!(after_restart["matches"][0]["grade"], "fuzzy");
+    assert_eq!(
+        harness.call(
+            "tm.lookup",
+            json!({
+                "projectId": project_id,
+                "sourceText": "Cats enjoy sleeping in warm sunlight.",
+            }),
+        )["totalMatches"],
+        0
+    );
+
+    // The human confirm path keeps writing TM after manage operations.
+    let segments = harness.segments(&document_id);
+    harness.confirm(&segments[1]);
+    let relisted = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(relisted["total"], 2);
+
+    // Pretranslation picks up the curated target for the edited source.
+    let job_id = harness.import_txt(
+        &project_id,
+        "job.txt",
+        "The data retention window is 30 days.\n",
+    );
+    let pretranslated = harness.call("tm.pretranslate", json!({ "documentId": job_id }));
+    assert_eq!(pretranslated["exact"], 1);
+    assert_eq!(
+        pretranslated["segments"][0]["targetText"],
+        "数据保留窗口为 30 天。"
+    );
+}
+
+#[test]
 fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();
