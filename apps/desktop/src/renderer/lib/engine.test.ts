@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopApi } from "../../shared/desktop-api.js";
-import { EngineClientError, callEngine, isAiNotConfigured } from "./engine.js";
+import {
+  EngineClientError,
+  callEngine,
+  isAiNotConfigured,
+  isEngineUnavailable,
+} from "./engine.js";
 
 function installBridge(invoke: DesktopApi["invoke"]): void {
   const api: Partial<DesktopApi> = { invoke };
@@ -44,5 +49,30 @@ describe("callEngine", () => {
     expect(failure).toBeInstanceOf(EngineClientError);
     expect((failure as EngineClientError).code).toBe("aiNotConfigured");
     expect(isAiNotConfigured(failure)).toBe(true);
+  });
+});
+
+describe("isEngineUnavailable", () => {
+  it("recognises transport failures where a write may never have arrived", () => {
+    expect(
+      isEngineUnavailable(
+        new EngineClientError("engineDown", "engine process is not running"),
+      ),
+    ).toBe(true);
+    expect(
+      isEngineUnavailable(
+        new EngineClientError("timeout", "segment.update timed out"),
+      ),
+    ).toBe(true);
+  });
+
+  it("treats engine-level errors and foreign errors as available", () => {
+    expect(
+      isEngineUnavailable(
+        new EngineClientError("revisionConflict", "stale revision"),
+      ),
+    ).toBe(false);
+    expect(isEngineUnavailable(new Error("engineDown"))).toBe(false);
+    expect(isEngineUnavailable("engineDown")).toBe(false);
   });
 });

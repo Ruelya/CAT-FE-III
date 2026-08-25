@@ -252,6 +252,12 @@ export interface MethodContract10 {
 export interface DocumentExportParams {
   documentId: string;
   outputPath: string;
+  /**
+   * Embed per-paragraph grid-segment anchors into the exported artifact so
+   * a layout preview can map clicks back to segments. Preview aid; filters
+   * without anchor support ignore it. Defaults to a plain export.
+   */
+  segmentAnchors?: boolean | null;
   [k: string]: unknown;
 }
 export interface DocumentExportResult {
@@ -613,10 +619,24 @@ export interface MethodContract11 {
 }
 export interface SegmentListParams {
   documentId: string;
+  /**
+   * Page size. When omitted the whole document is returned, which is the
+   * pre-paging behavior existing clients rely on.
+   */
+  limit?: number | null;
+  /**
+   * Rows to skip in ordinal order; defaults to 0.
+   */
+  offset?: number | null;
   [k: string]: unknown;
 }
 export interface SegmentListResult {
   segments: Segment[];
+  /**
+   * Segments in the document before the page window was applied, so
+   * clients can size scrollbars without fetching every row.
+   */
+  totalSegments: number;
   [k: string]: unknown;
 }
 /**
@@ -1018,7 +1038,8 @@ export interface MethodContract15 {
 }
 export interface TmListParams {
   /**
-   * Maximum entries to return; defaults to [`TM_LIST_DEFAULT_LIMIT`].
+   * Page size (1..=[`TM_LIST_MAX_LIMIT`]); defaults to
+   * [`TM_LIST_DEFAULT_LIMIT`].
    */
   limit?: number | null;
   /**

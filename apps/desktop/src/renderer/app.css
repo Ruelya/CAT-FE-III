@@ -110,6 +110,89 @@ body {
   white-space: nowrap;
 }
 
+/* Inert wrapper around the main surface; display:contents keeps the
+   app-shell grid rows intact while the engine gate is up. */
+.app-main {
+  display: contents;
+}
+
+/* Engine gate: honest blocking surface between header and statusbar while
+   the engine is starting, restarting, or down. */
+
+.engine-gate {
+  position: fixed;
+  top: 44px;
+  bottom: 30px;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tl-space-6);
+  background: rgba(27, 32, 43, 0.42);
+}
+
+.engine-gate__card {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-5);
+  border: 1px solid var(--tl-color-border-strong);
+  border-left: 3px solid var(--tl-status-warn);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface);
+  box-shadow: var(--tl-shadow-overlay);
+}
+
+.engine-gate__card[data-state="down"] {
+  border-left-color: var(--tl-status-danger);
+}
+
+.engine-gate__title {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin: 0;
+  font-size: var(--tl-text-md);
+  font-weight: 600;
+  color: var(--tl-color-text);
+}
+
+.engine-gate__body {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  line-height: 1.6;
+  color: var(--tl-color-text-muted);
+}
+
+.engine-gate__error {
+  margin: 0;
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.engine-gate__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Unacked write alert inside the grid panel. */
+.workbench-unacked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  margin-bottom: var(--tl-space-3);
+}
+
 /* Projects view */
 
 .projects-view {
@@ -777,6 +860,17 @@ body {
 .preview__docx .docx-wrapper {
   background: var(--tl-color-sunken);
   padding: var(--tl-space-5);
+}
+
+/* Paragraphs carrying an export-embedded segment anchor are click-to-jump.
+   The affordance keys on the real bookmark span, so unanchored chrome
+   (page margins, empty paragraphs) never pretends to be clickable. */
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]) {
+  cursor: pointer;
+}
+
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]):hover {
+  background: var(--tl-color-accent-faint);
 }
 
 .preview__legend {

@@ -4,6 +4,7 @@
 //! every entry whose provable score ceiling reaches the requested floor (no
 //! hidden candidate cap), and `tl_asset::match_score` reranks the survivors.
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::Path;
 
@@ -11,7 +12,7 @@ use tl_asset::{
     TermEntry, TermExchangeEntry, TermExchangeTranslation, TermMatch, TermStatus, TermTranslation,
     Termbase, TermbaseMount, TmExchangeUnit, match_score, normalize_match_key, term_spans,
 };
-use tl_domain::{SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
+use tl_domain::{Segment, SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
 use tl_protocol::{
     TM_LIST_DEFAULT_LIMIT, TM_LIST_MAX_LIMIT, TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE,
     TM_LOOKUP_MAX_LIMIT, TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult,
@@ -34,12 +35,18 @@ impl Engine {
     }
 
     /// Insert or refresh the TM entry for one normalized source in a memory.
-    /// Returns the entry and whether it was newly added. The lookup goes
-    /// through the exact-match index, so upserting stays O(log n) instead of
-    /// scanning the whole table. Callers persist the returned entry.
+    /// Returns the entry and whether it was newly added.
+    ///
+    /// Existing entries are resolved by a point query on the store's unique
+    /// `(memory_id, source_hash)` index — there is no RAM copy of the TM
+    /// table to consult. `pending` collects the rows of one logical batch
+    /// (a whole `tm.import` file, or a single confirm): it keeps repeated
+    /// sources inside a batch upserting the same row before anything is
+    /// committed, and the caller persists its values in one transaction.
     #[expect(clippy::too_many_arguments, reason = "internal upsert plumbing")]
     pub(crate) fn upsert_tm_entry(
         &mut self,
+        pending: &mut BTreeMap<(String, String), TmEntry>,
         memory_id: &str,
         project_id: &str,
         source_text: &str,
@@ -48,16 +55,22 @@ impl Engine {
         origin_document_id: &str,
         origin_segment_id: &str,
         now: i64,
-    ) -> (TmEntry, bool) {
+    ) -> Result<(TmEntry, bool), EngineError> {
         let key = (memory_id.to_string(), source_hash.to_string());
-        if let Some(entry_id) = self.tm_exact.get(&key)
-            && let Some(entry) = self.state.tm_entries.get_mut(entry_id)
-        {
+        if let Some(entry) = pending.get_mut(&key) {
             entry.target_text = target_text.to_string();
             entry.origin_document_id = origin_document_id.to_string();
             entry.origin_segment_id = origin_segment_id.to_string();
             entry.confirmed_at_ms = now;
-            return (entry.clone(), false);
+            return Ok((entry.clone(), false));
+        }
+        if let Some(mut entry) = self.store.tm_entry_by_source(memory_id, source_hash)? {
+            entry.target_text = target_text.to_string();
+            entry.origin_document_id = origin_document_id.to_string();
+            entry.origin_segment_id = origin_segment_id.to_string();
+            entry.confirmed_at_ms = now;
+            pending.insert(key, entry.clone());
+            return Ok((entry, false));
         }
         let entry = TmEntry {
             id: new_id(),
@@ -74,39 +87,35 @@ impl Engine {
             .entry(memory_id.to_string())
             .or_default()
             .insert(&entry.id, &entry.source_text);
-        self.tm_exact.insert(key, entry.id.clone());
-        self.state
-            .tm_entries
-            .insert(entry.id.clone(), entry.clone());
-        (entry, true)
+        pending.insert(key, entry.clone());
+        Ok((entry, true))
     }
 
     /// Exact + fuzzy matches for one source text against one memory, sorted
     /// by score, then recency, then id. `total` is the pre-limit count.
+    ///
+    /// The exact hit is a SQL point query; fuzzy recall walks the in-memory
+    /// token index for candidate ids and fetches only those rows from SQL.
     pub(crate) fn tm_matches(
         &self,
         memory_id: &str,
         source_text: &str,
         min_score: u8,
         limit: usize,
-    ) -> (Vec<TmMatchItem>, u32) {
+    ) -> Result<(Vec<TmMatchItem>, u32), EngineError> {
         let hash = sha256_hex(normalize_text(source_text).as_bytes());
         let mut matches: Vec<TmMatchItem> = Vec::new();
-        if let Some(entry) = self
-            .tm_exact
-            .get(&(memory_id.to_string(), hash.clone()))
-            .and_then(|entry_id| self.state.tm_entries.get(entry_id))
-        {
+        if let Some(entry) = self.store.tm_entry_by_source(memory_id, &hash)? {
             matches.push(TmMatchItem {
-                entry: entry.clone(),
+                entry,
                 score: 100,
                 grade: TmMatchGrade::Exact,
             });
         }
         if let Some(index) = self.tm_indexes.get(memory_id) {
             for entry_id in index.recall(source_text, min_score) {
-                let Some(entry) = self.state.tm_entries.get(&entry_id) else {
-                    continue;
+                let Some(entry) = self.store.tm_entry(&entry_id)? else {
+                    continue; // Index ahead of a failed write; row absent.
                 };
                 if entry.source_hash == hash {
                     continue; // Already reported as exact.
@@ -114,7 +123,7 @@ impl Engine {
                 let score = match_score(source_text, &entry.source_text).score;
                 if score >= min_score {
                     matches.push(TmMatchItem {
-                        entry: entry.clone(),
+                        entry,
                         score,
                         grade: TmMatchGrade::Fuzzy,
                     });
@@ -130,7 +139,7 @@ impl Engine {
         });
         let total = u32::try_from(matches.len()).unwrap_or(u32::MAX);
         matches.truncate(limit);
-        (matches, total)
+        Ok((matches, total))
     }
 
     pub(crate) fn tm_lookup(&self, params: TmLookupParams) -> Result<TmLookupResult, EngineError> {
@@ -147,15 +156,17 @@ impl Engine {
         };
         let memory_id = Self::project_memory_id(&params.project_id);
         let (matches, total_matches) =
-            self.tm_matches(&memory_id, &params.source_text, min_score, limit as usize);
+            self.tm_matches(&memory_id, &params.source_text, min_score, limit as usize)?;
         Ok(TmLookupResult {
             matches,
             total_matches,
         })
     }
 
-    /// One page of a project's TM entries, newest confirmation first, with an
-    /// optional case-insensitive substring filter over source and target.
+    /// One page of a project's TM entries straight from SQL, newest
+    /// confirmation first, with an optional case-insensitive substring
+    /// filter over source and target. No RAM copy of the TM table backs
+    /// this; the page is the only transfer.
     pub(crate) fn tm_list(&self, params: TmListParams) -> Result<TmListResult, EngineError> {
         self.require_project(&params.project_id)?;
         let limit = match params.limit {
@@ -167,49 +178,23 @@ impl Engine {
             }
             Some(value) => value.min(TM_LIST_MAX_LIMIT),
         };
-        let offset = params.offset.unwrap_or(0) as usize;
         let query = params
             .query
             .as_deref()
             .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_lowercase);
+            .filter(|value| !value.is_empty());
         let memory_id = Self::project_memory_id(&params.project_id);
-        let mut entries: Vec<&TmEntry> = self
-            .state
-            .tm_entries
-            .values()
-            .filter(|entry| entry.memory_id == memory_id)
-            .filter(|entry| match query.as_deref() {
-                Some(needle) => {
-                    entry.source_text.to_lowercase().contains(needle)
-                        || entry.target_text.to_lowercase().contains(needle)
-                }
-                None => true,
-            })
-            .collect();
-        entries.sort_by(|left, right| {
-            right
-                .confirmed_at_ms
-                .cmp(&left.confirmed_at_ms)
-                .then(left.id.cmp(&right.id))
-        });
-        let total = u32::try_from(entries.len()).unwrap_or(u32::MAX);
-        let page: Vec<TmEntry> = entries
-            .into_iter()
-            .skip(offset)
-            .take(limit as usize)
-            .cloned()
-            .collect();
-        Ok(TmListResult {
-            entries: page,
-            total,
-        })
+        let entries =
+            self.store
+                .tm_entries_page(&memory_id, query, params.offset.unwrap_or(0), limit)?;
+        let total = self.store.tm_entry_count(&memory_id, query)?;
+        Ok(TmListResult { entries, total })
     }
 
     /// Edit one TM entry's source and target text. A changed source re-keys
     /// the entry (hash + fuzzy index) so lookup, pretranslation, and the
-    /// confirm-time upsert all see the edited text.
+    /// confirm-time upsert all see the edited text. The row is fetched from
+    /// SQL, mutated, and persisted — no RAM copy of the TM table exists.
     pub(crate) fn tm_update(
         &mut self,
         params: TmUpdateParams,
@@ -221,53 +206,37 @@ impl Engine {
                 "source and target text must not be empty".to_string(),
             ));
         }
-        let (memory_id, old_source_text, old_source_hash) = {
-            let entry =
-                self.state.tm_entries.get(&params.entry_id).ok_or_else(|| {
-                    EngineError::NotFound(format!("TM entry {}", params.entry_id))
-                })?;
-            (
-                entry.memory_id.clone(),
-                entry.source_text.clone(),
-                entry.source_hash.clone(),
-            )
-        };
+        let mut entry = self
+            .store
+            .tm_entry(&params.entry_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("TM entry {}", params.entry_id)))?;
+        let old_source_text = entry.source_text.clone();
+        let memory_id = entry.memory_id.clone();
         let source_hash = sha256_hex(normalize_text(&source_text).as_bytes());
         // One entry per normalized source per memory: the confirm-time upsert
-        // relies on it, so an edit must not create a silent duplicate.
-        if self.state.tm_entries.values().any(|entry| {
-            entry.id != params.entry_id
-                && entry.memory_id == memory_id
-                && entry.source_hash == source_hash
-        }) {
+        // relies on it, so an edit must not create a silent duplicate. Exact
+        // resolution is a point query on the unique (memory_id, source_hash)
+        // index — the same one lookup and confirm use.
+        if let Some(existing) = self.store.tm_entry_by_source(&memory_id, &source_hash)?
+            && existing.id != params.entry_id
+        {
             return Err(EngineError::Conflict(
                 "another TM entry in this memory already covers that source text".to_string(),
             ));
         }
-        let now = now_ms();
-        let entry = self
-            .state
-            .tm_entries
-            .get_mut(&params.entry_id)
-            .expect("TM entry just resolved");
         entry.source_text = source_text;
         entry.target_text = target_text;
         entry.source_hash = source_hash;
-        entry.confirmed_at_ms = now;
-        let updated = entry.clone();
+        entry.confirmed_at_ms = now_ms();
+        let updated = entry;
         if updated.source_text != old_source_text {
             // Re-key the fuzzy index so recall follows the edited source.
+            // Exact matches need no index care: they resolve through the
+            // store's (memory_id, source_hash) point query.
             self.tm_indexes
-                .entry(memory_id.clone())
+                .entry(memory_id)
                 .or_default()
                 .insert(&updated.id, &updated.source_text);
-        }
-        if updated.source_hash != old_source_hash {
-            // Re-key the exact-match index the same way; the confirm-time
-            // upsert and exact lookup both resolve through it.
-            self.tm_exact.remove(&(memory_id.clone(), old_source_hash));
-            self.tm_exact
-                .insert((memory_id, updated.source_hash.clone()), updated.id.clone());
         }
         self.store.apply(&StateDelta {
             tm_entries: vec![updated.clone()],
@@ -282,15 +251,12 @@ impl Engine {
         params: TmDeleteParams,
     ) -> Result<TmDeleteResult, EngineError> {
         let entry = self
-            .state
-            .tm_entries
-            .remove(&params.entry_id)
+            .store
+            .tm_entry(&params.entry_id)?
             .ok_or_else(|| EngineError::NotFound(format!("TM entry {}", params.entry_id)))?;
         if let Some(index) = self.tm_indexes.get_mut(&entry.memory_id) {
             index.remove(&entry.id);
         }
-        self.tm_exact
-            .remove(&(entry.memory_id.clone(), entry.source_hash.clone()));
         self.store.apply(&StateDelta {
             deleted_tm_entries: vec![entry.id.clone()],
             ..Default::default()
@@ -326,10 +292,14 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut updated = 0_u32;
-        let mut changed_entries = Vec::with_capacity(units.len());
+        // The batch map deduplicates repeated sources inside the file, so
+        // the delta carries one final row per (memory, hash) and the last
+        // occurrence wins — the same behavior the in-memory upsert had.
+        let mut pending = BTreeMap::new();
         for unit in &units {
             let hash = sha256_hex(normalize_text(&unit.source_text).as_bytes());
-            let (entry, is_new) = self.upsert_tm_entry(
+            let (_, is_new) = self.upsert_tm_entry(
+                &mut pending,
                 &memory_id,
                 &project.id,
                 &unit.source_text,
@@ -338,18 +308,16 @@ impl Engine {
                 "",
                 "",
                 unit.created_at_ms.unwrap_or(now),
-            );
-            changed_entries.push(entry);
+            )?;
             if is_new {
                 added += 1;
             } else {
                 updated += 1;
             }
         }
-        // One transaction for the whole file; duplicate ids inside the batch
-        // upsert in order, so the last occurrence wins, same as in memory.
+        // One transaction for the whole file.
         self.store.apply(&StateDelta {
-            tm_entries: changed_entries,
+            tm_entries: pending.into_values().collect(),
             ..Default::default()
         })?;
         Ok(TmImportResult {
@@ -370,17 +338,9 @@ impl Engine {
         }
         let format = resolve_tm_format(params.format, path)?;
         let memory_id = Self::project_memory_id(&project.id);
-        let mut entries: Vec<&TmEntry> = self
-            .state
-            .tm_entries
-            .values()
-            .filter(|entry| entry.memory_id == memory_id)
-            .collect();
-        entries.sort_by(|left, right| {
-            left.confirmed_at_ms
-                .cmp(&right.confirmed_at_ms)
-                .then(left.id.cmp(&right.id))
-        });
+        // Export inherently materializes the memory for the outgoing file,
+        // but only this memory and only for the duration of the call.
+        let entries = self.store.tm_entries_for_export(&memory_id)?;
         let units: Vec<TmExchangeUnit> = entries
             .iter()
             .map(|entry| TmExchangeUnit {
@@ -414,44 +374,41 @@ impl Engine {
     ) -> Result<TmPretranslateResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
         let project_id = record.document.project_id.clone();
-        let segment_ids = record.segment_ids.clone();
+        let document_id = record.document.id.clone();
         let min_score = validate_min_score(params.min_score, TM_PRETRANSLATE_DEFAULT_MIN_SCORE)?;
         let memory_id = Self::project_memory_id(&project_id);
         let now = now_ms();
+        // Only the document's untranslated rows leave SQL; pretranslation
+        // inherently walks all of them once.
+        let pending: Vec<Segment> = self
+            .store
+            .untranslated_document_segments(&document_id)?
+            .into_iter()
+            .filter(|segment| segment.target_text.trim().is_empty())
+            .collect();
         let mut checked = 0_u32;
         let mut exact = 0_u32;
         let mut fuzzy = 0_u32;
         let mut changed = Vec::new();
-        for segment_id in &segment_ids {
-            let Some(segment) = self.state.segments.get(segment_id) else {
-                continue;
-            };
-            if segment.state != SegmentState::Untranslated || !segment.target_text.trim().is_empty()
-            {
-                continue;
-            }
+        for mut segment in pending {
             checked += 1;
-            let (matches, _) = self.tm_matches(&memory_id, &segment.source_text, min_score, 1);
+            let (matches, _) = self.tm_matches(&memory_id, &segment.source_text, min_score, 1)?;
             let Some(best) = matches.first() else {
                 continue;
             };
             if best.score < min_score {
                 continue;
             }
-            let target = best.entry.target_text.clone();
-            let is_exact = best.grade == TmMatchGrade::Exact;
-            if let Some(stored) = self.state.segments.get_mut(segment_id) {
-                stored.target_text = target;
-                stored.state = SegmentState::Draft;
-                stored.revision += 1;
-                stored.updated_at_ms = now;
-                changed.push(stored.clone());
-                if is_exact {
-                    exact += 1;
-                } else {
-                    fuzzy += 1;
-                }
+            segment.target_text = best.entry.target_text.clone();
+            segment.state = SegmentState::Draft;
+            segment.revision += 1;
+            segment.updated_at_ms = now;
+            if best.grade == TmMatchGrade::Exact {
+                exact += 1;
+            } else {
+                fuzzy += 1;
             }
+            changed.push(segment);
         }
         let delta = StateDelta {
             segments: changed,

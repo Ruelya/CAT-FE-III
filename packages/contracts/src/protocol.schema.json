@@ -509,6 +509,13 @@
         },
         "outputPath": {
           "type": "string"
+        },
+        "segmentAnchors": {
+          "description": "Embed per-paragraph grid-segment anchors into the exported artifact so\na layout preview can map clicks back to segments. Preview aid; filters\nwithout anchor support ignore it. Defaults to a plain export.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2202,6 +2209,26 @@
       "properties": {
         "documentId": {
           "type": "string"
+        },
+        "limit": {
+          "description": "Page size. When omitted the whole document is returned, which is the\npre-paging behavior existing clients rely on.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "offset": {
+          "description": "Rows to skip in ordinal order; defaults to 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
         }
       },
       "required": [
@@ -2216,10 +2243,17 @@
           "items": {
             "$ref": "#/$defs/Segment"
           }
+        },
+        "totalSegments": {
+          "description": "Segments in the document before the page window was applied, so\nclients can size scrollbars without fetching every row.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
-        "segments"
+        "segments",
+        "totalSegments"
       ]
     },
     "SegmentState": {
@@ -3162,7 +3196,7 @@
       "type": "object",
       "properties": {
         "limit": {
-          "description": "Maximum entries to return; defaults to [`TM_LIST_DEFAULT_LIMIT`].",
+          "description": "Page size (1..=[`TM_LIST_MAX_LIMIT`]); defaults to\n[`TM_LIST_DEFAULT_LIMIT`].",
           "type": [
             "integer",
             "null"

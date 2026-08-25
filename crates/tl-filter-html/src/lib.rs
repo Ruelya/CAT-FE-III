@@ -974,6 +974,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: &segments,
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         let result = fs::read_to_string(&output).expect("read");
@@ -986,7 +987,8 @@ mod tests {
                 .export(ExportRequest {
                     source: &source,
                     output: &output,
-                    segments: &segments
+                    segments: &segments,
+                    segment_anchors: std::collections::BTreeMap::new(),
                 })
                 .is_err()
         );

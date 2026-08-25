@@ -30,6 +30,9 @@ tl-protocol = { path = "../tl-protocol" }
 tl-qa = { path = "../tl-qa" }
 tl-segmentation = { path = "../tl-segmentation" }
 
+[dev-dependencies]
+tl-filter-office = { path = "../tl-filter-office" }
+
 [[bin]]
 name = "tl-engine"
 path = "src/main.rs"

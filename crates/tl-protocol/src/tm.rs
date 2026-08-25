@@ -8,9 +8,9 @@ use tl_domain::{Segment, TmEntry};
 pub const TM_LOOKUP_DEFAULT_LIMIT: u32 = 20;
 /// Hard ceiling on an explicit lookup `limit`.
 pub const TM_LOOKUP_MAX_LIMIT: u32 = 500;
-/// Default page size applied when a list omits `limit`.
+/// Default page size applied when `tm.list` omits `limit`.
 pub const TM_LIST_DEFAULT_LIMIT: u32 = 100;
-/// Hard ceiling on an explicit list `limit`.
+/// Hard ceiling on an explicit `tm.list` `limit`.
 pub const TM_LIST_MAX_LIMIT: u32 = 500;
 /// Default fuzzy floor applied when a lookup omits `min_score`.
 pub const TM_LOOKUP_DEFAULT_MIN_SCORE: u8 = 60;
@@ -67,7 +67,8 @@ pub struct TmListParams {
     /// Case-insensitive substring filter over source and target text.
     #[serde(default)]
     pub query: Option<String>,
-    /// Maximum entries to return; defaults to [`TM_LIST_DEFAULT_LIMIT`].
+    /// Page size (1..=[`TM_LIST_MAX_LIMIT`]); defaults to
+    /// [`TM_LIST_DEFAULT_LIMIT`].
     #[serde(default)]
     pub limit: Option<u32>,
     /// Entries to skip before the page starts; defaults to 0.

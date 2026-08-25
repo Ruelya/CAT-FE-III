@@ -430,6 +430,110 @@ fn fuzzy_tm_lookup_recalls_and_reranks() {
     assert_eq!(after_restart["matches"][0]["grade"], "fuzzy");
 }
 
+/// Both list surfaces page from SQL: stable windows, totals independent of
+/// the window, and identical answers after a restart (so nothing depended
+/// on rows hydrated at open).
+#[test]
+fn segment_and_tm_lists_page_from_sql() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "paged.txt",
+        "One.\n\nTwo.\n\nThree.\n\nFour.\n\nFive.\n\nSix.\n",
+    );
+
+    // Omitting the window keeps the pre-paging behavior: the whole document.
+    let full = harness.call("segment.list", json!({ "documentId": document_id }));
+    assert_eq!(full["totalSegments"], 6);
+    assert_eq!(full["segments"].as_array().expect("segments").len(), 6);
+
+    // A middle window in grid order, with the total unaffected.
+    let page = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 2, "limit": 2 }),
+    );
+    let rows = page["segments"].as_array().expect("segments");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["sourceText"], "Three.");
+    assert_eq!(rows[1]["sourceText"], "Four.");
+    assert_eq!(page["totalSegments"], 6);
+
+    // Overhang clips, past-the-end is empty, and limit 0 is rejected.
+    let tail = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 4, "limit": 10 }),
+    );
+    assert_eq!(tail["segments"].as_array().expect("segments").len(), 2);
+    let past = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 10, "limit": 2 }),
+    );
+    assert_eq!(past["segments"].as_array().expect("segments").len(), 0);
+    assert_eq!(past["totalSegments"], 6);
+    assert_eq!(
+        harness.call_err(
+            "segment.list",
+            json!({ "documentId": document_id, "limit": 0 }),
+        ),
+        "invalidParams"
+    );
+
+    // Two TM entries; then a confirm refreshes one so it is provably the
+    // newest. The sleep keeps the confirmation in a later millisecond.
+    let csv_path = harness.write_file("paged-memory.csv", "source,target\nOne.,一。\nTwo.,二。\n");
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path }),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let segments = harness.segments(&document_id);
+    let updated = harness.set_target(&segments[1], "二！");
+    harness.confirm(&updated);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["total"], 2);
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        entries[0]["sourceText"], "Two.",
+        "newest confirmation first"
+    );
+    assert_eq!(entries[0]["targetText"], "二！");
+
+    let first = harness.call("tm.list", json!({ "projectId": project_id, "limit": 1 }));
+    assert_eq!(first["entries"].as_array().expect("entries").len(), 1);
+    assert_eq!(first["entries"][0]["sourceText"], "Two.");
+    assert_eq!(first["total"], 2);
+    let second = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "offset": 1, "limit": 1 }),
+    );
+    assert_eq!(second["entries"][0]["sourceText"], "One.");
+    let past_tm = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "offset": 2, "limit": 1 }),
+    );
+    assert_eq!(past_tm["entries"].as_array().expect("entries").len(), 0);
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": project_id, "limit": 0 })),
+        "invalidParams"
+    );
+
+    // Restart: the pages answer from SQL identically, proving no list
+    // surface depended on state hydrated at open.
+    harness.reopen();
+    let page = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 2, "limit": 2 }),
+    );
+    assert_eq!(page["segments"][0]["sourceText"], "Three.");
+    assert_eq!(page["totalSegments"], 6);
+    let listed = harness.call("tm.list", json!({ "projectId": project_id, "limit": 1 }));
+    assert_eq!(listed["entries"][0]["sourceText"], "Two.");
+    assert_eq!(listed["total"], 2);
+}
+
 #[test]
 fn tm_import_export_roundtrip_and_pretranslate() {
     let mut harness = Harness::new();
@@ -1393,4 +1497,57 @@ fn custom_srx_controls_segmentation_and_export_reassembles() {
         ),
         "invalidParams"
     );
+}
+
+#[test]
+fn docx_export_embeds_segment_anchors_only_when_requested() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source = harness.directory.path().join("anchored-source.docx");
+    tl_filter_docx::fixture::write_fixture(&source).expect("write docx fixture");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": source.display().to_string() }),
+    );
+    let document_id = imported["document"]["id"].as_str().expect("id").to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 3, "fixture yields three DOCX paragraphs");
+    harness.set_target(&segments[0], "保留期为 30 天。");
+
+    let document_xml_of = |path: &str| -> String {
+        let package =
+            tl_filter_office::OfficePackage::open(std::path::Path::new(path)).expect("package");
+        String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part")
+    };
+
+    // The plain export — what「导出译文」writes — carries no preview anchors.
+    let plain_path = harness.path_of("plain.docx");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+    assert!(!document_xml_of(&harness.path_of("plain.docx")).contains("tlseg-"));
+
+    // The anchored export bookmarks every paragraph with its first grid
+    // segment id — untranslated paragraphs included, since the layout preview
+    // renders and must jump from those too.
+    let anchored_path = harness.path_of("anchored.docx");
+    let result = harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": anchored_path,
+            "segmentAnchors": true,
+        }),
+    );
+    assert_eq!(result["translatedSegments"], 1);
+    let anchored_xml = document_xml_of(&harness.path_of("anchored.docx"));
+    for segment in &segments {
+        let segment_id = segment["id"].as_str().expect("segment id");
+        assert!(
+            anchored_xml.contains(&format!("w:name=\"tlseg-{segment_id}\"")),
+            "missing anchor for segment {segment_id}"
+        );
+    }
 }

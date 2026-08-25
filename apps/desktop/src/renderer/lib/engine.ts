@@ -30,6 +30,19 @@ export function isAiNotConfigured(error: unknown): boolean {
   return error instanceof EngineClientError && error.code === "aiNotConfigured";
 }
 
+/**
+ * Transport-level failures where the request may never have reached the
+ * engine (child not running, stdin write failed, or no response before the
+ * timeout). For writes this means the change was NOT acknowledged and must
+ * not be presented as saved.
+ */
+export function isEngineUnavailable(error: unknown): boolean {
+  return (
+    error instanceof EngineClientError &&
+    (error.code === "engineDown" || error.code === "timeout")
+  );
+}
+
 export function describeError(error: unknown): string {
   if (error instanceof EngineClientError) {
     return error.message;

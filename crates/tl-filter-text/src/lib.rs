@@ -769,6 +769,7 @@ mod tests {
                 source: &source,
                 output: &output,
                 segments: std::slice::from_mut(&mut segment),
+                segment_anchors: std::collections::BTreeMap::new(),
             })
             .expect("export");
         assert_eq!(

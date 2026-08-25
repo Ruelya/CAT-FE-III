@@ -120,6 +120,16 @@ function registerIpc(): void {
     );
   });
 
+  ipcMain.handle(IPC_CHANNELS.relaunch, () => {
+    return (
+      supervisor?.relaunch() ?? {
+        state: "down",
+        restarts: 0,
+        lastError: "not started",
+      }
+    );
+  });
+
   // E2E seam on every dialog channel: native dialogs cannot be driven by
   // automation, so an env var can stand in for the user's pick.
   async function openFileDialog(
@@ -236,6 +246,9 @@ function registerIpc(): void {
   // Layout preview: run the real export pipeline against a temp path and
   // hand the DOCX bytes to the renderer. The temp dir is always cleaned up;
   // the engine refuses pre-existing paths, so each call gets a fresh dir.
+  // `segmentAnchors` asks the engine to bookmark each paragraph with its grid
+  // segment id so the layout view can jump on click; user-facing exports
+  // never pass the flag and stay anchor-free.
   ipcMain.handle(
     IPC_CHANNELS.previewDocx,
     async (_event, documentId: unknown): Promise<DocxPreviewResponse> => {
@@ -263,6 +276,7 @@ function registerIpc(): void {
         const result = (await supervisor.request("document.export", {
           documentId,
           outputPath,
+          segmentAnchors: true,
         })) as { translatedSegments?: unknown };
         const bytes = await readFile(outputPath);
         // Copy into a plain ArrayBuffer so structured clone over IPC is

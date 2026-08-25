@@ -126,6 +126,60 @@ describe("PreviewDialog", () => {
     expect(renderAsyncMock.mock.calls[0]?.[0]).toBe(data);
   });
 
+  it("jumps to the grid from an anchored paragraph in the layout view", async () => {
+    const onJump = vi.fn();
+    installPreviewBridge(
+      vi.fn().mockResolvedValue({
+        ok: true,
+        data: new ArrayBuffer(8),
+        translatedSegments: 2,
+      }),
+    );
+    // Stub the docx-preview output: one paragraph carrying the export-embedded
+    // segment anchor, one without (page chrome / unimported paragraph).
+    renderAsyncMock.mockImplementation(
+      (_data: ArrayBuffer, container: HTMLElement) => {
+        container.innerHTML = [
+          '<section class="docx">',
+          '<p><span id="tlseg-s1"></span><span>第一句。第二句。</span></p>',
+          "<p><span>Chrome-only paragraph</span></p>",
+          "</section>",
+        ].join("");
+        return Promise.resolve();
+      },
+    );
+    renderDialog({ onJump });
+    await userEvent.click(screen.getByRole("tab", { name: /版式视图/ }));
+    await waitFor(() => {
+      expect(screen.getByText("第一句。第二句。")).toBeInTheDocument();
+    });
+    // Clicking the run inside an anchored paragraph jumps to its segment.
+    await userEvent.click(screen.getByText("第一句。第二句。"));
+    expect(onJump).toHaveBeenCalledWith("s1");
+    // Clicking an un-anchored paragraph does nothing — no fake jumps.
+    await userEvent.click(screen.getByText("Chrome-only paragraph"));
+    expect(onJump).toHaveBeenCalledTimes(1);
+    // The footer no longer claims click jump is unsupported.
+    expect(screen.getByText(/点击段落可跳转到编辑网格/)).toBeInTheDocument();
+    expect(screen.queryByText(/不支持点段跳转/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the honest no-jump footer for bilingual DOCX layout views", async () => {
+    installPreviewBridge(
+      vi.fn().mockResolvedValue({
+        ok: true,
+        data: new ArrayBuffer(8),
+        translatedSegments: 1,
+      }),
+    );
+    renderDialog({ documentFormat: "bilingual-docx" });
+    await userEvent.click(screen.getByRole("tab", { name: /版式视图/ }));
+    await waitFor(() => {
+      expect(screen.getByText(/暂不支持点段跳转/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/点击段落可跳转/)).not.toBeInTheDocument();
+  });
+
   it("shows an honest error when the export pipeline refuses", async () => {
     installPreviewBridge(
       vi.fn().mockResolvedValue({
