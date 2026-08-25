@@ -1,8 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { Ref } from "react";
 
 import type { Segment, SegmentState } from "@translunar/contracts";
 import { Badge, Button } from "@translunar/ui";
 import type { BadgeTone } from "@translunar/ui";
+
+export interface SegmentGridHandle {
+  /**
+   * Splice text into the mounted target editor at the caret (replacing any
+   * selection) without saving, then put the caret after the inserted text
+   * and refocus the editor so Ctrl+Enter still confirms. During an IME
+   * composition the text is queued and applied on compositionend instead of
+   * corrupting the composed input. Returns false when no editor is mounted
+   * so callers can fall back.
+   */
+  insertAtCaret: (text: string) => boolean;
+}
 
 export interface SegmentGridProps {
   segments: Segment[];
@@ -12,6 +33,8 @@ export interface SegmentGridProps {
   onSelect: (segmentId: string) => void;
   onSaveDraft: (segment: Segment, targetText: string) => void;
   onConfirm: (segment: Segment, targetText: string) => void;
+  /** Imperative access to the target editor (dock term insertion). */
+  ref?: Ref<SegmentGridHandle>;
 }
 
 const STATE_LABEL: Record<SegmentState, [string, BadgeTone]> = {
@@ -33,9 +56,17 @@ export function SegmentGrid({
   onSelect,
   onSaveDraft,
   onConfirm,
+  ref,
 }: SegmentGridProps) {
   const [draft, setDraft] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Splicing into the value mid-IME-composition would corrupt the composed
+  // input, so inserts requested while composing are queued and flushed on
+  // compositionend.
+  const composingRef = useRef(false);
+  const pendingInsertRef = useRef("");
+  const pendingCaretRef = useRef<number | null>(null);
   const heightsRef = useRef(new Map<string, number>());
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(FALLBACK_VIEWPORT);
@@ -46,10 +77,58 @@ export function SegmentGrid({
     segments.find((segment) => segment.id === activeSegmentId) ?? null;
 
   // Re-seed the editor whenever the active segment (or its committed target)
-  // changes from the outside, e.g. TM apply, AI draft, or propagation.
+  // changes from the outside, e.g. TM apply, AI draft, or propagation. Any
+  // in-flight composition or queued insert belonged to the old text.
   useEffect(() => {
     setDraft(activeSegment?.targetText ?? "");
+    composingRef.current = false;
+    pendingInsertRef.current = "";
+    pendingCaretRef.current = null;
   }, [activeSegment?.id, activeSegment?.targetText]);
+
+  const spliceIntoEditor = useCallback(
+    (textarea: HTMLTextAreaElement, text: string) => {
+      const value = textarea.value;
+      const start = textarea.selectionStart ?? value.length;
+      const end = textarea.selectionEnd ?? start;
+      pendingCaretRef.current = start + text.length;
+      setDraft(value.slice(0, start) + text + value.slice(end));
+    },
+    [],
+  );
+
+  // After an insert re-renders the controlled textarea, place the caret
+  // right after the inserted text and return focus to the editor so the
+  // Ctrl+Enter confirm shortcut keeps working.
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    const textarea = textareaRef.current;
+    if (caret === null || !textarea) {
+      return;
+    }
+    pendingCaretRef.current = null;
+    textarea.focus();
+    textarea.setSelectionRange(caret, caret);
+  }, [draft]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertAtCaret: (text: string) => {
+        const textarea = textareaRef.current;
+        if (!textarea) {
+          return false;
+        }
+        if (composingRef.current) {
+          pendingInsertRef.current += text;
+          return true;
+        }
+        spliceIntoEditor(textarea, text);
+        return true;
+      },
+    }),
+    [spliceIntoEditor],
+  );
 
   const virtualized = segments.length > VIRTUAL_THRESHOLD;
 
@@ -224,10 +303,27 @@ export function SegmentGrid({
                     <div className="segment-grid__target-editor">
                       <textarea
                         aria-label={`句段 ${segment.ordinal + 1} 译文`}
+                        ref={textareaRef}
                         value={draft}
                         autoFocus
                         onChange={(event) => setDraft(event.target.value)}
+                        onCompositionStart={() => {
+                          composingRef.current = true;
+                        }}
+                        onCompositionEnd={(event) => {
+                          composingRef.current = false;
+                          const pending = pendingInsertRef.current;
+                          if (pending.length > 0) {
+                            pendingInsertRef.current = "";
+                            spliceIntoEditor(event.currentTarget, pending);
+                          }
+                        }}
                         onKeyDown={(event) => {
+                          if (event.nativeEvent.isComposing) {
+                            // Enter mid-composition commits the IME text,
+                            // never the segment.
+                            return;
+                          }
                           if (
                             (event.ctrlKey || event.metaKey) &&
                             event.key === "Enter"

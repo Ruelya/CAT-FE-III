@@ -1,10 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Segment } from "@translunar/contracts";
 
 import { SegmentGrid } from "./SegmentGrid.js";
+import type { SegmentGridHandle } from "./SegmentGrid.js";
 
 function segment(
   id: string,
@@ -99,6 +101,128 @@ describe("SegmentGrid", () => {
     );
     expect(container.querySelectorAll("tbody tr")).toHaveLength(20);
     expect(container.querySelector(".segment-grid__spacer")).toBeNull();
+  });
+
+  it("inserts text at the editor caret through the imperative handle", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "The retention period.", "保留是 30 天。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    editor.setSelectionRange(2, 2);
+    let inserted = false;
+    act(() => {
+      inserted = gridRef.current!.insertAtCaret("期");
+    });
+    expect(inserted).toBe(true);
+    expect(editor.value).toBe("保留期是 30 天。");
+    // Caret lands right after the inserted text and focus returns to the
+    // editor so the confirm shortcut keeps working.
+    expect(editor.selectionStart).toBe(3);
+    expect(editor.selectionEnd).toBe(3);
+    expect(document.activeElement).toBe(editor);
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0]?.[1]).toBe("保留期是 30 天。");
+  });
+
+  it("replaces the selected range when inserting", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "The retention period.", "错误术语在此。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    editor.setSelectionRange(0, 4);
+    act(() => {
+      gridRef.current!.insertAtCaret("保留期");
+    });
+    expect(editor.value).toBe("保留期在此。");
+    expect(editor.selectionStart).toBe(3);
+    expect(editor.selectionEnd).toBe(3);
+  });
+
+  it("defers inserts during IME composition until the composition ends", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "The retention period.", "初稿")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    editor.setSelectionRange(2, 2);
+    fireEvent.compositionStart(editor);
+    let inserted = false;
+    act(() => {
+      inserted = gridRef.current!.insertAtCaret("术语");
+    });
+    expect(inserted).toBe(true);
+    // Mid-composition the value stays untouched so the IME is not broken.
+    expect(editor.value).toBe("初稿");
+    fireEvent.compositionEnd(editor);
+    expect(editor.value).toBe("初稿术语");
+    expect(editor.selectionStart).toBe(4);
+  });
+
+  it("reports no editor when no row is being edited", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(gridRef.current!.insertAtCaret("术语")).toBe(false);
+  });
+
+  it("ignores the confirm shortcut while an IME composition is active", () => {
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      isComposing: true,
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
   it("windows large documents instead of rendering every row", () => {

@@ -1,10 +1,15 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { BrowserWindow, app, dialog, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../shared/desktop-api.js";
-import type { EngineInvokeResponse } from "../shared/desktop-api.js";
+import type {
+  DocxPreviewResponse,
+  EngineInvokeResponse,
+} from "../shared/desktop-api.js";
 import { EngineRpcError, EngineSupervisor } from "./engine-supervisor.js";
 
 function resolveEngineBinary(): string {
@@ -114,49 +119,177 @@ function registerIpc(): void {
     );
   });
 
-  ipcMain.handle(IPC_CHANNELS.chooseSource, async () => {
-    // E2E seam: native dialogs cannot be driven by automation.
-    const fakeOpen = process.env.TL_FAKE_OPEN_PATH;
-    if (fakeOpen && fakeOpen.trim().length > 0) {
-      return fakeOpen;
+  // E2E seam on every dialog channel: native dialogs cannot be driven by
+  // automation, so an env var can stand in for the user's pick.
+  async function openFileDialog(
+    seamEnv: string,
+    title: string,
+    filters: Electron.FileFilter[],
+  ): Promise<string | null> {
+    const fake = process.env[seamEnv];
+    if (fake && fake.trim().length > 0) {
+      return fake;
     }
     const result = await dialog.showOpenDialog({
-      title: "选择要导入的文档",
+      title,
       properties: ["openFile"],
-      filters: [
-        {
-          name: "可翻译文档",
-          extensions: [
-            "docx",
-            "txt",
-            "md",
-            "html",
-            "xlf",
-            "xliff",
-            "xlsx",
-            "pptx",
-          ],
-        },
-      ],
+      filters,
     });
     return result.canceled || result.filePaths.length === 0
       ? null
       : (result.filePaths[0] ?? null);
+  }
+
+  async function saveFileDialog(
+    seamEnv: string,
+    title: string,
+    filters: Electron.FileFilter[],
+    defaultName: unknown,
+  ): Promise<string | null> {
+    const fake = process.env[seamEnv];
+    if (fake && fake.trim().length > 0) {
+      return fake;
+    }
+    const options: Electron.SaveDialogOptions = { title, filters };
+    if (typeof defaultName === "string" && defaultName.length > 0) {
+      options.defaultPath = defaultName;
+    }
+    const result = await dialog.showSaveDialog(options);
+    return result.canceled || !result.filePath ? null : result.filePath;
+  }
+
+  const TM_FILTERS: Electron.FileFilter[] = [
+    { name: "翻译记忆（TMX/CSV/TSV）", extensions: ["tmx", "csv", "tsv"] },
+  ];
+  const TERMBASE_FILTERS: Electron.FileFilter[] = [
+    { name: "术语库（CSV/TSV/TBX）", extensions: ["csv", "tsv", "tbx"] },
+  ];
+  const SRX_FILTERS: Electron.FileFilter[] = [
+    { name: "SRX 分段规则", extensions: ["srx"] },
+  ];
+
+  ipcMain.handle(IPC_CHANNELS.chooseSource, () =>
+    openFileDialog("TL_FAKE_OPEN_PATH", "选择要导入的文档", [
+      {
+        name: "可翻译文档",
+        extensions: [
+          "docx",
+          "txt",
+          "md",
+          "html",
+          "xlf",
+          "xliff",
+          "xlsx",
+          "pptx",
+        ],
+      },
+    ]),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseExport, (_event, defaultName: unknown) => {
+    // The document save dialog keeps its historical no-filter behavior: the
+    // export format follows the source document, not a picked extension.
+    return saveFileDialog("TL_FAKE_SAVE_PATH", "选择导出位置", [], defaultName);
   });
 
+  ipcMain.handle(IPC_CHANNELS.chooseTmImport, () =>
+    openFileDialog(
+      "TL_FAKE_TM_OPEN_PATH",
+      "选择要导入的翻译记忆文件",
+      TM_FILTERS,
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseTmExport, (_event, defaultName: unknown) =>
+    saveFileDialog(
+      "TL_FAKE_TM_SAVE_PATH",
+      "选择 TM 导出位置",
+      TM_FILTERS,
+      defaultName,
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseTermbaseImport, () =>
+    openFileDialog(
+      "TL_FAKE_TERM_OPEN_PATH",
+      "选择要导入的术语库文件",
+      TERMBASE_FILTERS,
+    ),
+  );
+
   ipcMain.handle(
-    IPC_CHANNELS.chooseExport,
-    async (_event, defaultName: unknown) => {
-      const fakeSave = process.env.TL_FAKE_SAVE_PATH;
-      if (fakeSave && fakeSave.trim().length > 0) {
-        return fakeSave;
+    IPC_CHANNELS.chooseTermbaseExport,
+    (_event, defaultName: unknown) =>
+      saveFileDialog(
+        "TL_FAKE_TERM_SAVE_PATH",
+        "选择术语库导出位置",
+        TERMBASE_FILTERS,
+        defaultName,
+      ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.chooseSrx, () =>
+    openFileDialog("TL_FAKE_SRX_PATH", "选择 SRX 分段规则文件", SRX_FILTERS),
+  );
+
+  // Layout preview: run the real export pipeline against a temp path and
+  // hand the DOCX bytes to the renderer. The temp dir is always cleaned up;
+  // the engine refuses pre-existing paths, so each call gets a fresh dir.
+  ipcMain.handle(
+    IPC_CHANNELS.previewDocx,
+    async (_event, documentId: unknown): Promise<DocxPreviewResponse> => {
+      if (typeof documentId !== "string" || documentId.length === 0) {
+        return {
+          ok: false,
+          error: {
+            code: "invalidRequest",
+            message: "documentId must be a non-empty string",
+          },
+        };
       }
-      const options: Electron.SaveDialogOptions = { title: "选择导出位置" };
-      if (typeof defaultName === "string" && defaultName.length > 0) {
-        options.defaultPath = defaultName;
+      if (!supervisor) {
+        return {
+          ok: false,
+          error: {
+            code: "engineDown",
+            message: "engine supervisor not started",
+          },
+        };
       }
-      const result = await dialog.showSaveDialog(options);
-      return result.canceled || !result.filePath ? null : result.filePath;
+      const previewDir = await mkdtemp(join(tmpdir(), "tl-preview-"));
+      const outputPath = join(previewDir, "preview.docx");
+      try {
+        const result = (await supervisor.request("document.export", {
+          documentId,
+          outputPath,
+        })) as { translatedSegments?: unknown };
+        const bytes = await readFile(outputPath);
+        // Copy into a plain ArrayBuffer so structured clone over IPC is
+        // exact-sized (a Buffer view can sit inside a larger pool).
+        const copy = new Uint8Array(bytes.byteLength);
+        copy.set(bytes);
+        const data = copy.buffer;
+        return {
+          ok: true,
+          data,
+          translatedSegments:
+            typeof result.translatedSegments === "number"
+              ? result.translatedSegments
+              : 0,
+        };
+      } catch (error) {
+        if (error instanceof EngineRpcError) {
+          return {
+            ok: false,
+            error: { code: error.code, message: error.message },
+          };
+        }
+        const message =
+          error instanceof Error ? error.message : "unknown error";
+        return { ok: false, error: { code: "internal", message } };
+      } finally {
+        await rm(previewDir, { recursive: true, force: true });
+      }
     },
   );
 }

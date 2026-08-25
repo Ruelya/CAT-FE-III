@@ -2,6 +2,7 @@ import electron = require("electron");
 
 import type {
   DesktopApi,
+  DocxPreviewResponse,
   EngineInvokeResponse,
   EngineNotificationPayload,
   EngineStatusPayload,
@@ -14,6 +15,12 @@ const CHANNELS = {
   notification: "tl:engine:notification",
   chooseSource: "tl:dialog:choose-source",
   chooseExport: "tl:dialog:choose-export",
+  chooseTmImport: "tl:dialog:choose-tm-import",
+  chooseTmExport: "tl:dialog:choose-tm-export",
+  chooseTermbaseImport: "tl:dialog:choose-termbase-import",
+  chooseTermbaseExport: "tl:dialog:choose-termbase-export",
+  chooseSrx: "tl:dialog:choose-srx",
+  previewDocx: "tl:preview:docx",
 } as const;
 
 const api: DesktopApi = {
@@ -55,6 +62,39 @@ const api: DesktopApi = {
       CHANNELS.chooseExport,
       defaultName,
     ) as Promise<string | null>;
+  },
+  chooseTmImportFile(): Promise<string | null> {
+    return electron.ipcRenderer.invoke(CHANNELS.chooseTmImport) as Promise<
+      string | null
+    >;
+  },
+  chooseTmExportPath(defaultName: string): Promise<string | null> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.chooseTmExport,
+      defaultName,
+    ) as Promise<string | null>;
+  },
+  chooseTermbaseImportFile(): Promise<string | null> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.chooseTermbaseImport,
+    ) as Promise<string | null>;
+  },
+  chooseTermbaseExportPath(defaultName: string): Promise<string | null> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.chooseTermbaseExport,
+      defaultName,
+    ) as Promise<string | null>;
+  },
+  chooseSrxFile(): Promise<string | null> {
+    return electron.ipcRenderer.invoke(CHANNELS.chooseSrx) as Promise<
+      string | null
+    >;
+  },
+  renderDocxPreview(documentId: string): Promise<DocxPreviewResponse> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.previewDocx,
+      documentId,
+    ) as Promise<DocxPreviewResponse>;
   },
 };
 
