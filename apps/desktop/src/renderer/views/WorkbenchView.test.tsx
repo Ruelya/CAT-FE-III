@@ -559,6 +559,145 @@ describe("WorkbenchView engine-down honesty", () => {
   });
 });
 
+describe("WorkbenchView document removal", () => {
+  const DOCUMENT_2 = {
+    ...DOCUMENT,
+    id: "d2",
+    name: "second.txt",
+    segmentCount: 1,
+  };
+  const SEGMENT_2: Segment = {
+    ...SEGMENT,
+    id: "s2",
+    documentId: "d2",
+    sourceText: "Second file text.",
+    targetText: "第二个文档。",
+  };
+
+  /** Bridge whose document list shrinks when document.remove is called. */
+  function installRemoveBridge(initial: Array<typeof DOCUMENT>) {
+    const handlers = baseHandlers();
+    let documents = [...initial];
+    const removeCalls: unknown[] = [];
+    handlers["document.list"] = () => ({ documents });
+    handlers["segment.list"] = (params) => ({
+      segments:
+        (params as { documentId: string }).documentId === "d2"
+          ? [SEGMENT_2]
+          : [SEGMENT],
+    });
+    handlers["document.remove"] = (params) => {
+      removeCalls.push(params);
+      const id = (params as { documentId: string }).documentId;
+      const removed = documents.find((item) => item.id === id);
+      if (!removed) {
+        return new EngineFailure("notFound", `document ${id}`);
+      }
+      documents = documents.filter((item) => item.id !== id);
+      return {
+        document: removed,
+        removedSegments: 1,
+        removedQaIssues: 0,
+        managedCopyDeleted: true,
+      };
+    };
+    const bridge = installBridge(handlers);
+    return { bridge, removeCalls };
+  }
+
+  it("removes only after the two-step confirm and selects the neighbor", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT, DOCUMENT_2]);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    // First click only arms the confirm; nothing reaches the engine yet.
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    expect(removeCalls).toHaveLength(0);
+    expect(
+      screen.getByRole("group", { name: "确认移除 guide.txt" }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    await waitFor(() => {
+      expect(removeCalls).toHaveLength(1);
+    });
+    expect(removeCalls[0]).toMatchObject({ documentId: "d1" });
+
+    // The removed document leaves the list and its neighbor opens.
+    await waitFor(() => {
+      expect(screen.queryByText("guide.txt")).not.toBeInTheDocument();
+    });
+    const nextEditor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(nextEditor.value).toBe("第二个文档。");
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已移除「guide.txt」：删除 1 个句段、0 条 QA 记录；项目 TM、术语库与原始文件保留",
+    );
+  });
+
+  it("取消 disarms the pending remove without calling the engine", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT]);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(removeCalls).toHaveLength(0);
+    // Back to the armed-off state; the document is still listed and open.
+    expect(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("shows the empty states after removing the last document", async () => {
+    const { removeCalls } = installRemoveBridge([DOCUMENT]);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(
+      screen.getByRole("button", { name: "移除 guide.txt" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    await waitFor(() => {
+      expect(removeCalls).toHaveLength(1);
+    });
+    // No document is open anymore: the rail and the grid both say so, and
+    // the import path stays available.
+    expect(await screen.findByText("暂无文档")).toBeInTheDocument();
+    expect(screen.getByText("选择或导入一个文档")).toBeInTheDocument();
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入" })).toBeEnabled();
+  });
+});
+
 describe("WorkbenchView export overwrite confirm", () => {
   /** Bridge where the engine blocks the plain export but honors overwrite. */
   function installExportBridge() {
