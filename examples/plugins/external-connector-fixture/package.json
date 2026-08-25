@@ -1,8 +1,0 @@
-{
-  "name": "@translunar/example-external-connector-fixture",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@translunar/plugin-sdk": "workspace:*"
-  }
-}
