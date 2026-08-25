@@ -169,6 +169,91 @@ describe("AgentPanel", () => {
     expect(onGoExport).toHaveBeenCalled();
   });
 
+  it("tracks runs per document so another document can start while one runs", async () => {
+    const secondRun: AgentRunView = {
+      ...runningView,
+      runId: "run-2",
+      documentId: "d2",
+    };
+    const invoke = vi.fn(
+      (method: string, params: unknown): Promise<EngineInvokeResponse> => {
+        switch (method) {
+          case "ai.status":
+            return Promise.resolve({
+              ok: true,
+              result: { configured: true, provider: "openai", model: "m" },
+            });
+          case "ai.agent.start": {
+            const { documentId } = params as { documentId: string };
+            return Promise.resolve({
+              ok: true,
+              result: documentId === "d1" ? runningView : secondRun,
+            });
+          }
+          case "ai.agent.status": {
+            const { runId } = params as { runId: string };
+            return Promise.resolve({
+              ok: true,
+              result: runId === "run-1" ? runningView : secondRun,
+            });
+          }
+          default:
+            return Promise.resolve({
+              ok: false,
+              error: { code: "internal", message: `unexpected ${method}` },
+            });
+        }
+      },
+    );
+    installBridge(invoke);
+    const props = {
+      onCompleted: vi.fn(),
+      onStatusMessage: vi.fn(),
+      onGoExport: vi.fn(),
+    };
+    const view = render(
+      <AiStatusProvider>
+        <AgentPanel documentId="d1" {...props} />
+      </AiStatusProvider>,
+    );
+
+    const startButton = await screen.findByRole("button", {
+      name: "创建任务单并运行",
+    });
+    await waitFor(() => expect(startButton).toBeEnabled());
+    await userEvent.click(startButton);
+    await screen.findByRole("button", { name: "运行中…" });
+
+    // Switching documents does not block the other document: the engine
+    // allows concurrent runs on different documents.
+    view.rerender(
+      <AiStatusProvider>
+        <AgentPanel documentId="d2" {...props} />
+      </AiStatusProvider>,
+    );
+    const startForSecond = await screen.findByRole("button", {
+      name: "创建任务单并运行",
+    });
+    await waitFor(() => expect(startForSecond).toBeEnabled());
+    await userEvent.click(startForSecond);
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "ai.agent.start",
+        expect.objectContaining({ documentId: "d2" }),
+      );
+    });
+    await screen.findByRole("button", { name: "运行中…" });
+
+    // Switching back still shows the first document's live run.
+    view.rerender(
+      <AiStatusProvider>
+        <AgentPanel documentId="d1" {...props} />
+      </AiStatusProvider>,
+    );
+    await screen.findByRole("button", { name: "运行中…" });
+    expect(screen.getByText("运行中")).toBeInTheDocument();
+  });
+
   it("cancels a running task order", async () => {
     const canceledView: AgentRunView = {
       ...runningView,
