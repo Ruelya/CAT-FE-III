@@ -131,6 +131,7 @@ export function App() {
           open={settingsOpen}
           project={project}
           onClose={() => setSettingsOpen(false)}
+          onProjectUpdated={setProject}
         />
       ) : null}
     </div>

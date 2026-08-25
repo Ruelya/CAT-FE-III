@@ -90,10 +90,233 @@ describe("ProjectSettingsDialog", () => {
     );
   });
 
-  it("shows the language pair read-only with an honest explanation", () => {
+  it("saves name and language pair through project.update", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "project.update") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...project,
+            name: "改名项目",
+            sourceLocale: "de-DE",
+            targetLocale: "fr-FR",
+            revision: 2,
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    const onProjectUpdated = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await userEvent.clear(screen.getByLabelText("项目名称"));
+    await userEvent.type(screen.getByLabelText("项目名称"), "改名项目");
+    await userEvent.clear(screen.getByLabelText("源语言"));
+    await userEvent.type(screen.getByLabelText("源语言"), "de-DE");
+    await userEvent.clear(screen.getByLabelText("目标语言"));
+    await userEvent.type(screen.getByLabelText("目标语言"), "fr-FR");
+    await userEvent.click(screen.getByRole("button", { name: "保存项目信息" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/项目设置已保存：改名项目（de-DE → fr-FR）/),
+      ).toBeInTheDocument();
+    });
+    const updateCall = calls.find(([method]) => method === "project.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      name: "改名项目",
+      sourceLocale: "de-DE",
+      targetLocale: "fr-FR",
+    });
+    expect(onProjectUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "改名项目", revision: 2 }),
+    );
+  });
+
+  it("blocks saving while a required project field is empty", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    expect(screen.getByText("en-US → zh-CN")).toBeInTheDocument();
-    expect(screen.getByText(/尚无 project.update/)).toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("项目名称"));
+    expect(screen.getByRole("button", { name: "保存项目信息" })).toBeDisabled();
+    expect(calls.some(([method]) => method === "project.update")).toBe(false);
+  });
+
+  it("surfaces the engine conflict when the language pair is pinned", async () => {
+    installBridge((method) => {
+      if (method === "project.update") {
+        return Promise.resolve({
+          ok: false,
+          error: {
+            code: "conflict",
+            message:
+              "cannot change the language pair: the project already has 1 imported document(s); export or remove them first",
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    const onProjectUpdated = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await userEvent.clear(screen.getByLabelText("目标语言"));
+    await userEvent.type(screen.getByLabelText("目标语言"), "fr-FR");
+    await userEvent.click(screen.getByRole("button", { name: "保存项目信息" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "cannot change the language pair",
+      );
+    });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(onProjectUpdated).not.toHaveBeenCalled();
+  });
+
+  it("archives the project through project.archive", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "project.archive") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...project,
+            lifecycle: "archived",
+            archivedAtMs: 99,
+            revision: 2,
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    const onProjectUpdated = vi.fn();
+    render(
+      <ProjectSettingsDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "归档项目" }));
+    await waitFor(() => {
+      expect(screen.getByText(/项目已归档/)).toBeInTheDocument();
+    });
+    const archiveCall = calls.find(([method]) => method === "project.archive");
+    expect(archiveCall?.[1]).toEqual({ projectId: "p1", archived: true });
+    expect(onProjectUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ lifecycle: "archived", archivedAtMs: 99 }),
+    );
+  });
+
+  it("restores an archived project through project.archive", async () => {
+    const archivedProject: Project = {
+      ...project,
+      lifecycle: "archived",
+      archivedAtMs: 99,
+    };
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "project.archive") {
+        return Promise.resolve({
+          ok: true,
+          result: { ...project, revision: 3 },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(
+      <ProjectSettingsDialog
+        open
+        project={archivedProject}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("已归档")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "恢复项目" }));
+    await waitFor(() => {
+      expect(screen.getByText(/项目已恢复为进行中/)).toBeInTheDocument();
+    });
+    const archiveCall = calls.find(([method]) => method === "project.archive");
+    expect(archiveCall?.[1]).toEqual({ projectId: "p1", archived: false });
+  });
+
+  it("detaches a mounted termbase through termbase.detach", async () => {
+    const calls: Array<[string, unknown]> = [];
+    let detached = false;
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "termbase.detach") {
+        detached = true;
+        return Promise.resolve({
+          ok: true,
+          result: { mount: mount("tb1") },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: detached
+          ? { termbases: [termbase("tb1", "产品术语")], mounts: [] }
+          : {
+              termbases: [termbase("tb1", "产品术语")],
+              mounts: [mount("tb1")],
+            },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("产品术语")).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "卸载术语库 产品术语" }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/术语库「产品术语」已卸载：数据保留，可重新挂载/),
+      ).toBeInTheDocument();
+    });
+    const detachCall = calls.find(([method]) => method === "termbase.detach");
+    expect(detachCall?.[1]).toEqual({ projectId: "p1", termbaseId: "tb1" });
+    // After the refresh the termbase is listed as unmounted and can only be
+    // re-attached, not exported through a mount row.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "挂载" })).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "导出术语库 产品术语" }),
+    ).not.toBeInTheDocument();
   });
 
   it("imports an external TM through the dedicated file channel", async () => {

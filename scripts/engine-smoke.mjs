@@ -1,5 +1,6 @@
 // End-to-end smoke of the tl-engine stdio protocol: handshake, project,
 // DOCX import, grid edit/confirm, exact + fuzzy TM, termbases, pretranslate,
+// project update/archive with the pinned-language rule, termbase detach,
 // QA rule library, export, the honest AI degradation path, and the
 // asynchronous agent run against a loopback SSE fixture.
 // Run with: pnpm test:e2e:engine
@@ -189,6 +190,48 @@ try {
       termHits.matches[0].sourceTerm === "retention period",
     "term hit over source text",
   );
+
+  // Project settings surface: rename always works, a language change is
+  // rejected once assets pin the pair, archive stamps archivedAtMs and
+  // restore clears it, and termbase detach removes the mount for real.
+  const renamed = await call("project.update", {
+    projectId: project.id,
+    name: "Smoke (renamed)",
+  });
+  assert(renamed.name === "Smoke (renamed)", "project renamed");
+  await expectError(
+    "project.update",
+    { projectId: project.id, targetLocale: "fr-FR" },
+    "conflict",
+  );
+  const archived = await call("project.archive", { projectId: project.id });
+  assert(archived.lifecycle === "archived", "project archived");
+  assert(
+    typeof archived.archivedAtMs === "number",
+    "archive stamps archivedAtMs",
+  );
+  const restored = await call("project.archive", {
+    projectId: project.id,
+    archived: false,
+  });
+  assert(restored.lifecycle === "active", "project restored");
+  assert(restored.archivedAtMs == null, "restore clears archivedAtMs");
+  await call("termbase.detach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
+  const detachedHits = await call("term.lookup", {
+    projectId: project.id,
+    sourceText: "The retention period is 30 days.",
+  });
+  assert(
+    detachedHits.matches.length === 0,
+    "detached termbase stops term hits",
+  );
+  await call("termbase.attach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
 
   // TM import + pretranslate fill untranslated segments as drafts.
   const tmCsvPath = join(dataDir, "smoke-tm.csv");

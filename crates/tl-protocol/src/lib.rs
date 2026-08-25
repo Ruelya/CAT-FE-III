@@ -34,6 +34,8 @@ pub mod methods {
     pub const PROJECT_CREATE: &str = "project.create";
     pub const PROJECT_LIST: &str = "project.list";
     pub const PROJECT_GET: &str = "project.get";
+    pub const PROJECT_UPDATE: &str = "project.update";
+    pub const PROJECT_ARCHIVE: &str = "project.archive";
     pub const DOCUMENT_IMPORT: &str = "document.import";
     pub const DOCUMENT_LIST: &str = "document.list";
     pub const DOCUMENT_EXPORT: &str = "document.export";
@@ -47,6 +49,7 @@ pub mod methods {
     pub const TERMBASE_CREATE: &str = "termbase.create";
     pub const TERMBASE_LIST: &str = "termbase.list";
     pub const TERMBASE_ATTACH: &str = "termbase.attach";
+    pub const TERMBASE_DETACH: &str = "termbase.detach";
     pub const TERMBASE_IMPORT: &str = "termbase.import";
     pub const TERMBASE_EXPORT: &str = "termbase.export";
     pub const TERM_ADD: &str = "term.add";
@@ -90,6 +93,10 @@ pub struct RpcMethodCatalog {
     pub project_list: MethodContract<ProjectListParams, ProjectListResult>,
     #[serde(rename = "project.get")]
     pub project_get: MethodContract<ProjectGetParams, tl_domain::Project>,
+    #[serde(rename = "project.update")]
+    pub project_update: MethodContract<ProjectUpdateParams, tl_domain::Project>,
+    #[serde(rename = "project.archive")]
+    pub project_archive: MethodContract<ProjectArchiveParams, tl_domain::Project>,
     #[serde(rename = "document.import")]
     pub document_import: MethodContract<DocumentImportParams, DocumentImportResult>,
     #[serde(rename = "document.list")]
@@ -116,6 +123,8 @@ pub struct RpcMethodCatalog {
     pub termbase_list: MethodContract<TermbaseListParams, TermbaseListResult>,
     #[serde(rename = "termbase.attach")]
     pub termbase_attach: MethodContract<TermbaseAttachParams, TermbaseAttachResult>,
+    #[serde(rename = "termbase.detach")]
+    pub termbase_detach: MethodContract<TermbaseDetachParams, TermbaseDetachResult>,
     #[serde(rename = "termbase.import")]
     pub termbase_import: MethodContract<TermbaseImportParams, TermbaseImportResult>,
     #[serde(rename = "termbase.export")]
@@ -186,6 +195,8 @@ mod tests {
             methods::PROJECT_CREATE,
             methods::PROJECT_LIST,
             methods::PROJECT_GET,
+            methods::PROJECT_UPDATE,
+            methods::PROJECT_ARCHIVE,
             methods::DOCUMENT_IMPORT,
             methods::DOCUMENT_LIST,
             methods::DOCUMENT_EXPORT,
@@ -199,6 +210,7 @@ mod tests {
             methods::TERMBASE_CREATE,
             methods::TERMBASE_LIST,
             methods::TERMBASE_ATTACH,
+            methods::TERMBASE_DETACH,
             methods::TERMBASE_IMPORT,
             methods::TERMBASE_EXPORT,
             methods::TERM_ADD,
