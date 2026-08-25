@@ -1006,6 +1006,40 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermUpdateResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract23": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermDeleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermDeleteResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract24": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermListParams"
         },
         "result": {
@@ -1018,7 +1052,7 @@
         "result"
       ]
     },
-    "MethodContract23": {
+    "MethodContract25": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1035,7 +1069,7 @@
         "result"
       ]
     },
-    "MethodContract24": {
+    "MethodContract26": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1052,7 +1086,7 @@
         "result"
       ]
     },
-    "MethodContract25": {
+    "MethodContract27": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1069,7 +1103,7 @@
         "result"
       ]
     },
-    "MethodContract26": {
+    "MethodContract28": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1086,7 +1120,7 @@
         "result"
       ]
     },
-    "MethodContract27": {
+    "MethodContract29": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1095,40 +1129,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiStatusResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract28": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiAssistParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiAssistResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract29": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AgentStartParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -1159,6 +1159,40 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiAssistParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract31": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStartParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract32": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AgentStatusParams"
         },
         "result": {
@@ -1171,7 +1205,7 @@
         "result"
       ]
     },
-    "MethodContract31": {
+    "MethodContract33": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1696,22 +1730,22 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract31"
+          "$ref": "#/$defs/MethodContract33"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract29"
+          "$ref": "#/$defs/MethodContract31"
         },
         "ai.agent.status": {
-          "$ref": "#/$defs/MethodContract30"
+          "$ref": "#/$defs/MethodContract32"
         },
         "ai.assist": {
-          "$ref": "#/$defs/MethodContract28"
+          "$ref": "#/$defs/MethodContract30"
         },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract26"
+          "$ref": "#/$defs/MethodContract28"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract27"
+          "$ref": "#/$defs/MethodContract29"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract8"
@@ -1738,10 +1772,10 @@
           "$ref": "#/$defs/MethodContract4"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract25"
+          "$ref": "#/$defs/MethodContract27"
         },
         "qa.run": {
-          "$ref": "#/$defs/MethodContract24"
+          "$ref": "#/$defs/MethodContract26"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract11"
@@ -1755,11 +1789,17 @@
         "term.add": {
           "$ref": "#/$defs/MethodContract21"
         },
+        "term.delete": {
+          "$ref": "#/$defs/MethodContract23"
+        },
         "term.list": {
-          "$ref": "#/$defs/MethodContract22"
+          "$ref": "#/$defs/MethodContract24"
         },
         "term.lookup": {
-          "$ref": "#/$defs/MethodContract23"
+          "$ref": "#/$defs/MethodContract25"
+        },
+        "term.update": {
+          "$ref": "#/$defs/MethodContract22"
         },
         "termbase.attach": {
           "$ref": "#/$defs/MethodContract18"
@@ -1812,6 +1852,8 @@
         "termbase.import",
         "termbase.export",
         "term.add",
+        "term.update",
+        "term.delete",
         "term.list",
         "term.lookup",
         "qa.run",
@@ -2160,6 +2202,41 @@
         "entry"
       ]
     },
+    "TermDeleteParams": {
+      "type": "object",
+      "properties": {
+        "entryId": {
+          "type": "string"
+        },
+        "translationId": {
+          "description": "When set, removes only this translation and keeps the entry.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "entryId"
+      ]
+    },
+    "TermDeleteResult": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "description": "The surviving entry after a translation-level delete; `None` when the\nwhole entry was removed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TermEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "TermEntry": {
       "type": "object",
       "properties": {
@@ -2382,6 +2459,60 @@
         "forbidden",
         "createdAtMs",
         "updatedAtMs"
+      ]
+    },
+    "TermUpdateParams": {
+      "type": "object",
+      "properties": {
+        "entryId": {
+          "type": "string"
+        },
+        "forbidden": {
+          "description": "Marks the selected translation as forbidden (or preferred again).",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "sourceTerm": {
+          "description": "New source term for the entry. Left unchanged when omitted.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "targetTerm": {
+          "description": "New term text for the selected translation.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "translationId": {
+          "description": "Translation being edited. Required for `target_term` / `forbidden`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "entryId"
+      ]
+    },
+    "TermUpdateResult": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/TermEntry"
+        }
+      },
+      "required": [
+        "entry"
       ]
     },
     "Termbase": {

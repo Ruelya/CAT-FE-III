@@ -64,6 +64,8 @@ export const ENGINE_METHODS = [
   "termbase.import",
   "termbase.export",
   "term.add",
+  "term.update",
+  "term.delete",
   "term.list",
   "term.lookup",
   "qa.run",

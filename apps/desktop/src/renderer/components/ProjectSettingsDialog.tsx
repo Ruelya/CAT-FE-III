@@ -8,6 +8,7 @@ import type {
 import { Badge, Button, Dialog, TextField } from "@translunar/ui";
 
 import { callEngine, describeError } from "../lib/engine.js";
+import { TermManagePanel } from "./TermManagePanel.js";
 
 export interface ProjectSettingsDialogProps {
   open: boolean;
@@ -18,7 +19,8 @@ export interface ProjectSettingsDialogProps {
 /**
  * Project settings. The language pair stays read-only (the protocol has no
  * project.update). The termbase section manages real mounts through
- * termbase.list/create/attach and moves CSV/TSV/TBX files through
+ * termbase.list/create/attach, opens a per-termbase entry manager backed by
+ * term.list/update/delete, and moves CSV/TSV/TBX files through
  * termbase.import/export. The TM section moves TMX/CSV/TSV files through
  * tm.import/export. All file picks go through dedicated dialog channels in
  * the main process; a canceled pick does nothing and every result message
@@ -34,6 +36,9 @@ export function ProjectSettingsDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [managedTermbaseId, setManagedTermbaseId] = useState<string | null>(
+    null,
+  );
 
   const refreshTermbases = useCallback(async () => {
     const result = await callEngine("termbase.list", {
@@ -263,27 +268,47 @@ export function ProjectSettingsDialog({
             <p className="settings__note">尚未挂载术语库。</p>
           ) : (
             mounted.map((termbase) => (
-              <div className="settings__row" key={termbase.id}>
-                <span>{termbase.name}</span>
-                <Badge tone="ok">已挂载</Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  aria-label={`导入术语到 ${termbase.name}`}
-                  onClick={() => void importTermbase(termbase)}
-                >
-                  导入 CSV/TBX…
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  aria-label={`导出术语库 ${termbase.name}`}
-                  onClick={() => void exportTermbase(termbase)}
-                >
-                  导出…
-                </Button>
+              <div key={termbase.id}>
+                <div className="settings__row">
+                  <span>{termbase.name}</span>
+                  <Badge tone="ok">已挂载</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    aria-label={`管理术语库 ${termbase.name} 的术语`}
+                    onClick={() =>
+                      setManagedTermbaseId((current) =>
+                        current === termbase.id ? null : termbase.id,
+                      )
+                    }
+                  >
+                    {managedTermbaseId === termbase.id
+                      ? "收起术语"
+                      : "管理术语"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    aria-label={`导入术语到 ${termbase.name}`}
+                    onClick={() => void importTermbase(termbase)}
+                  >
+                    导入 CSV/TBX…
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    aria-label={`导出术语库 ${termbase.name}`}
+                    onClick={() => void exportTermbase(termbase)}
+                  >
+                    导出…
+                  </Button>
+                </div>
+                {managedTermbaseId === termbase.id ? (
+                  <TermManagePanel termbase={termbase} />
+                ) : null}
               </div>
             ))
           )}
@@ -324,8 +349,8 @@ export function ProjectSettingsDialog({
           </form>
           <p className="settings__note">
             挂载后，术语面板会对当前句段做 term.lookup
-            命中，并支持快速添加术语；CSV/TSV/TBX
-            批量导入与导出走上方按钮，结果以引擎实际计数为准。
+            命中，并支持快速添加术语；「管理术语」可逐条查看、编辑与删除；
+            CSV/TSV/TBX 批量导入与导出走上方按钮，结果以引擎实际计数为准。
           </p>
         </section>
 
