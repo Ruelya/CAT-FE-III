@@ -1,5 +1,10 @@
 # 纸面与仪器：可迁移的前端设计哲学
 
+> **Historical record (pre-greenfield).** 本文提炼自旧渲染器（已在 greenfield
+> 重置中删除）。当前渲染器使用 `packages/ui/src/tokens.css` 中的 INSTRUMENT
+> token（冷灰 + 单一深蓝强调色），不是本文的暖纸系统。本文作为可迁移的设计
+> 记录保留。
+
 | 项 | 值 |
 | --- | --- |
 | 版本 | 2026-08-17 |

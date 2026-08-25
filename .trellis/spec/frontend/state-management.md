@@ -1,5 +1,12 @@
 # Frontend State Management
 
+> **Historical / not current greenfield.** The owner tables and modules below
+> (`SaveCoordinator`, session-v1, draft journal, appearance-v1) describe the
+> pre-greenfield renderer and were removed in the greenfield reset. The
+> ownership rule itself still applies: the Rust engine (now persisting
+> `state.json`, not SQLite) is authoritative and React state is a
+> presentation cache.
+
 ## Ownership Rule
 
 Rust/SQLite is authoritative for projects, documents, segments, revisions,

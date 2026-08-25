@@ -1,46 +1,29 @@
-# Release packaging, signing, and notarization
+# Release signing and notarization (planned)
 
-## Artifacts
+## Current status: not implemented
+
+There is no packaging pipeline, so there is nothing to sign. The repository
+has no electron-builder configuration, no `package:*` or `release:*` scripts,
+and no packaging CI workflows. This document records the contract the future
+pipeline should meet so earlier decisions are not lost; nothing below exists
+in the tree today. See [packaging.md](./packaging.md) for the current state.
+
+## Planned artifacts
 
 | Platform | Targets | Engine resource path |
 | --- | --- | --- |
-| Windows | NSIS + unpacked dir (`x64`) | `resources/engine/translunar-engine.exe` |
-| macOS | DMG + ZIP + dir (`x64`, `arm64`) | `resources/engine/translunar-engine` |
+| Windows | installer + unpacked dir (`x64`) | `resources/engine/tl-engine.exe` |
+| macOS | DMG + ZIP + dir (`x64`, `arm64`) | `resources/engine/tl-engine` |
 
-Minimum macOS version is declared in `apps/desktop/electron-builder.yml`
-(`minimumSystemVersion`, currently 12.0).
-The ZIP target is required for `electron-updater` macOS feeds; the DMG and
-directory targets remain the installer and smoke-test artifacts.
+When `app.isPackaged`, Electron main already resolves the engine binary at
+`process.resourcesPath/engine/tl-engine` (`tl-engine.exe` on Windows), so a
+packager must place the matching-platform release binary there.
 
-## Local package commands
+## Planned signing hooks
 
-```bash
-# Matching-platform Engine binary first
-cargo build -p translunar-engine --release
-pnpm package:dir
-pnpm release:package:check
-```
-
-Platform installers:
-
-```bash
-pnpm package:win   # Windows runner
-pnpm package:mac   # macOS runner
-pnpm release:install-smoke --platform win32
-pnpm release:install-smoke --platform darwin
-```
-
-## Gates
-
-- Installer artifact size **≤ 200 MiB**; unpacked dir **≤ 420 MiB** (measured by `scripts/release-package-check.mjs`; see `docs/packaging.md`)
-- Clean install / launch / Engine smoke with isolated data directory
-- No account or login requirement
-- First usable project path on CI fixtures **≤ 3 minutes**
-- Missing Engine binary or failed launch fails the job
-
-## Signing hooks (optional)
-
-When secrets are absent, packaging continues and records an **unsigned** result.
+Unsigned packages must remain valid for development. Signing and notarization
+stay optional CI secrets; when secrets are absent, packaging continues and
+records an unsigned result.
 
 ### Windows
 
@@ -58,23 +41,9 @@ When secrets are absent, packaging continues and records an **unsigned** result.
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password |
 | `APPLE_TEAM_ID` | Team identifier |
 
-Hooks are environment-gated in CI; local developers may ship unsigned builds.
+## Non-negotiables carried forward
 
-## Update feed
-
-The desktop update manager reads `TRANSLUNAR_UPDATE_FEED_URL` when set. For CI and
-unit tests, point it at a local fixture JSON file:
-
-```json
-{ "version": "9.9.9", "notes": "fixture", "url": "file://..." }
-```
-
-Feed URLs and credentials are never hard-coded into the renderer.
-
-## Contribution / plugin release guidance
-
-- App releases: this document + `docs/packaging.md` + `docs/contributing.md`
-- Plugins: `docs/plugins/README.md` (process-isolated packages, no renderer
-  execution, Engine-managed install under the data directory)
-- Governance: [`LICENSE`](../LICENSE), [`SECURITY.md`](../SECURITY.md), and
-  [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md)
+- No account or login requirement to install or run.
+- Feed URLs and credentials are never hard-coded into the renderer.
+- A missing engine binary in the package must fail the packaging job rather
+  than surface as a broken install.

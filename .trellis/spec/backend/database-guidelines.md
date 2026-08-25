@@ -1,5 +1,11 @@
 # Database Guidelines
 
+> **Historical / not current greenfield.** There is no database in the current
+> tree. `crates/storage` and `translunar.sqlite3` were removed in the
+> greenfield reset; persistence today is the whole-state `state.json` written
+> atomically by `crates/tl-engine/src/store.rs`. Keep this document as the
+> reference contract for when a real storage layer returns.
+
 ## Storage Model
 
 `crates/storage` uses `rusqlite` directly. `Store` owns one connection to
