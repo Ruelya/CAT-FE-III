@@ -308,6 +308,12 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await expect(settingsForm.getByLabel("源语言")).toHaveValue("en-US");
   await expect(settingsForm.getByLabel("目标语言")).toHaveValue("zh-CN");
 
+  // The import-defaults section reflects what the DOCX import auto-saved
+  // earlier in the run: sentence mode with the built-in SRX rules.
+  await expect(settingsForm.getByLabel("默认分段方式")).toHaveValue("sentence");
+  await expect(settingsForm).toContainText("内置规则（en-US）");
+  await shot("11d-import-defaults.png");
+
   // External TM import: a real CSV through tm.import, honest counts back.
   const tmCsvPath = join(workDir, "external-tm.csv");
   writeFileSync(
