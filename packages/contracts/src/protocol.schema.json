@@ -2669,7 +2669,7 @@
       ]
     },
     "TagIntegrityReport": {
-      "description": "Verdict on whether a proposal preserves the source's placeholder tokens.\n\n`missing` lists tokens the proposal dropped, `extra` lists tokens it\ninvented; both are multiset differences, so a duplicated token counts.",
+      "description": "Verdict on whether a proposal preserves the source's placeholder tokens.\n\n`missing` lists tokens the proposal dropped, `extra` lists tokens it\ninvented; both are multiset differences, so a duplicated token counts.\nDetection is [`tl_domain::placeholder_mismatch`] — the same detector the\ndeterministic QA tag rules use, so the AI gate and QA agree token for\ntoken.",
       "type": "object",
       "properties": {
         "extra": {
