@@ -8,6 +8,10 @@ use tl_domain::{Segment, TmEntry};
 pub const TM_LOOKUP_DEFAULT_LIMIT: u32 = 20;
 /// Hard ceiling on an explicit lookup `limit`.
 pub const TM_LOOKUP_MAX_LIMIT: u32 = 500;
+/// Default page size applied when `tm.list` omits `limit`.
+pub const TM_LIST_DEFAULT_LIMIT: u32 = 100;
+/// Hard ceiling on an explicit `tm.list` `limit`.
+pub const TM_LIST_MAX_LIMIT: u32 = 500;
 /// Default fuzzy floor applied when a lookup omits `min_score`.
 pub const TM_LOOKUP_DEFAULT_MIN_SCORE: u8 = 60;
 /// Default threshold applied when pretranslation omits `min_score`.
@@ -54,6 +58,28 @@ pub struct TmLookupResult {
     /// Total candidates that met the floor before the limit was applied, so
     /// clients can tell when a `limit` cut the list short.
     pub total_matches: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmListParams {
+    pub project_id: String,
+    /// Rows to skip; defaults to 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// Page size (1..=[`TM_LIST_MAX_LIMIT`]); defaults to
+    /// [`TM_LIST_DEFAULT_LIMIT`].
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmListResult {
+    /// One page of the project memory, newest confirmation first.
+    pub entries: Vec<TmEntry>,
+    /// Entries in the memory before the page window was applied.
+    pub total_entries: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

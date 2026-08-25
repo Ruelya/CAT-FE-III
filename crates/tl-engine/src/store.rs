@@ -17,14 +17,28 @@
 //! persisted as one [`StateDelta`] inside one transaction; there is no
 //! whole-state rewrite anywhere on the write path anymore.
 //!
-//! Reads still come from the in-memory [`EngineState`] working set loaded
-//! once at open, which keeps every RPC read path unchanged. The scale win in
-//! this phase is on the write path (row-level transactional upserts instead
-//! of rewriting one `state.json`) and on the TM upsert path (the engine keys
-//! exact lookups by `(memory_id, source_hash)`, mirrored here by a unique
-//! index). Remaining honest limit: opening a data directory still loads all
-//! rows into memory; paged reads are a follow-up that this schema already
-//! supports.
+//! ## Read model — what pages from SQL and what stays in RAM
+//!
+//! The two bulk tables never get a full RAM copy anymore:
+//!
+//! - `segments` is read per document straight from SQL (`segment.list`
+//!   pages with LIMIT/OFFSET over the `(document_id, ordinal)` index; edit,
+//!   confirm, pretranslate, agent, QA, and export fetch only the rows of
+//!   the document or hash they touch).
+//! - `tm_entries` is read per entry or per page from SQL (`tm.list` pages
+//!   over the `(memory_id, confirmed_at_ms DESC, id)` index; exact lookups
+//!   are point queries on the unique `(memory_id, source_hash)` index).
+//!
+//! Honest limits of what remains memory-resident, loaded once at open:
+//!
+//! - [`EngineState`] still holds every project, document *metadata* row
+//!   (not its segments), termbase, term entry, termbase mount, and QA
+//!   issue. These are working-set–sized tables; paging them is a follow-up
+//!   the schema already supports.
+//! - The fuzzy TM recall index stays in RAM by design: it stores token
+//!   postings and per-entry token counts keyed by entry id — not the entry
+//!   rows themselves — and open() streams `(id, memory_id, source_text)`
+//!   once to rebuild it without retaining the rows.
 //!
 //! ## Legacy `state.json`
 //!
@@ -45,7 +59,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tl_asset::{TermEntry, Termbase, TermbaseMount};
-use tl_domain::{Document, Project, QaIssue, Segment, TmEntry};
+use tl_domain::{Document, Project, QaIssue, Segment, SegmentState, TmEntry};
 
 pub const DB_FILE_NAME: &str = "engine.sqlite";
 const LEGACY_STATE_FILE: &str = "state.json";
@@ -54,7 +68,13 @@ const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+
+/// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
+/// DESC, id` walks this index instead of sorting the memory per request.
+const SCHEMA_V2: &str = "
+CREATE INDEX tm_entries_by_memory_recency ON tm_entries(memory_id, confirmed_at_ms DESC, id);
+";
 
 const SCHEMA_V1: &str = "
 CREATE TABLE meta (
@@ -181,41 +201,61 @@ CREATE TABLE termbase_mounts (
 ) STRICT;
 ";
 
-/// The in-memory working set. Same shape as the legacy `state.json`
-/// document, which is also how legacy files are imported.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// The in-memory working set loaded once at open. Deliberately excludes the
+/// two bulk tables: segments and TM entries are read from SQL on demand
+/// (see the module docs for the honest split).
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct EngineState {
-    #[serde(default)]
     pub projects: BTreeMap<String, Project>,
-    #[serde(default)]
     pub documents: BTreeMap<String, DocumentRecord>,
-    #[serde(default)]
-    pub segments: BTreeMap<String, Segment>,
-    #[serde(default)]
-    pub tm_entries: BTreeMap<String, TmEntry>,
-    #[serde(default)]
     pub qa_issues: BTreeMap<String, QaIssue>,
-    #[serde(default)]
     pub termbases: BTreeMap<String, Termbase>,
-    #[serde(default)]
     pub term_entries: BTreeMap<String, TermEntry>,
-    #[serde(default)]
     pub termbase_mounts: Vec<TermbaseMount>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Document metadata kept in RAM. Segment ids, ordering, and leading text
+/// live in the `segments` table and are queried per document when needed.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DocumentRecord {
     pub document: Document,
     /// Engine-managed copy of the imported source file; export re-reads it.
     pub managed_source_path: String,
-    /// Segment ids in ordinal order.
-    pub segment_ids: Vec<String>,
-    /// Raw text that precedes each segment inside its unit. Kept so export can
-    /// reassemble a paragraph from its sentence segments byte-for-byte.
+}
+
+/// Legacy whole-state `state.json` document shape. Exists only so the
+/// one-time import can parse files written by earlier builds.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyState {
     #[serde(default)]
-    pub segment_leading: BTreeMap<String, String>,
+    projects: BTreeMap<String, Project>,
+    #[serde(default)]
+    documents: BTreeMap<String, LegacyDocumentRecord>,
+    #[serde(default)]
+    segments: BTreeMap<String, Segment>,
+    #[serde(default)]
+    tm_entries: BTreeMap<String, TmEntry>,
+    #[serde(default)]
+    qa_issues: BTreeMap<String, QaIssue>,
+    #[serde(default)]
+    termbases: BTreeMap<String, Termbase>,
+    #[serde(default)]
+    term_entries: BTreeMap<String, TermEntry>,
+    #[serde(default)]
+    termbase_mounts: Vec<TermbaseMount>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyDocumentRecord {
+    document: Document,
+    managed_source_path: String,
+    /// Ignored on import: the `ordinal` column is the order of record.
+    #[serde(default)]
+    segment_ids: Vec<String>,
+    #[serde(default)]
+    segment_leading: BTreeMap<String, String>,
 }
 
 /// One engine mutation, persisted as one transaction. Entities not touched
@@ -289,6 +329,299 @@ impl Store {
         write_delta(&tx, delta)?;
         tx.commit().map_err(db_err)
     }
+
+    // ---- Segment reads (per document or per row, never the whole table) ----
+
+    /// One segment by id.
+    pub fn segment(&self, segment_id: &str) -> io::Result<Option<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS} FROM segments WHERE id = ?1"
+            ))
+            .map_err(db_err)?;
+        statement
+            .query_row([segment_id], segment_from_row)
+            .optional()
+            .map_err(db_err)
+    }
+
+    /// One page of a document's segments in grid order (ordinal, then id).
+    /// `limit: None` returns everything from `offset` on.
+    pub fn document_segments_page(
+        &self,
+        document_id: &str,
+        offset: u32,
+        limit: Option<u32>,
+    ) -> io::Result<Vec<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS} FROM segments WHERE document_id = ?1
+                 ORDER BY ordinal, id LIMIT ?2 OFFSET ?3"
+            ))
+            .map_err(db_err)?;
+        // SQLite treats a negative LIMIT as "no limit".
+        let limit = limit.map_or(-1_i64, i64::from);
+        let rows = statement
+            .query_map(params![document_id, limit, i64::from(offset)], |row| {
+                segment_from_row(row)
+            })
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    pub fn document_segment_count(&self, document_id: &str) -> io::Result<u32> {
+        let mut statement = self
+            .conn
+            .prepare_cached("SELECT COUNT(*) FROM segments WHERE document_id = ?1")
+            .map_err(db_err)?;
+        let count: i64 = statement
+            .query_row([document_id], |row| row.get(0))
+            .map_err(db_err)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// Segment ids of one document in grid order, without the row payloads.
+    pub fn document_segment_ids(&self, document_id: &str) -> io::Result<Vec<String>> {
+        let mut statement = self
+            .conn
+            .prepare_cached("SELECT id FROM segments WHERE document_id = ?1 ORDER BY ordinal, id")
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map([document_id], |row| row.get(0))
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// A document's segments plus their non-empty leading text, for export
+    /// reassembly. Materializes one document transiently, never the table.
+    pub fn document_segments_with_leading(
+        &self,
+        document_id: &str,
+    ) -> io::Result<(Vec<Segment>, BTreeMap<String, String>)> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS}, leading FROM segments WHERE document_id = ?1
+                 ORDER BY ordinal, id"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map([document_id], |row| {
+                Ok((segment_from_row(row)?, row.get::<_, String>(11)?))
+            })
+            .map_err(db_err)?;
+        let mut segments = Vec::new();
+        let mut leading = BTreeMap::new();
+        for row in rows {
+            let (segment, gap) = row.map_err(db_err)?;
+            if !gap.is_empty() {
+                leading.insert(segment.id.clone(), gap);
+            }
+            segments.push(segment);
+        }
+        Ok((segments, leading))
+    }
+
+    /// Untranslated segments of one document in grid order — the rows
+    /// pretranslation and the agent planner work through.
+    pub fn untranslated_document_segments(&self, document_id: &str) -> io::Result<Vec<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS} FROM segments
+                 WHERE document_id = ?1 AND state = ?2 ORDER BY ordinal, id"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map(
+                params![document_id, enum_text(&SegmentState::Untranslated)?],
+                segment_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// Untranslated segments across one project that share a source hash —
+    /// the confirm-time propagation candidates. Walks the source-hash index
+    /// joined against the project's documents instead of scanning segments.
+    pub fn untranslated_siblings(
+        &self,
+        project_id: &str,
+        source_hash: &str,
+        exclude_segment_id: &str,
+    ) -> io::Result<Vec<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(
+                "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
+                    s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
+                    s.updated_at_ms
+                 FROM segments s
+                 JOIN documents d ON d.id = s.document_id
+                 WHERE s.source_hash = ?1 AND d.project_id = ?2
+                   AND s.state = ?3 AND s.id <> ?4
+                 ORDER BY s.document_id, s.ordinal, s.id",
+            )
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map(
+                params![
+                    source_hash,
+                    project_id,
+                    enum_text(&SegmentState::Untranslated)?,
+                    exclude_segment_id
+                ],
+                segment_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    // ---- TM reads (point queries and pages over the memory indexes) ----
+
+    /// One TM entry by id.
+    pub fn tm_entry(&self, entry_id: &str) -> io::Result<Option<TmEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TM_ENTRY_COLUMNS} FROM tm_entries WHERE id = ?1"
+            ))
+            .map_err(db_err)?;
+        statement
+            .query_row([entry_id], tm_entry_from_row)
+            .optional()
+            .map_err(db_err)
+    }
+
+    /// Exact-match point query on the unique `(memory_id, source_hash)`
+    /// index; replaces the in-memory exact map the engine used to carry.
+    pub fn tm_entry_by_source(
+        &self,
+        memory_id: &str,
+        source_hash: &str,
+    ) -> io::Result<Option<TmEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TM_ENTRY_COLUMNS} FROM tm_entries
+                 WHERE memory_id = ?1 AND source_hash = ?2"
+            ))
+            .map_err(db_err)?;
+        statement
+            .query_row([memory_id, source_hash], tm_entry_from_row)
+            .optional()
+            .map_err(db_err)
+    }
+
+    pub fn tm_entry_count(&self, memory_id: &str) -> io::Result<u32> {
+        let mut statement = self
+            .conn
+            .prepare_cached("SELECT COUNT(*) FROM tm_entries WHERE memory_id = ?1")
+            .map_err(db_err)?;
+        let count: i64 = statement
+            .query_row([memory_id], |row| row.get(0))
+            .map_err(db_err)?;
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// One page of a memory, newest confirmation first, walking the
+    /// `(memory_id, confirmed_at_ms DESC, id)` index.
+    pub fn tm_entries_page(
+        &self,
+        memory_id: &str,
+        offset: u32,
+        limit: u32,
+    ) -> io::Result<Vec<TmEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TM_ENTRY_COLUMNS} FROM tm_entries WHERE memory_id = ?1
+                 ORDER BY confirmed_at_ms DESC, id LIMIT ?2 OFFSET ?3"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map(
+                params![memory_id, i64::from(limit), i64::from(offset)],
+                tm_entry_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// Every entry of one memory, oldest confirmation first — the export
+    /// order. Materializes one memory transiently for the outgoing file.
+    pub fn tm_entries_for_export(&self, memory_id: &str) -> io::Result<Vec<TmEntry>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {TM_ENTRY_COLUMNS} FROM tm_entries WHERE memory_id = ?1
+                 ORDER BY confirmed_at_ms, id"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map([memory_id], tm_entry_from_row)
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// Stream `(id, memory_id, source_text)` for every TM entry so the
+    /// engine can rebuild its fuzzy recall index at open without keeping
+    /// the rows themselves in memory.
+    pub fn for_each_tm_index_seed(
+        &self,
+        mut visit: impl FnMut(&str, &str, &str),
+    ) -> io::Result<()> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT id, memory_id, source_text FROM tm_entries")
+            .map_err(db_err)?;
+        let mut rows = statement.query([]).map_err(db_err)?;
+        while let Some(row) = rows.next().map_err(db_err)? {
+            let id: String = row.get(0).map_err(db_err)?;
+            let memory_id: String = row.get(1).map_err(db_err)?;
+            let source_text: String = row.get(2).map_err(db_err)?;
+            visit(&id, &memory_id, &source_text);
+        }
+        Ok(())
+    }
+}
+
+const SEGMENT_COLUMNS: &str = "id, document_id, ordinal, structural_path, source_text, \
+     target_text, state, revision, source_hash, context_hash, updated_at_ms";
+
+const TM_ENTRY_COLUMNS: &str = "id, memory_id, source_text, target_text, source_hash, \
+     origin_project_id, origin_document_id, origin_segment_id, confirmed_at_ms";
+
+fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
+    Ok(Segment {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        ordinal: row.get(2)?,
+        structural_path: row.get(3)?,
+        source_text: row.get(4)?,
+        target_text: row.get(5)?,
+        state: enum_column(row, 6)?,
+        revision: revision_column(row, 7)?,
+        source_hash: row.get(8)?,
+        context_hash: row.get(9)?,
+        updated_at_ms: row.get(10)?,
+    })
+}
+
+fn tm_entry_from_row(row: &Row) -> rusqlite::Result<TmEntry> {
+    Ok(TmEntry {
+        id: row.get(0)?,
+        memory_id: row.get(1)?,
+        source_text: row.get(2)?,
+        target_text: row.get(3)?,
+        source_hash: row.get(4)?,
+        origin_project_id: row.get(5)?,
+        origin_document_id: row.get(6)?,
+        origin_segment_id: row.get(7)?,
+        confirmed_at_ms: row.get(8)?,
+    })
 }
 
 fn db_err(error: rusqlite::Error) -> io::Error {
@@ -328,9 +661,9 @@ fn import_legacy_state(conn: &mut Connection, data_dir: &Path) -> io::Result<()>
         return Ok(());
     }
     let bytes = std::fs::read(&legacy_path)?;
-    let mut state: EngineState = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+    let mut state: LegacyState = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     dedupe_legacy_tm_entries(&mut state);
-    let delta = full_state_delta(&state);
+    let delta = legacy_state_delta(&state);
     let tx = conn.transaction().map_err(db_err)?;
     write_delta(&tx, &delta)?;
     meta_set(&tx, META_LEGACY_IMPORT, "imported")?;
@@ -344,7 +677,7 @@ fn import_legacy_state(conn: &mut Connection, data_dir: &Path) -> io::Result<()>
 /// The legacy linear-scan upsert could not enforce uniqueness, so a legacy
 /// file may carry duplicate `(memory_id, source_hash)` pairs. Keep the
 /// newest entry per pair so the unique index holds.
-fn dedupe_legacy_tm_entries(state: &mut EngineState) {
+fn dedupe_legacy_tm_entries(state: &mut LegacyState) {
     let mut keep: BTreeMap<(String, String), String> = BTreeMap::new();
     for entry in state.tm_entries.values() {
         let key = (entry.memory_id.clone(), entry.source_hash.clone());
@@ -364,10 +697,17 @@ fn dedupe_legacy_tm_entries(state: &mut EngineState) {
     state.tm_entries.retain(|id, _| kept.contains(id));
 }
 
-fn full_state_delta(state: &EngineState) -> StateDelta {
+fn legacy_state_delta(state: &LegacyState) -> StateDelta {
     let mut delta = StateDelta {
         projects: state.projects.values().cloned().collect(),
-        documents: state.documents.values().cloned().collect(),
+        documents: state
+            .documents
+            .values()
+            .map(|record| DocumentRecord {
+                document: record.document.clone(),
+                managed_source_path: record.managed_source_path.clone(),
+            })
+            .collect(),
         segments: state.segments.values().cloned().collect(),
         tm_entries: state.tm_entries.values().cloned().collect(),
         qa_issues: state.qa_issues.values().cloned().collect(),
@@ -702,6 +1042,8 @@ fn upsert_termbase_mount(conn: &Connection, mount: &TermbaseMount) -> io::Result
     Ok(())
 }
 
+/// Load the metadata working set. Deliberately never touches the `segments`
+/// or `tm_entries` tables: those are queried on demand (see module docs).
 fn load_state(conn: &Connection) -> io::Result<EngineState> {
     let mut state = EngineState::default();
 
@@ -762,80 +1104,12 @@ fn load_state(conn: &Connection) -> io::Result<EngineState> {
                     updated_at_ms: row.get(13)?,
                 },
                 managed_source_path: row.get(14)?,
-                segment_ids: Vec::new(),
-                segment_leading: BTreeMap::new(),
             })
         })
         .map_err(db_err)?;
     for record in documents {
         let record = record.map_err(db_err)?;
         state.documents.insert(record.document.id.clone(), record);
-    }
-
-    // Ordinal order rebuilds each document's segment id list.
-    let mut statement = conn
-        .prepare(
-            "SELECT id, document_id, ordinal, structural_path, source_text, target_text, state,
-               revision, source_hash, context_hash, updated_at_ms, leading
-             FROM segments ORDER BY document_id, ordinal, id",
-        )
-        .map_err(db_err)?;
-    let segments = statement
-        .query_map([], |row| {
-            Ok((
-                Segment {
-                    id: row.get(0)?,
-                    document_id: row.get(1)?,
-                    ordinal: row.get(2)?,
-                    structural_path: row.get(3)?,
-                    source_text: row.get(4)?,
-                    target_text: row.get(5)?,
-                    state: enum_column(row, 6)?,
-                    revision: revision_column(row, 7)?,
-                    source_hash: row.get(8)?,
-                    context_hash: row.get(9)?,
-                    updated_at_ms: row.get(10)?,
-                },
-                row.get::<_, String>(11)?,
-            ))
-        })
-        .map_err(db_err)?;
-    for item in segments {
-        let (segment, leading) = item.map_err(db_err)?;
-        if let Some(record) = state.documents.get_mut(&segment.document_id) {
-            record.segment_ids.push(segment.id.clone());
-            if !leading.is_empty() {
-                record.segment_leading.insert(segment.id.clone(), leading);
-            }
-        }
-        state.segments.insert(segment.id.clone(), segment);
-    }
-
-    let mut statement = conn
-        .prepare(
-            "SELECT id, memory_id, source_text, target_text, source_hash, origin_project_id,
-               origin_document_id, origin_segment_id, confirmed_at_ms
-             FROM tm_entries",
-        )
-        .map_err(db_err)?;
-    let tm_entries = statement
-        .query_map([], |row| {
-            Ok(TmEntry {
-                id: row.get(0)?,
-                memory_id: row.get(1)?,
-                source_text: row.get(2)?,
-                target_text: row.get(3)?,
-                source_hash: row.get(4)?,
-                origin_project_id: row.get(5)?,
-                origin_document_id: row.get(6)?,
-                origin_segment_id: row.get(7)?,
-                confirmed_at_ms: row.get(8)?,
-            })
-        })
-        .map_err(db_err)?;
-    for entry in tm_entries {
-        let entry = entry.map_err(db_err)?;
-        state.tm_entries.insert(entry.id.clone(), entry);
     }
 
     let mut statement = conn
@@ -1058,7 +1332,7 @@ mod tests {
         }
     }
 
-    fn sample_record(document_id: &str, project_id: &str, segments: &[Segment]) -> DocumentRecord {
+    fn sample_record(document_id: &str, project_id: &str, segment_count: u32) -> DocumentRecord {
         DocumentRecord {
             document: Document {
                 id: document_id.to_string(),
@@ -1071,7 +1345,7 @@ mod tests {
                 current_version: 1,
                 status: DocumentStatus::Active,
                 revision: 1,
-                segment_count: segments.len() as u32,
+                segment_count,
                 degradation: vec![DegradationFinding {
                     code: "docx.dropped-shape".to_string(),
                     severity: DegradationSeverity::Warning,
@@ -1082,8 +1356,6 @@ mod tests {
                 updated_at_ms: 1,
             },
             managed_source_path: "/managed/demo.docx".to_string(),
-            segment_ids: segments.iter().map(|segment| segment.id.clone()).collect(),
-            segment_leading: BTreeMap::new(),
         }
     }
 
@@ -1101,8 +1373,9 @@ mod tests {
         }
     }
 
-    /// One of everything `state.json` used to hold, applied as row deltas,
-    /// reloaded byte-for-byte equal.
+    /// One of everything the store holds, applied as row deltas. Metadata
+    /// reloads into the working set byte-for-byte; the bulk tables answer
+    /// through the per-document / per-memory read API instead of a RAM copy.
     #[test]
     fn roundtrips_every_entity_type() {
         let directory = tempfile::tempdir().expect("tempdir");
@@ -1112,10 +1385,8 @@ mod tests {
         let project = sample_project("p1");
         let first = sample_segment("s1", "d1", 0);
         let second = sample_segment("s2", "d1", 1);
-        let mut record = sample_record("d1", "p1", &[first.clone(), second.clone()]);
-        record
-            .segment_leading
-            .insert("s2".to_string(), " ".to_string());
+        let record = sample_record("d1", "p1", 2);
+        let leading = BTreeMap::from([("s2".to_string(), " ".to_string())]);
         let tm_entry = sample_tm_entry("tm1", "tm-p1", "hash-s1");
         let qa_issue = QaIssue {
             id: "qa1".to_string(),
@@ -1182,7 +1453,7 @@ mod tests {
             projects: vec![project.clone()],
             documents: vec![record.clone()],
             segments: vec![first.clone(), second.clone()],
-            segment_leading: record.segment_leading.clone(),
+            segment_leading: leading,
             tm_entries: vec![tm_entry.clone()],
             qa_issues: vec![qa_issue.clone()],
             termbases: vec![termbase.clone()],
@@ -1195,16 +1466,114 @@ mod tests {
         let mut expected = EngineState::default();
         expected.projects.insert("p1".to_string(), project);
         expected.documents.insert("d1".to_string(), record);
-        expected.segments.insert("s1".to_string(), first);
-        expected.segments.insert("s2".to_string(), second);
-        expected.tm_entries.insert("tm1".to_string(), tm_entry);
         expected.qa_issues.insert("qa1".to_string(), qa_issue);
         expected.termbases.insert("tb1".to_string(), termbase);
         expected.term_entries.insert("te1".to_string(), term_entry);
         expected.termbase_mounts.push(mount);
 
-        let (_, reloaded) = Store::open(directory.path()).expect("reopen");
+        let (reopened, reloaded) = Store::open(directory.path()).expect("reopen");
         assert_eq!(reloaded, expected);
+
+        // Bulk tables come back through queries, not through the working set.
+        assert_eq!(
+            reopened
+                .document_segments_page("d1", 0, None)
+                .expect("segments"),
+            vec![first, second]
+        );
+        assert_eq!(reopened.document_segment_count("d1").expect("count"), 2);
+        let (segments, gaps) = reopened
+            .document_segments_with_leading("d1")
+            .expect("segments with leading");
+        assert_eq!(segments.len(), 2);
+        assert_eq!(gaps.get("s2").map(String::as_str), Some(" "));
+        assert_eq!(
+            reopened.tm_entry("tm1").expect("tm entry"),
+            Some(tm_entry.clone())
+        );
+        assert_eq!(
+            reopened
+                .tm_entry_by_source("tm-p1", "hash-s1")
+                .expect("tm by source"),
+            Some(tm_entry)
+        );
+    }
+
+    /// LIMIT/OFFSET windows come back in grid order for segments and in
+    /// recency order for TM entries, with totals available separately.
+    #[test]
+    fn pages_bulk_tables_from_sql() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let (mut store, _) = Store::open(directory.path()).expect("open");
+        let segments: Vec<Segment> = (0..5)
+            .map(|ordinal| sample_segment(&format!("s{ordinal}"), "d1", ordinal))
+            .collect();
+        let mut tm_entries = Vec::new();
+        for index in 0..4 {
+            let mut entry = sample_tm_entry(&format!("tm{index}"), "m", &format!("hash-{index}"));
+            entry.confirmed_at_ms = i64::from(index);
+            tm_entries.push(entry);
+        }
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 5)],
+                segments,
+                tm_entries,
+                ..Default::default()
+            })
+            .expect("apply");
+
+        let page = store
+            .document_segments_page("d1", 1, Some(2))
+            .expect("segment page");
+        assert_eq!(
+            page.iter()
+                .map(|segment| segment.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1", "s2"]
+        );
+        assert_eq!(store.document_segment_count("d1").expect("count"), 5);
+        assert_eq!(
+            store.document_segment_ids("d1").expect("ids"),
+            vec!["s0", "s1", "s2", "s3", "s4"]
+        );
+        // Past the end: an empty page, not an error.
+        assert!(
+            store
+                .document_segments_page("d1", 9, Some(2))
+                .expect("tail page")
+                .is_empty()
+        );
+
+        let newest = store.tm_entries_page("m", 0, 2).expect("tm page one");
+        assert_eq!(
+            newest
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tm3", "tm2"],
+            "newest confirmation first"
+        );
+        let older = store.tm_entries_page("m", 2, 2).expect("tm page two");
+        assert_eq!(
+            older
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tm1", "tm0"]
+        );
+        assert_eq!(store.tm_entry_count("m").expect("tm count"), 4);
+        assert_eq!(
+            store
+                .tm_entries_for_export("m")
+                .expect("export order")
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tm0", "tm1", "tm2", "tm3"],
+            "export walks oldest first"
+        );
     }
 
     /// Updates rewrite the mutable columns only: segment leading text and
@@ -1214,16 +1583,12 @@ mod tests {
         let directory = tempfile::tempdir().expect("tempdir");
         let (mut store, _) = Store::open(directory.path()).expect("open");
         let mut segment = sample_segment("s1", "d1", 0);
-        let mut record = sample_record("d1", "p1", std::slice::from_ref(&segment));
-        record
-            .segment_leading
-            .insert("s1".to_string(), "\t".to_string());
         store
             .apply(&StateDelta {
                 projects: vec![sample_project("p1")],
-                documents: vec![record.clone()],
+                documents: vec![sample_record("d1", "p1", 1)],
                 segments: vec![segment.clone()],
-                segment_leading: record.segment_leading.clone(),
+                segment_leading: BTreeMap::from([("s1".to_string(), "\t".to_string())]),
                 tm_entries: vec![sample_tm_entry("tm1", "tm-p1", "hash-s1")],
                 ..Default::default()
             })
@@ -1246,14 +1611,14 @@ mod tests {
             .expect("update apply");
         drop(store);
 
-        let (_, reloaded) = Store::open(directory.path()).expect("reopen");
-        assert_eq!(reloaded.segments["s1"], segment);
-        assert_eq!(
-            reloaded.documents["d1"].segment_leading["s1"],
-            "\t".to_string()
-        );
-        assert_eq!(reloaded.tm_entries.len(), 1);
-        assert_eq!(reloaded.tm_entries["tm1"], tm_entry);
+        let (reopened, _) = Store::open(directory.path()).expect("reopen");
+        assert_eq!(reopened.segment("s1").expect("segment"), Some(segment));
+        let (_, gaps) = reopened
+            .document_segments_with_leading("d1")
+            .expect("leading");
+        assert_eq!(gaps.get("s1").map(String::as_str), Some("\t"));
+        assert_eq!(reopened.tm_entry_count("tm-p1").expect("count"), 1);
+        assert_eq!(reopened.tm_entry("tm1").expect("tm entry"), Some(tm_entry));
     }
 
     /// A legacy `state.json` is imported exactly once; afterwards the
@@ -1261,10 +1626,28 @@ mod tests {
     #[test]
     fn imports_legacy_state_json_once() {
         let directory = tempfile::tempdir().expect("tempdir");
-        let mut legacy = EngineState::default();
+        let mut legacy = LegacyState::default();
         legacy
             .projects
             .insert("p1".to_string(), sample_project("p1"));
+        // A document with segments and leading text: the legacy record embeds
+        // them; the import must land them as ordinal-ordered rows.
+        let light = sample_record("d1", "p1", 2);
+        legacy.documents.insert(
+            "d1".to_string(),
+            LegacyDocumentRecord {
+                document: light.document.clone(),
+                managed_source_path: light.managed_source_path.clone(),
+                segment_ids: vec!["s1".to_string(), "s2".to_string()],
+                segment_leading: BTreeMap::from([("s2".to_string(), " ".to_string())]),
+            },
+        );
+        legacy
+            .segments
+            .insert("s1".to_string(), sample_segment("s1", "d1", 0));
+        legacy
+            .segments
+            .insert("s2".to_string(), sample_segment("s2", "d1", 1));
         // Two entries for the same (memory, hash): the legacy linear upsert
         // could not prevent this; the newer confirmation must win.
         let mut older = sample_tm_entry("tm-old", "tm-p1", "hash-dup");
@@ -1281,14 +1664,28 @@ mod tests {
         )
         .expect("write legacy state");
 
-        let (_, imported) = Store::open(directory.path()).expect("open imports legacy");
+        let (store, imported) = Store::open(directory.path()).expect("open imports legacy");
         assert_eq!(imported.projects.len(), 1);
+        assert_eq!(imported.documents["d1"], light);
+        let (segments, gaps) = store
+            .document_segments_with_leading("d1")
+            .expect("imported segments");
         assert_eq!(
-            imported.tm_entries.keys().collect::<Vec<_>>(),
-            vec!["tm-new"],
+            segments
+                .iter()
+                .map(|segment| segment.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s1", "s2"]
+        );
+        assert_eq!(gaps.get("s2").map(String::as_str), Some(" "));
+        assert_eq!(store.tm_entry_count("tm-p1").expect("count"), 1);
+        assert_eq!(
+            store
+                .tm_entry_by_source("tm-p1", "hash-dup")
+                .expect("deduped entry"),
+            Some(newer),
             "newest duplicate wins"
         );
-        assert_eq!(imported.tm_entries["tm-new"], newer);
         assert!(
             directory.path().join(LEGACY_BACKUP_FILE).is_file(),
             "legacy file becomes a backup"
@@ -1296,7 +1693,7 @@ mod tests {
         assert!(!directory.path().join(LEGACY_STATE_FILE).exists());
 
         // A stale file appearing later must not overwrite database rows.
-        let mut stale = EngineState::default();
+        let mut stale = LegacyState::default();
         stale
             .projects
             .insert("stale".to_string(), sample_project("stale"));
@@ -1324,7 +1721,7 @@ mod tests {
                 })
                 .expect("apply");
         }
-        let mut late = EngineState::default();
+        let mut late = LegacyState::default();
         late.projects
             .insert("late".to_string(), sample_project("late"));
         std::fs::write(
@@ -1391,12 +1788,13 @@ mod tests {
         drop(raw);
         drop(store);
 
-        let (_, recovered) = Store::open(snapshot.path()).expect("open crash snapshot");
+        let (recovered_store, recovered) =
+            Store::open(snapshot.path()).expect("open crash snapshot");
         assert!(recovered.projects.contains_key("committed"));
-        assert!(
-            recovered.tm_entries.is_empty(),
-            "uncommitted rows must not survive, found {}",
-            recovered.tm_entries.len()
+        let uncommitted = recovered_store.tm_entry_count("m").expect("tm count");
+        assert_eq!(
+            uncommitted, 0,
+            "uncommitted rows must not survive, found {uncommitted}"
         );
     }
 

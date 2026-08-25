@@ -200,6 +200,32 @@ fn tm_import_scales_to_fifty_thousand_entries() {
         format!("条款 {probe} 已修订。")
     );
 
+    // Paged listing after the restart: one 50-row window plus the total.
+    // The engine no longer holds a TM map at all (open() only streams the
+    // fuzzy-index seed), so this window is the only row transfer — a full
+    // in-RAM clone of 50k entries is not something this path can do anymore.
+    let started = Instant::now();
+    let page = call(
+        &mut engine,
+        "tm.list",
+        json!({"projectId": project_id, "limit": 50}),
+    );
+    let page_elapsed = started.elapsed();
+    assert_eq!(page["entries"].as_array().expect("entries").len(), 50);
+    assert_eq!(page["totalEntries"].as_u64(), Some(ENTRIES as u64));
+    assert!(
+        page_elapsed < Duration::from_secs(5),
+        "one 50-row page took {page_elapsed:?}"
+    );
+
+    // A window straddling the tail clips to the remaining rows.
+    let deep = call(
+        &mut engine,
+        "tm.list",
+        json!({"projectId": project_id, "offset": ENTRIES - 25, "limit": 100}),
+    );
+    assert_eq!(deep["entries"].as_array().expect("entries").len(), 25);
+
     let export_path = workspace.path().join("tm-roundtrip.csv");
     let exported = call(
         &mut engine,

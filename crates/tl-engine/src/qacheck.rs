@@ -22,7 +22,13 @@ impl Engine {
     pub(crate) fn qa_run(&mut self, params: QaRunParams) -> Result<QaRunResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
-        let segment_ids = record.segment_ids.clone();
+        // One document's rows, transiently: QA inherently evaluates every
+        // segment of the document it runs on.
+        let segments = self
+            .store
+            .document_segments_page(&record.document.id, 0, None)?;
+        let segment_ids: BTreeSet<String> =
+            segments.iter().map(|segment| segment.id.clone()).collect();
 
         let profiles = built_in_profiles();
         let profile_id = project
@@ -42,10 +48,7 @@ impl Engine {
         let mut checked = 0_u32;
         let mut candidates: Vec<QaFindingCandidate> = Vec::new();
         let mut consistency_inputs = Vec::new();
-        for segment_id in &segment_ids {
-            let Some(segment) = self.state.segments.get(segment_id) else {
-                continue;
-            };
+        for segment in &segments {
             if segment.source_text.trim().is_empty() {
                 continue;
             }
@@ -114,7 +117,7 @@ impl Engine {
         }
         // Resolve issues that no longer reproduce for this document.
         for issue in self.state.qa_issues.values_mut() {
-            if segment_ids.contains(&issue.segment_id)
+            if segment_ids.contains(issue.segment_id.as_str())
                 && issue.status == QaIssueStatus::Open
                 && !current_fingerprints.contains(&issue.fingerprint)
             {
@@ -141,17 +144,23 @@ impl Engine {
 
     pub(crate) fn qa_list(&self, params: QaListParams) -> Result<QaListResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
+        // Ids only; the issue filter never needs the segment payloads.
+        let segment_ids: BTreeSet<String> = self
+            .store
+            .document_segment_ids(&record.document.id)?
+            .into_iter()
+            .collect();
         Ok(QaListResult {
-            issues: self.document_issues(&record.segment_ids),
+            issues: self.document_issues(&segment_ids),
         })
     }
 
-    fn document_issues(&self, segment_ids: &[String]) -> Vec<QaIssue> {
+    fn document_issues(&self, segment_ids: &BTreeSet<String>) -> Vec<QaIssue> {
         let mut issues: Vec<QaIssue> = self
             .state
             .qa_issues
             .values()
-            .filter(|issue| segment_ids.contains(&issue.segment_id))
+            .filter(|issue| segment_ids.contains(issue.segment_id.as_str()))
             .cloned()
             .collect();
         issues.sort_by(|a, b| {

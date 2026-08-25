@@ -836,6 +836,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TmListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract14": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TmImportParams"
         },
         "result": {
@@ -848,7 +865,7 @@
         "result"
       ]
     },
-    "MethodContract14": {
+    "MethodContract15": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -865,7 +882,7 @@
         "result"
       ]
     },
-    "MethodContract15": {
+    "MethodContract16": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -882,7 +899,7 @@
         "result"
       ]
     },
-    "MethodContract16": {
+    "MethodContract17": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -899,7 +916,7 @@
         "result"
       ]
     },
-    "MethodContract17": {
+    "MethodContract18": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -916,7 +933,7 @@
         "result"
       ]
     },
-    "MethodContract18": {
+    "MethodContract19": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -925,23 +942,6 @@
         },
         "result": {
           "$ref": "#/$defs/TermbaseAttachResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract19": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermbaseImportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermbaseImportResult"
         }
       },
       "additionalProperties": false,
@@ -972,6 +972,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermbaseImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermbaseImportResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract21": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermbaseExportParams"
         },
         "result": {
@@ -984,7 +1001,7 @@
         "result"
       ]
     },
-    "MethodContract21": {
+    "MethodContract22": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1001,7 +1018,7 @@
         "result"
       ]
     },
-    "MethodContract22": {
+    "MethodContract23": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1018,7 +1035,7 @@
         "result"
       ]
     },
-    "MethodContract23": {
+    "MethodContract24": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1035,7 +1052,7 @@
         "result"
       ]
     },
-    "MethodContract24": {
+    "MethodContract25": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1052,7 +1069,7 @@
         "result"
       ]
     },
-    "MethodContract25": {
+    "MethodContract26": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1069,7 +1086,7 @@
         "result"
       ]
     },
-    "MethodContract26": {
+    "MethodContract27": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1086,7 +1103,7 @@
         "result"
       ]
     },
-    "MethodContract27": {
+    "MethodContract28": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1103,7 +1120,7 @@
         "result"
       ]
     },
-    "MethodContract28": {
+    "MethodContract29": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1112,23 +1129,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiAssistResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract29": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AgentStartParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -1159,7 +1159,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AgentStatusParams"
+          "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
           "$ref": "#/$defs/AgentRunView"
@@ -1172,6 +1172,23 @@
       ]
     },
     "MethodContract31": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract32": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1696,22 +1713,22 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract31"
+          "$ref": "#/$defs/MethodContract32"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract29"
-        },
-        "ai.agent.status": {
           "$ref": "#/$defs/MethodContract30"
         },
+        "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract31"
+        },
         "ai.assist": {
-          "$ref": "#/$defs/MethodContract28"
+          "$ref": "#/$defs/MethodContract29"
         },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract26"
+          "$ref": "#/$defs/MethodContract27"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract27"
+          "$ref": "#/$defs/MethodContract28"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract8"
@@ -1738,10 +1755,10 @@
           "$ref": "#/$defs/MethodContract4"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract25"
+          "$ref": "#/$defs/MethodContract26"
         },
         "qa.run": {
-          "$ref": "#/$defs/MethodContract24"
+          "$ref": "#/$defs/MethodContract25"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract11"
@@ -1753,40 +1770,43 @@
           "$ref": "#/$defs/MethodContract10"
         },
         "term.add": {
-          "$ref": "#/$defs/MethodContract21"
-        },
-        "term.list": {
           "$ref": "#/$defs/MethodContract22"
         },
-        "term.lookup": {
+        "term.list": {
           "$ref": "#/$defs/MethodContract23"
         },
+        "term.lookup": {
+          "$ref": "#/$defs/MethodContract24"
+        },
         "termbase.attach": {
-          "$ref": "#/$defs/MethodContract18"
-        },
-        "termbase.create": {
-          "$ref": "#/$defs/MethodContract16"
-        },
-        "termbase.export": {
-          "$ref": "#/$defs/MethodContract20"
-        },
-        "termbase.import": {
           "$ref": "#/$defs/MethodContract19"
         },
-        "termbase.list": {
+        "termbase.create": {
           "$ref": "#/$defs/MethodContract17"
         },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract21"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract18"
+        },
         "tm.export": {
-          "$ref": "#/$defs/MethodContract14"
+          "$ref": "#/$defs/MethodContract15"
         },
         "tm.import": {
+          "$ref": "#/$defs/MethodContract14"
+        },
+        "tm.list": {
           "$ref": "#/$defs/MethodContract13"
         },
         "tm.lookup": {
           "$ref": "#/$defs/MethodContract12"
         },
         "tm.pretranslate": {
-          "$ref": "#/$defs/MethodContract15"
+          "$ref": "#/$defs/MethodContract16"
         }
       },
       "additionalProperties": false,
@@ -1803,6 +1823,7 @@
         "segment.update",
         "segment.confirm",
         "tm.lookup",
+        "tm.list",
         "tm.import",
         "tm.export",
         "tm.pretranslate",
@@ -1985,6 +2006,26 @@
       "properties": {
         "documentId": {
           "type": "string"
+        },
+        "limit": {
+          "description": "Page size. When omitted the whole document is returned, which is the\npre-paging behavior existing clients rely on.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "offset": {
+          "description": "Rows to skip in ordinal order; defaults to 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
         }
       },
       "required": [
@@ -1999,10 +2040,17 @@
           "items": {
             "$ref": "#/$defs/Segment"
           }
+        },
+        "totalSegments": {
+          "description": "Segments in the document before the page window was applied, so\nclients can size scrollbars without fetching every row.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "required": [
-        "segments"
+        "segments",
+        "totalSegments"
       ]
     },
     "SegmentState": {
@@ -2800,6 +2848,59 @@
         "imported",
         "added",
         "updated"
+      ]
+    },
+    "TmListParams": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "description": "Page size (1..=[`TM_LIST_MAX_LIMIT`]); defaults to\n[`TM_LIST_DEFAULT_LIMIT`].",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "offset": {
+          "description": "Rows to skip; defaults to 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "TmListResult": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "One page of the project memory, newest confirmation first.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TmEntry"
+          }
+        },
+        "totalEntries": {
+          "description": "Entries in the memory before the page window was applied.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "totalEntries"
       ]
     },
     "TmLookupParams": {

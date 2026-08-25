@@ -8,12 +8,22 @@ use tl_domain::{Segment, TmEntry};
 #[serde(rename_all = "camelCase")]
 pub struct SegmentListParams {
     pub document_id: String,
+    /// Rows to skip in ordinal order; defaults to 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// Page size. When omitted the whole document is returned, which is the
+    /// pre-paging behavior existing clients rely on.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentListResult {
     pub segments: Vec<Segment>,
+    /// Segments in the document before the page window was applied, so
+    /// clients can size scrollbars without fetching every row.
+    pub total_segments: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

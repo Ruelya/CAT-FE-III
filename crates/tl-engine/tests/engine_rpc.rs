@@ -193,6 +193,110 @@ fn fuzzy_tm_lookup_recalls_and_reranks() {
     assert_eq!(after_restart["matches"][0]["grade"], "fuzzy");
 }
 
+/// Both list surfaces page from SQL: stable windows, totals independent of
+/// the window, and identical answers after a restart (so nothing depended
+/// on rows hydrated at open).
+#[test]
+fn segment_and_tm_lists_page_from_sql() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "paged.txt",
+        "One.\n\nTwo.\n\nThree.\n\nFour.\n\nFive.\n\nSix.\n",
+    );
+
+    // Omitting the window keeps the pre-paging behavior: the whole document.
+    let full = harness.call("segment.list", json!({ "documentId": document_id }));
+    assert_eq!(full["totalSegments"], 6);
+    assert_eq!(full["segments"].as_array().expect("segments").len(), 6);
+
+    // A middle window in grid order, with the total unaffected.
+    let page = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 2, "limit": 2 }),
+    );
+    let rows = page["segments"].as_array().expect("segments");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["sourceText"], "Three.");
+    assert_eq!(rows[1]["sourceText"], "Four.");
+    assert_eq!(page["totalSegments"], 6);
+
+    // Overhang clips, past-the-end is empty, and limit 0 is rejected.
+    let tail = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 4, "limit": 10 }),
+    );
+    assert_eq!(tail["segments"].as_array().expect("segments").len(), 2);
+    let past = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 10, "limit": 2 }),
+    );
+    assert_eq!(past["segments"].as_array().expect("segments").len(), 0);
+    assert_eq!(past["totalSegments"], 6);
+    assert_eq!(
+        harness.call_err(
+            "segment.list",
+            json!({ "documentId": document_id, "limit": 0 }),
+        ),
+        "invalidParams"
+    );
+
+    // Two TM entries; then a confirm refreshes one so it is provably the
+    // newest. The sleep keeps the confirmation in a later millisecond.
+    let csv_path = harness.write_file("paged-memory.csv", "source,target\nOne.,一。\nTwo.,二。\n");
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path }),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let segments = harness.segments(&document_id);
+    let updated = harness.set_target(&segments[1], "二！");
+    harness.confirm(&updated);
+
+    let listed = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["totalEntries"], 2);
+    let entries = listed["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(
+        entries[0]["sourceText"], "Two.",
+        "newest confirmation first"
+    );
+    assert_eq!(entries[0]["targetText"], "二！");
+
+    let first = harness.call("tm.list", json!({ "projectId": project_id, "limit": 1 }));
+    assert_eq!(first["entries"].as_array().expect("entries").len(), 1);
+    assert_eq!(first["entries"][0]["sourceText"], "Two.");
+    assert_eq!(first["totalEntries"], 2);
+    let second = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "offset": 1, "limit": 1 }),
+    );
+    assert_eq!(second["entries"][0]["sourceText"], "One.");
+    let past_tm = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "offset": 2, "limit": 1 }),
+    );
+    assert_eq!(past_tm["entries"].as_array().expect("entries").len(), 0);
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": project_id, "limit": 0 })),
+        "invalidParams"
+    );
+
+    // Restart: the pages answer from SQL identically, proving no list
+    // surface depended on state hydrated at open.
+    harness.reopen();
+    let page = harness.call(
+        "segment.list",
+        json!({ "documentId": document_id, "offset": 2, "limit": 2 }),
+    );
+    assert_eq!(page["segments"][0]["sourceText"], "Three.");
+    assert_eq!(page["totalSegments"], 6);
+    let listed = harness.call("tm.list", json!({ "projectId": project_id, "limit": 1 }));
+    assert_eq!(listed["entries"][0]["sourceText"], "Two.");
+    assert_eq!(listed["totalEntries"], 2);
+}
+
 #[test]
 fn tm_import_export_roundtrip_and_pretranslate() {
     let mut harness = Harness::new();
