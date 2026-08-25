@@ -4,6 +4,7 @@ import type { Project } from "@translunar/contracts";
 import { Button, StatusDot } from "@translunar/ui";
 
 import type { EngineStatusPayload } from "../shared/desktop-api.js";
+import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
 
@@ -44,6 +45,7 @@ export function App() {
     null,
   );
   const [project, setProject] = useState<Project | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
     "INSTRUMENT · Translunar CAT 绿场骨架",
   );
@@ -85,6 +87,13 @@ export function App() {
               <Button
                 size="sm"
                 variant="ghost"
+                onClick={() => setSettingsOpen(true)}
+              >
+                项目设置
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setProject(null)}
               >
                 返回项目列表
@@ -116,6 +125,14 @@ export function App() {
       <footer className="app-statusbar">
         <span className="app-statusbar__message">{statusMessage}</span>
       </footer>
+
+      {project ? (
+        <ProjectSettingsDialog
+          open={settingsOpen}
+          project={project}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
