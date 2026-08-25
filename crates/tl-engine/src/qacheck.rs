@@ -1,8 +1,9 @@
 //! QA execution: the deterministic `tl-qa` rule library wired to documents.
 //!
 //! Every run evaluates the full built-in profile (completeness, numbers,
-//! punctuation, whitespace, repetition, length, terminology from attached
-//! termbases, and cross-segment consistency), then reconciles findings with
+//! inline tag/placeholder integrity, punctuation, whitespace, repetition,
+//! length, terminology from attached termbases, and cross-segment
+//! consistency), then reconciles findings with
 //! the persisted issue set by fingerprint so repeated runs stay stable and
 //! fixed issues resolve. Issues live in SQL only: a run reconciles one
 //! document's rows transiently and `qa.list` pages them straight from the

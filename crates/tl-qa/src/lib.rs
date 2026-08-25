@@ -7,7 +7,9 @@ use regex::{Regex, RegexBuilder};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tl_domain::{QaSeverity, ReviewRevision, normalize_text, number_mismatch, sha256_hex};
+use tl_domain::{
+    QaSeverity, ReviewRevision, normalize_text, number_mismatch, placeholder_mismatch, sha256_hex,
+};
 use tl_filter_office::{OfficePackage, validate_xml};
 use zip::ZipArchive;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -883,6 +885,44 @@ impl CompiledQaProfile {
                 },
             );
         }
+        // Built-in placeholder integrity over the text the segment model
+        // actually stores: literal `{name}` / `{{var}}` / printf / markup /
+        // entity tokens inside source and target. Unlike a caller-supplied
+        // `tag_missing` (structural formatting that export flattens and
+        // reports), a dropped or invented text placeholder silently corrupts
+        // the exported content, so both directions are errors. An empty
+        // target is already covered by the completeness rule.
+        if input.target_text.trim().is_empty() {
+            return;
+        }
+        if let Some(mismatch) = placeholder_mismatch(&input.source_text, &input.target_text) {
+            if !mismatch.missing.is_empty() {
+                self.push(
+                    findings,
+                    input,
+                    "qa.tag-placeholder_missing",
+                    (QaCategory::Tags, QaSeverity::Error),
+                    "Target is missing inline tags or placeholders from the source.",
+                    QaCandidateEvidence {
+                        source_values: mismatch.missing,
+                        ..QaCandidateEvidence::default()
+                    },
+                );
+            }
+            if !mismatch.extra.is_empty() {
+                self.push(
+                    findings,
+                    input,
+                    "qa.tag-placeholder_extra",
+                    (QaCategory::Tags, QaSeverity::Error),
+                    "Target contains inline tags or placeholders that are not in the source.",
+                    QaCandidateEvidence {
+                        target_values: mismatch.extra,
+                        ..QaCandidateEvidence::default()
+                    },
+                );
+            }
+        }
     }
 
     fn evaluate_punctuation(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
@@ -1424,6 +1464,8 @@ fn profile_with_id(id: &str, name: &str, cjk: bool) -> QaProfileDefinition {
         "qa.tag-tag_extra",
         "qa.tag-tag_order",
         "qa.tag-tag_pair",
+        "qa.tag-placeholder_missing",
+        "qa.tag-placeholder_extra",
         "qa.unbalanced-delimiter",
         "qa.edge-whitespace",
         "qa.repeated-word",
@@ -1896,6 +1938,92 @@ mod tests {
                 .iter()
                 .any(|rule| rule.starts_with("qa.term-forbidden:"))
         );
+    }
+
+    #[test]
+    fn flags_missing_placeholder_tokens_with_token_evidence() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let findings =
+            profile.evaluate_segment(&input("Click {button} to run %s.", "点击运行。", "zh-CN"));
+        let finding = findings
+            .iter()
+            .find(|finding| finding.rule_id == "qa.tag-placeholder_missing")
+            .expect("missing-placeholder finding");
+        assert_eq!(finding.severity, QaSeverity::Error);
+        assert_eq!(finding.category, QaCategory::Tags);
+        assert_eq!(
+            finding.evidence.source_values,
+            vec!["%s".to_string(), "{button}".to_string()]
+        );
+        assert!(
+            !findings
+                .iter()
+                .any(|finding| finding.rule_id == "qa.tag-placeholder_extra")
+        );
+    }
+
+    #[test]
+    fn flags_extra_placeholder_tokens_with_token_evidence() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let findings =
+            profile.evaluate_segment(&input("Save the file.", "保存<b>文件</b>。", "zh-CN"));
+        let finding = findings
+            .iter()
+            .find(|finding| finding.rule_id == "qa.tag-placeholder_extra")
+            .expect("extra-placeholder finding");
+        assert_eq!(finding.severity, QaSeverity::Error);
+        assert_eq!(
+            finding.evidence.target_values,
+            vec!["</b>".to_string(), "<b>".to_string()]
+        );
+        assert!(
+            !findings
+                .iter()
+                .any(|finding| finding.rule_id == "qa.tag-placeholder_missing")
+        );
+    }
+
+    #[test]
+    fn placeholder_integrity_skips_intact_and_untranslated_targets() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let intact = profile.evaluate_segment(&input(
+            "Use {name} and &amp; twice: {name}.",
+            "使用 {name} 与 &amp;，再次 {name}。",
+            "zh-CN",
+        ));
+        assert!(
+            intact
+                .iter()
+                .all(|finding| !finding.rule_id.starts_with("qa.tag-placeholder_"))
+        );
+        // An untranslated segment is the completeness rule's business, not a
+        // wall of missing-placeholder noise.
+        let untranslated = profile.evaluate_segment(&input("Click {button}.", "  ", "zh-CN"));
+        assert!(
+            untranslated
+                .iter()
+                .all(|finding| !finding.rule_id.starts_with("qa.tag-placeholder_"))
+        );
+    }
+
+    #[test]
+    fn placeholder_fingerprints_are_pinned_to_the_exact_tokens() {
+        // The waive rule rides on this: same tokens on a rerun keep the same
+        // fingerprint (waiver holds); different tokens are a new fingerprint
+        // (a fresh open issue instead of hiding behind the old waiver).
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let finding_for = |source: &str, target: &str| {
+            profile
+                .evaluate_segment(&input(source, target, "zh-CN"))
+                .into_iter()
+                .find(|finding| finding.rule_id == "qa.tag-placeholder_missing")
+                .expect("missing-placeholder finding")
+        };
+        let first = finding_for("Click {button} to save.", "点击保存。");
+        let rerun = finding_for("Click {button} to save.", "点击保存。");
+        assert_eq!(first.fingerprint, rerun.fingerprint);
+        let changed = finding_for("Click {link} to save.", "点击保存。");
+        assert_ne!(first.fingerprint, changed.fingerprint);
     }
 
     #[test]
