@@ -8,10 +8,7 @@ import type {
 import { Badge, Button, Dialog, SelectField, TextField } from "@translunar/ui";
 
 import { callEngine, describeError } from "../lib/engine.js";
-import {
-  defaultSegmentation,
-  defaultSrxPath,
-} from "./ImportDocumentDialog.js";
+import { defaultSegmentation, defaultSrxPath } from "./ImportDocumentDialog.js";
 import { TermManagePanel } from "./TermManagePanel.js";
 
 type SegmentationChoice = "sentence" | "paragraph";

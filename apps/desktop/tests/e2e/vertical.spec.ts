@@ -436,9 +436,12 @@ async function importThroughDialog(
   const dialog = page.locator(".tl-dialog");
   await dialog.getByRole("button", { name: "选择文件…" }).click();
   await expect(dialog).toContainText(path.split("/").pop() ?? path);
-  if (options.paragraph) {
-    await dialog.getByLabel("分段方式").selectOption("paragraph");
-  }
+  // The dialog pre-fills from the project defaults auto-saved by the last
+  // successful import, so make this import's choice explicit instead of
+  // inheriting whatever an earlier test stored.
+  await dialog
+    .getByLabel("分段方式")
+    .selectOption(options.paragraph ? "paragraph" : "sentence");
   if (options.srxPath) {
     await app.evaluate((_electronModule, value) => {
       process.env.TL_FAKE_SRX_PATH = value;
@@ -447,6 +450,12 @@ async function importThroughDialog(
     await expect(dialog).toContainText(
       options.srxPath.split("/").pop() ?? options.srxPath,
     );
+  } else if (!options.paragraph) {
+    // Drop an inherited SRX default so this import uses the built-ins.
+    const clearSrx = dialog.getByRole("button", { name: "清除" });
+    if (await clearSrx.isVisible()) {
+      await clearSrx.click();
+    }
   }
   if (options.shot) {
     await shot(options.shot);
@@ -508,6 +517,14 @@ test("import dialog segmentation options shape the grid", async () => {
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("First sentence. Second sentence.");
   await shot("13-paragraph-mode.png");
+
+  // The paragraph choice was auto-saved as the project default, so
+  // reopening the dialog pre-fills it (persisted through the real engine).
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  const prefillDialog = page.locator(".tl-dialog");
+  await expect(prefillDialog.getByLabel("分段方式")).toHaveValue("paragraph");
+  await prefillDialog.getByRole("button", { name: "取消" }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
   // Custom SRX: only a semicolon breaks, so the built-in period rule no
   // longer splits and the first segment ends at the semicolon.
