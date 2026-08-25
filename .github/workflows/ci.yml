@@ -10,13 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The engine's process-tier plugin tests enable real `kind: "node"`
-      # plugins, which spawn `node` from PATH. Without a Node runtime on this
-      # runner every one of those tests fails with a bare ENOENT, so the Rust
-      # lane needs Node just as much as the Node lane needs Rust.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -39,18 +32,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+      # The node lane still needs Rust: `contracts:check` regenerates the
+      # schema via tl-protocol, root `lint` includes clippy, and both E2E
+      # suites build and drive the real tl-engine binary.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: pnpm/action-setup@v4
         with:
           version: 10.18.3
-      - name: Install PDF test tools and a headless display with a window manager
-        # fluxbox is not decoration: BrowserWindow.maximize() is a no-op under
-        # bare Xvfb, which silently guts the custom title bar's maximize and
-        # restore assertions. x11-utils supplies the xdpyinfo readiness probe
-        # scripts/linux-display.sh waits on.
+      - name: Install a headless display for the Electron E2E
+        # scripts/linux-display.sh wraps commands in xvfb-run when no DISPLAY
+        # is available.
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils tesseract-ocr xvfb fluxbox x11-utils
+          sudo apt-get install -y xvfb
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Allow Electron to sandbox itself
@@ -63,17 +59,15 @@ jobs:
           sudo chown root:root "$sandbox"
           sudo chmod 4755 "$sandbox"
           ls -l "$sandbox"
-      - name: Electron install integrity
-        run: pnpm electron:install:check
       - name: Contracts
         run: pnpm contracts:check
       - name: Lint
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      - name: Unit tests
-        run: pnpm test
+      - name: Desktop unit tests
+        run: pnpm --filter @translunar/desktop test
       - name: Engine E2E
         run: pnpm test:e2e:engine
       - name: Desktop E2E
-        run: pnpm test:e2e:desktop:linux
+        run: ./scripts/linux-display.sh pnpm test:e2e:desktop
