@@ -82,4 +82,50 @@ describe("SegmentGrid", () => {
     );
     expect(screen.getByText("QA")).toBeInTheDocument();
   });
+
+  it("renders every row for small documents (no virtualization)", () => {
+    const segments = Array.from({ length: 20 }, (_, i) =>
+      segment(`s${i}`, i, `Sentence ${i}.`),
+    );
+    const { container } = render(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(20);
+    expect(container.querySelector(".segment-grid__spacer")).toBeNull();
+  });
+
+  it("windows large documents instead of rendering every row", () => {
+    const segments = Array.from({ length: 500 }, (_, i) =>
+      segment(`s${i}`, i, `Sentence ${i}.`),
+    );
+    const { container } = render(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const rows = container.querySelectorAll(
+      "tbody tr:not(.segment-grid__spacer)",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(100);
+    // The unrendered tail is held open by a spacer row.
+    expect(
+      container.querySelectorAll(".segment-grid__spacer").length,
+    ).toBeGreaterThan(0);
+    // First window starts at the top of the document.
+    expect(screen.getByText("Sentence 0.")).toBeInTheDocument();
+    expect(screen.queryByText("Sentence 499.")).not.toBeInTheDocument();
+  });
 });

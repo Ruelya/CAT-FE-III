@@ -1,7 +1,13 @@
 // Phase 1 vertical slice through the real UI and real engine:
 // create project -> import DOCX -> edit/confirm -> exact TM -> number QA ->
 // export DOCX, plus the honest AI/Agent degradation without credentials.
-import { existsSync, mkdtempSync, mkdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -123,4 +129,103 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   expect(existsSync(exportPath)).toBe(true);
   expect(statSync(exportPath).size).toBeGreaterThan(0);
   await shot("07-exported.png");
+});
+
+// Continues in the same app instance: the document now has one confirmed,
+// one draft, and one untranslated segment.
+test("workbench intel: filter, concordance, preview, and settings", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // State filter narrows the grid; the count chip stays honest.
+  await page.getByLabel("按状态筛选").selectOption("untranslated");
+  await expect(rows).toHaveCount(1);
+  await expect(page.locator(".grid-toolbar__count")).toHaveText("1/3");
+  await page.getByRole("button", { name: "清除" }).click();
+  await expect(rows).toHaveCount(3);
+
+  // Text filter matches source and target text.
+  await page.getByLabel("按文本筛选").fill("retention");
+  await expect(rows).toHaveCount(1);
+  await shot("08-grid-filter.png");
+  await page.getByRole("button", { name: "清除" }).click();
+
+  // F3 opens the concordance dock; hits jump back to the grid.
+  await page.keyboard.press("F3");
+  await expect(page.getByLabel(/检索词/)).toBeVisible();
+  await page.getByLabel(/检索词/).fill("30");
+  await expect(page.locator(".concordance__hit").first()).toBeVisible();
+  await page
+    .locator(".match-card")
+    .first()
+    .getByRole("button", { name: "定位句段" })
+    .click();
+  await expect(
+    page.locator(".segment-grid tr[data-active='true']"),
+  ).toBeVisible();
+  await shot("09-concordance.png");
+
+  // Preview backfills confirmed/draft targets and flags untranslated
+  // segments instead of pretending the document is done.
+  await page.getByRole("button", { name: "预览", exact: true }).click();
+  await expect(page.locator(".tl-dialog")).toContainText("译文预览");
+  await expect(page.locator(".tl-dialog")).toContainText("保留期为 30 天。");
+  await expect(
+    page.locator(".preview__segment[data-fallback='true']").first(),
+  ).toBeVisible();
+  await shot("10-preview.png");
+  await page.getByRole("button", { name: "关闭对话框" }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
+
+  // Project settings: language pair fixed, mounts honestly disabled.
+  await page.getByRole("button", { name: "项目设置" }).click();
+  await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
+  await expect(
+    page.getByRole("button", { name: "挂载外部 TM…" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "挂载术语库…" }),
+  ).toBeDisabled();
+  await shot("11-settings.png");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
+});
+
+// The TXT filter is registered engine-side; the import seam is re-pointed
+// at a generated 400-paragraph file to exercise row virtualization for real.
+test("virtualized grid stays windowed on a large document", async () => {
+  const largePath = join(workDir, "large.txt");
+  writeFileSync(
+    largePath,
+    Array.from(
+      { length: 400 },
+      (_, i) => `Segment number ${i} ends here.`,
+    ).join("\n\n"),
+  );
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_OPEN_PATH = path;
+  }, largePath);
+
+  await page.getByRole("button", { name: "导入" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「large.txt」",
+    { timeout: 30_000 },
+  );
+  await expect(page.getByText("Segment number 0 ends here.")).toBeVisible();
+
+  // Only a window of rows is mounted; spacers hold the rest of the height.
+  const mounted = page.locator(
+    ".segment-grid tbody tr:not(.segment-grid__spacer)",
+  );
+  expect(await mounted.count()).toBeLessThan(400);
+  expect(
+    await page.locator(".segment-grid tr.segment-grid__spacer").count(),
+  ).toBeGreaterThan(0);
+
+  // Scrolling to the bottom mounts the tail rows (wheel over the grid,
+  // like a user would; the delta is clamped to the max scroll offset).
+  await page.locator(".segment-grid").hover();
+  await page.mouse.wheel(0, 100_000);
+  await expect(page.getByText("Segment number 399 ends here.")).toBeVisible();
+  expect(await mounted.count()).toBeLessThan(400);
+  await shot("12-virtualized-tail.png");
 });

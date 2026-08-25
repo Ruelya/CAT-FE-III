@@ -6,22 +6,60 @@ import type {
   QaIssue,
   Segment,
 } from "@translunar/contracts";
-import { Button, EmptyState, Panel } from "@translunar/ui";
+import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
 
 import { AiStatusProvider } from "../lib/ai-status.js";
 import { callEngine, describeError } from "../lib/engine.js";
+import {
+  EMPTY_FILTER,
+  filterSegments,
+  isFilterActive,
+} from "../lib/segment-filter.js";
+import type {
+  SegmentFilterSpec,
+  SegmentStateFilter,
+} from "../lib/segment-filter.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
+import { TermPanel } from "../components/TermPanel.js";
+import { ConcordancePanel } from "../components/ConcordancePanel.js";
 import { QaPanel } from "../components/QaPanel.js";
 import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
+import { PreviewDialog } from "../components/PreviewDialog.js";
 
 export interface WorkbenchViewProps {
   project: Project;
   onStatusMessage: (message: string) => void;
 }
 
-type DockTab = "tm" | "qa" | "ai" | "agent";
+type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
+
+const STATE_FILTER_OPTIONS: Array<[SegmentStateFilter, string]> = [
+  ["all", "全部状态"],
+  ["untranslated", "未译"],
+  ["draft", "草稿"],
+  ["confirmed", "已确认"],
+  ["qa", "QA 问题"],
+];
+
+function readTextSelection(): string {
+  const active = document.activeElement;
+  if (
+    active instanceof HTMLTextAreaElement ||
+    active instanceof HTMLInputElement
+  ) {
+    const { selectionStart, selectionEnd, value } = active;
+    if (
+      selectionStart !== null &&
+      selectionEnd !== null &&
+      selectionEnd > selectionStart
+    ) {
+      return value.slice(selectionStart, selectionEnd).trim();
+    }
+  }
+  return window.getSelection()?.toString().trim() ?? "";
+}
 
 export function WorkbenchView({
   project,
@@ -34,6 +72,9 @@ export function WorkbenchView({
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [tab, setTab] = useState<DockTab>("tm");
   const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
+  const [concordanceSeed, setConcordanceSeed] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const activeDocument = useMemo(
     () =>
@@ -53,6 +94,7 @@ export function WorkbenchView({
 
   const loadDocument = useCallback(async (documentId: string) => {
     setActiveDocumentId(documentId);
+    setFilter(EMPTY_FILTER);
     const [segmentResult, issueResult] = await Promise.all([
       callEngine("segment.list", { documentId }),
       callEngine("qa.list", { documentId }),
@@ -241,6 +283,44 @@ export function WorkbenchView({
     return ids;
   }, [issues]);
 
+  const filteredSegments = useMemo(
+    () => filterSegments(segments, filter, openIssueSegmentIds),
+    [segments, filter, openIssueSegmentIds],
+  );
+
+  // Jump target may be hidden by the active filter; clear it so the jump
+  // always lands (QA "定位句段", concordance hits, preview clicks).
+  const jumpToSegment = useCallback(
+    (segmentId: string) => {
+      const visible = filteredSegments.some(
+        (segment) => segment.id === segmentId,
+      );
+      if (!visible) {
+        setFilter(EMPTY_FILTER);
+      }
+      setActiveSegmentId(segmentId);
+    },
+    [filteredSegments],
+  );
+
+  // F3 opens concordance seeded with the current text selection, in line
+  // with the classic CAT shortcut.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "F3") {
+        return;
+      }
+      event.preventDefault();
+      const selection = readTextSelection();
+      if (selection.length > 0) {
+        setConcordanceSeed(selection);
+      }
+      setTab("concordance");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
     <AiStatusProvider>
       <main className="workbench">
@@ -261,7 +341,7 @@ export function WorkbenchView({
             {documents.length === 0 ? (
               <EmptyState
                 title="暂无文档"
-                hint="导入 DOCX、TXT、HTML、XLIFF、XLSX 或 PPTX 开始翻译。"
+                hint="导入 DOCX、TXT、Markdown、HTML、XLIFF、XLSX 或 PPTX 开始翻译。"
               />
             ) : (
               <div className="document-list">
@@ -292,28 +372,106 @@ export function WorkbenchView({
                 : "编辑网格"
             }
             actions={
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void exportDocument()}
-                disabled={!activeDocument || busy}
-              >
-                导出译文
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPreviewOpen(true)}
+                  disabled={!activeDocument}
+                >
+                  预览
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void exportDocument()}
+                  disabled={!activeDocument || busy}
+                >
+                  导出译文
+                </Button>
+              </>
             }
-            className="dock-panel"
+            className="dock-panel grid-panel"
           >
             {activeDocument ? (
-              <SegmentGrid
-                segments={segments}
-                activeSegmentId={activeSegmentId}
-                qaSegmentIds={openIssueSegmentIds}
-                onSelect={setActiveSegmentId}
-                onSaveDraft={(segment, text) => void saveDraft(segment, text)}
-                onConfirm={(segment, text) =>
-                  void confirmSegment(segment, text)
-                }
-              />
+              <>
+                <div className="grid-toolbar">
+                  <select
+                    className="grid-toolbar__select"
+                    aria-label="按状态筛选"
+                    value={filter.state}
+                    onChange={(event) =>
+                      setFilter((current) => ({
+                        ...current,
+                        state: event.target.value as SegmentStateFilter,
+                      }))
+                    }
+                  >
+                    {STATE_FILTER_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="grid-toolbar__search"
+                    aria-label="按文本筛选"
+                    placeholder="筛选源文 / 译文…"
+                    value={filter.query}
+                    onChange={(event) =>
+                      setFilter((current) => ({
+                        ...current,
+                        query: event.target.value,
+                      }))
+                    }
+                  />
+                  {isFilterActive(filter) ? (
+                    <>
+                      <span className="grid-toolbar__count">
+                        {filteredSegments.length}/{counts.total}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setFilter(EMPTY_FILTER)}
+                      >
+                        清除
+                      </Button>
+                    </>
+                  ) : null}
+                  <span className="grid-toolbar__spacer" />
+                  <span className="grid-toolbar__progress">
+                    <Meter
+                      ratio={counts.total > 0 ? counts.confirmed / counts.total : 0}
+                      label={`已确认 ${counts.confirmed}/${counts.total}`}
+                    />
+                    <span className="grid-toolbar__progress-text">
+                      {counts.total > 0
+                        ? `${Math.round((counts.confirmed / counts.total) * 100)}%`
+                        : "—"}
+                    </span>
+                  </span>
+                </div>
+                {segments.length === 0 ? (
+                  <EmptyState title="该文档没有句段" />
+                ) : filteredSegments.length === 0 ? (
+                  <EmptyState
+                    title="没有符合筛选条件的句段"
+                    hint="调整状态或文本筛选，或点击「清除」。"
+                  />
+                ) : (
+                  <SegmentGrid
+                    segments={filteredSegments}
+                    activeSegmentId={activeSegmentId}
+                    qaSegmentIds={openIssueSegmentIds}
+                    onSelect={setActiveSegmentId}
+                    onSaveDraft={(segment, text) => void saveDraft(segment, text)}
+                    onConfirm={(segment, text) =>
+                      void confirmSegment(segment, text)
+                    }
+                  />
+                )}
+              </>
             ) : (
               <EmptyState
                 title="选择或导入一个文档"
@@ -328,6 +486,8 @@ export function WorkbenchView({
             {(
               [
                 ["tm", "TM"],
+                ["term", "术语"],
+                ["concordance", "检索"],
                 ["qa", "QA"],
                 ["ai", "AI 辅助"],
                 ["agent", "Agent"],
@@ -351,11 +511,19 @@ export function WorkbenchView({
                 onApply={applyDraftToActive}
               />
             ) : null}
+            {tab === "term" ? <TermPanel /> : null}
+            {tab === "concordance" ? (
+              <ConcordancePanel
+                segments={segments}
+                initialQuery={concordanceSeed}
+                onJump={jumpToSegment}
+              />
+            ) : null}
             {tab === "qa" ? (
               <QaPanel
                 issues={issues}
                 onRun={() => void runQa()}
-                onJump={(segmentId) => setActiveSegmentId(segmentId)}
+                onJump={jumpToSegment}
                 disabled={!activeDocumentId}
               />
             ) : null}
@@ -379,6 +547,19 @@ export function WorkbenchView({
             ) : null}
           </div>
         </aside>
+
+        {activeDocument ? (
+          <PreviewDialog
+            open={previewOpen}
+            documentName={activeDocument.name}
+            segments={segments}
+            onClose={() => setPreviewOpen(false)}
+            onJump={(segmentId) => {
+              setPreviewOpen(false);
+              jumpToSegment(segmentId);
+            }}
+          />
+        ) : null}
       </main>
     </AiStatusProvider>
   );
