@@ -604,8 +604,11 @@ export function WorkbenchView({
         {activeDocument ? (
           <PreviewDialog
             open={previewOpen}
+            documentId={activeDocument.id}
             documentName={activeDocument.name}
+            documentFormat={activeDocument.format}
             segments={segments}
+            activeSegmentId={activeSegmentId}
             onClose={() => setPreviewOpen(false)}
             onJump={(segmentId) => {
               setPreviewOpen(false);

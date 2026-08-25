@@ -2,6 +2,7 @@ import electron = require("electron");
 
 import type {
   DesktopApi,
+  DocxPreviewResponse,
   EngineInvokeResponse,
   EngineNotificationPayload,
   EngineStatusPayload,
@@ -14,6 +15,9 @@ const CHANNELS = {
   notification: "tl:engine:notification",
   chooseSource: "tl:dialog:choose-source",
   chooseExport: "tl:dialog:choose-export",
+  chooseTm: "tl:dialog:choose-tm",
+  chooseTerm: "tl:dialog:choose-term",
+  previewDocx: "tl:preview:docx",
 } as const;
 
 const api: DesktopApi = {
@@ -55,6 +59,22 @@ const api: DesktopApi = {
       CHANNELS.chooseExport,
       defaultName,
     ) as Promise<string | null>;
+  },
+  chooseTmFile(): Promise<string | null> {
+    return electron.ipcRenderer.invoke(CHANNELS.chooseTm) as Promise<
+      string | null
+    >;
+  },
+  chooseTermFile(): Promise<string | null> {
+    return electron.ipcRenderer.invoke(CHANNELS.chooseTerm) as Promise<
+      string | null
+    >;
+  },
+  renderDocxPreview(documentId: string): Promise<DocxPreviewResponse> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.previewDocx,
+      documentId,
+    ) as Promise<DocxPreviewResponse>;
   },
 };
 

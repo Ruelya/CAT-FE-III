@@ -24,10 +24,22 @@ let app: ElectronApplication;
 let page: Page;
 let workDir: string;
 let exportPath: string;
+let tmImportPath: string;
+let termImportPath: string;
+let tmExportPath: string;
 
 test.beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), "tl-desktop-e2e-"));
   exportPath = join(workDir, "translated.docx");
+  tmExportPath = join(workDir, "project-tm.tmx");
+  // Exchange-file fixtures for the TM / termbase import channels.
+  tmImportPath = join(workDir, "external-tm.csv");
+  writeFileSync(
+    tmImportPath,
+    "source,target\nExternal segment.,外部句段。\n",
+  );
+  termImportPath = join(workDir, "external-terms.csv");
+  writeFileSync(termImportPath, "sourceTerm,targetTerm\nretention,保留\n");
   mkdirSync(shotsDir, { recursive: true });
   app = await electron.launch({
     args: ["."],
@@ -38,6 +50,8 @@ test.beforeAll(async () => {
       TL_ENGINE_BIN: join(repoRoot, "target", "debug", "tl-engine"),
       TL_FAKE_OPEN_PATH: fixture,
       TL_FAKE_SAVE_PATH: exportPath,
+      TL_FAKE_TM_PATH: tmImportPath,
+      TL_FAKE_TERM_PATH: termImportPath,
     },
   });
   page = await app.firstWindow();
@@ -165,39 +179,81 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await shot("09-concordance.png");
 
   // Preview backfills confirmed/draft targets and flags untranslated
-  // segments instead of pretending the document is done.
+  // segments instead of pretending the document is done. The proofread
+  // view follows the segment that is active in the grid.
   await page.getByRole("button", { name: "预览", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toContainText("译文预览");
   await expect(page.locator(".tl-dialog")).toContainText("保留期为 30 天。");
   await expect(
     page.locator(".preview__segment[data-fallback='true']").first(),
   ).toBeVisible();
+  await expect(
+    page.locator(".preview__segment[data-active='true']"),
+  ).toBeVisible();
   await shot("10-preview.png");
+
+  // Layout view: the engine's export pipeline produces the DOCX bytes and
+  // docx-preview renders them — same artifact as「导出译文」.
+  await page.getByRole("tab", { name: "版式视图（DOCX）" }).click();
+  await expect(page.locator(".preview__docx .docx-wrapper")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.locator(".preview__docx")).toContainText(
+    "保留期为 30 天。",
+  );
+  await expect(page.locator(".tl-dialog")).toContainText(
+    "已回填 2 个已译单元",
+  );
+  await shot("10b-preview-docx.png");
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Project settings: language pair fixed, external TM import honestly
-  // disabled, termbase mounting wired to the real engine.
+  // Project settings: language pair fixed; external TM import/export and
+  // termbase mounting all wired to the real engine.
   await page.getByRole("button", { name: "项目设置" }).click();
   await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
-  await expect(
-    page.getByRole("button", { name: "挂载外部 TM…" }),
-  ).toBeDisabled();
+
+  // External TM import through the dedicated file channel.
+  await page.getByRole("button", { name: "导入外部 TM…" }).click();
+  await expect(page.locator(".honest-note[data-tone='ok']")).toContainText(
+    "TM 导入完成：读取 1 条，新增 1，更新 0",
+  );
+
+  // TM export writes a real TMX through the save channel.
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_SAVE_PATH = path;
+  }, tmExportPath);
+  await page.getByRole("button", { name: "导出 TM…" }).click();
+  await expect(page.locator(".honest-note[data-tone='ok']")).toContainText(
+    "TM 导出完成",
+  );
+  expect(existsSync(tmExportPath)).toBe(true);
+  expect(statSync(tmExportPath).size).toBeGreaterThan(0);
+
   await page.getByLabel("新术语库名称").fill("产品术语");
   await page.getByRole("button", { name: "新建并挂载" }).click();
   await expect(page.getByText("已挂载")).toBeVisible();
+
+  // Termbase CSV import through the term file channel.
+  await page.getByRole("button", { name: "导入术语…" }).click();
+  await expect(page.locator(".honest-note[data-tone='ok']")).toContainText(
+    "「产品术语」导入完成：读取 1 条，新增 1，合并 0",
+  );
   await shot("11-settings.png");
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Term dock: quick-add a term into the mounted termbase, the active
-  // segment then shows a real term.lookup hit.
+  // Term dock: quick-add a term into the mounted termbase; the active
+  // segment then hits both the quick-added term and the CSV-imported one.
   await rows.first().click();
   await page.getByRole("button", { name: "术语", exact: true }).click();
   await page.getByLabel(/源术语/).fill("retention period");
   await page.getByLabel("目标术语").fill("保留期");
   await page.getByRole("button", { name: "添加术语" }).click();
-  await expect(page.locator(".term-hit__target")).toContainText("保留期");
+  await expect(
+    page.locator(".term-hit__target").filter({ hasText: "保留期" }).first(),
+  ).toBeVisible();
+  await expect(page.locator(".match-card")).toHaveCount(2);
   await shot("11b-term-hit.png");
 
   // Pretranslation runs against the project TM and reports honestly.

@@ -49,11 +49,24 @@ function mount(termbaseId: string) {
   };
 }
 
+interface BridgeOverrides {
+  chooseTmFile?: DesktopApi["chooseTmFile"];
+  chooseTermFile?: DesktopApi["chooseTermFile"];
+  chooseExportPath?: DesktopApi["chooseExportPath"];
+}
+
 function installBridge(
   invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
+  overrides: BridgeOverrides = {},
 ): ReturnType<typeof vi.fn> {
   const spy = vi.fn(invoke);
-  const api: Partial<DesktopApi> = { invoke: spy };
+  const api: Partial<DesktopApi> = {
+    invoke: spy,
+    chooseTmFile: overrides.chooseTmFile ?? vi.fn().mockResolvedValue(null),
+    chooseTermFile: overrides.chooseTermFile ?? vi.fn().mockResolvedValue(null),
+    chooseExportPath:
+      overrides.chooseExportPath ?? vi.fn().mockResolvedValue(null),
+  };
   Object.defineProperty(window, "tl", {
     value: api,
     configurable: true,
@@ -78,10 +91,87 @@ describe("ProjectSettingsDialog", () => {
     expect(screen.getByText(/尚无 project.update/)).toBeInTheDocument();
   });
 
-  it("keeps external TM import disabled until a file channel exists", () => {
+  it("imports an external TM through the file channel", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "tm.import") {
+          return Promise.resolve({
+            ok: true,
+            result: { imported: 3, added: 2, updated: 1 },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { chooseTmFile: vi.fn().mockResolvedValue("/tmp/memory.tmx") },
+    );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "挂载外部 TM…" })).toBeDisabled();
-    expect(screen.getByText(/不做假成功/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "导入外部 TM…" }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/TM 导入完成：读取 3 条，新增 2，更新 1/),
+      ).toBeInTheDocument();
+    });
+    expect(calls).toContainEqual([
+      "tm.import",
+      { projectId: "p1", path: "/tmp/memory.tmx" },
+    ]);
+  });
+
+  it("does not call tm.import when the picker is canceled", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { chooseTmFile: vi.fn().mockResolvedValue(null) },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "导入外部 TM…" }),
+    );
+    expect(calls.some(([method]) => method === "tm.import")).toBe(false);
+  });
+
+  it("exports the project TM through the save channel", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const chooseExportPath = vi.fn().mockResolvedValue("/tmp/out.tmx");
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "tm.export") {
+          return Promise.resolve({
+            ok: true,
+            result: { outputPath: "/tmp/out.tmx", exported: 5 },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { chooseExportPath },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await waitFor(() => {
+      expect(screen.getByText(/TM 导出完成：5 条/)).toBeInTheDocument();
+    });
+    expect(chooseExportPath).toHaveBeenCalledWith("演示项目-tm.tmx");
+    expect(calls).toContainEqual([
+      "tm.export",
+      { projectId: "p1", path: "/tmp/out.tmx" },
+    ]);
   });
 
   it("lists mounted termbases from the engine", async () => {
@@ -99,6 +189,43 @@ describe("ProjectSettingsDialog", () => {
       expect(screen.getByText("产品术语")).toBeInTheDocument();
     });
     expect(screen.getByText("已挂载")).toBeInTheDocument();
+  });
+
+  it("imports terms into a mounted termbase with the project target locale", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "termbase.import") {
+          return Promise.resolve({
+            ok: true,
+            result: { imported: 4, added: 3, merged: 1 },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: {
+            termbases: [termbase("tb1", "产品术语")],
+            mounts: [mount("tb1")],
+          },
+        });
+      },
+      { chooseTermFile: vi.fn().mockResolvedValue("/tmp/terms.csv") },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("产品术语")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "导入术语…" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/「产品术语」导入完成：读取 4 条，新增 3，合并 1/),
+      ).toBeInTheDocument();
+    });
+    expect(calls).toContainEqual([
+      "termbase.import",
+      { termbaseId: "tb1", path: "/tmp/terms.csv", targetLocale: "zh-CN" },
+    ]);
   });
 
   it("creates and attaches a termbase through the engine", async () => {
