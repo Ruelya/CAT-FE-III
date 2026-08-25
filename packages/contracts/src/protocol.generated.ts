@@ -564,10 +564,27 @@ export interface MethodContract33 {
 }
 export interface QaListParams {
   documentId: string;
+  /**
+   * Page size. When omitted every issue from `offset` on is returned,
+   * which is the pre-paging behavior existing clients rely on.
+   */
+  limit?: number | null;
+  /**
+   * Issues to skip in list order (open first, then oldest); defaults to 0.
+   */
+  offset?: number | null;
   [k: string]: unknown;
 }
 export interface QaListResult {
+  /**
+   * One window of the document's issues, open before resolved.
+   */
   issues: QaIssue[];
+  /**
+   * Issues for the document before the page window was applied, so
+   * clients can page honestly.
+   */
+  total: number;
   [k: string]: unknown;
 }
 export interface QaIssue {
@@ -793,11 +810,28 @@ export interface MethodContract30 {
   result: TermListResult;
 }
 export interface TermListParams {
+  /**
+   * Page size. When omitted every entry from `offset` on is returned,
+   * which is the pre-paging behavior existing clients rely on.
+   */
+  limit?: number | null;
+  /**
+   * Entries to skip in source-term order; defaults to 0.
+   */
+  offset?: number | null;
   termbaseId: string;
   [k: string]: unknown;
 }
 export interface TermListResult {
+  /**
+   * One window of entries in source-term order.
+   */
   entries: TermEntry[];
+  /**
+   * Entries in the termbase before the page window was applied, so
+   * clients can page honestly.
+   */
+  total: number;
   [k: string]: unknown;
 }
 /**

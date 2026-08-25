@@ -4,7 +4,7 @@
 //! every entry whose provable score ceiling reaches the requested floor (no
 //! hidden candidate cap), and `tl_asset::match_score` reranks the survivors.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::Path;
 
@@ -604,44 +604,33 @@ impl Engine {
             ));
         }
         let now = now_ms();
+        // Dedupe on the normalized source: the store streams the termbase's
+        // (id, source_term) pairs and the hit — if any — is one point query.
         let normalized_source = normalize_match_key(source_term);
-        let existing_id = self
-            .state
-            .term_entries
-            .values()
-            .find(|entry| {
-                entry.termbase_id == termbase.id
-                    && normalize_match_key(&entry.source_term) == normalized_source
-            })
-            .map(|entry| entry.id.clone());
-        let entry_id = match existing_id {
-            Some(id) => id,
-            None => {
-                let entry = TermEntry {
-                    id: new_id(),
-                    termbase_id: termbase.id.clone(),
-                    source_locale: termbase.source_locale.clone(),
-                    source_term: source_term.to_string(),
-                    part_of_speech: None,
-                    definition: None,
-                    example: None,
-                    domain: None,
-                    status: TermStatus::Active,
-                    revision: 0,
-                    translations: Vec::new(),
-                    created_at_ms: now,
-                    updated_at_ms: now,
-                };
-                let id = entry.id.clone();
-                self.state.term_entries.insert(id.clone(), entry);
-                id
-            }
+        let existing_id = self.store.find_term_entry_id(&termbase.id, |_, source| {
+            normalize_match_key(source) == normalized_source
+        })?;
+        let mut entry = match existing_id {
+            Some(id) => self
+                .store
+                .term_entry(&id)?
+                .ok_or_else(|| EngineError::Internal(format!("term entry {id} vanished")))?,
+            None => TermEntry {
+                id: new_id(),
+                termbase_id: termbase.id.clone(),
+                source_locale: termbase.source_locale.clone(),
+                source_term: source_term.to_string(),
+                part_of_speech: None,
+                definition: None,
+                example: None,
+                domain: None,
+                status: TermStatus::Active,
+                revision: 0,
+                translations: Vec::new(),
+                created_at_ms: now,
+                updated_at_ms: now,
+            },
         };
-        let entry = self
-            .state
-            .term_entries
-            .get_mut(&entry_id)
-            .expect("term entry just resolved");
         if let Some(definition) = params.definition.as_deref() {
             entry.definition = Some(definition.to_string());
         }
@@ -658,37 +647,40 @@ impl Engine {
                 translation.forbidden = params.forbidden;
                 translation.updated_at_ms = now;
             }
-            None => entry.translations.push(TermTranslation {
-                id: new_id(),
-                entry_id: entry.id.clone(),
-                locale: target_locale.to_string(),
-                term: target_term.to_string(),
-                preferred: !params.forbidden,
-                forbidden: params.forbidden,
-                created_at_ms: now,
-                updated_at_ms: now,
-            }),
+            None => {
+                let entry_id = entry.id.clone();
+                entry.translations.push(TermTranslation {
+                    id: new_id(),
+                    entry_id,
+                    locale: target_locale.to_string(),
+                    term: target_term.to_string(),
+                    preferred: !params.forbidden,
+                    forbidden: params.forbidden,
+                    created_at_ms: now,
+                    updated_at_ms: now,
+                });
+            }
         }
         entry.revision += 1;
         entry.updated_at_ms = now;
-        let result = entry.clone();
         self.store.apply(&StateDelta {
-            term_entries: vec![result.clone()],
+            term_entries: vec![entry.clone()],
             ..Default::default()
         })?;
-        Ok(TermAddResult { entry: result })
+        Ok(TermAddResult { entry })
     }
 
     /// Edit an existing entry: rename the source term and/or edit one
-    /// translation's text or forbidden flag. One call, one atomic save.
+    /// translation's text or forbidden flag. One call, one atomic save. The
+    /// row is fetched from SQL, mutated, and persisted — no RAM copy of the
+    /// term table exists.
     pub(crate) fn term_update(
         &mut self,
         params: TermUpdateParams,
     ) -> Result<TermUpdateResult, EngineError> {
-        let entry = self
-            .state
-            .term_entries
-            .get(&params.entry_id)
+        let mut entry = self
+            .store
+            .term_entry(&params.entry_id)?
             .ok_or_else(|| EngineError::NotFound(format!("term entry {}", params.entry_id)))?;
         let termbase_id = entry.termbase_id.clone();
 
@@ -730,14 +722,13 @@ impl Engine {
 
         // Renaming must not collide with another entry in the same termbase;
         // term.add and termbase.import both dedupe on the normalized source.
+        // The check streams this termbase's (id, source_term) pairs from SQL.
         if let Some(source) = new_source.as_deref() {
             let normalized = normalize_match_key(source);
-            let collision = self.state.term_entries.values().any(|other| {
-                other.id != params.entry_id
-                    && other.termbase_id == termbase_id
-                    && normalize_match_key(&other.source_term) == normalized
-            });
-            if collision {
+            let collision = self.store.find_term_entry_id(&termbase_id, |id, other| {
+                id != params.entry_id && normalize_match_key(other) == normalized
+            })?;
+            if collision.is_some() {
                 return Err(EngineError::Conflict(format!(
                     "term \"{source}\" already exists in this termbase"
                 )));
@@ -745,11 +736,6 @@ impl Engine {
         }
 
         let now = now_ms();
-        let entry = self
-            .state
-            .term_entries
-            .get_mut(&params.entry_id)
-            .expect("term entry just resolved");
         if let Some(translation_id) = params.translation_id.as_deref() {
             let index = entry
                 .translations
@@ -787,33 +773,26 @@ impl Engine {
         }
         entry.revision += 1;
         entry.updated_at_ms = now;
-        let result = entry.clone();
         self.store.apply(&StateDelta {
-            term_entries: vec![result.clone()],
+            term_entries: vec![entry.clone()],
             ..Default::default()
         })?;
-        Ok(TermUpdateResult { entry: result })
+        Ok(TermUpdateResult { entry })
     }
 
     /// Delete a whole entry, or just one of its translations when
-    /// `translation_id` is set.
+    /// `translation_id` is set. The entry is resolved by a point query;
+    /// there is no RAM copy to keep in step.
     pub(crate) fn term_delete(
         &mut self,
         params: TermDeleteParams,
     ) -> Result<TermDeleteResult, EngineError> {
-        if !self.state.term_entries.contains_key(&params.entry_id) {
-            return Err(EngineError::NotFound(format!(
-                "term entry {}",
-                params.entry_id
-            )));
-        }
+        let mut entry = self
+            .store
+            .term_entry(&params.entry_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("term entry {}", params.entry_id)))?;
         let (result, delta) = match params.translation_id.as_deref() {
             Some(translation_id) => {
-                let entry = self
-                    .state
-                    .term_entries
-                    .get_mut(&params.entry_id)
-                    .expect("term entry just checked");
                 let index = entry
                     .translations
                     .iter()
@@ -824,47 +803,45 @@ impl Engine {
                 entry.translations.remove(index);
                 entry.revision += 1;
                 entry.updated_at_ms = now_ms();
-                let updated = entry.clone();
                 (
                     TermDeleteResult {
-                        entry: Some(updated.clone()),
+                        entry: Some(entry.clone()),
                     },
                     StateDelta {
-                        term_entries: vec![updated],
+                        term_entries: vec![entry],
                         ..Default::default()
                     },
                 )
             }
-            None => {
-                self.state.term_entries.remove(&params.entry_id);
-                (
-                    TermDeleteResult { entry: None },
-                    StateDelta {
-                        deleted_term_entries: vec![params.entry_id.clone()],
-                        ..Default::default()
-                    },
-                )
-            }
+            None => (
+                TermDeleteResult { entry: None },
+                StateDelta {
+                    deleted_term_entries: vec![params.entry_id.clone()],
+                    ..Default::default()
+                },
+            ),
         };
         self.store.apply(&delta)?;
         Ok(result)
     }
 
+    /// One page of a termbase's entries straight from SQL, in source-term
+    /// order, plus the honest pre-page total. Omitting `limit` returns the
+    /// whole termbase, as before.
     pub(crate) fn term_list(&self, params: TermListParams) -> Result<TermListResult, EngineError> {
         self.require_termbase(&params.termbase_id)?;
-        let mut entries: Vec<TermEntry> = self
-            .state
-            .term_entries
-            .values()
-            .filter(|entry| entry.termbase_id == params.termbase_id)
-            .cloned()
-            .collect();
-        entries.sort_by(|left, right| {
-            left.source_term
-                .cmp(&right.source_term)
-                .then(left.id.cmp(&right.id))
-        });
-        Ok(TermListResult { entries })
+        if params.limit == Some(0) {
+            return Err(EngineError::InvalidParams(
+                "limit must be at least 1".to_string(),
+            ));
+        }
+        let entries = self.store.termbase_entries_page(
+            &params.termbase_id,
+            params.offset.unwrap_or(0),
+            params.limit,
+        )?;
+        let total = self.store.termbase_entry_count(&params.termbase_id)?;
+        Ok(TermListResult { entries, total })
     }
 
     /// Termbase ids attached to a project, in mount priority order.
@@ -882,24 +859,34 @@ impl Engine {
             .collect()
     }
 
-    /// All term hits for one source text across a project's termbases.
-    pub(crate) fn term_hits(&self, project_id: &str, source_text: &str) -> Vec<TermMatch> {
-        let mut matches = Vec::new();
+    /// Entries of every termbase attached to a project, fetched per
+    /// termbase from SQL in mount priority order. Materialized transiently
+    /// for one lookup or one QA run — there is no RAM map of all entries.
+    pub(crate) fn attached_term_entries(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<TermEntry>, EngineError> {
+        let mut entries = Vec::new();
         for termbase_id in self.attached_termbase_ids(project_id) {
-            for entry in self.state.term_entries.values() {
-                if entry.termbase_id != termbase_id {
-                    continue;
-                }
-                for (start, end) in term_spans(source_text, &entry.source_term) {
-                    matches.push(TermMatch {
-                        termbase_id: termbase_id.clone(),
-                        entry_id: entry.id.clone(),
-                        source_term: entry.source_term.clone(),
-                        translations: entry.translations.clone(),
-                        start,
-                        end,
-                    });
-                }
+            entries.extend(self.store.termbase_entries_page(&termbase_id, 0, None)?);
+        }
+        Ok(entries)
+    }
+
+    /// All term hits for one source text over a prefetched entry set (see
+    /// [`Engine::attached_term_entries`]), ordered by span position.
+    pub(crate) fn term_hits(entries: &[TermEntry], source_text: &str) -> Vec<TermMatch> {
+        let mut matches = Vec::new();
+        for entry in entries {
+            for (start, end) in term_spans(source_text, &entry.source_term) {
+                matches.push(TermMatch {
+                    termbase_id: entry.termbase_id.clone(),
+                    entry_id: entry.id.clone(),
+                    source_term: entry.source_term.clone(),
+                    translations: entry.translations.clone(),
+                    start,
+                    end,
+                });
             }
         }
         matches.sort_by(|left, right| {
@@ -917,8 +904,9 @@ impl Engine {
         params: TermLookupParams,
     ) -> Result<TermLookupResult, EngineError> {
         self.require_project(&params.project_id)?;
+        let entries = self.attached_term_entries(&params.project_id)?;
         Ok(TermLookupResult {
-            matches: self.term_hits(&params.project_id, &params.source_text),
+            matches: Self::term_hits(&entries, &params.source_text),
         })
     }
 
@@ -958,23 +946,27 @@ impl Engine {
         let now = now_ms();
         let mut added = 0_u32;
         let mut merged = 0_u32;
-        let mut changed_entries = Vec::with_capacity(parsed.len());
+        // One pass over the termbase's existing rows seeds the
+        // normalized-source dedupe map; the whole file then merges against
+        // this transient batch and commits as one transaction. Repeated
+        // sources inside the file accumulate on the same pending entry —
+        // the same behavior the in-memory upsert had.
+        let mut pending: BTreeMap<String, TermEntry> = BTreeMap::new();
+        let mut id_by_normalized: BTreeMap<String, String> = BTreeMap::new();
+        for entry in self.store.termbase_entries_page(&termbase.id, 0, None)? {
+            id_by_normalized
+                .entry(normalize_match_key(&entry.source_term))
+                .or_insert_with(|| entry.id.clone());
+            pending.insert(entry.id.clone(), entry);
+        }
+        let mut changed_ids: BTreeSet<String> = BTreeSet::new();
         for exchange in &parsed {
             let normalized_source = normalize_match_key(&exchange.source_term);
             if normalized_source.is_empty() {
                 continue;
             }
-            let existing_id = self
-                .state
-                .term_entries
-                .values()
-                .find(|entry| {
-                    entry.termbase_id == termbase.id
-                        && normalize_match_key(&entry.source_term) == normalized_source
-                })
-                .map(|entry| entry.id.clone());
-            let (entry_id, is_new) = match existing_id {
-                Some(id) => (id, false),
+            let (entry_id, is_new) = match id_by_normalized.get(&normalized_source) {
+                Some(id) => (id.clone(), false),
                 None => {
                     let entry = TermEntry {
                         id: new_id(),
@@ -992,15 +984,12 @@ impl Engine {
                         updated_at_ms: now,
                     };
                     let id = entry.id.clone();
-                    self.state.term_entries.insert(id.clone(), entry);
+                    id_by_normalized.insert(normalized_source, id.clone());
+                    pending.insert(id.clone(), entry);
                     (id, true)
                 }
             };
-            let entry = self
-                .state
-                .term_entries
-                .get_mut(&entry_id)
-                .expect("term entry just resolved");
+            let entry = pending.get_mut(&entry_id).expect("term entry just seeded");
             for translation in &exchange.target_translations {
                 let existing = entry.translations.iter_mut().find(|current| {
                     current.locale == translation.locale
@@ -1027,17 +1016,20 @@ impl Engine {
             }
             entry.revision += 1;
             entry.updated_at_ms = now;
-            changed_entries.push(entry.clone());
+            changed_ids.insert(entry_id);
             if is_new {
                 added += 1;
             } else {
                 merged += 1;
             }
         }
-        // Duplicate entry ids inside the batch upsert in order; the last
-        // occurrence carries the accumulated translations, so it wins.
+        // Only the touched entries reach the delta; untouched seeded rows
+        // were read for the dedupe map and are dropped unchanged.
         self.store.apply(&StateDelta {
-            term_entries: changed_entries,
+            term_entries: changed_ids
+                .iter()
+                .filter_map(|id| pending.get(id).cloned())
+                .collect(),
             ..Default::default()
         })?;
         Ok(TermbaseImportResult {
@@ -1060,17 +1052,12 @@ impl Engine {
             )));
         }
         let format = resolve_term_format(params.format, path)?;
-        let mut entries: Vec<&TermEntry> = self
-            .state
-            .term_entries
-            .values()
-            .filter(|entry| entry.termbase_id == params.termbase_id)
-            .collect();
-        entries.sort_by(|left, right| {
-            left.source_term
-                .cmp(&right.source_term)
-                .then(left.id.cmp(&right.id))
-        });
+        // Export inherently materializes the termbase for the outgoing file,
+        // but only this termbase and only for the duration of the call. The
+        // store returns it already in source-term order.
+        let entries = self
+            .store
+            .termbase_entries_page(&params.termbase_id, 0, None)?;
         let exchange: Vec<TermExchangeEntry> = entries
             .iter()
             .map(|entry| TermExchangeEntry {
