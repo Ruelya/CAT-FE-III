@@ -56,28 +56,22 @@ interface BridgePickers {
   termbaseExport?: string | null;
 }
 
-interface Bridge {
-  invoke: ReturnType<typeof vi.fn>;
-  chooseTmImportFile: ReturnType<typeof vi.fn>;
-  chooseTmExportPath: ReturnType<typeof vi.fn>;
-  chooseTermbaseImportFile: ReturnType<typeof vi.fn>;
-  chooseTermbaseExportPath: ReturnType<typeof vi.fn>;
-}
-
 function installBridge(
   invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
   pickers: BridgePickers = {},
-): Bridge {
-  const bridge: Bridge = {
+) {
+  const bridge = {
     invoke: vi.fn(invoke),
-    chooseTmImportFile: vi.fn().mockResolvedValue(pickers.tmImport ?? null),
-    chooseTmExportPath: vi.fn().mockResolvedValue(pickers.tmExport ?? null),
-    chooseTermbaseImportFile: vi
-      .fn()
-      .mockResolvedValue(pickers.termbaseImport ?? null),
-    chooseTermbaseExportPath: vi
-      .fn()
-      .mockResolvedValue(pickers.termbaseExport ?? null),
+    chooseTmImportFile: vi.fn(() => Promise.resolve(pickers.tmImport ?? null)),
+    chooseTmExportPath: vi.fn((_defaultName: string) =>
+      Promise.resolve(pickers.tmExport ?? null),
+    ),
+    chooseTermbaseImportFile: vi.fn(() =>
+      Promise.resolve(pickers.termbaseImport ?? null),
+    ),
+    chooseTermbaseExportPath: vi.fn((_defaultName: string) =>
+      Promise.resolve(pickers.termbaseExport ?? null),
+    ),
   };
   const api: Partial<DesktopApi> = bridge;
   Object.defineProperty(window, "tl", {
