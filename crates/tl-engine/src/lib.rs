@@ -12,6 +12,8 @@
 mod agent;
 mod aiops;
 mod assets;
+mod assist;
+mod events;
 mod export;
 mod import;
 mod qacheck;
@@ -37,7 +39,8 @@ use tl_filter_core::{
 use tl_protocol::{
     AgentCancelParams, AgentRunStatus, AgentRunView, AgentStartParams, AgentStatusParams,
     AgentStep, AgentStepKind, AgentStepNotification, AgentStepStatus, AiAssistAction,
-    AiAssistParams, AiAssistResult, AiConfigureParams, AiStatusResult, DocumentExportParams,
+    AiAssistCancelParams, AiAssistParams, AiAssistResult, AiAssistRunStatus, AiAssistRunView,
+    AiAssistStatusParams, AiConfigureParams, AiProviderKind, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
     DocumentListResult, EngineCapabilities, EngineReadyNotification, InitializeParams,
     InitializeResult, PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult,
@@ -47,10 +50,12 @@ use tl_protocol::{
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
-pub use agent::AgentEvent;
+pub use events::EngineEvent;
 pub use store::{DocumentRecord, EngineState};
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
+/// Terminal assist runs kept for late status polls before being pruned.
+const ASSIST_TERMINAL_HISTORY: usize = 16;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -105,6 +110,17 @@ struct AgentRunState {
     cancel: Arc<AtomicBool>,
 }
 
+/// In-flight or finished assist request bookkeeping. Lives in engine memory
+/// only; assist never writes segments, so there is nothing to persist.
+struct AssistRunState {
+    view: AiAssistRunView,
+    /// Segment source at start time, for the tag-integrity verdict.
+    source_text: String,
+    provider: AiProviderKind,
+    model: String,
+    cancel: Arc<AtomicBool>,
+}
+
 pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
@@ -115,8 +131,9 @@ pub struct Engine {
     /// maintained on every TM write.
     tm_indexes: BTreeMap<String, TmIndex>,
     agent_runs: BTreeMap<String, AgentRunState>,
-    agent_events_tx: Sender<AgentEvent>,
-    agent_events_rx: Option<Receiver<AgentEvent>>,
+    assist_runs: BTreeMap<String, AssistRunState>,
+    events_tx: Sender<EngineEvent>,
+    events_rx: Option<Receiver<EngineEvent>>,
 }
 
 fn now_ms() -> i64 {
@@ -156,7 +173,7 @@ impl Engine {
                 .or_default()
                 .insert(&entry.id, &entry.source_text);
         }
-        let (agent_events_tx, agent_events_rx) = channel();
+        let (events_tx, events_rx) = channel();
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -165,18 +182,19 @@ impl Engine {
             ai: None,
             tm_indexes,
             agent_runs: BTreeMap::new(),
-            agent_events_tx,
-            agent_events_rx: Some(agent_events_rx),
+            assist_runs: BTreeMap::new(),
+            events_tx,
+            events_rx: Some(events_rx),
         })
     }
 
-    /// Hand the agent event stream to the caller's loop. Worker threads feed
-    /// it; the caller must route every event back through
-    /// [`Engine::handle_agent_event`]. Callable once.
-    pub fn take_agent_events(&mut self) -> Receiver<AgentEvent> {
-        self.agent_events_rx
+    /// Hand the worker event stream to the caller's loop. Worker threads
+    /// (agent, assist) feed it; the caller must route every event back
+    /// through [`Engine::handle_engine_event`]. Callable once.
+    pub fn take_engine_events(&mut self) -> Receiver<EngineEvent> {
+        self.events_rx
             .take()
-            .expect("agent event receiver was already taken")
+            .expect("engine event receiver was already taken")
     }
 
     pub fn ready_notification(&self) -> RpcNotification {
@@ -237,7 +255,9 @@ impl Engine {
             methods::QA_LIST => to_value(self.qa_list(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
             methods::AI_STATUS => to_value(self.ai_status()),
-            methods::AI_ASSIST => to_value(self.ai_assist(parse(params)?)?),
+            methods::AI_ASSIST_START => to_value(self.ai_assist_start(parse(params)?)?),
+            methods::AI_ASSIST_STATUS => to_value(self.ai_assist_status(parse(params)?)?),
+            methods::AI_ASSIST_CANCEL => to_value(self.ai_assist_cancel(parse(params)?)?),
             methods::AI_AGENT_START => to_value(self.ai_agent_start(parse(params)?, notify)?),
             methods::AI_AGENT_STATUS => to_value(self.ai_agent_status(parse(params)?)?),
             methods::AI_AGENT_CANCEL => to_value(self.ai_agent_cancel(parse(params)?)?),
@@ -623,7 +643,11 @@ impl Engine {
         }
     }
 
-    fn ai_assist(&mut self, params: AiAssistParams) -> Result<AiAssistResult, EngineError> {
+    /// Start an assist request: validate on the RPC thread, then hand the
+    /// slow provider call to a worker thread. Returns the running view
+    /// immediately; clients poll [`Engine::ai_assist_status`] until the run
+    /// turns terminal. Assist never writes segments, TM, sign-off, or export.
+    fn ai_assist_start(&mut self, params: AiAssistParams) -> Result<AiAssistRunView, EngineError> {
         let segment = self
             .state
             .segments
@@ -642,7 +666,20 @@ impl Engine {
                 "cannot refine a segment without a target".to_string(),
             ));
         }
+        // Honest degradation: without a provider the request must not start.
         let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
+        // Single flight per segment; a cancel-requested run no longer blocks
+        // a retry (its late result is discarded when the event arrives).
+        if let Some(active) = self.assist_runs.values().find(|run| {
+            run.view.status == AiAssistRunStatus::Running
+                && !run.view.cancel_requested
+                && run.view.segment_id == params.segment_id
+        }) {
+            return Err(EngineError::Conflict(format!(
+                "assist {} is still running for this segment; cancel it or wait",
+                active.view.assist_id
+            )));
+        }
         let messages = aiops::assist_messages(
             params.action,
             params.instruction.as_deref(),
@@ -651,25 +688,87 @@ impl Engine {
             &segment.source_text,
             &segment.target_text,
         );
-        let completion = aiops::run_completion(
-            &runtime.profile,
-            &runtime.credential,
+        let now = now_ms();
+        let view = AiAssistRunView {
+            assist_id: new_id(),
+            segment_id: segment.id.clone(),
+            action: params.action,
+            status: AiAssistRunStatus::Running,
+            cancel_requested: false,
+            result: None,
+            error_message: None,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        assist::spawn_worker(assist::AssistJob {
+            assist_id: view.assist_id.clone(),
             messages,
-            &segment.source_text,
-            &project.source_locale,
-            &project.target_locale,
-            &AtomicBool::new(false),
-        )
-        .map_err(|error| EngineError::AiFailed(error.to_string()))?;
-        let draft_target = completion.text.trim().to_string();
-        let tag_check = check_tag_integrity(&segment.source_text, &draft_target);
-        Ok(AiAssistResult {
-            draft_target,
-            provider: runtime.profile.kind,
-            model: runtime.profile.model.clone(),
-            elapsed_ms: completion.elapsed_ms,
-            tag_check,
-        })
+            source_text: segment.source_text.clone(),
+            source_locale: project.source_locale.clone(),
+            target_locale: project.target_locale.clone(),
+            profile: runtime.profile.clone(),
+            credential: runtime.credential.duplicate(),
+            cancel: Arc::clone(&cancel),
+            events: self.events_tx.clone(),
+        });
+        self.assist_runs.insert(
+            view.assist_id.clone(),
+            AssistRunState {
+                view: view.clone(),
+                source_text: segment.source_text,
+                provider: runtime.profile.kind,
+                model: runtime.profile.model.clone(),
+                cancel,
+            },
+        );
+        self.prune_assist_runs();
+        Ok(view)
+    }
+
+    fn ai_assist_status(
+        &self,
+        params: AiAssistStatusParams,
+    ) -> Result<AiAssistRunView, EngineError> {
+        self.assist_runs
+            .get(&params.assist_id)
+            .map(|run| run.view.clone())
+            .ok_or_else(|| EngineError::NotFound(format!("assist run {}", params.assist_id)))
+    }
+
+    fn ai_assist_cancel(
+        &mut self,
+        params: AiAssistCancelParams,
+    ) -> Result<AiAssistRunView, EngineError> {
+        let run = self
+            .assist_runs
+            .get_mut(&params.assist_id)
+            .ok_or_else(|| EngineError::NotFound(format!("assist run {}", params.assist_id)))?;
+        if run.view.status == AiAssistRunStatus::Running {
+            run.cancel.store(true, Ordering::Relaxed);
+            run.view.cancel_requested = true;
+            run.view.updated_at_ms = now_ms();
+        }
+        Ok(run.view.clone())
+    }
+
+    /// Drop the oldest terminal assist runs beyond the polling grace window
+    /// so the map cannot grow without bound. Running requests are never
+    /// pruned.
+    fn prune_assist_runs(&mut self) {
+        let mut terminal: Vec<(i64, String)> = self
+            .assist_runs
+            .values()
+            .filter(|run| run.view.status.is_terminal())
+            .map(|run| (run.view.updated_at_ms, run.view.assist_id.clone()))
+            .collect();
+        if terminal.len() <= ASSIST_TERMINAL_HISTORY {
+            return;
+        }
+        terminal.sort();
+        for (_, assist_id) in &terminal[..terminal.len() - ASSIST_TERMINAL_HISTORY] {
+            self.assist_runs.remove(assist_id);
+        }
     }
 
     /// Start an agent run: plan, apply exact TM pretranslation inline, then
@@ -792,7 +891,7 @@ impl Engine {
             profile: runtime.profile.clone(),
             credential: runtime.credential.duplicate(),
             cancel: Arc::clone(&cancel),
-            events: self.agent_events_tx.clone(),
+            events: self.events_tx.clone(),
         });
         let run_id = view.run_id.clone();
         self.agent_runs.insert(
@@ -827,13 +926,13 @@ impl Engine {
 
     /// Apply one worker event to engine state. The caller (stdio loop or
     /// test) owns event delivery so the engine stays single-threaded.
-    pub fn handle_agent_event(
+    pub fn handle_engine_event(
         &mut self,
-        event: AgentEvent,
+        event: EngineEvent,
         notify: &mut dyn FnMut(RpcNotification),
     ) -> Result<(), EngineError> {
         match event {
-            AgentEvent::Drafted {
+            EngineEvent::AgentDrafted {
                 run_id,
                 segment_id,
                 outcome,
@@ -928,7 +1027,7 @@ impl Engine {
                 }
                 Ok(())
             }
-            AgentEvent::Finished { run_id } => {
+            EngineEvent::AgentFinished { run_id } => {
                 let Some(run) = self.agent_runs.get(&run_id) else {
                     return Ok(());
                 };
@@ -989,7 +1088,7 @@ impl Engine {
                 }
                 Ok(())
             }
-            AgentEvent::Canceled { run_id } => {
+            EngineEvent::AgentCanceled { run_id } => {
                 let Some(run) = self.agent_runs.get_mut(&run_id) else {
                     return Ok(());
                 };
@@ -1005,6 +1104,39 @@ impl Engine {
                     None,
                     "运行已取消：已生成的草稿保留，剩余句段未触碰".to_string(),
                 );
+                Ok(())
+            }
+            EngineEvent::AssistFinished { assist_id, outcome } => {
+                let Some(run) = self.assist_runs.get_mut(&assist_id) else {
+                    return Ok(());
+                };
+                if run.view.status != AiAssistRunStatus::Running {
+                    return Ok(());
+                }
+                run.view.updated_at_ms = now_ms();
+                // A cancel that lost the race to the completion still wins:
+                // the client asked to discard, so no result is surfaced.
+                if run.view.cancel_requested {
+                    run.view.status = AiAssistRunStatus::Canceled;
+                    return Ok(());
+                }
+                match outcome {
+                    Ok(completion) => {
+                        let tag_check = check_tag_integrity(&run.source_text, &completion.text);
+                        run.view.result = Some(AiAssistResult {
+                            draft_target: completion.text,
+                            provider: run.provider,
+                            model: run.model.clone(),
+                            elapsed_ms: completion.elapsed_ms,
+                            tag_check,
+                        });
+                        run.view.status = AiAssistRunStatus::Done;
+                    }
+                    Err(message) => {
+                        run.view.error_message = Some(format!("AI call failed: {message}"));
+                        run.view.status = AiAssistRunStatus::Failed;
+                    }
+                }
                 Ok(())
             }
         }
