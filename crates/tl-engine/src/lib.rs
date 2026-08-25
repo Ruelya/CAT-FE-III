@@ -40,10 +40,11 @@ use tl_protocol::{
     AiAssistParams, AiAssistResult, AiConfigureParams, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
     DocumentListResult, EngineCapabilities, EngineReadyNotification, InitializeParams,
-    InitializeResult, PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult,
-    QaRunParams, RpcError, RpcErrorCode, RpcNotification, RpcRequest, RpcResponse,
-    SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
-    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods, notifications,
+    InitializeResult, PROTOCOL_VERSION, ProjectArchiveParams, ProjectCreateParams,
+    ProjectGetParams, ProjectListResult, ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode,
+    RpcNotification, RpcRequest, RpcResponse, SegmentConfirmParams, SegmentConfirmResult,
+    SegmentListParams, SegmentListResult, SegmentUpdateParams, SegmentUpdateResult, ShutdownResult,
+    methods, notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
@@ -129,6 +130,26 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, EngineError
 
 fn to_value<T: Serialize>(value: T) -> Result<Value, EngineError> {
     serde_json::to_value(value).map_err(|error| EngineError::Internal(error.to_string()))
+}
+
+/// `None` keeps the current value; `Some` is trimmed and must not be empty.
+fn resolve_update_field(
+    value: Option<String>,
+    current: &str,
+    label: &str,
+) -> Result<String, EngineError> {
+    match value {
+        None => Ok(current.to_string()),
+        Some(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(EngineError::InvalidParams(format!(
+                    "{label} must not be empty"
+                )));
+            }
+            Ok(trimmed.to_string())
+        }
+    }
 }
 
 impl Engine {
@@ -220,6 +241,8 @@ impl Engine {
             methods::PROJECT_CREATE => to_value(self.project_create(parse(params)?)?),
             methods::PROJECT_LIST => to_value(self.project_list()),
             methods::PROJECT_GET => to_value(self.project_get(parse(params)?)?),
+            methods::PROJECT_UPDATE => to_value(self.project_update(parse(params)?)?),
+            methods::PROJECT_ARCHIVE => to_value(self.project_archive(parse(params)?)?),
             methods::DOCUMENT_IMPORT => to_value(self.document_import(parse(params)?)?),
             methods::DOCUMENT_LIST => to_value(self.document_list(parse(params)?)?),
             methods::DOCUMENT_EXPORT => to_value(self.document_export(parse(params)?)?),
@@ -233,6 +256,7 @@ impl Engine {
             methods::TERMBASE_CREATE => to_value(self.termbase_create(parse(params)?)?),
             methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
             methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),
+            methods::TERMBASE_DETACH => to_value(self.termbase_detach(parse(params)?)?),
             methods::TERMBASE_IMPORT => to_value(self.termbase_import(parse(params)?)?),
             methods::TERMBASE_EXPORT => to_value(self.termbase_export(parse(params)?)?),
             methods::TERM_ADD => to_value(self.term_add(parse(params)?)?),
@@ -322,6 +346,125 @@ impl Engine {
             .get(&params.project_id)
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("project {}", params.project_id)))
+    }
+
+    /// Rename and/or change the language pair. Omitted fields stay unchanged.
+    ///
+    /// Language-pair rule (documented on [`ProjectUpdateParams`]): locales may
+    /// only change while the project holds no linguistic assets. Imported
+    /// documents were segmented with the old source locale, and TM entries /
+    /// termbase mounts carry translations for the old pair, so changing the
+    /// pair over them would silently serve wrong-language matches. The engine
+    /// rejects that with `conflict` instead of allowing it with a warning.
+    fn project_update(&mut self, params: ProjectUpdateParams) -> Result<Project, EngineError> {
+        let project = self.require_project(&params.project_id)?.clone();
+        let name = resolve_update_field(params.name, &project.name, "project name")?;
+        let source_locale = resolve_update_field(
+            params.source_locale,
+            &project.source_locale,
+            "source locale",
+        )?;
+        let target_locale = resolve_update_field(
+            params.target_locale,
+            &project.target_locale,
+            "target locale",
+        )?;
+        let language_changed =
+            source_locale != project.source_locale || target_locale != project.target_locale;
+        if language_changed {
+            let blockers = self.language_change_blockers(&project.id);
+            if !blockers.is_empty() {
+                return Err(EngineError::Conflict(format!(
+                    "cannot change the language pair: the project already has {}; \
+                     export or remove them first",
+                    blockers.join(", ")
+                )));
+            }
+        }
+        if name == project.name && !language_changed {
+            return Ok(project);
+        }
+        let now = now_ms();
+        let stored = self
+            .state
+            .projects
+            .get_mut(&params.project_id)
+            .expect("project just resolved");
+        stored.name = name;
+        stored.source_locale = source_locale;
+        stored.target_locale = target_locale;
+        stored.revision += 1;
+        stored.updated_at_ms = now;
+        let updated = stored.clone();
+        self.store.save(&self.state)?;
+        Ok(updated)
+    }
+
+    /// Assets that pin the project's language pair, as human-readable counts.
+    fn language_change_blockers(&self, project_id: &str) -> Vec<String> {
+        let mut blockers = Vec::new();
+        let documents = self
+            .state
+            .documents
+            .values()
+            .filter(|record| record.document.project_id == project_id)
+            .count();
+        if documents > 0 {
+            blockers.push(format!("{documents} imported document(s)"));
+        }
+        let memory_id = Self::project_memory_id(project_id);
+        let tm_entries = self
+            .state
+            .tm_entries
+            .values()
+            .filter(|entry| entry.memory_id == memory_id)
+            .count();
+        if tm_entries > 0 {
+            blockers.push(format!("{tm_entries} TM entry(ies)"));
+        }
+        let mounts = self
+            .state
+            .termbase_mounts
+            .iter()
+            .filter(|mount| mount.project_id == project_id)
+            .count();
+        if mounts > 0 {
+            blockers.push(format!("{mounts} attached termbase(s)"));
+        }
+        blockers
+    }
+
+    /// Archive (`archived: true`) or restore (`archived: false`) a project.
+    /// Archiving stamps `archived_at_ms`; restoring clears it. Both
+    /// directions are idempotent and return the stored project.
+    fn project_archive(&mut self, params: ProjectArchiveParams) -> Result<Project, EngineError> {
+        let project = self.require_project(&params.project_id)?.clone();
+        let already_there = if params.archived {
+            project.lifecycle == ProjectLifecycle::Archived
+        } else {
+            project.lifecycle == ProjectLifecycle::Active
+        };
+        if already_there {
+            return Ok(project);
+        }
+        let now = now_ms();
+        let stored = self
+            .state
+            .projects
+            .get_mut(&params.project_id)
+            .expect("project just resolved");
+        if params.archived {
+            stored.lifecycle = ProjectLifecycle::Archived;
+            stored.archived_at_ms = Some(now);
+        } else {
+            stored.lifecycle = ProjectLifecycle::Active;
+            stored.archived_at_ms = None;
+        }
+        stored.revision += 1;
+        stored.updated_at_ms = now;
+        let updated = stored.clone();
+        self.store.save(&self.state)?;
+        Ok(updated)
     }
 
     fn require_project(&self, project_id: &str) -> Result<&Project, EngineError> {

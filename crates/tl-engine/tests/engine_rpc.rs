@@ -119,6 +119,243 @@ impl Harness {
 }
 
 #[test]
+fn project_update_edits_name_and_language_pair_while_empty() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Rename plus a full language-pair change on an asset-free project.
+    let updated = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "name": "  Renamed  ",
+            "sourceLocale": "de-DE",
+            "targetLocale": "fr-FR",
+        }),
+    );
+    assert_eq!(updated["name"], "Renamed");
+    assert_eq!(updated["sourceLocale"], "de-DE");
+    assert_eq!(updated["targetLocale"], "fr-FR");
+    assert_eq!(updated["revision"], 2);
+
+    // Omitted fields stay unchanged; identical values do not bump revision.
+    let same = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "name": "Renamed" }),
+    );
+    assert_eq!(same["revision"], 2);
+    assert_eq!(same["sourceLocale"], "de-DE");
+
+    // Provided-but-empty fields are rejected, as is an unknown project.
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "name": "   " }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "sourceLocale": "" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err("project.update", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+
+    // The update survives an engine restart through state.json.
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["name"], "Renamed");
+    assert_eq!(reloaded["sourceLocale"], "de-DE");
+    assert_eq!(reloaded["targetLocale"], "fr-FR");
+}
+
+#[test]
+fn project_update_rejects_language_change_once_assets_exist() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // An attached termbase alone pins the pair; detaching unpins it.
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Pinning", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "targetLocale": "fr-FR" }),
+        ),
+        "conflict"
+    );
+    harness.call(
+        "termbase.detach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    let updated = harness.call(
+        "project.update",
+        json!({ "projectId": project_id, "targetLocale": "fr-FR" }),
+    );
+    assert_eq!(updated["targetLocale"], "fr-FR");
+
+    // Imported documents and TM entries pin the pair for good (no removal
+    // methods exist), but renaming stays allowed.
+    harness.import_txt(&project_id, "pin.txt", "Pinned content.\n");
+    assert_eq!(
+        harness.call_err(
+            "project.update",
+            json!({ "projectId": project_id, "targetLocale": "ja-JP" }),
+        ),
+        "conflict"
+    );
+    // Re-asserting the current pair is a no-op, not a conflict.
+    let unchanged = harness.call(
+        "project.update",
+        json!({
+            "projectId": project_id,
+            "name": "Still editable",
+            "sourceLocale": "en-US",
+            "targetLocale": "fr-FR",
+        }),
+    );
+    assert_eq!(unchanged["name"], "Still editable");
+    assert_eq!(unchanged["targetLocale"], "fr-FR");
+}
+
+#[test]
+fn project_archive_stamps_and_clears_archived_at() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    let archived = harness.call("project.archive", json!({ "projectId": project_id }));
+    assert_eq!(archived["lifecycle"], "archived");
+    assert!(archived["archivedAtMs"].as_i64().expect("stamp") > 0);
+    assert_eq!(archived["revision"], 2);
+
+    // Idempotent: archiving again changes nothing.
+    let again = harness.call(
+        "project.archive",
+        json!({ "projectId": project_id, "archived": true }),
+    );
+    assert_eq!(again["revision"], 2);
+
+    // The lifecycle survives a restart.
+    harness.reopen();
+    let reloaded = harness.call("project.get", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["lifecycle"], "archived");
+    assert!(reloaded["archivedAtMs"].is_i64());
+
+    // Restore clears the stamp.
+    let restored = harness.call(
+        "project.archive",
+        json!({ "projectId": project_id, "archived": false }),
+    );
+    assert_eq!(restored["lifecycle"], "active");
+    assert!(restored["archivedAtMs"].is_null());
+    assert_eq!(restored["revision"], 3);
+
+    assert_eq!(
+        harness.call_err("project.archive", json!({ "projectId": "missing" })),
+        "notFound"
+    );
+}
+
+#[test]
+fn termbase_detach_removes_mount_and_compacts_priorities() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let mut termbase_ids = Vec::new();
+    for name in ["First", "Second"] {
+        let termbase = harness.call(
+            "termbase.create",
+            json!({ "name": name, "sourceLocale": "en-US" }),
+        );
+        let id = termbase["id"].as_str().expect("termbase id").to_string();
+        harness.call(
+            "termbase.attach",
+            json!({ "projectId": project_id, "termbaseId": id }),
+        );
+        termbase_ids.push(id);
+    }
+    harness.call(
+        "term.add",
+        json!({
+            "termbaseId": termbase_ids[0],
+            "sourceTerm": "actuator",
+            "targetTerm": "执行器",
+            "targetLocale": "zh-CN",
+        }),
+    );
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Check the actuator." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 1);
+
+    // Detach the priority-0 mount: the survivor compacts to priority 0 and
+    // the entries stop hitting term.lookup.
+    let detached = harness.call(
+        "termbase.detach",
+        json!({ "projectId": project_id, "termbaseId": termbase_ids[0] }),
+    );
+    assert_eq!(detached["mount"]["termbaseId"], termbase_ids[0].as_str());
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts.len(), 1);
+    assert_eq!(mounts[0]["termbaseId"], termbase_ids[1].as_str());
+    assert_eq!(mounts[0]["priority"], 0);
+    let hits = harness.call(
+        "term.lookup",
+        json!({ "projectId": project_id, "sourceText": "Check the actuator." }),
+    );
+    assert_eq!(hits["matches"].as_array().expect("matches").len(), 0);
+
+    // The next attach lands on priority 1 without colliding.
+    let reattached = harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_ids[0] }),
+    );
+    assert_eq!(reattached["mount"]["priority"], 1);
+
+    // Detaching an unattached termbase is an honest notFound, and both ids
+    // are validated. The termbase itself is never deleted by a detach.
+    let stray = harness.call(
+        "termbase.create",
+        json!({ "name": "Stray", "sourceLocale": "en-US" }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "termbase.detach",
+            json!({ "projectId": project_id, "termbaseId": stray["id"] }),
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "termbase.detach",
+            json!({ "projectId": "missing", "termbaseId": termbase_ids[0] }),
+        ),
+        "notFound"
+    );
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["termbases"].as_array().expect("termbases").len(), 3);
+
+    // Mount removal persists across a restart.
+    harness.reopen();
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts.len(), 2);
+}
+
+#[test]
 fn fuzzy_tm_lookup_recalls_and_reranks() {
     let mut harness = Harness::new();
     let project_id = harness.create_project();

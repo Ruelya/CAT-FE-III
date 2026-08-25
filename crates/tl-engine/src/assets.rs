@@ -16,11 +16,11 @@ use tl_protocol::{
     TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE, TM_LOOKUP_MAX_LIMIT,
     TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult, TermExchangeFormat,
     TermListParams, TermListResult, TermLookupParams, TermLookupResult, TermbaseAttachParams,
-    TermbaseAttachResult, TermbaseCreateParams, TermbaseExportParams, TermbaseExportResult,
-    TermbaseImportParams, TermbaseImportResult, TermbaseListParams, TermbaseListResult,
-    TmExchangeFormat, TmExportParams, TmExportResult, TmImportParams, TmImportResult,
-    TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams,
-    TmPretranslateResult,
+    TermbaseAttachResult, TermbaseCreateParams, TermbaseDetachParams, TermbaseDetachResult,
+    TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
+    TermbaseListParams, TermbaseListResult, TmExchangeFormat, TmExportParams, TmExportResult,
+    TmImportParams, TmImportResult, TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem,
+    TmPretranslateParams, TmPretranslateResult,
 };
 
 use crate::{Engine, EngineError, now_ms};
@@ -415,6 +415,48 @@ impl Engine {
         self.state.termbase_mounts.push(mount.clone());
         self.store.save(&self.state)?;
         Ok(TermbaseAttachResult { mount })
+    }
+
+    pub(crate) fn termbase_detach(
+        &mut self,
+        params: TermbaseDetachParams,
+    ) -> Result<TermbaseDetachResult, EngineError> {
+        self.require_project(&params.project_id)?;
+        self.require_termbase(&params.termbase_id)?;
+        let position = self
+            .state
+            .termbase_mounts
+            .iter()
+            .position(|mount| {
+                mount.project_id == params.project_id && mount.termbase_id == params.termbase_id
+            })
+            .ok_or_else(|| {
+                EngineError::NotFound(format!(
+                    "termbase {} is not attached to project {}",
+                    params.termbase_id, params.project_id
+                ))
+            })?;
+        let removed = self.state.termbase_mounts.remove(position);
+        // Re-compact the remaining priorities for this project so the next
+        // attach (priority = current mount count) can never collide.
+        let now = now_ms();
+        let mut remaining: Vec<&mut TermbaseMount> = self
+            .state
+            .termbase_mounts
+            .iter_mut()
+            .filter(|mount| mount.project_id == params.project_id)
+            .collect();
+        remaining.sort_by_key(|mount| mount.priority);
+        for (index, mount) in remaining.into_iter().enumerate() {
+            let priority = index as u32;
+            if mount.priority != priority {
+                mount.priority = priority;
+                mount.revision += 1;
+                mount.updated_at_ms = now;
+            }
+        }
+        self.store.save(&self.state)?;
+        Ok(TermbaseDetachResult { mount: removed })
     }
 
     fn require_termbase(&self, termbase_id: &str) -> Result<&Termbase, EngineError> {

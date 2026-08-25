@@ -13,32 +13,43 @@ export interface ProjectSettingsDialogProps {
   open: boolean;
   project: Project;
   onClose: () => void;
+  /** Called with the stored project after project.update / project.archive. */
+  onProjectUpdated?: (project: Project) => void;
 }
 
 /**
- * Project settings. The language pair stays read-only (the protocol has no
- * project.update). The termbase section manages real mounts through
- * termbase.list/create/attach and moves CSV/TSV/TBX files through
- * termbase.import/export. The TM section moves TMX/CSV/TSV files through
- * tm.import/export. All file picks go through dedicated dialog channels in
- * the main process; a canceled pick does nothing and every result message
- * reports the engine's real counts.
+ * Project settings. Name and language pair save through project.update; the
+ * engine rejects a language change once the project holds documents, TM
+ * entries, or termbase mounts, and that conflict is surfaced verbatim.
+ * Lifecycle moves through project.archive (archive / restore). The termbase
+ * section manages real mounts through termbase.list/create/attach/detach and
+ * moves CSV/TSV/TBX files through termbase.import/export. The TM section
+ * moves TMX/CSV/TSV files through tm.import/export. All file picks go
+ * through dedicated dialog channels in the main process; a canceled pick
+ * does nothing and every result message reports the engine's real counts.
  *
- * Each action tracks its own in-flight state (a Set of action ids), so a
- * long TM import never locks the termbase buttons and vice versa. Only
- * import/export against the same resource (the project TM, or one termbase)
- * stay mutually exclusive, because they read and write the same store.
+ * File and termbase actions each track their own in-flight state (a Set of
+ * action ids), so a long TM import never locks the termbase buttons and
+ * vice versa. Only import/export against the same resource (the project TM,
+ * or one termbase) stay mutually exclusive, because they read and write the
+ * same store. Project info save, archive, and detach share a single `busy`
+ * flag since they mutate the project record itself.
  */
 export function ProjectSettingsDialog({
   open,
   project,
   onClose,
+  onProjectUpdated,
 }: ProjectSettingsDialogProps) {
   const [termbases, setTermbases] = useState<TermbaseListResult | null>(null);
   const [newTermbaseName, setNewTermbaseName] = useState("");
   const [pending, setPending] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
+  const [nameDraft, setNameDraft] = useState(project.name);
+  const [sourceDraft, setSourceDraft] = useState(project.sourceLocale);
+  const [targetDraft, setTargetDraft] = useState(project.targetLocale);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -69,10 +80,62 @@ export function ProjectSettingsDialog({
     if (!open) {
       return;
     }
+    // Resync the drafts whenever the dialog opens or the stored project
+    // changes (e.g. right after a successful save).
+    setNameDraft(project.name);
+    setSourceDraft(project.sourceLocale);
+    setTargetDraft(project.targetLocale);
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
-  }, [open, refreshTermbases]);
+  }, [open, project, refreshTermbases]);
+
+  const saveProjectInfo = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await callEngine("project.update", {
+        projectId: project.id,
+        name: nameDraft,
+        sourceLocale: sourceDraft,
+        targetLocale: targetDraft,
+      });
+      setNotice(
+        `项目设置已保存：${updated.name}（${updated.sourceLocale} → ${updated.targetLocale}）`,
+      );
+      onProjectUpdated?.(updated);
+    } catch (saveError) {
+      setError(describeError(saveError));
+    } finally {
+      setBusy(false);
+    }
+  }, [project.id, nameDraft, sourceDraft, targetDraft, onProjectUpdated]);
+
+  const setArchived = useCallback(
+    async (archived: boolean) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const updated = await callEngine("project.archive", {
+          projectId: project.id,
+          archived,
+        });
+        setNotice(
+          archived
+            ? "项目已归档：数据全部保留，可随时恢复。"
+            : "项目已恢复为进行中。",
+        );
+        onProjectUpdated?.(updated);
+      } catch (archiveError) {
+        setError(describeError(archiveError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project.id, onProjectUpdated],
+  );
 
   const createAndAttach = useCallback(async () => {
     beginAction("termbase.create");
@@ -119,6 +182,27 @@ export function ProjectSettingsDialog({
       }
     },
     [beginAction, endAction, project.id, refreshTermbases],
+  );
+
+  const detachTermbase = useCallback(
+    async (termbase: Termbase) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await callEngine("termbase.detach", {
+          projectId: project.id,
+          termbaseId: termbase.id,
+        });
+        setNotice(`术语库「${termbase.name}」已卸载：数据保留，可重新挂载。`);
+        await refreshTermbases();
+      } catch (detachError) {
+        setError(describeError(detachError));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project.id, refreshTermbases],
   );
 
   const importTm = useCallback(async () => {
@@ -250,16 +334,87 @@ export function ProjectSettingsDialog({
     >
       <div className="settings">
         <section className="settings__section">
-          <h3 className="settings__heading">语言对</h3>
+          <h3 className="settings__heading">项目信息</h3>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveProjectInfo();
+            }}
+          >
+            <TextField
+              label="项目名称"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              required
+            />
+            <div className="form-row">
+              <TextField
+                label="源语言"
+                value={sourceDraft}
+                onChange={(event) => setSourceDraft(event.target.value)}
+                required
+              />
+              <TextField
+                label="目标语言"
+                value={targetDraft}
+                onChange={(event) => setTargetDraft(event.target.value)}
+                required
+              />
+            </div>
+            <div className="settings__row">
+              <Button
+                type="submit"
+                size="sm"
+                variant="primary"
+                disabled={
+                  busy ||
+                  !nameDraft.trim() ||
+                  !sourceDraft.trim() ||
+                  !targetDraft.trim()
+                }
+              >
+                保存项目信息
+              </Button>
+            </div>
+          </form>
+          <p className="settings__note">
+            语言对仅在项目还没有文档、TM 条目或术语库挂载时可以修改；
+            一旦存在这些资产，引擎会拒绝修改，以免旧语言对的 TM
+            与术语被错误复用。项目名称随时可改。
+          </p>
+        </section>
+
+        <section className="settings__section">
+          <h3 className="settings__heading">生命周期</h3>
           <div className="settings__row">
-            <span className="settings__locales">
-              {project.sourceLocale} → {project.targetLocale}
+            <span>
+              {project.lifecycle === "archived" ? "已归档" : "进行中"}
             </span>
-            <Badge tone="neutral">创建时固定</Badge>
+            <Badge tone={project.lifecycle === "archived" ? "neutral" : "ok"}>
+              {project.lifecycle === "archived" ? "archived" : "active"}
+            </Badge>
+            {project.lifecycle === "archived" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void setArchived(false)}
+              >
+                恢复项目
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void setArchived(true)}
+              >
+                归档项目
+              </Button>
+            )}
           </div>
           <p className="settings__note">
-            引擎协议（v1）尚无 project.update
-            方法，语言对在创建项目时确定，暂不可修改。
+            归档只标记状态与时间戳，不删除任何文档、TM 或术语数据。
           </p>
         </section>
 
@@ -334,6 +489,15 @@ export function ProjectSettingsDialog({
                   >
                     {exportPending ? "导出中…" : "导出…"}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || fileBusy}
+                    aria-label={`卸载术语库 ${termbase.name}`}
+                    onClick={() => void detachTermbase(termbase)}
+                  >
+                    卸载
+                  </Button>
                 </div>
               );
             })
@@ -378,8 +542,8 @@ export function ProjectSettingsDialog({
           </form>
           <p className="settings__note">
             挂载后，术语面板会对当前句段做 term.lookup
-            命中，并支持快速添加术语；CSV/TSV/TBX
-            批量导入与导出走上方按钮，结果以引擎实际计数为准。
+            命中，并支持快速添加术语；卸载只解除挂载，不删除术语库本身；
+            CSV/TSV/TBX 批量导入与导出走上方按钮，结果以引擎实际计数为准。
           </p>
         </section>
 

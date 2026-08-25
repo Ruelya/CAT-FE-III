@@ -41,6 +41,21 @@ pub struct TermbaseAttachResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct TermbaseDetachParams {
+    pub project_id: String,
+    pub termbase_id: String,
+}
+
+/// Carries the removed mount. Detaching a termbase that is not attached fails
+/// with `notFound` instead of pretending success.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseDetachResult {
+    pub mount: TermbaseMount,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TermAddParams {
     pub termbase_id: String,
     pub source_term: String,
