@@ -2,6 +2,7 @@ import electron = require("electron");
 
 import type {
   DesktopApi,
+  DocxPreviewResponse,
   EngineInvokeResponse,
   EngineNotificationPayload,
   EngineStatusPayload,
@@ -19,6 +20,7 @@ const CHANNELS = {
   chooseTermbaseImport: "tl:dialog:choose-termbase-import",
   chooseTermbaseExport: "tl:dialog:choose-termbase-export",
   chooseSrx: "tl:dialog:choose-srx",
+  previewDocx: "tl:preview:docx",
 } as const;
 
 const api: DesktopApi = {
@@ -87,6 +89,12 @@ const api: DesktopApi = {
     return electron.ipcRenderer.invoke(CHANNELS.chooseSrx) as Promise<
       string | null
     >;
+  },
+  renderDocxPreview(documentId: string): Promise<DocxPreviewResponse> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.previewDocx,
+      documentId,
+    ) as Promise<DocxPreviewResponse>;
   },
 };
 

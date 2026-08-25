@@ -23,6 +23,15 @@ export interface EngineNotificationPayload {
   params: unknown;
 }
 
+/**
+ * Result of rendering the current draft into the real export pipeline:
+ * the DOCX bytes are produced by `document.export` against a temp path,
+ * so the preview shows exactly what the exported file would contain.
+ */
+export type DocxPreviewResponse =
+  | { ok: true; data: ArrayBuffer; translatedSegments: number }
+  | { ok: false; error: EngineRpcErrorShape };
+
 export interface DesktopApi {
   invoke(method: string, params: unknown): Promise<EngineInvokeResponse>;
   engineStatus(): Promise<EngineStatusPayload>;
@@ -40,6 +49,7 @@ export interface DesktopApi {
   chooseTermbaseExportPath(defaultName: string): Promise<string | null>;
   /** SRX segmentation ruleset for document.import. */
   chooseSrxFile(): Promise<string | null>;
+  renderDocxPreview(documentId: string): Promise<DocxPreviewResponse>;
 }
 
 export const IPC_CHANNELS = {
@@ -54,6 +64,7 @@ export const IPC_CHANNELS = {
   chooseTermbaseImport: "tl:dialog:choose-termbase-import",
   chooseTermbaseExport: "tl:dialog:choose-termbase-export",
   chooseSrx: "tl:dialog:choose-srx",
+  previewDocx: "tl:preview:docx",
 } as const;
 
 declare global {
