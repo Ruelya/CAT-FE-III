@@ -2,6 +2,8 @@
   "name": "@translunar/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Translunar CAT desktop workbench",
+  "author": "Translunar contributors",
   "type": "module",
   "main": "dist/electron/main/index.js",
   "scripts": {
@@ -13,7 +15,9 @@
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.renderer.json && tsc -p tsconfig.e2e.json",
     "pretest": "pnpm --filter @translunar/contracts build",
     "test": "vitest run",
-    "test:e2e": "pnpm build && playwright test"
+    "test:e2e": "pnpm build && playwright test",
+    "package:dir": "node ../../scripts/desktop-clean-dist.mjs && pnpm build && node ../../scripts/desktop-stage-engine.mjs && electron-builder --dir",
+    "package:check": "node ../../scripts/desktop-check-package.mjs"
   },
   "dependencies": {
     "@translunar/contracts": "workspace:*",
@@ -34,6 +38,7 @@
     "concurrently": "10.0.3",
     "cross-env": "10.1.0",
     "electron": "41.10.3",
+    "electron-builder": "26.0.12",
     "jsdom": "29.1.1",
     "playwright": "1.61.1",
     "typescript": "6.0.3",
