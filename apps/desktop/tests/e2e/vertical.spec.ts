@@ -216,10 +216,10 @@ test("virtualized grid stays windowed on a large document", async () => {
     await page.locator(".segment-grid tr.segment-grid__spacer").count(),
   ).toBeGreaterThan(0);
 
-  // Scrolling to the bottom mounts the tail rows.
-  await page
-    .locator(".segment-grid")
-    .evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  // Scrolling to the bottom mounts the tail rows (wheel over the grid,
+  // like a user would; the delta is clamped to the max scroll offset).
+  await page.locator(".segment-grid").hover();
+  await page.mouse.wheel(0, 100_000);
   await expect(page.getByText("Segment number 399 ends here.")).toBeVisible();
   expect(await mounted.count()).toBeLessThan(400);
   await shot("12-virtualized-tail.png");
