@@ -862,6 +862,17 @@ body {
   padding: var(--tl-space-5);
 }
 
+/* Paragraphs carrying an export-embedded segment anchor are click-to-jump.
+   The affordance keys on the real bookmark span, so unanchored chrome
+   (page margins, empty paragraphs) never pretends to be clickable. */
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]) {
+  cursor: pointer;
+}
+
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]):hover {
+  background: var(--tl-color-accent-faint);
+}
+
 .preview__legend {
   display: flex;
   align-items: center;

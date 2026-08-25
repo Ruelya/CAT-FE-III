@@ -509,6 +509,13 @@
         },
         "outputPath": {
           "type": "string"
+        },
+        "segmentAnchors": {
+          "description": "Embed per-paragraph grid-segment anchors into the exported artifact so\na layout preview can map clicks back to segments. Preview aid; filters\nwithout anchor support ignore it. Defaults to a plain export.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [

@@ -1394,3 +1394,56 @@ fn custom_srx_controls_segmentation_and_export_reassembles() {
         "invalidParams"
     );
 }
+
+#[test]
+fn docx_export_embeds_segment_anchors_only_when_requested() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let source = harness.directory.path().join("anchored-source.docx");
+    tl_filter_docx::fixture::write_fixture(&source).expect("write docx fixture");
+    let imported = harness.call(
+        "document.import",
+        json!({ "projectId": project_id, "sourcePath": source.display().to_string() }),
+    );
+    let document_id = imported["document"]["id"].as_str().expect("id").to_string();
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments.len(), 3, "fixture yields three DOCX paragraphs");
+    harness.set_target(&segments[0], "保留期为 30 天。");
+
+    let document_xml_of = |path: &str| -> String {
+        let package =
+            tl_filter_office::OfficePackage::open(std::path::Path::new(path)).expect("package");
+        String::from_utf8(package.require("word/document.xml").expect("main").to_vec())
+            .expect("utf-8 document part")
+    };
+
+    // The plain export — what「导出译文」writes — carries no preview anchors.
+    let plain_path = harness.path_of("plain.docx");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+    assert!(!document_xml_of(&harness.path_of("plain.docx")).contains("tlseg-"));
+
+    // The anchored export bookmarks every paragraph with its first grid
+    // segment id — untranslated paragraphs included, since the layout preview
+    // renders and must jump from those too.
+    let anchored_path = harness.path_of("anchored.docx");
+    let result = harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": anchored_path,
+            "segmentAnchors": true,
+        }),
+    );
+    assert_eq!(result["translatedSegments"], 1);
+    let anchored_xml = document_xml_of(&harness.path_of("anchored.docx"));
+    for segment in &segments {
+        let segment_id = segment["id"].as_str().expect("segment id");
+        assert!(
+            anchored_xml.contains(&format!("w:name=\"tlseg-{segment_id}\"")),
+            "missing anchor for segment {segment_id}"
+        );
+    }
+}
