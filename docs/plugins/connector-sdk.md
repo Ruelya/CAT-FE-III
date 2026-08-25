@@ -1,5 +1,8 @@
 # Engine Connector SDK
 
+> **Historical record (pre-greenfield).** The plugin runtime this SDK targets
+> was removed in the greenfield reset; see [README.md](./README.md).
+
 Engine connector contract V1 lets a plugin contribute a translation or AI
 provider without importing private Engine, protocol, storage, or Desktop
 modules. The Engine remains the owner of profiles, credentials, permission

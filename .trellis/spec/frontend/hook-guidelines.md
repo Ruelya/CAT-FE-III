@@ -1,5 +1,11 @@
 # Hook Guidelines
 
+> **Historical / not current greenfield.** The ownership hooks named here
+> (`use-app-controller`, `use-editor-operations`, `use-asset-controller`)
+> belonged to the pre-greenfield renderer and were removed in the greenfield
+> reset. The principles (no third-party state library, pure helpers beside
+> state) still apply to the current renderer.
+
 ## Current Pattern
 
 The app uses React built-ins plus a small set of ownership hooks:

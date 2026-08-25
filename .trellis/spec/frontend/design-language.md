@@ -1,11 +1,21 @@
 # Translunar Design Language
 
+> **Status (greenfield).** This document predates the greenfield reset. The
+> current renderer ships the INSTRUMENT token set in
+> `packages/ui/src/tokens.css` (cold grays, single deep-blue accent, Inter/IBM
+> Plex Mono), not the warm-paper system specified below, and the enforcement
+> scripts referenced here (`pnpm ui:audit`, `pnpm ui:shots`) do not exist in
+> the current tree. Treat concrete token values, file paths, and script gates
+> as historical; the interaction principles (professional density, keyboard
+> reach, one accent, never colour-only status, 32 px interactive floor, no
+> glass) still bind new UI work.
+
 Authority for every visual and interaction decision in the Electron renderer.
 When this file and another spec disagree, this file wins and the other file is
 corrected in the same change.
 
-Read this before touching `tokens.css`, `styles/`, or any component that
-renders visible UI.
+Read this before touching the design tokens or any component that renders
+visible UI.
 
 ---
 

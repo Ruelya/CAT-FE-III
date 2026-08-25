@@ -1,5 +1,12 @@
 # Frontend Directory Structure
 
+> **Historical / not current greenfield.** The renderer layout described here
+> (`shell/`, `routes/`, `surfaces/`, `workbench/`, `state/`) was removed in
+> the greenfield reset. The current renderer is `apps/desktop/src/renderer`
+> with `views/`, `components/`, and `lib/` (RPC seam `lib/engine.ts`), plus
+> shared UI primitives in `packages/ui`. The main/preload/shared split under
+> `apps/desktop/src` is unchanged.
+
 ## Runtime Layers
 
 The desktop app is one package with explicit Electron boundaries:

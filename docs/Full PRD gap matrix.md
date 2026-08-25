@@ -1,6 +1,11 @@
 Full PRD gap matrix
 # Full-scope implementation audit
 
+> **Historical record (pre-greenfield).** This audit measured the previous
+> implementation, which was removed in the greenfield reset. The crates,
+> scripts, and features cited here do not exist in the current tree. See
+> `README.md` and [architecture.md](./architecture.md) for the current state.
+
 ## Executive summary
 
 ### Status update: 2026-07-27
