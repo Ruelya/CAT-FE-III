@@ -1,5 +1,13 @@
 # Electron Workbench Contract
 
+> **Historical / not current greenfield.** This contract describes the
+> pre-greenfield renderer (surfaces/routes/workbench/state layout, SQLite,
+> plugins, packaging gates), which was removed in the greenfield reset. The
+> current renderer lives in `apps/desktop/src/renderer` as `views/` +
+> `components/` with `lib/engine.ts` as the RPC seam; see
+> `docs/architecture.md`. The main/preload/renderer boundary principles still
+> apply.
+
 ## 1. Scope / Trigger
 
 Use this contract for `apps/desktop`, preload APIs, Electron lifecycle, Vite

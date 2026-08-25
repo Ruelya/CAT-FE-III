@@ -50,12 +50,22 @@ The packager honors that contract in two steps:
 
 ## CI
 
-`.github/workflows/package.yml` is a manual (`workflow_dispatch`) job that
-runs `pnpm package:dir` on `ubuntu-latest` and uploads
-`apps/desktop/release/linux-unpacked/`. It is intentionally not part of PR CI.
+Packaging is deliberately not part of PR CI. The two lanes are:
+
+- `.github/workflows/ci.yml` runs on every PR: `cargo fmt` / `clippy` /
+  `cargo test` in the rust lane, and `pnpm contracts:check`, `pnpm lint`,
+  `pnpm typecheck`, the desktop unit tests, `pnpm test:e2e:engine`, and the
+  Playwright desktop E2E (`scripts/linux-display.sh pnpm test:e2e:desktop`)
+  in the node lane on Node 22.17.0 and 24. It never invokes electron-builder.
+- `.github/workflows/package.yml` is a manual (`workflow_dispatch`) job that
+  runs `pnpm package:dir` on `ubuntu-latest` and uploads
+  `apps/desktop/release/linux-unpacked/`, so packaging breakage can never
+  block PR CI.
+
 The previous `package-windows.yml` / `package-macos.yml` workflows referenced
-scripts that no longer exist and have been removed rather than left broken;
-real installer lanes belong to a future native-runner packaging task.
+scripts that no longer exist (`package:win`, `release:package:check`,
+`electron:install:check`) and have been removed rather than left broken; real
+installer lanes belong to a future native-runner packaging task.
 
 ## Size controls
 
@@ -77,9 +87,11 @@ installer pipeline, not something that works today.
 - The default engine data directory is `engine-data/` under the Electron
   userData path. `TL_DATA_DIR` overrides it for tests and development; the
   engine binary itself takes `--data-dir`.
-- The engine owns the directory: `state.json` whole-state persistence plus
-  managed document copies under `documents/`. The renderer never opens these
-  files.
+- The engine owns the directory: an `engine.sqlite` database (one per data
+  directory, WAL mode) plus managed document copies under `documents/`. A
+  legacy whole-state `state.json` from older builds is imported once on first
+  open and preserved as `state.json.imported-backup`. The renderer never opens
+  these files.
 
 ## Crash recovery
 

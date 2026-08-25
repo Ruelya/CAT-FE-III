@@ -1,5 +1,9 @@
 # 品牌色带
 
+> **Historical record (pre-greenfield).** 品牌五色带属于旧渲染器的设计系统，
+> 相关 token（`--color-series-*`）在 greenfield 重置中随旧渲染器一并删除，
+> 当前 `packages/ui/src/tokens.css` 中不存在。作为品牌记录保留。
+
 ## 定义
 
 固定顺序的五条扁平相邻色带。

@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Security fixes target the latest `master`/`main` branch and the most recent
-tagged desktop release.
+Security fixes target the current default branch. There are no tagged desktop
+releases or installers yet.
 
 ## Reporting a vulnerability
 
@@ -20,40 +20,20 @@ Preferred channel:
 
 ## Scope notes
 
-- AI provider secrets and the local API bearer token must remain in the OS
-  credential store. They must never appear in SQLite, backup manifests, logs,
-  or renderer `localStorage`.
-- Desktop packages may ship unsigned for development. Production signing and
-  notarization secrets must stay in CI secret stores.
-- Backup archives contain workspace files and hashes, never credentials.
+- AI provider credentials are supplied at runtime through `ai.configure` and
+  held in engine memory only (a redacting `SecretString`). They are never
+  written to the `engine.sqlite` database, logs, protocol error text, or
+  renderer `localStorage`.
+- Packaging currently produces only an unsigned directory artifact; there is
+  no installer or signing pipeline yet. When one lands, production signing
+  and notarization secrets must stay in CI secret stores, and unsigned
+  packages remain valid for development.
 
 ## Local hardening expectations
 
-- Electron runs with `contextIsolation`, `sandbox`, and no Node integration in
-  the renderer.
-- Engine stdio is the only domain boundary; the renderer never opens SQLite or
-  provider APIs directly.
-
-## Tier 2 plugin isolation
-
-Tier 2 JavaScript runs in an Engine-owned QuickJS runtime with fixed heap,
-stack, module, queue, payload, call-count, and wall-clock limits. It receives no
-Node, filesystem, network, environment, process, shell, native-module, or raw
-Engine globals. Host calls use a closed method registry and reauthorize the
-exact active plugin version, contribution, operation, capability, and scope at
-the time of use.
-
-Plugin documents use opaque expiring `translunar-plugin://` sessions, strict
-response CSP and security headers, and an iframe with only `allow-scripts`.
-They have an opaque origin and no preload, Node, Electron IPC, or top-level
-`window.translunar`. The bridge is a one-time nonce-bound transferred
-`MessagePort` with closed, bounded schemas.
-
-These are application-level isolation measures. They are not AppContainer,
-seccomp, filesystem virtualization, a browser security boundary, or
-multi-tenant containment. QuickJS and its Rust bindings execute native code in
-the Engine process; Electron, QuickJS, their bindings, and other native host
-dependencies remain part of the trusted computing base. A memory-safety defect
-or a compromised host application can invalidate these guarantees. Tier 3
-native/process plugins are governed by their separate process boundary and are
-not made safe by the Tier 2 host.
+- Electron runs the renderer with `contextIsolation: true` and
+  `nodeIntegration: false`. The Chromium `sandbox` flag is currently disabled
+  in the development shell; re-enabling it is expected work for the packaged
+  application.
+- Engine stdio is the only domain boundary; the renderer never opens the
+  engine data directory or provider APIs directly.

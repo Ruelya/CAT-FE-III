@@ -1,4 +1,4 @@
-# Desktop MVP Architecture
+# Desktop Architecture
 
 ## Process Boundary
 
@@ -7,94 +7,99 @@ React renderer
   -> context-isolated preload API
   -> Electron main
   -> JSON-RPC 2.0 over child stdin/stdout
-  -> Rust engine
-  -> domain services / SQLite / DOCX filter
+  -> Rust engine (tl-engine)
+  -> tl-* domain/filter crates + SQLite store (engine.sqlite)
 ```
 
 Electron and TypeScript own presentation and operating-system integration. The
 Rust process owns every business rule, state transition, document operation,
-and persistent write. The renderer has `nodeIntegration: false`, runs with
-`contextIsolation: true` and `sandbox: true`, and can invoke only the protocol
-methods exposed by preload and allowlisted by main.
+and persistent write. The renderer runs with `contextIsolation: true` and
+`nodeIntegration: false`, and can invoke only the protocol methods exposed by
+preload and allowlisted by main.
 
-Electron main owns file dialogs, engine startup, handshake, restart, shutdown,
-and rejection of pending requests after a crash. Paths are passed to Rust; file
+Electron main owns file dialogs, engine startup, handshake, crash-restart with
+bounded backoff (`apps/desktop/src/main/engine-supervisor.ts`), shutdown, and
+rejection of pending requests after a crash. Paths are passed to Rust; file
 bytes are never transported through JSON.
 
 ## Protocol Contract
 
 Requests and responses are newline-framed JSON-RPC 2.0. The first request is
-`engine.initialize` with protocol version 1. The current contract exposes project creation and
-lookup, DOCX import/export, segment listing/edit/confirmation, exact TM lookup,
-and QA run/list operations.
+`engine.initialize` with protocol version 1. The current contract covers
+project creation/list/get, document import/list/export, segment
+list/update/confirm, TM lookup (exact and fuzzy) plus import/export and
+pretranslate, termbase and term management with in-text term lookup, QA
+run/list, AI configure/status/assist, and the asynchronous agent
+(`ai.agent.start` / `ai.agent.status` / `ai.agent.cancel` with
+`notify.ai.agent.step` events).
 
-Rust protocol types derive JSON Schema. `crates/protocol` is authoritative;
+Rust protocol types derive JSON Schema. `crates/tl-protocol` is authoritative;
 `packages/contracts` contains generated TypeScript types plus the method-to-
 params/result catalog. `pnpm contracts:check` fails when checked-in contracts
 drift from Rust.
 
-Stable errors include `invalid_request`, `not_found`, `conflict`,
-`invalid_state`, `unsupported_document`, `storage_error`, and `export_error`.
-Optimistic writes require the segment's expected revision, so a stale renderer
-cannot overwrite a newer edit.
+Stable error codes include `invalidRequest`, `methodNotFound`,
+`invalidParams`, `notFound`, `conflict`, `filterFailed`, `exportBlocked`,
+`aiNotConfigured`, `aiFailed`, `io`, and `internal`. Segment writes require
+the segment's expected revision, so a stale renderer cannot overwrite a newer
+edit.
 
 ## Persistence Ownership
 
-`crates/storage` creates the data directory and opens one SQLite database. Each
-connection enables foreign keys, WAL, normal synchronous mode, and a five-
-second busy timeout. Migrations use `PRAGMA user_version` and run atomically.
+`crates/tl-engine/src/store.rs` owns SQLite persistence: one `engine.sqlite`
+database per data directory (rusqlite with the bundled SQLite, WAL journal
+mode, `synchronous=FULL`). Every committed mutation is written as one delta
+inside one transaction. The bulk tables are read straight from SQL —
+`segment.list` and `tm.list` page with LIMIT/OFFSET over their indexes, and
+mutations fetch only the rows they touch — while metadata (projects, document
+records, termbases, terms, QA issues) stays in an in-memory working set
+loaded once at open. Managed copies of imported documents live under
+`documents/<document-id>/`. A crash or power cut mid-write cannot corrupt the
+database: SQLite replays fully committed WAL frames or discards the
+uncommitted tail. Data directories written by older builds hold a whole-state
+`state.json`; the store imports it once on first open and preserves it as
+`state.json.imported-backup`.
 
-A confirmation is one transaction: validate the revision and non-empty target,
-change segment state, upsert one provenance-bearing TM entry, reconcile number
-QA issues, and return the resulting aggregate. A crash can lose an uncommitted
-operation but cannot expose only part of a confirmation.
+The renderer treats RPC responses as server state. It does not recreate
+segment state transitions, QA rules, TM scoring, counts, or persistence
+outcomes.
 
-The renderer treats RPC responses as server state. It does not recreate segment
-state transitions, number QA, TM rules, counts, or persistence outcomes.
+## Format Boundary
 
-## DOCX Boundary
+`crates/tl-filter-core` defines a format-neutral document event pipeline and a
+filter registry. The engine registers filters for DOCX, TXT, Markdown, HTML,
+XLIFF, XLSX, and PPTX. Import extracts translation units with structural
+paths, splits plain-text units into SRX sentences (`crates/tl-segmentation`),
+and keeps units carrying inline tags or pre-existing targets whole so
+alignment survives.
 
-The domain crate defines a format-neutral document event pipeline. The DOCX
-adapter validates the OOXML package, extracts visible body paragraphs in
-document order, and stores structural paragraph paths with normalized content
-and context hashes. Empty and field-only paragraphs are skipped conservatively.
-
-Export starts from the immutable managed source package. It changes translated
-body paragraphs, preserves unrelated ZIP parts, validates the temporary OOXML
-package, and then atomically publishes the destination. Untranslated paragraphs
-retain their original source text.
+Export re-reads the engine-managed source copy, merges sentence segments back
+per structural path, leaves fully untranslated units untouched, and falls back
+to source text for untranslated sentences inside partially translated units.
 
 ## Renderer Data Flow
 
-The setup screen creates a project and imports a selected DOCX. The workbench
-loads its project snapshot, ordered segments, and QA issues through preload.
-Target text is editable and saved with a debounce. IME composition suppresses
-confirmation and focus movement; successful confirmation advances to the next
-visible segment only after the engine responds.
+The Projects view creates a project and imports a selected document. The
+workbench (`WorkbenchView`) loads its segments and QA issues through preload
+and edits targets through `segment.update` with expected revisions. Side
+panels surface TM matches, concordance search, term hits with quick add and
+insert, QA issues, document preview, AI assist, and the agent run.
 
-Suggestions display exact TM results for the active source segment and
-document QA evidence. Suggestions and document preview each have docked,
-collapsed, and maximized states. These modes are presentation-only state and do
-not enter SQLite. Preview height, follow-active state, and panel preferences use
-a separate disposable renderer preference key.
-
-The QA review, export review, and translation-memory surfaces are projections
-over the same engine-owned workspace. Workbench navigation flushes pending
-debounced edits and reloads the workspace from RPC before mounting a review
-surface.
-
-The Assistant is deliberately outside the engine contract for this MVP. Its
-conversations, deterministic replies, model/reasoning profiles, and synthetic
-usage metadata are renderer-only offline fixtures. `Use in target` returns to
-the existing segment update path; it does not gain filesystem, persistence, or
-network access.
+AI goes through the engine: `ai.configure` accepts an OpenAI-compatible
+endpoint at runtime, `ai.status` reports honest availability, and without
+credentials assist and agent refuse instead of pretending. Agent runs execute
+asynchronously in the engine, stream `notify.ai.agent.step` events, and park
+every result at a human review gate before anything is applied.
 
 ## Recovery And Failure
 
-- Engine restart reopens SQLite and recovers committed drafts, confirmations,
-  TM entries, and QA lifecycle state.
-- Import rolls back rows and removes an incomplete managed source copy.
-- Export never replaces its destination before package validation succeeds.
+- Engine restart reloads `engine.sqlite`; committed edits, confirmations, TM
+  entries, and QA state survive.
+- Electron main supervises the engine process with bounded crash-restart and
+  backoff; engine status surfaces in the workbench header instead of failing
+  silently.
+- Export publishes atomically through a temp file (`publish_bytes_noclobber`
+  in `crates/tl-filter-core`) and never overwrites an existing destination.
 - Protocol stdout contains frames only; structured diagnostics use stderr.
-- Incompatible wire changes require a protocol version bump. Additive version 1
-  changes regenerate the Rust schema and TypeScript contracts together.
+- Incompatible wire changes require a protocol version bump. Additive version
+  1 changes regenerate the Rust schema and TypeScript contracts together.
