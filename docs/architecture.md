@@ -49,8 +49,11 @@ edit.
 `crates/tl-engine/src/store.rs` owns SQLite persistence: one `engine.sqlite`
 database per data directory (rusqlite with the bundled SQLite, WAL journal
 mode, `synchronous=FULL`). Every committed mutation is written as one delta
-inside one transaction; reads come from the in-memory working set loaded once
-at open. Managed copies of imported documents live under
+inside one transaction. The bulk tables are read straight from SQL —
+`segment.list` and `tm.list` page with LIMIT/OFFSET over their indexes, and
+mutations fetch only the rows they touch — while metadata (projects, document
+records, termbases, terms, QA issues) stays in an in-memory working set
+loaded once at open. Managed copies of imported documents live under
 `documents/<document-id>/`. A crash or power cut mid-write cannot corrupt the
 database: SQLite replays fully committed WAL frames or discards the
 uncommitted tail. Data directories written by older builds hold a whole-state
