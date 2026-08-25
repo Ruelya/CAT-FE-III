@@ -558,3 +558,104 @@ describe("WorkbenchView engine-down honesty", () => {
     ).toBeGreaterThan(1);
   });
 });
+
+describe("WorkbenchView export overwrite confirm", () => {
+  /** Bridge where the engine blocks the plain export but honors overwrite. */
+  function installExportBridge() {
+    const handlers = baseHandlers();
+    const exportCalls: unknown[] = [];
+    handlers["document.export"] = (params) => {
+      exportCalls.push(params);
+      if ((params as { overwrite?: boolean }).overwrite !== true) {
+        return new EngineFailure(
+          "exportBlocked",
+          "output path already exists: /tmp/out.txt",
+        );
+      }
+      return {
+        outputPath: "/tmp/out.txt",
+        translatedSegments: 1,
+        degradation: [],
+      };
+    };
+    const bridge = installBridge(handlers);
+    bridge.chooseExportPath.mockResolvedValue("/tmp/out.txt");
+    return { bridge, exportCalls };
+  }
+
+  it("retries a blocked export with overwrite only after 覆盖", async () => {
+    const { exportCalls } = installExportBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+
+    // The refusal surfaces as an explicit question, not a failure toast.
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+    expect(prompt).toHaveTextContent("/tmp/out.txt");
+    expect(exportCalls).toHaveLength(1);
+    expect(exportCalls[0]).toMatchObject({
+      documentId: "d1",
+      outputPath: "/tmp/out.txt",
+    });
+    expect(exportCalls[0]).not.toHaveProperty("overwrite");
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).includes("导出失败"),
+      ),
+    ).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
+    await waitFor(() => {
+      expect(exportCalls).toHaveLength(2);
+    });
+    expect(exportCalls[1]).toMatchObject({
+      documentId: "d1",
+      outputPath: "/tmp/out.txt",
+      overwrite: true,
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "导出完成（已覆盖）：/tmp/out.txt（1 个已译单元）",
+      );
+    });
+    expect(
+      screen.queryByRole("alertdialog", { name: "目标已存在，要覆盖吗？" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("取消 sends no overwrite call and leaves the file untouched", async () => {
+    const { exportCalls } = installExportBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+    await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(
+      screen.queryByRole("alertdialog", { name: "目标已存在，要覆盖吗？" }),
+    ).not.toBeInTheDocument();
+    // Only the refused no-clobber call ever reached the engine.
+    expect(exportCalls).toHaveLength(1);
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已取消导出：保留现有文件，未做任何修改",
+    );
+  });
+});

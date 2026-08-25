@@ -608,6 +608,35 @@ body {
   border-left-color: var(--tl-status-ok);
 }
 
+/* Inline export-overwrite confirm (exportBlocked -> user decision). */
+
+.export-overwrite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  margin-bottom: var(--tl-space-3);
+}
+
+.export-overwrite__message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.export-overwrite__path {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  word-break: break-all;
+}
+
+.export-overwrite__actions {
+  display: flex;
+  gap: var(--tl-space-2);
+  flex-shrink: 0;
+}
+
 .ai-draft {
   border: 1px solid var(--tl-color-accent);
   border-radius: var(--tl-radius-sm);

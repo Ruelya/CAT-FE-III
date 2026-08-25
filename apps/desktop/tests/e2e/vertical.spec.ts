@@ -332,10 +332,34 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   expect(existsSync(tmExportPath)).toBe(true);
   expect(statSync(tmExportPath).size).toBeGreaterThan(0);
 
-  // Honest failure: exporting to the same path again surfaces the engine's
-  // refusal to overwrite instead of a fake success.
+  // Honest overwrite flow: exporting to the same path again is refused by
+  // the engine (destination exists) and surfaces an explicit confirm
+  // instead of a fake success or a dead-end failure.
+  const statBeforeCancel = statSync(tmExportPath);
   await page.getByRole("button", { name: "导出 TM…" }).click();
-  await expect(page.getByRole("alert")).toContainText("already exists");
+  const overwritePrompt = page.getByRole("alertdialog", {
+    name: "目标已存在，要覆盖吗？",
+  });
+  await expect(overwritePrompt).toContainText("tm-export.tmx");
+  await shot("10c-tm-overwrite-confirm.png");
+
+  // 取消 leaves the existing file untouched: same bytes, same mtime.
+  await page.getByRole("button", { name: "取消" }).click();
+  await expect(overwritePrompt).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("已取消导出");
+  const statAfterCancel = statSync(tmExportPath);
+  expect(statAfterCancel.size).toBe(statBeforeCancel.size);
+  expect(statAfterCancel.mtimeMs).toBe(statBeforeCancel.mtimeMs);
+
+  // 覆盖 retries with the explicit overwrite flag and replaces the file.
+  await page.getByRole("button", { name: "导出 TM…" }).click();
+  await expect(overwritePrompt).toBeVisible();
+  await page.getByRole("button", { name: "覆盖" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "TM 导出完成（已覆盖）：3 条",
+  );
+  expect(existsSync(tmExportPath)).toBe(true);
+  expect(statSync(tmExportPath).size).toBeGreaterThan(0);
 
   // Termbase: create + mount, then CSV import and export round-trip.
   await page.getByLabel("新术语库名称").fill("产品术语");
