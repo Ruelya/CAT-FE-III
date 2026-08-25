@@ -341,6 +341,7 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
     name: "目标已存在，要覆盖吗？",
   });
   await expect(overwritePrompt).toContainText("tm-export.tmx");
+  await overwritePrompt.scrollIntoViewIfNeeded();
   await shot("10c-tm-overwrite-confirm.png");
 
   // 取消 leaves the existing file untouched: same bytes, same mtime.

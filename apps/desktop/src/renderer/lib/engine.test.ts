@@ -60,9 +60,9 @@ describe("isExportBlocked", () => {
         new EngineClientError("exportBlocked", "output path already exists"),
       ),
     ).toBe(true);
-    expect(
-      isExportBlocked(new EngineClientError("io", "disk full")),
-    ).toBe(false);
+    expect(isExportBlocked(new EngineClientError("io", "disk full"))).toBe(
+      false,
+    );
     expect(isExportBlocked(new Error("exportBlocked"))).toBe(false);
   });
 });

@@ -560,7 +560,9 @@ describe("ProjectSettingsDialog", () => {
         ),
       ).toBeInTheDocument();
     });
-    const exportCalls = calls.filter(([method]) => method === "termbase.export");
+    const exportCalls = calls.filter(
+      ([method]) => method === "termbase.export",
+    );
     expect(exportCalls).toHaveLength(2);
     expect(exportCalls[1]?.[1]).toEqual({
       termbaseId: "tb1",
