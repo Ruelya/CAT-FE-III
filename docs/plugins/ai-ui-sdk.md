@@ -1,5 +1,8 @@
 # AI Actions And Workbench Panels SDK
 
+> **Historical record (pre-greenfield).** The plugin runtime this SDK targets
+> was removed in the greenfield reset; see [README.md](./README.md).
+
 Public Tier 2 contracts for executable AI actions and isolated workbench panels.
 Descriptors are versioned independently from operation protocol, config schema,
 and panel bridge versions.

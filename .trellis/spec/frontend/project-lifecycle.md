@@ -1,5 +1,10 @@
 # Frontend Project Lifecycle (P1)
 
+> **Historical / not current greenfield.** The P1 surfaces described here
+> (templates, recycle, global search, insights, batch import) belonged to the
+> pre-greenfield renderer and were removed in the greenfield reset. The
+> current project surface is `views/ProjectsView.tsx`.
+
 ## 1. Scope / Trigger
 
 Use this contract when changing multi-document Workbench behavior, multi-file

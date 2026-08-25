@@ -1,5 +1,10 @@
 # 编辑器优先 —— 下一轮迭代文档
 
+> **Historical record (pre-greenfield).** This iteration plan and its progress
+> log describe the previous implementation, which was removed in the
+> greenfield reset. The commits, gates, and crate paths cited here do not
+> exist in the current tree.
+
 日期：2026-08-15。性质：方向纠正 + 诊断 + 可开工的原子任务分解。
 本文档修正现行 PRD 的中心："资产中枢 / 管线"不再是脊梁；**段级编辑器是工作发生
 处，资产中枢是编辑器背后的沉淀**。翻译资产仍然沉淀、AI 仍然贯穿，但它们必须
