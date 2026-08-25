@@ -614,6 +614,13 @@
         "outputPath": {
           "type": "string"
         },
+        "overwrite": {
+          "description": "Replace an existing destination file (staged sibling temp + atomic\nrename). Defaults to false: the export is refused with `exportBlocked`\nwhen the path exists. Even with overwrite, the engine refuses paths\ninside its own managed data directory — it cannot tell who owns an\narbitrary file on disk, but its own project data it can protect.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "segmentAnchors": {
           "description": "Embed per-paragraph grid-segment anchors into the exported artifact so\na layout preview can map clicks back to segments. Preview aid; filters\nwithout anchor support ignore it. Defaults to a plain export.",
           "type": [
@@ -2997,6 +3004,13 @@
           ],
           "default": null
         },
+        "overwrite": {
+          "description": "Replace an existing destination file (staged sibling temp + atomic\nrename). Defaults to false: the export is refused with `exportBlocked`\nwhen the path exists. Even with overwrite, the engine refuses paths\ninside its own managed data directory.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "path": {
           "type": "string"
         },
@@ -3253,6 +3267,13 @@
             }
           ],
           "default": null
+        },
+        "overwrite": {
+          "description": "Replace an existing destination file (staged sibling temp + atomic\nrename). Defaults to false: the export is refused with `exportBlocked`\nwhen the path exists. Even with overwrite, the engine refuses paths\ninside its own managed data directory.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "path": {
           "type": "string"

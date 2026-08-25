@@ -305,6 +305,14 @@ export interface DocumentExportParams {
   documentId: string;
   outputPath: string;
   /**
+   * Replace an existing destination file (staged sibling temp + atomic
+   * rename). Defaults to false: the export is refused with `exportBlocked`
+   * when the path exists. Even with overwrite, the engine refuses paths
+   * inside its own managed data directory — it cannot tell who owns an
+   * arbitrary file on disk, but its own project data it can protect.
+   */
+  overwrite?: boolean | null;
+  /**
    * Embed per-paragraph grid-segment anchors into the exported artifact so
    * a layout preview can map clicks back to segments. Preview aid; filters
    * without anchor support ignore it. Defaults to a plain export.
@@ -939,6 +947,13 @@ export interface MethodContract26 {
 }
 export interface TermbaseExportParams {
   format?: TermExchangeFormat | null;
+  /**
+   * Replace an existing destination file (staged sibling temp + atomic
+   * rename). Defaults to false: the export is refused with `exportBlocked`
+   * when the path exists. Even with overwrite, the engine refuses paths
+   * inside its own managed data directory.
+   */
+  overwrite?: boolean | null;
   path: string;
   termbaseId: string;
   [k: string]: unknown;
@@ -1041,6 +1056,13 @@ export interface MethodContract19 {
 }
 export interface TmExportParams {
   format?: TmExchangeFormat | null;
+  /**
+   * Replace an existing destination file (staged sibling temp + atomic
+   * rename). Defaults to false: the export is refused with `exportBlocked`
+   * when the path exists. Even with overwrite, the engine refuses paths
+   * inside its own managed data directory.
+   */
+  overwrite?: boolean | null;
   path: string;
   projectId: string;
   [k: string]: unknown;

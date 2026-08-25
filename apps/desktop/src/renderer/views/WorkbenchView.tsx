@@ -19,6 +19,7 @@ import {
   callEngine,
   describeError,
   isEngineUnavailable,
+  isExportBlocked,
 } from "../lib/engine.js";
 import {
   EMPTY_FILTER,
@@ -38,6 +39,7 @@ import { ConcordancePanel } from "../components/ConcordancePanel.js";
 import { QaPanel } from "../components/QaPanel.js";
 import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
+import { ExportOverwriteConfirm } from "../components/ExportOverwriteConfirm.js";
 import { PreviewDialog } from "../components/PreviewDialog.js";
 
 export interface WorkbenchViewProps {
@@ -119,6 +121,13 @@ export function WorkbenchView({
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [unackedWrite, setUnackedWrite] = useState<UnackedWrite | null>(null);
+  // An export the engine refused because the destination exists. Kept until
+  // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
+  // existing file untouched).
+  const [overwritePrompt, setOverwritePrompt] = useState<{
+    documentId: string;
+    outputPath: string;
+  } | null>(null);
 
   const activeDocument = useMemo(
     () =>
@@ -143,6 +152,7 @@ export function WorkbenchView({
   const loadDocument = useCallback(async (documentId: string) => {
     setActiveDocumentId(documentId);
     setFilter(EMPTY_FILTER);
+    setOverwritePrompt(null);
     const [segmentResult, issueResult] = await Promise.all([
       callEngine("segment.list", { documentId }),
       callEngine("qa.list", { documentId }),
@@ -220,6 +230,7 @@ export function WorkbenchView({
     if (!outputPath) {
       return;
     }
+    setOverwritePrompt(null);
     setBusy(true);
     try {
       const result = await callEngine("document.export", {
@@ -230,11 +241,46 @@ export function WorkbenchView({
         `导出完成：${result.outputPath}（${result.translatedSegments} 个已译单元）`,
       );
     } catch (error) {
-      onStatusMessage(`导出失败：${describeError(error)}`);
+      if (isExportBlocked(error)) {
+        // The engine never clobbers silently; hand the decision to the user.
+        setOverwritePrompt({ documentId: activeDocument.id, outputPath });
+      } else {
+        onStatusMessage(`导出失败：${describeError(error)}`);
+      }
     } finally {
       setBusy(false);
     }
   }, [activeDocument, onStatusMessage]);
+
+  // 覆盖: retry the blocked export with the explicit overwrite flag.
+  const confirmOverwriteExport = useCallback(async () => {
+    if (!overwritePrompt) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await callEngine("document.export", {
+        documentId: overwritePrompt.documentId,
+        outputPath: overwritePrompt.outputPath,
+        overwrite: true,
+      });
+      setOverwritePrompt(null);
+      onStatusMessage(
+        `导出完成（已覆盖）：${result.outputPath}（${result.translatedSegments} 个已译单元）`,
+      );
+    } catch (error) {
+      setOverwritePrompt(null);
+      onStatusMessage(`导出失败：${describeError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [overwritePrompt, onStatusMessage]);
+
+  // 取消: nothing was written and the existing file stays as it is.
+  const cancelOverwriteExport = useCallback(() => {
+    setOverwritePrompt(null);
+    onStatusMessage("已取消导出：保留现有文件，未做任何修改");
+  }, [onStatusMessage]);
 
   const applySegments = useCallback((updated: Segment[]) => {
     setSegments((current) =>
@@ -641,6 +687,14 @@ export function WorkbenchView({
           >
             {activeDocument ? (
               <>
+                {overwritePrompt ? (
+                  <ExportOverwriteConfirm
+                    path={overwritePrompt.outputPath}
+                    busy={busy}
+                    onOverwrite={() => void confirmOverwriteExport()}
+                    onCancel={cancelOverwriteExport}
+                  />
+                ) : null}
                 {unackedWrite ? (
                   <div
                     className="honest-note workbench-unacked"
