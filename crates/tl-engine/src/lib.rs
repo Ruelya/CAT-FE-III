@@ -9,6 +9,7 @@
 //! honest AI assist/agent skeleton that refuses to fabricate output when no
 //! provider is configured.
 
+mod agent;
 mod aiops;
 mod assets;
 mod export;
@@ -19,10 +20,13 @@ mod store;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
+use tl_ai::check_tag_integrity;
 use tl_asset::TmIndex;
 use tl_domain::{
     Document, DocumentStatus, Project, ProjectLifecycle, Segment, SegmentState, new_id, sha256_hex,
@@ -31,18 +35,19 @@ use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
 };
 use tl_protocol::{
-    AgentRunParams, AgentRunResult, AgentRunStatus, AgentStep, AgentStepKind,
-    AgentStepNotification, AgentStepStatus, AiAssistAction, AiAssistParams, AiAssistResult,
-    AiConfigureParams, AiStatusResult, DocumentExportParams, DocumentExportResult,
-    DocumentImportParams, DocumentImportResult, DocumentListParams, DocumentListResult,
-    EngineCapabilities, EngineReadyNotification, InitializeParams, InitializeResult,
-    PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult, RpcError,
-    RpcErrorCode, RpcNotification, RpcRequest, RpcResponse, SegmentConfirmParams,
-    SegmentConfirmResult, SegmentListParams, SegmentListResult, SegmentUpdateParams,
-    SegmentUpdateResult, ShutdownResult, methods, notifications,
+    AgentCancelParams, AgentRunStatus, AgentRunView, AgentStartParams, AgentStatusParams,
+    AgentStep, AgentStepKind, AgentStepNotification, AgentStepStatus, AiAssistAction,
+    AiAssistParams, AiAssistResult, AiConfigureParams, AiStatusResult, DocumentExportParams,
+    DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
+    DocumentListResult, EngineCapabilities, EngineReadyNotification, InitializeParams,
+    InitializeResult, PROTOCOL_VERSION, ProjectCreateParams, ProjectGetParams, ProjectListResult,
+    QaRunParams, RpcError, RpcErrorCode, RpcNotification, RpcRequest, RpcResponse,
+    SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
+    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods, notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
+pub use agent::AgentEvent;
 pub use store::{DocumentRecord, EngineState};
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
@@ -93,6 +98,13 @@ impl EngineError {
     }
 }
 
+/// In-flight or finished agent run bookkeeping. Runs live in engine memory
+/// only; the segment drafts they produce are persisted like any other edit.
+struct AgentRunState {
+    view: AgentRunView,
+    cancel: Arc<AtomicBool>,
+}
+
 pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
@@ -102,6 +114,9 @@ pub struct Engine {
     /// Fuzzy recall indexes, one per translation memory, rebuilt on open and
     /// maintained on every TM write.
     tm_indexes: BTreeMap<String, TmIndex>,
+    agent_runs: BTreeMap<String, AgentRunState>,
+    agent_events_tx: Sender<AgentEvent>,
+    agent_events_rx: Option<Receiver<AgentEvent>>,
 }
 
 fn now_ms() -> i64 {
@@ -141,6 +156,7 @@ impl Engine {
                 .or_default()
                 .insert(&entry.id, &entry.source_text);
         }
+        let (agent_events_tx, agent_events_rx) = channel();
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -148,7 +164,19 @@ impl Engine {
             registry,
             ai: None,
             tm_indexes,
+            agent_runs: BTreeMap::new(),
+            agent_events_tx,
+            agent_events_rx: Some(agent_events_rx),
         })
+    }
+
+    /// Hand the agent event stream to the caller's loop. Worker threads feed
+    /// it; the caller must route every event back through
+    /// [`Engine::handle_agent_event`]. Callable once.
+    pub fn take_agent_events(&mut self) -> Receiver<AgentEvent> {
+        self.agent_events_rx
+            .take()
+            .expect("agent event receiver was already taken")
     }
 
     pub fn ready_notification(&self) -> RpcNotification {
@@ -210,7 +238,9 @@ impl Engine {
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
             methods::AI_STATUS => to_value(self.ai_status()),
             methods::AI_ASSIST => to_value(self.ai_assist(parse(params)?)?),
-            methods::AI_AGENT_RUN => to_value(self.ai_agent_run(parse(params)?, notify)?),
+            methods::AI_AGENT_START => to_value(self.ai_agent_start(parse(params)?, notify)?),
+            methods::AI_AGENT_STATUS => to_value(self.ai_agent_status(parse(params)?)?),
+            methods::AI_AGENT_CANCEL => to_value(self.ai_agent_cancel(parse(params)?)?),
             other => Err(EngineError::InvalidParams(format!(
                 "unknown method: {other}"
             ))),
@@ -602,6 +632,11 @@ impl Engine {
             .ok_or_else(|| EngineError::NotFound(format!("segment {}", params.segment_id)))?;
         let record = self.require_document(&segment.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
+        if segment.state == SegmentState::Confirmed {
+            return Err(EngineError::Conflict(
+                "segment is confirmed; AI assist never overwrites confirmed work".to_string(),
+            ));
+        }
         if params.action == AiAssistAction::Refine && segment.target_text.trim().is_empty() {
             return Err(EngineError::InvalidParams(
                 "cannot refine a segment without a target".to_string(),
@@ -617,28 +652,45 @@ impl Engine {
             &segment.target_text,
         );
         let completion = aiops::run_completion(
-            runtime,
+            &runtime.profile,
+            &runtime.credential,
             messages,
             &segment.source_text,
             &project.source_locale,
             &project.target_locale,
+            &AtomicBool::new(false),
         )
         .map_err(|error| EngineError::AiFailed(error.to_string()))?;
+        let draft_target = completion.text.trim().to_string();
+        let tag_check = check_tag_integrity(&segment.source_text, &draft_target);
         Ok(AiAssistResult {
-            draft_target: completion.text.trim().to_string(),
+            draft_target,
             provider: runtime.profile.kind,
             model: runtime.profile.model.clone(),
             elapsed_ms: completion.elapsed_ms,
+            tag_check,
         })
     }
 
-    fn ai_agent_run(
+    /// Start an agent run: plan, apply exact TM pretranslation inline, then
+    /// hand the TM misses to a worker thread for AI drafting. Returns the
+    /// task order immediately; heavy provider calls never block the RPC loop.
+    fn ai_agent_start(
         &mut self,
-        params: AgentRunParams,
+        params: AgentStartParams,
         notify: &mut dyn FnMut(RpcNotification),
-    ) -> Result<AgentRunResult, EngineError> {
-        if self.ai.is_none() {
-            return Err(EngineError::AiNotConfigured);
+    ) -> Result<AgentRunView, EngineError> {
+        // Honest degradation: without a provider the run must not start.
+        let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
+        if let Some(active) = self
+            .agent_runs
+            .values()
+            .find(|run| run.view.status == AgentRunStatus::Running)
+        {
+            return Err(EngineError::Conflict(format!(
+                "agent run {} is still running; cancel it or wait",
+                active.view.run_id
+            )));
         }
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
@@ -661,53 +713,39 @@ impl Engine {
             .cloned()
             .collect();
 
-        let run_id = new_id();
-        let mut steps: Vec<AgentStep> = Vec::new();
-        let emit = |steps: &mut Vec<AgentStep>,
-                    notify: &mut dyn FnMut(RpcNotification),
-                    kind: AgentStepKind,
-                    status: AgentStepStatus,
-                    segment_id: Option<String>,
-                    detail: String| {
-            let step = AgentStep {
-                index: steps.len() as u32,
-                kind,
-                status,
-                segment_id,
-                detail,
-            };
-            steps.push(step.clone());
-            notify(RpcNotification {
-                method: notifications::AGENT_STEP.to_string(),
-                params: serde_json::to_value(AgentStepNotification {
-                    run_id: run_id.clone(),
-                    document_id: document_id.clone(),
-                    step,
-                })
-                .unwrap_or(Value::Null),
-            });
+        let now = now_ms();
+        let mut view = AgentRunView {
+            run_id: new_id(),
+            document_id: document_id.clone(),
+            status: AgentRunStatus::Running,
+            cancel_requested: false,
+            planned_segments: pending.len() as u32,
+            tm_applied: 0,
+            ai_drafted: 0,
+            failed_segments: 0,
+            open_qa_issues: 0,
+            steps: Vec::new(),
+            created_at_ms: now,
+            updated_at_ms: now,
         };
-
-        emit(
-            &mut steps,
+        push_agent_step(
+            &mut view,
             notify,
             AgentStepKind::Plan,
             AgentStepStatus::Done,
             None,
             format!(
-                "planned run: {} untranslated segment(s), TM first, then AI drafting",
+                "任务单：{} 个未翻译句段；TM 预翻 → AI 起草未命中段 → QA；结束停在人工审核门",
                 pending.len()
             ),
         );
 
-        let mut translated = 0_u32;
-        let mut failed = 0_u32;
-        let now = now_ms();
+        // Phase 1 of the run: exact TM pretranslation, cheap and local.
+        let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
         for segment_id in &pending {
             let Some(segment) = self.state.segments.get(segment_id).cloned() else {
                 continue;
             };
-            // Tool 1: exact TM reuse.
             let tm_hit = self
                 .state
                 .tm_entries
@@ -716,37 +754,7 @@ impl Engine {
                     entry.memory_id == memory_id && entry.source_hash == segment.source_hash
                 })
                 .map(|entry| entry.target_text.clone());
-            let (draft, detail) = if let Some(target) = tm_hit {
-                (Some(target), "reused exact TM match".to_string())
-            } else {
-                // Tool 2: AI drafting.
-                let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
-                let messages = aiops::assist_messages(
-                    AiAssistAction::Translate,
-                    params.instruction.as_deref(),
-                    &project.source_locale,
-                    &project.target_locale,
-                    &segment.source_text,
-                    "",
-                );
-                match aiops::run_completion(
-                    runtime,
-                    messages,
-                    &segment.source_text,
-                    &project.source_locale,
-                    &project.target_locale,
-                ) {
-                    Ok(completion) => (
-                        Some(completion.text.trim().to_string()),
-                        format!(
-                            "AI draft from {} in {} ms",
-                            runtime.profile.model, completion.elapsed_ms
-                        ),
-                    ),
-                    Err(error) => (None, format!("AI call failed: {error}")),
-                }
-            };
-            match draft {
+            match tm_hit {
                 Some(target) if !target.trim().is_empty() => {
                     if let Some(stored) = self.state.segments.get_mut(segment_id) {
                         stored.target_text = target;
@@ -754,73 +762,282 @@ impl Engine {
                         stored.revision += 1;
                         stored.updated_at_ms = now;
                     }
-                    translated += 1;
-                    emit(
-                        &mut steps,
+                    view.tm_applied += 1;
+                    push_agent_step(
+                        &mut view,
                         notify,
-                        AgentStepKind::Translate,
+                        AgentStepKind::Tm,
                         AgentStepStatus::Done,
                         Some(segment_id.clone()),
-                        detail,
+                        "复用精确 TM 匹配，落为草稿".to_string(),
                     );
                 }
-                _ => {
-                    failed += 1;
-                    emit(
-                        &mut steps,
-                        notify,
-                        AgentStepKind::Translate,
-                        AgentStepStatus::Failed,
-                        Some(segment_id.clone()),
-                        detail,
-                    );
-                }
+                _ => misses.push(agent::AgentWorkItem {
+                    segment_id: segment_id.clone(),
+                    source_text: segment.source_text.clone(),
+                }),
             }
         }
-        self.store.save(&self.state)?;
+        if view.tm_applied > 0 {
+            self.store.save(&self.state)?;
+        }
 
-        // Tool 3: deterministic QA over the whole document.
-        let qa = self.qa_run(tl_protocol::QaRunParams {
-            document_id: document_id.clone(),
-        })?;
-        emit(
-            &mut steps,
-            notify,
-            AgentStepKind::Qa,
-            AgentStepStatus::Done,
-            None,
-            format!(
-                "number QA checked {} segment(s), {} open issue(s)",
-                qa.checked_segments, qa.open_issues
-            ),
-        );
-
-        let status = if failed == 0 && qa.open_issues == 0 {
-            AgentRunStatus::Completed
-        } else if translated > 0 || failed == 0 {
-            AgentRunStatus::CompletedWithIssues
-        } else {
-            AgentRunStatus::Failed
-        };
-        emit(
-            &mut steps,
-            notify,
-            AgentStepKind::Summary,
-            AgentStepStatus::Done,
-            None,
-            format!(
-                "translated {translated}, failed {failed}, open QA issues {}",
-                qa.open_issues
-            ),
-        );
-        Ok(AgentRunResult {
+        let cancel = Arc::new(AtomicBool::new(false));
+        agent::spawn_worker(agent::AgentJob {
+            run_id: view.run_id.clone(),
+            items: misses,
+            instruction: params.instruction.clone(),
+            source_locale: project.source_locale.clone(),
+            target_locale: project.target_locale.clone(),
+            profile: runtime.profile.clone(),
+            credential: runtime.credential.duplicate(),
+            cancel: Arc::clone(&cancel),
+            events: self.agent_events_tx.clone(),
+        });
+        let run_id = view.run_id.clone();
+        self.agent_runs.insert(
             run_id,
-            document_id,
-            status,
-            steps,
-            translated_segments: translated,
-            failed_segments: failed,
-            open_qa_issues: qa.open_issues,
-        })
+            AgentRunState {
+                view: view.clone(),
+                cancel,
+            },
+        );
+        Ok(view)
     }
+
+    fn ai_agent_status(&self, params: AgentStatusParams) -> Result<AgentRunView, EngineError> {
+        self.agent_runs
+            .get(&params.run_id)
+            .map(|run| run.view.clone())
+            .ok_or_else(|| EngineError::NotFound(format!("agent run {}", params.run_id)))
+    }
+
+    fn ai_agent_cancel(&mut self, params: AgentCancelParams) -> Result<AgentRunView, EngineError> {
+        let run = self
+            .agent_runs
+            .get_mut(&params.run_id)
+            .ok_or_else(|| EngineError::NotFound(format!("agent run {}", params.run_id)))?;
+        if run.view.status == AgentRunStatus::Running {
+            run.cancel.store(true, Ordering::Relaxed);
+            run.view.cancel_requested = true;
+            run.view.updated_at_ms = now_ms();
+        }
+        Ok(run.view.clone())
+    }
+
+    /// Apply one worker event to engine state. The caller (stdio loop or
+    /// test) owns event delivery so the engine stays single-threaded.
+    pub fn handle_agent_event(
+        &mut self,
+        event: AgentEvent,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<(), EngineError> {
+        match event {
+            AgentEvent::Drafted {
+                run_id,
+                segment_id,
+                outcome,
+            } => {
+                let Some(run) = self.agent_runs.get_mut(&run_id) else {
+                    return Ok(());
+                };
+                if run.view.status != AgentRunStatus::Running {
+                    return Ok(());
+                }
+                match outcome {
+                    Ok(draft) if !draft.target.trim().is_empty() => {
+                        let still_pending =
+                            self.state.segments.get(&segment_id).is_some_and(|segment| {
+                                segment.state == SegmentState::Untranslated
+                                    && segment.target_text.trim().is_empty()
+                            });
+                        if !still_pending {
+                            push_agent_step(
+                                &mut run.view,
+                                notify,
+                                AgentStepKind::Translate,
+                                AgentStepStatus::Skipped,
+                                Some(segment_id),
+                                "句段在运行期间被人工修改，保留人工内容".to_string(),
+                            );
+                            return Ok(());
+                        }
+                        let source_text = self
+                            .state
+                            .segments
+                            .get(&segment_id)
+                            .map(|segment| segment.source_text.clone())
+                            .unwrap_or_default();
+                        let integrity = check_tag_integrity(&source_text, &draft.target);
+                        if !integrity.ok {
+                            run.view.failed_segments += 1;
+                            push_agent_step(
+                                &mut run.view,
+                                notify,
+                                AgentStepKind::Translate,
+                                AgentStepStatus::Failed,
+                                Some(segment_id),
+                                format!(
+                                    "标签完整性校验未通过（缺失 {}，多余 {}），不落草稿",
+                                    integrity.missing.len(),
+                                    integrity.extra.len()
+                                ),
+                            );
+                            return Ok(());
+                        }
+                        let now = now_ms();
+                        if let Some(stored) = self.state.segments.get_mut(&segment_id) {
+                            stored.target_text = draft.target;
+                            stored.state = SegmentState::Draft;
+                            stored.revision += 1;
+                            stored.updated_at_ms = now;
+                        }
+                        run.view.ai_drafted += 1;
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Translate,
+                            AgentStepStatus::Done,
+                            Some(segment_id),
+                            format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
+                        );
+                        self.store.save(&self.state)?;
+                    }
+                    Ok(_) => {
+                        run.view.failed_segments += 1;
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Translate,
+                            AgentStepStatus::Failed,
+                            Some(segment_id),
+                            "AI 返回空译文，不落草稿".to_string(),
+                        );
+                    }
+                    Err(message) => {
+                        run.view.failed_segments += 1;
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Translate,
+                            AgentStepStatus::Failed,
+                            Some(segment_id),
+                            format!("AI 调用失败：{message}"),
+                        );
+                    }
+                }
+                Ok(())
+            }
+            AgentEvent::Finished { run_id } => {
+                let Some(run) = self.agent_runs.get(&run_id) else {
+                    return Ok(());
+                };
+                if run.view.status != AgentRunStatus::Running {
+                    return Ok(());
+                }
+                let document_id = run.view.document_id.clone();
+                // Deterministic QA runs on the engine thread; it is local and
+                // fast. Borrow of the run ends before qa_run needs &mut self.
+                let qa = self.qa_run(QaRunParams {
+                    document_id: document_id.clone(),
+                });
+                let Some(run) = self.agent_runs.get_mut(&run_id) else {
+                    return Ok(());
+                };
+                match qa {
+                    Ok(qa) => {
+                        run.view.open_qa_issues = qa.open_issues;
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Qa,
+                            AgentStepStatus::Done,
+                            None,
+                            format!(
+                                "数字 QA 检查 {} 个句段，{} 个未解决问题",
+                                qa.checked_segments, qa.open_issues
+                            ),
+                        );
+                        run.view.status = AgentRunStatus::AwaitingReview;
+                        let summary = format!(
+                            "TM 复用 {}，AI 草稿 {}，失败 {}，QA 未解决 {}。已停在人工审核门：请到工作台确认或导出，Agent 不会代做。",
+                            run.view.tm_applied,
+                            run.view.ai_drafted,
+                            run.view.failed_segments,
+                            run.view.open_qa_issues
+                        );
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Summary,
+                            AgentStepStatus::Done,
+                            None,
+                            summary,
+                        );
+                    }
+                    Err(error) => {
+                        run.view.status = AgentRunStatus::Failed;
+                        push_agent_step(
+                            &mut run.view,
+                            notify,
+                            AgentStepKind::Qa,
+                            AgentStepStatus::Failed,
+                            None,
+                            format!("QA 运行失败：{error}"),
+                        );
+                    }
+                }
+                Ok(())
+            }
+            AgentEvent::Canceled { run_id } => {
+                let Some(run) = self.agent_runs.get_mut(&run_id) else {
+                    return Ok(());
+                };
+                if run.view.status != AgentRunStatus::Running {
+                    return Ok(());
+                }
+                run.view.status = AgentRunStatus::Canceled;
+                push_agent_step(
+                    &mut run.view,
+                    notify,
+                    AgentStepKind::Cancel,
+                    AgentStepStatus::Done,
+                    None,
+                    "运行已取消：已生成的草稿保留，剩余句段未触碰".to_string(),
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Append a step to the run, refresh its timestamp, and emit the reserved
+/// step notification carrying the current run status.
+fn push_agent_step(
+    view: &mut AgentRunView,
+    notify: &mut dyn FnMut(RpcNotification),
+    kind: AgentStepKind,
+    status: AgentStepStatus,
+    segment_id: Option<String>,
+    detail: String,
+) {
+    let step = AgentStep {
+        index: view.steps.len() as u32,
+        kind,
+        status,
+        segment_id,
+        detail,
+    };
+    view.steps.push(step.clone());
+    view.updated_at_ms = now_ms();
+    notify(RpcNotification {
+        method: notifications::AGENT_STEP.to_string(),
+        params: serde_json::to_value(AgentStepNotification {
+            run_id: view.run_id.clone(),
+            document_id: view.document_id.clone(),
+            run_status: view.status,
+            step,
+        })
+        .unwrap_or(Value::Null),
+    });
 }

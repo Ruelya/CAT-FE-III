@@ -71,7 +71,9 @@ export const ENGINE_METHODS = [
   "ai.configure",
   "ai.status",
   "ai.assist",
-  "ai.agent.run",
+  "ai.agent.start",
+  "ai.agent.status",
+  "ai.agent.cancel",
 ] as const satisfies readonly EngineMethod[];
 
 export const ENGINE_NOTIFICATIONS = [

@@ -104,11 +104,14 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   );
   await shot("05-ai-honest-unconfigured.png");
 
-  // The agent refuses to fake a run without a provider.
+  // The agent cannot start without a provider: the start button stays
+  // disabled and the honest note says why.
   await page.getByRole("button", { name: "Agent", exact: true }).click();
-  await page.getByRole("button", { name: "对当前文档运行 Agent" }).click();
-  await expect(page.locator(".honest-note[data-tone='danger']")).toContainText(
-    "不会假装完成任务",
+  await expect(
+    page.getByRole("button", { name: "创建任务单并运行" }),
+  ).toBeDisabled();
+  await expect(page.locator(".honest-note").first()).toContainText(
+    "没有密钥时它不会启动",
   );
   await shot("06-agent-honest-refusal.png");
 

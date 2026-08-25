@@ -57,7 +57,9 @@ pub mod methods {
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
     pub const AI_ASSIST: &str = "ai.assist";
-    pub const AI_AGENT_RUN: &str = "ai.agent.run";
+    pub const AI_AGENT_START: &str = "ai.agent.start";
+    pub const AI_AGENT_STATUS: &str = "ai.agent.status";
+    pub const AI_AGENT_CANCEL: &str = "ai.agent.cancel";
 }
 
 pub mod notifications {
@@ -134,8 +136,12 @@ pub struct RpcMethodCatalog {
     pub ai_status: MethodContract<AiStatusParams, AiStatusResult>,
     #[serde(rename = "ai.assist")]
     pub ai_assist: MethodContract<AiAssistParams, AiAssistResult>,
-    #[serde(rename = "ai.agent.run")]
-    pub ai_agent_run: MethodContract<AgentRunParams, AgentRunResult>,
+    #[serde(rename = "ai.agent.start")]
+    pub ai_agent_start: MethodContract<AgentStartParams, AgentRunView>,
+    #[serde(rename = "ai.agent.status")]
+    pub ai_agent_status: MethodContract<AgentStatusParams, AgentRunView>,
+    #[serde(rename = "ai.agent.cancel")]
+    pub ai_agent_cancel: MethodContract<AgentCancelParams, AgentRunView>,
 }
 
 /// Notification-name-keyed catalog for the reserved notification frames.
@@ -203,7 +209,9 @@ mod tests {
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
             methods::AI_ASSIST,
-            methods::AI_AGENT_RUN,
+            methods::AI_AGENT_START,
+            methods::AI_AGENT_STATUS,
+            methods::AI_AGENT_CANCEL,
         ];
         assert_eq!(properties.len(), expected.len());
         for method in expected {

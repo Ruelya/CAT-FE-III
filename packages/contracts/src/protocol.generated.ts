@@ -12,8 +12,12 @@ export type RpcErrorCode =
   | "aiFailed"
   | "io"
   | "internal";
-export type AgentRunStatus = "completed" | "completedWithIssues" | "failed";
-export type AgentStepKind = "plan" | "translate" | "qa" | "summary";
+/**
+ * Lifecycle of an agent run. The run never confirms segments, never signs
+ * off, and never exports: it always parks at `awaitingReview` for a human.
+ */
+export type AgentRunStatus = ("running" | "canceled" | "failed") | "awaitingReview";
+export type AgentStepKind = ("plan" | "qa" | "summary" | "cancel") | "tm" | "translate";
 export type AgentStepStatus = "done" | "failed" | "skipped";
 export type AiAssistAction = "translate" | "refine";
 export type AiProviderKind =
@@ -64,7 +68,9 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.run": MethodContract29;
+  "ai.agent.cancel": MethodContract31;
+  "ai.agent.start": MethodContract29;
+  "ai.agent.status": MethodContract30;
   "ai.assist": MethodContract28;
   "ai.configure": MethodContract26;
   "ai.status": MethodContract27;
@@ -97,27 +103,33 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract29 {
-  params: AgentRunParams;
-  result: AgentRunResult;
+export interface MethodContract31 {
+  params: AgentCancelParams;
+  result: AgentRunView;
 }
-export interface AgentRunParams {
-  documentId: string;
-  instruction?: string | null;
-  /**
-   * Upper bound on segments the agent may translate in one run.
-   */
-  maxSegments?: number | null;
+export interface AgentCancelParams {
+  runId: string;
   [k: string]: unknown;
 }
-export interface AgentRunResult {
+/**
+ * The observable task order for one agent run.
+ */
+export interface AgentRunView {
+  aiDrafted: number;
+  cancelRequested: boolean;
+  createdAtMs: number;
   documentId: string;
   failedSegments: number;
   openQaIssues: number;
+  /**
+   * Untranslated segments claimed by this run at start time.
+   */
+  plannedSegments: number;
   runId: string;
   status: AgentRunStatus;
   steps: AgentStep[];
-  translatedSegments: number;
+  tmApplied: number;
+  updatedAtMs: number;
   [k: string]: unknown;
 }
 export interface AgentStep {
@@ -126,6 +138,33 @@ export interface AgentStep {
   kind: AgentStepKind;
   segmentId?: string | null;
   status: AgentStepStatus;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract29 {
+  params: AgentStartParams;
+  result: AgentRunView;
+}
+export interface AgentStartParams {
+  documentId: string;
+  instruction?: string | null;
+  /**
+   * Upper bound on segments the agent may touch in one run.
+   */
+  maxSegments?: number | null;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract30 {
+  params: AgentStatusParams;
+  result: AgentRunView;
+}
+export interface AgentStatusParams {
+  runId: string;
   [k: string]: unknown;
 }
 /**
@@ -146,6 +185,16 @@ export interface AiAssistResult {
   elapsedMs: number;
   model: string;
   provider: AiProviderKind;
+  tagCheck: TagIntegrityReport;
+  [k: string]: unknown;
+}
+/**
+ * Placeholder/tag integrity of the draft against the segment source.
+ */
+export interface TagIntegrityReport {
+  extra?: string[];
+  missing?: string[];
+  ok: boolean;
   [k: string]: unknown;
 }
 /**
@@ -909,11 +958,13 @@ export interface NotificationCatalog {
 }
 /**
  * Payload for the reserved `notify.ai.agent.step` frame emitted while a run
- * is in flight.
+ * is in flight. `runStatus` lets clients notice the terminal transition
+ * without polling.
  */
 export interface AgentStepNotification {
   documentId: string;
   runId: string;
+  runStatus: AgentRunStatus;
   step: AgentStep;
   [k: string]: unknown;
 }
