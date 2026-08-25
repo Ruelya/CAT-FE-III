@@ -578,6 +578,17 @@ body {
   opacity: 0.55;
 }
 
+/* Waived issues stay readable — they are parked, not gone. */
+.issue-card[data-status="waived"] {
+  opacity: 0.8;
+}
+
+.issue-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+}
+
 .issue-card__message {
   margin: 0;
   line-height: 1.45;
@@ -587,6 +598,11 @@ body {
   font-family: var(--tl-font-mono);
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-muted);
+}
+
+.issue-card__note {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
 }
 
 .honest-note {

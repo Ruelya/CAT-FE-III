@@ -454,10 +454,21 @@ pub enum QaSeverity {
     Info,
 }
 
+/// Lifecycle of a persisted QA issue.
+///
+/// - `Open`: the finding reproduced on the latest run and nobody accepted it.
+/// - `Waived`: a user explicitly accepted this exact finding (`qa.waive`).
+///   A waiver is pinned to the issue fingerprint, which hashes the rule,
+///   segment, and evidence — so it holds only while the very same evidence
+///   keeps reproducing. If the evidence changes, the changed finding opens
+///   as a new issue instead of hiding behind the old waiver.
+/// - `Resolved`: the finding stopped reproducing (e.g. the numbers now
+///   actually match). Only `qa.run` moves issues here; waiving never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum QaIssueStatus {
     Open,
+    Waived,
     Resolved,
 }
 
@@ -487,6 +498,11 @@ pub struct QaIssue {
     pub message: String,
     pub fingerprint: String,
     pub evidence: NumberEvidence,
+    /// Free-form note recorded with a waiver. Optional by design — waiving
+    /// must not demand a ritual reason. Non-null only while `status` is
+    /// [`QaIssueStatus::Waived`].
+    #[serde(default)]
+    pub waive_note: Option<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }

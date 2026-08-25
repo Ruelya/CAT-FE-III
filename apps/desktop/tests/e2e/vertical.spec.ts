@@ -193,6 +193,23 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   await expect(numberIssue).toContainText("未解决");
   await shot("04-number-qa-issue.png");
 
+  // Waive the number issue: a human decision on record, not a fake resolve.
+  // The card flips to 已忽略 and says honestly that nothing was confirmed
+  // and nothing reached the TM; the segment stays a draft.
+  await numberIssue.getByRole("button", { name: "忽略" }).click();
+  const waivedIssue = page.locator(".issue-card", { hasText: "1300" }).first();
+  await expect(waivedIssue).toContainText("已忽略");
+  await expect(waivedIssue).toContainText("未确认句段、未写入 TM");
+  await expect(page.locator(".app-statusbar")).toContainText("已忽略 QA 问题");
+  await expect(rows.nth(1)).toContainText("草稿");
+  await shot("04b-qa-issue-waived.png");
+
+  // 恢复 brings the same issue back to 未解决 for the rest of the run.
+  await waivedIssue.getByRole("button", { name: "恢复" }).click();
+  await expect(
+    page.locator(".issue-card", { hasText: "1300" }).first(),
+  ).toContainText("未解决");
+
   // AI assist degrades honestly without credentials.
   await page.getByRole("button", { name: "AI 辅助" }).click();
   await expect(page.locator(".tl-panel__header .tl-badge")).toContainText(
