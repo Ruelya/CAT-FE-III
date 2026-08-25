@@ -5,10 +5,20 @@ import type {
   Termbase,
   TermbaseListResult,
 } from "@translunar/contracts";
-import { Badge, Button, Dialog, TextField } from "@translunar/ui";
+import { Badge, Button, Dialog, SelectField, TextField } from "@translunar/ui";
 
 import { callEngine, describeError } from "../lib/engine.js";
+import {
+  defaultSegmentation,
+  defaultSrxPath,
+} from "./ImportDocumentDialog.js";
 import { TermManagePanel } from "./TermManagePanel.js";
+
+type SegmentationChoice = "sentence" | "paragraph";
+
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
 
 export interface ProjectSettingsDialogProps {
   open: boolean;
@@ -22,6 +32,12 @@ export interface ProjectSettingsDialogProps {
  * Project settings. Name and language pair save through project.update; the
  * engine rejects a language change once the project holds documents, TM
  * entries, or termbase mounts, and that conflict is surfaced verbatim.
+ * The import-defaults section edits the same stored defaults the import
+ * dialog pre-fills from (`configuration.segmentation` /
+ * `configuration.srxPath`): saving in sentence mode sends the drafted SRX
+ * path (or `clearSrxPath` when the draft is empty), while paragraph mode
+ * only sends the segmentation so a stored SRX survives a later switch back.
+ * Only the SRX path is stored — a missing file fails at import time.
  * Lifecycle moves through project.archive (archive / restore). The termbase
  * section manages real mounts through termbase.list/create/attach/detach,
  * opens a per-termbase entry manager backed by term.list/update/delete, and
@@ -51,6 +67,11 @@ export function ProjectSettingsDialog({
   const [nameDraft, setNameDraft] = useState(project.name);
   const [sourceDraft, setSourceDraft] = useState(project.sourceLocale);
   const [targetDraft, setTargetDraft] = useState(project.targetLocale);
+  const [segmentationDraft, setSegmentationDraft] =
+    useState<SegmentationChoice>(() => defaultSegmentation(project));
+  const [srxDraft, setSrxDraft] = useState<string | null>(() =>
+    defaultSrxPath(project),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -90,6 +111,8 @@ export function ProjectSettingsDialog({
     setNameDraft(project.name);
     setSourceDraft(project.sourceLocale);
     setTargetDraft(project.targetLocale);
+    setSegmentationDraft(defaultSegmentation(project));
+    setSrxDraft(defaultSrxPath(project));
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
@@ -116,6 +139,55 @@ export function ProjectSettingsDialog({
       setBusy(false);
     }
   }, [project.id, nameDraft, sourceDraft, targetDraft, onProjectUpdated]);
+
+  const chooseDefaultSrx = useCallback(async () => {
+    const path = await window.tl.chooseSrxFile();
+    if (path) {
+      setSrxDraft(path);
+      setError(null);
+    }
+  }, []);
+
+  const saveImportDefaults = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      // Sentence mode sends the drafted SRX path or clears the stored one;
+      // paragraph mode only sends the segmentation (the engine keeps a
+      // stored SRX for a later switch back and rejects a new one).
+      const updated = await callEngine(
+        "project.update",
+        segmentationDraft === "paragraph"
+          ? { projectId: project.id, segmentation: segmentationDraft }
+          : srxDraft
+            ? {
+                projectId: project.id,
+                segmentation: segmentationDraft,
+                srxPath: srxDraft,
+              }
+            : {
+                projectId: project.id,
+                segmentation: segmentationDraft,
+                clearSrxPath: true,
+              },
+      );
+      setNotice(
+        updated.configuration.segmentation === "paragraph"
+          ? "导入默认已保存：段落分段。"
+          : `导入默认已保存：句子分段（${
+              updated.configuration.srxPath
+                ? `SRX：${baseName(updated.configuration.srxPath)}`
+                : "内置 SRX 规则"
+            }）。`,
+      );
+      onProjectUpdated?.(updated);
+    } catch (saveError) {
+      setError(describeError(saveError));
+    } finally {
+      setBusy(false);
+    }
+  }, [project.id, segmentationDraft, srxDraft, onProjectUpdated]);
 
   const setArchived = useCallback(
     async (archived: boolean) => {
@@ -386,6 +458,63 @@ export function ProjectSettingsDialog({
             语言对仅在项目还没有文档、TM 条目或术语库挂载时可以修改；
             一旦存在这些资产，引擎会拒绝修改，以免旧语言对的 TM
             与术语被错误复用。项目名称随时可改。
+          </p>
+        </section>
+
+        <section className="settings__section">
+          <h3 className="settings__heading">导入默认</h3>
+          <SelectField
+            label="默认分段方式"
+            value={segmentationDraft}
+            disabled={busy}
+            onChange={(event) =>
+              setSegmentationDraft(event.target.value as SegmentationChoice)
+            }
+          >
+            <option value="sentence">句子（SRX 规则）</option>
+            <option value="paragraph">段落</option>
+          </SelectField>
+          <div className="settings__row">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || segmentationDraft !== "sentence"}
+              onClick={() => void chooseDefaultSrx()}
+            >
+              选择默认 SRX 规则…
+            </Button>
+            {srxDraft ? (
+              <>
+                <span className="import-form__path">{baseName(srxDraft)}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setSrxDraft(null)}
+                >
+                  清除
+                </Button>
+              </>
+            ) : (
+              <span className="import-form__path">
+                内置规则（{project.sourceLocale}）
+              </span>
+            )}
+          </div>
+          <div className="settings__row">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void saveImportDefaults()}
+            >
+              保存导入默认
+            </Button>
+          </div>
+          <p className="settings__note">
+            导入对话框按这里的默认预填；每次导入成功后也会自动把当次选择
+            保存为默认。SRX 仅在句子分段时生效，且只保存路径——
+            文件缺失会在下次导入时报错，而不是在保存时。
           </p>
         </section>
 

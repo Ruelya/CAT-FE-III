@@ -177,6 +177,7 @@ export function App() {
             engineState={engineState}
             onStatusMessage={handleStatusMessage}
             onDocumentOpenChange={setDocumentOpen}
+            onProjectUpdated={setProject}
           />
         ) : (
           <ProjectsView

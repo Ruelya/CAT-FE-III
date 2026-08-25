@@ -29,6 +29,16 @@ pub enum ProjectLifecycle {
     Trash,
 }
 
+/// Default segmentation mode applied when `document.import` is called without
+/// an explicit segmentation choice. Serialized as `sentence` / `paragraph`,
+/// matching the strings `DocumentImportParams.segmentation` accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectSegmentation {
+    Sentence,
+    Paragraph,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfiguration {
@@ -48,6 +58,15 @@ pub struct ProjectConfiguration {
     pub editor_defaults: Option<EditorPreferences>,
     #[serde(default)]
     pub task_package: Option<TaskPackageProjectReference>,
+    /// Default segmentation for future imports. `None` means sentence mode.
+    #[serde(default)]
+    pub segmentation: Option<ProjectSegmentation>,
+    /// Default SRX ruleset path for future sentence-mode imports. Only the
+    /// path is stored — a missing or invalid file fails at import time, not
+    /// when the default is saved. Ignored (but kept) while the segmentation
+    /// default is paragraph, so switching back to sentence restores it.
+    #[serde(default)]
+    pub srx_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
