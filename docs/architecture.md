@@ -29,9 +29,10 @@ Requests and responses are newline-framed JSON-RPC 2.0. The first request is
 project creation/list/get, document import/list/export, segment
 list/update/confirm, TM lookup (exact and fuzzy) plus import/export and
 pretranslate, termbase and term management with in-text term lookup, QA
-run/list, AI configure/status/assist, and the asynchronous agent
-(`ai.agent.start` / `ai.agent.status` / `ai.agent.cancel` with
-`notify.ai.agent.step` events).
+run/list, AI configure/status, asynchronous assist
+(`ai.assist.start` / `ai.assist.status` / `ai.assist.cancel`), and the
+asynchronous agent (`ai.agent.start` / `ai.agent.status` /
+`ai.agent.cancel` with `notify.ai.agent.step` events).
 
 Rust protocol types derive JSON Schema. `crates/tl-protocol` is authoritative;
 `packages/contracts` contains generated TypeScript types plus the method-to-
@@ -87,9 +88,14 @@ insert, QA issues, document preview, AI assist, and the agent run.
 
 AI goes through the engine: `ai.configure` accepts an OpenAI-compatible
 endpoint at runtime, `ai.status` reports honest availability, and without
-credentials assist and agent refuse instead of pretending. Agent runs execute
-asynchronously in the engine, stream `notify.ai.agent.step` events, and park
-every result at a human review gate before anything is applied.
+credentials assist and agent refuse instead of pretending. Both run
+asynchronously: `ai.assist.start` validates and returns immediately, the
+provider call runs off the RPC thread, and the client polls
+`ai.assist.status` (or cancels via `ai.assist.cancel`) until the run turns
+terminal; a done run only carries a proposal that a human applies. Agent runs
+likewise execute asynchronously in the engine, stream `notify.ai.agent.step`
+events, and park every result at a human review gate before anything is
+applied.
 
 ## Recovery And Failure
 

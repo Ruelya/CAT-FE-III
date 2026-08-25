@@ -4,7 +4,7 @@
 > previous implementation (`editor.suggest`, `crates/engine`), which was
 > removed in the greenfield reset. Methods and paths named here do not exist
 > in the current tree. See [architecture.md](./architecture.md) for the
-> current AI surface (`ai.assist` and the agent).
+> current AI surface (asynchronous `ai.assist.*` requests and the agent).
 
 日期：2026-08-15。性质：调研 + 实现合同。P1–P3 已挂到目标框；无密钥时 AI 车道静默。
 本文回答：Cursor / VS Code / Devin 的补全到底是什么，以及本项目应如何
