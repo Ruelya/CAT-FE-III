@@ -50,6 +50,8 @@ use tl_segmentation::{SegmentationMode, SrxRules};
 pub use agent::AgentEvent;
 pub use store::{DocumentRecord, EngineState};
 
+use store::StateDelta;
+
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
 
 #[derive(Debug, Error)]
@@ -114,6 +116,11 @@ pub struct Engine {
     /// Fuzzy recall indexes, one per translation memory, rebuilt on open and
     /// maintained on every TM write.
     tm_indexes: BTreeMap<String, TmIndex>,
+    /// Exact-match index `(memory_id, source_hash) -> entry id`, rebuilt on
+    /// open and maintained on every TM insert. Mirrors the unique
+    /// `(memory_id, source_hash)` index in the SQLite store, and replaces
+    /// the linear scans the JSON store used for upserts and exact lookups.
+    tm_exact: BTreeMap<(String, String), String>,
     agent_runs: BTreeMap<String, AgentRunState>,
     agent_events_tx: Sender<AgentEvent>,
     agent_events_rx: Option<Receiver<AgentEvent>>,
@@ -150,11 +157,16 @@ impl Engine {
                 .map_err(|error| EngineError::Internal(error.to_string()))?;
         }
         let mut tm_indexes: BTreeMap<String, TmIndex> = BTreeMap::new();
+        let mut tm_exact: BTreeMap<(String, String), String> = BTreeMap::new();
         for entry in state.tm_entries.values() {
             tm_indexes
                 .entry(entry.memory_id.clone())
                 .or_default()
                 .insert(&entry.id, &entry.source_text);
+            tm_exact.insert(
+                (entry.memory_id.clone(), entry.source_hash.clone()),
+                entry.id.clone(),
+            );
         }
         let (agent_events_tx, agent_events_rx) = channel();
         Ok(Self {
@@ -164,6 +176,7 @@ impl Engine {
             registry,
             ai: None,
             tm_indexes,
+            tm_exact,
             agent_runs: BTreeMap::new(),
             agent_events_tx,
             agent_events_rx: Some(agent_events_rx),
@@ -298,10 +311,13 @@ impl Engine {
             updated_at_ms: now,
             archived_at_ms: None,
         };
+        self.store.apply(&StateDelta {
+            projects: vec![project.clone()],
+            ..Default::default()
+        })?;
         self.state
             .projects
             .insert(project.id.clone(), project.clone());
-        self.store.save(&self.state)?;
         Ok(project)
     }
 
@@ -427,11 +443,19 @@ impl Engine {
             segment_ids: prepared.segments.iter().map(|s| s.id.clone()).collect(),
             segment_leading: prepared.leading,
         };
-        for segment in prepared.segments {
+        // Persist first: if the write fails, memory stays consistent with
+        // the database and the import surfaces as an error.
+        let delta = StateDelta {
+            documents: vec![record.clone()],
+            segments: prepared.segments,
+            segment_leading: record.segment_leading.clone(),
+            ..Default::default()
+        };
+        self.store.apply(&delta)?;
+        for segment in delta.segments {
             self.state.segments.insert(segment.id.clone(), segment);
         }
         self.state.documents.insert(document_id, record);
-        self.store.save(&self.state)?;
         Ok(DocumentImportResult {
             document,
             segment_count,
@@ -518,7 +542,10 @@ impl Engine {
         segment.revision += 1;
         segment.updated_at_ms = now;
         let updated = segment.clone();
-        self.store.save(&self.state)?;
+        self.store.apply(&StateDelta {
+            segments: vec![updated.clone()],
+            ..Default::default()
+        })?;
         Ok(SegmentUpdateResult { segment: updated })
     }
 
@@ -593,7 +620,13 @@ impl Engine {
                 propagated.push(sibling.clone());
             }
         }
-        self.store.save(&self.state)?;
+        let mut delta = StateDelta {
+            segments: vec![confirmed.clone()],
+            tm_entries: vec![tm_entry.clone()],
+            ..Default::default()
+        };
+        delta.segments.extend(propagated.iter().cloned());
+        self.store.apply(&delta)?;
         Ok(SegmentConfirmResult {
             segment: confirmed,
             tm_entry,
@@ -742,17 +775,15 @@ impl Engine {
 
         // Phase 1 of the run: exact TM pretranslation, cheap and local.
         let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
+        let mut tm_applied_segments: Vec<Segment> = Vec::new();
         for segment_id in &pending {
             let Some(segment) = self.state.segments.get(segment_id).cloned() else {
                 continue;
             };
             let tm_hit = self
-                .state
-                .tm_entries
-                .values()
-                .find(|entry| {
-                    entry.memory_id == memory_id && entry.source_hash == segment.source_hash
-                })
+                .tm_exact
+                .get(&(memory_id.clone(), segment.source_hash.clone()))
+                .and_then(|entry_id| self.state.tm_entries.get(entry_id))
                 .map(|entry| entry.target_text.clone());
             match tm_hit {
                 Some(target) if !target.trim().is_empty() => {
@@ -761,6 +792,7 @@ impl Engine {
                         stored.state = SegmentState::Draft;
                         stored.revision += 1;
                         stored.updated_at_ms = now;
+                        tm_applied_segments.push(stored.clone());
                     }
                     view.tm_applied += 1;
                     push_agent_step(
@@ -778,8 +810,11 @@ impl Engine {
                 }),
             }
         }
-        if view.tm_applied > 0 {
-            self.store.save(&self.state)?;
+        if !tm_applied_segments.is_empty() {
+            self.store.apply(&StateDelta {
+                segments: tm_applied_segments,
+                ..Default::default()
+            })?;
         }
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -886,11 +921,13 @@ impl Engine {
                             return Ok(());
                         }
                         let now = now_ms();
+                        let mut drafted_segments = Vec::new();
                         if let Some(stored) = self.state.segments.get_mut(&segment_id) {
                             stored.target_text = draft.target;
                             stored.state = SegmentState::Draft;
                             stored.revision += 1;
                             stored.updated_at_ms = now;
+                            drafted_segments.push(stored.clone());
                         }
                         run.view.ai_drafted += 1;
                         push_agent_step(
@@ -901,7 +938,10 @@ impl Engine {
                             Some(segment_id),
                             format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
                         );
-                        self.store.save(&self.state)?;
+                        self.store.apply(&StateDelta {
+                            segments: drafted_segments,
+                            ..Default::default()
+                        })?;
                     }
                     Ok(_) => {
                         run.view.failed_segments += 1;
