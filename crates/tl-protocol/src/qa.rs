@@ -22,10 +22,21 @@ pub struct QaRunResult {
 #[serde(rename_all = "camelCase")]
 pub struct QaListParams {
     pub document_id: String,
+    /// Issues to skip in list order (open first, then oldest); defaults to 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// Page size. When omitted every issue from `offset` on is returned,
+    /// which is the pre-paging behavior existing clients rely on.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QaListResult {
+    /// One window of the document's issues, open before resolved.
     pub issues: Vec<QaIssue>,
+    /// Issues for the document before the page window was applied, so
+    /// clients can page honestly.
+    pub total: u32,
 }

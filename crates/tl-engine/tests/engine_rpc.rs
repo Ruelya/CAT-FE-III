@@ -534,6 +534,185 @@ fn segment_and_tm_lists_page_from_sql() {
     assert_eq!(listed["total"], 2);
 }
 
+/// term.list and qa.list page from SQL like segment.list and tm.list do:
+/// stable windows in list order, totals independent of the window, omitted
+/// limits keeping the pre-paging full-list behavior, and identical answers
+/// after a restart (open() no longer hydrates either table).
+#[test]
+fn term_and_qa_lists_page_from_sql() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let termbase = harness.call(
+        "termbase.create",
+        json!({ "name": "Paged", "sourceLocale": "en-US" }),
+    );
+    let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+    harness.call(
+        "termbase.attach",
+        json!({ "projectId": project_id, "termbaseId": termbase_id }),
+    );
+    for (source, target) in [
+        ("coupling", "联轴器"),
+        ("actuator", "执行器"),
+        ("flange", "法兰"),
+        ("bracket", "支架"),
+        ("dowel", "定位销"),
+    ] {
+        harness.call(
+            "term.add",
+            json!({
+                "termbaseId": termbase_id,
+                "sourceTerm": source,
+                "targetTerm": target,
+                "targetLocale": "zh-CN",
+            }),
+        );
+    }
+
+    // Omitting the window keeps the pre-paging behavior: the whole termbase
+    // in source-term order, with the honest total alongside.
+    let full = harness.call("term.list", json!({ "termbaseId": termbase_id }));
+    assert_eq!(full["total"], 5);
+    let sources: Vec<&str> = full["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .filter_map(|entry| entry["sourceTerm"].as_str())
+        .collect();
+    assert_eq!(
+        sources,
+        vec!["actuator", "bracket", "coupling", "dowel", "flange"]
+    );
+
+    // A middle window, an overhanging window, past-the-end, and limit 0.
+    let page = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 1, "limit": 2 }),
+    );
+    let rows = page["entries"].as_array().expect("entries");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["sourceTerm"], "bracket");
+    assert_eq!(rows[1]["sourceTerm"], "coupling");
+    assert_eq!(page["total"], 5);
+    let tail = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 4, "limit": 10 }),
+    );
+    assert_eq!(tail["entries"].as_array().expect("entries").len(), 1);
+    assert_eq!(tail["entries"][0]["sourceTerm"], "flange");
+    let past = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 10, "limit": 2 }),
+    );
+    assert_eq!(past["entries"].as_array().expect("entries").len(), 0);
+    assert_eq!(past["total"], 5);
+    assert_eq!(
+        harness.call_err(
+            "term.list",
+            json!({ "termbaseId": termbase_id, "limit": 0 })
+        ),
+        "invalidParams"
+    );
+
+    // Two number mismatches and one empty target give the QA run a stable
+    // multi-issue result to page over.
+    let document_id = harness.import_txt(
+        &project_id,
+        "qa-paged.txt",
+        "Count 1.\n\nCount 2.\n\nCount 3.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "数 9。");
+    harness.set_target(&segments[1], "数 8。");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let run_issues = run["issues"].as_array().expect("issues").clone();
+    assert!(run_issues.len() >= 3, "expected several issues");
+
+    // The full list equals the run result; a window is the matching slice
+    // of it, and the total never depends on the window.
+    let full = harness.call("qa.list", json!({ "documentId": document_id }));
+    let all_ids: Vec<&str> = full["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter_map(|issue| issue["id"].as_str())
+        .collect();
+    assert_eq!(full["total"], all_ids.len() as u64);
+    assert_eq!(
+        all_ids,
+        run_issues
+            .iter()
+            .filter_map(|issue| issue["id"].as_str())
+            .collect::<Vec<_>>(),
+        "qa.list order matches the run result"
+    );
+    let window = harness.call(
+        "qa.list",
+        json!({ "documentId": document_id, "offset": 1, "limit": 2 }),
+    );
+    assert_eq!(
+        window["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .filter_map(|issue| issue["id"].as_str())
+            .collect::<Vec<_>>(),
+        all_ids[1..3].to_vec()
+    );
+    assert_eq!(window["total"], all_ids.len() as u64);
+    let past = harness.call(
+        "qa.list",
+        json!({ "documentId": document_id, "offset": 99, "limit": 2 }),
+    );
+    assert_eq!(past["issues"].as_array().expect("issues").len(), 0);
+    assert_eq!(
+        harness.call_err("qa.list", json!({ "documentId": document_id, "limit": 0 })),
+        "invalidParams"
+    );
+
+    // Fixing one number resolves that issue; resolved rows keep their place
+    // in the total but sort last.
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "数 1。");
+    harness.call("qa.run", json!({ "documentId": document_id }));
+    let after = harness.call("qa.list", json!({ "documentId": document_id }));
+    let after_issues = after["issues"].as_array().expect("issues");
+    assert_eq!(after["total"], all_ids.len() as u64, "resolved rows remain");
+    assert_eq!(
+        after_issues
+            .last()
+            .map(|issue| issue["status"].as_str().expect("status")),
+        Some("resolved"),
+        "resolved issues sort last"
+    );
+    assert!(
+        after_issues
+            .iter()
+            .any(|issue| issue["status"] == "resolved" && issue["ruleId"] == "qa.number-mismatch"),
+        "the fixed number mismatch turned resolved"
+    );
+
+    // Restart: both lists answer from SQL identically, proving neither
+    // depended on rows hydrated at open.
+    harness.reopen();
+    let page = harness.call(
+        "term.list",
+        json!({ "termbaseId": termbase_id, "offset": 1, "limit": 2 }),
+    );
+    assert_eq!(page["entries"][0]["sourceTerm"], "bracket");
+    assert_eq!(page["total"], 5);
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    assert_eq!(listed["total"], all_ids.len() as u64);
+    assert_eq!(
+        listed["issues"]
+            .as_array()
+            .expect("issues")
+            .last()
+            .map(|issue| issue["status"].as_str().expect("status")),
+        Some("resolved")
+    );
+}
+
 #[test]
 fn tm_import_export_roundtrip_and_pretranslate() {
     let mut harness = Harness::new();

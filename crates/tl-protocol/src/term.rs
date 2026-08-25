@@ -121,12 +121,23 @@ pub struct TermDeleteResult {
 #[serde(rename_all = "camelCase")]
 pub struct TermListParams {
     pub termbase_id: String,
+    /// Entries to skip in source-term order; defaults to 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+    /// Page size. When omitted every entry from `offset` on is returned,
+    /// which is the pre-paging behavior existing clients rely on.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TermListResult {
+    /// One window of entries in source-term order.
     pub entries: Vec<TermEntry>,
+    /// Entries in the termbase before the page window was applied, so
+    /// clients can page honestly.
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

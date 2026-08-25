@@ -4,10 +4,13 @@
 //! punctuation, whitespace, repetition, length, terminology from attached
 //! termbases, and cross-segment consistency), then reconciles findings with
 //! the persisted issue set by fingerprint so repeated runs stay stable and
-//! fixed issues resolve.
+//! fixed issues resolve. Issues live in SQL only: a run reconciles one
+//! document's rows transiently and `qa.list` pages them straight from the
+//! store.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use tl_asset::TermEntry;
 use tl_domain::{NumberEvidence, QaIssue, QaIssueStatus, new_id};
 use tl_protocol::{QaListParams, QaListResult, QaRunParams, QaRunResult};
 use tl_qa::{
@@ -22,13 +25,13 @@ impl Engine {
     pub(crate) fn qa_run(&mut self, params: QaRunParams) -> Result<QaRunResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
+        let document_id = record.document.id.clone();
         // One document's rows, transiently: QA inherently evaluates every
         // segment of the document it runs on.
-        let segments = self
-            .store
-            .document_segments_page(&record.document.id, 0, None)?;
-        let segment_ids: BTreeSet<String> =
-            segments.iter().map(|segment| segment.id.clone()).collect();
+        let segments = self.store.document_segments_page(&document_id, 0, None)?;
+        // The project's attached termbases, fetched once per run from SQL
+        // and shared by every segment's terminology expectations.
+        let term_entries = self.attached_term_entries(&project.id)?;
 
         let profiles = built_in_profiles();
         let profile_id = project
@@ -58,7 +61,7 @@ impl Engine {
             let terms = if segment.target_text.trim().is_empty() {
                 Vec::new()
             } else {
-                self.term_expectations(&project.id, &project.target_locale, &segment.source_text)
+                Self::term_expectations(&term_entries, &project.target_locale, &segment.source_text)
             };
             let input = QaSegmentInput {
                 segment_id: segment.id.clone(),
@@ -78,24 +81,36 @@ impl Engine {
         }
         candidates.extend(evaluate_consistency(&definition, &consistency_inputs));
 
+        // Reconcile against the document's persisted issues, fetched once
+        // from SQL for this run. Fingerprints embed segment ids, so a
+        // candidate can only ever match an issue of this document.
+        let mut issues: BTreeMap<String, QaIssue> = self
+            .store
+            .document_qa_issues_page(&document_id, 0, None)?
+            .into_iter()
+            .map(|issue| (issue.id.clone(), issue))
+            .collect();
+        let mut id_by_fingerprint: BTreeMap<String, String> = BTreeMap::new();
+        for (id, issue) in &issues {
+            id_by_fingerprint
+                .entry(issue.fingerprint.clone())
+                .or_insert_with(|| id.clone());
+        }
+
         let now = now_ms();
         let mut current_fingerprints = BTreeSet::new();
-        let mut changed_issues = Vec::new();
+        let mut changed_ids: BTreeSet<String> = BTreeSet::new();
         for candidate in candidates {
             current_fingerprints.insert(candidate.fingerprint.clone());
-            let existing = self
-                .state
-                .qa_issues
-                .values_mut()
-                .find(|issue| issue.fingerprint == candidate.fingerprint);
-            match existing {
-                Some(issue) => {
+            match id_by_fingerprint.get(&candidate.fingerprint) {
+                Some(id) => {
+                    let issue = issues.get_mut(id).expect("issue id just indexed");
                     issue.status = QaIssueStatus::Open;
                     issue.severity = candidate.severity;
                     issue.message = candidate.message;
                     issue.evidence = map_evidence(candidate.evidence);
                     issue.updated_at_ms = now;
-                    changed_issues.push(issue.clone());
+                    changed_ids.insert(id.clone());
                 }
                 None => {
                     let issue = QaIssue {
@@ -110,27 +125,33 @@ impl Engine {
                         created_at_ms: now,
                         updated_at_ms: now,
                     };
-                    changed_issues.push(issue.clone());
-                    self.state.qa_issues.insert(issue.id.clone(), issue);
+                    id_by_fingerprint.insert(issue.fingerprint.clone(), issue.id.clone());
+                    changed_ids.insert(issue.id.clone());
+                    issues.insert(issue.id.clone(), issue);
                 }
             }
         }
         // Resolve issues that no longer reproduce for this document.
-        for issue in self.state.qa_issues.values_mut() {
-            if segment_ids.contains(issue.segment_id.as_str())
-                && issue.status == QaIssueStatus::Open
+        for issue in issues.values_mut() {
+            if issue.status == QaIssueStatus::Open
                 && !current_fingerprints.contains(&issue.fingerprint)
             {
                 issue.status = QaIssueStatus::Resolved;
                 issue.updated_at_ms = now;
-                changed_issues.push(issue.clone());
+                changed_ids.insert(issue.id.clone());
             }
         }
+        // Only the rows that changed reach the transaction.
         self.store.apply(&StateDelta {
-            qa_issues: changed_issues,
+            qa_issues: changed_ids
+                .iter()
+                .filter_map(|id| issues.get(id).cloned())
+                .collect(),
             ..Default::default()
         })?;
-        let issues = self.document_issues(&segment_ids);
+
+        let mut issues: Vec<QaIssue> = issues.into_values().collect();
+        sort_issues(&mut issues);
         let open_issues = issues
             .iter()
             .filter(|issue| issue.status == QaIssueStatus::Open)
@@ -142,47 +163,36 @@ impl Engine {
         })
     }
 
+    /// One page of a document's issues straight from SQL — open before
+    /// resolved, then oldest first — plus the honest pre-page total.
+    /// Omitting `limit` returns every issue, as before.
     pub(crate) fn qa_list(&self, params: QaListParams) -> Result<QaListResult, EngineError> {
         let record = self.require_document(&params.document_id)?;
-        // Ids only; the issue filter never needs the segment payloads.
-        let segment_ids: BTreeSet<String> = self
-            .store
-            .document_segment_ids(&record.document.id)?
-            .into_iter()
-            .collect();
-        Ok(QaListResult {
-            issues: self.document_issues(&segment_ids),
-        })
+        if params.limit == Some(0) {
+            return Err(EngineError::InvalidParams(
+                "limit must be at least 1".to_string(),
+            ));
+        }
+        let issues = self.store.document_qa_issues_page(
+            &record.document.id,
+            params.offset.unwrap_or(0),
+            params.limit,
+        )?;
+        let total = self.store.document_qa_issue_count(&record.document.id)?;
+        Ok(QaListResult { issues, total })
     }
 
-    fn document_issues(&self, segment_ids: &BTreeSet<String>) -> Vec<QaIssue> {
-        let mut issues: Vec<QaIssue> = self
-            .state
-            .qa_issues
-            .values()
-            .filter(|issue| segment_ids.contains(issue.segment_id.as_str()))
-            .cloned()
-            .collect();
-        issues.sort_by(|a, b| {
-            (a.status == QaIssueStatus::Resolved)
-                .cmp(&(b.status == QaIssueStatus::Resolved))
-                .then(a.created_at_ms.cmp(&b.created_at_ms))
-                .then(a.id.cmp(&b.id))
-        });
-        issues
-    }
-
-    /// Term expectations for one source text from the project's termbases,
-    /// restricted to translations in the project target language.
+    /// Term expectations for one source text over a prefetched entry set
+    /// (see [`Engine::attached_term_entries`]), restricted to translations
+    /// in the project target language.
     fn term_expectations(
-        &self,
-        project_id: &str,
+        term_entries: &[TermEntry],
         target_locale: &str,
         source_text: &str,
     ) -> Vec<QaTermExpectation> {
         let mut expectations = Vec::new();
         let mut seen = BTreeSet::new();
-        for hit in self.term_hits(project_id, source_text) {
+        for hit in Self::term_hits(term_entries, source_text) {
             if !seen.insert(hit.entry_id.clone()) {
                 continue;
             }
@@ -216,6 +226,17 @@ impl Engine {
         }
         expectations
     }
+}
+
+/// The list order every QA read shares: open before resolved, then oldest
+/// first, then id (the same ORDER BY the store's paged read uses).
+fn sort_issues(issues: &mut [QaIssue]) {
+    issues.sort_by(|a, b| {
+        (a.status == QaIssueStatus::Resolved)
+            .cmp(&(b.status == QaIssueStatus::Resolved))
+            .then(a.created_at_ms.cmp(&b.created_at_ms))
+            .then(a.id.cmp(&b.id))
+    });
 }
 
 fn same_language(left: &str, right: &str) -> bool {

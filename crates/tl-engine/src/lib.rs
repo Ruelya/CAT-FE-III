@@ -135,8 +135,8 @@ pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
     /// Metadata working set only (projects, document metadata, termbases,
-    /// term entries, mounts, QA issues). Segments and TM entries are never
-    /// held here; they are read from SQLite per document / per page.
+    /// mounts). Segments, TM entries, term entries, and QA issues are never
+    /// held here; they are read from SQLite per document / termbase / page.
     state: EngineState,
     registry: FilterRegistry,
     ai: Option<aiops::AiRuntime>,
