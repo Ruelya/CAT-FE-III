@@ -285,10 +285,14 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
 
-  // Project settings: language pair fixed, TM and termbase files move
-  // through the dedicated dialog channels against the real engine.
+  // Project settings: the project info form edits name and language pair
+  // through project.update, and TM and termbase files move through the
+  // dedicated dialog channels against the real engine.
   await page.getByRole("button", { name: "项目设置" }).click();
-  await expect(page.locator(".settings__locales")).toHaveText("en-US → zh-CN");
+  const settingsForm = page.locator(".tl-dialog");
+  await expect(settingsForm.getByLabel("项目名称")).toHaveValue("演示项目");
+  await expect(settingsForm.getByLabel("源语言")).toHaveValue("en-US");
+  await expect(settingsForm.getByLabel("目标语言")).toHaveValue("zh-CN");
 
   // External TM import: a real CSV through tm.import, honest counts back.
   const tmCsvPath = join(workDir, "external-tm.csv");
