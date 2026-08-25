@@ -67,6 +67,59 @@ pub struct AiAssistResult {
     pub tag_check: AiTagCheck,
 }
 
+/// Lifecycle of one asynchronous assist request. `ai.assist.start` validates
+/// and returns immediately; the provider call runs off the RPC thread and the
+/// client polls `ai.assist.status` until the run turns terminal. Assist never
+/// writes to the segment: a `done` run only carries a proposal for a human.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum AiAssistRunStatus {
+    Running,
+    /// The provider answered; `result` carries the proposal and tag verdict.
+    Done,
+    /// The provider call failed; `errorMessage` says why. Never fabricated.
+    Failed,
+    /// Cancellation was requested and honored; any late result is discarded.
+    Canceled,
+}
+
+impl AiAssistRunStatus {
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::Running)
+    }
+}
+
+/// The observable state of one assist request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAssistRunView {
+    pub assist_id: String,
+    pub segment_id: String,
+    pub action: AiAssistAction,
+    pub status: AiAssistRunStatus,
+    pub cancel_requested: bool,
+    /// Present exactly when `status` is `done`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<AiAssistResult>,
+    /// Present exactly when `status` is `failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAssistStatusParams {
+    pub assist_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAssistCancelParams {
+    pub assist_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentStartParams {
