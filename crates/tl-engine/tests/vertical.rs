@@ -10,12 +10,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tl_engine::{AgentEvent, Engine};
+use tl_engine::{Engine, EngineEvent};
 use tl_protocol::{
     AgentRunStatus, AgentRunView, AgentStartParams, AgentStepKind, AiAssistAction, AiAssistParams,
-    AiAssistResult, AiStatusResult, DocumentExportResult, DocumentImportResult, InitializeResult,
-    PROTOCOL_VERSION, QaRunResult, RpcErrorCode, RpcNotification, RpcRequest, SegmentConfirmResult,
-    SegmentListResult, SegmentUpdateResult, TmLookupResult, methods,
+    AiAssistRunStatus, AiAssistRunView, AiStatusResult, DocumentExportResult, DocumentImportResult,
+    InitializeResult, PROTOCOL_VERSION, QaRunResult, RpcErrorCode, RpcNotification, RpcRequest,
+    SegmentConfirmResult, SegmentListResult, SegmentUpdateResult, TmLookupResult, methods,
 };
 
 fn fixture_docx() -> PathBuf {
@@ -115,7 +115,7 @@ fn write_txt(directory: &Path, name: &str, contents: &str) -> PathBuf {
 /// `running`, mirroring what the stdio loop does in production.
 fn drive_agent_run(
     engine: &mut Engine,
-    events: &Receiver<AgentEvent>,
+    events: &Receiver<EngineEvent>,
     run_id: &str,
     notifications: &mut Vec<RpcNotification>,
 ) -> AgentRunView {
@@ -128,12 +128,52 @@ fn drive_agent_run(
         assert!(Instant::now() < deadline, "agent run timed out");
         match events.recv_timeout(Duration::from_millis(250)) {
             Ok(event) => engine
-                .handle_agent_event(event, &mut |notification| notifications.push(notification))
-                .expect("agent event applies"),
+                .handle_engine_event(event, &mut |notification| notifications.push(notification))
+                .expect("engine event applies"),
             Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => panic!("agent event channel closed"),
+            Err(RecvTimeoutError::Disconnected) => panic!("engine event channel closed"),
         }
     }
+}
+
+/// Pump worker events through the engine until the assist run turns
+/// terminal, mirroring what the stdio loop does in production.
+fn wait_assist_terminal(
+    engine: &mut Engine,
+    events: &Receiver<EngineEvent>,
+    assist_id: &str,
+) -> AiAssistRunView {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let view: AiAssistRunView = call(
+            engine,
+            methods::AI_ASSIST_STATUS,
+            json!({ "assistId": assist_id }),
+        );
+        if view.status.is_terminal() {
+            return view;
+        }
+        assert!(Instant::now() < deadline, "assist run timed out");
+        match events.recv_timeout(Duration::from_millis(250)) {
+            Ok(event) => engine
+                .handle_engine_event(event, &mut |_notification| {})
+                .expect("engine event applies"),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => panic!("engine event channel closed"),
+        }
+    }
+}
+
+/// Start an assist request and drive it to its terminal state.
+fn drive_assist(
+    engine: &mut Engine,
+    events: &Receiver<EngineEvent>,
+    params: Value,
+) -> AiAssistRunView {
+    let started: AiAssistRunView = call(engine, methods::AI_ASSIST_START, params);
+    assert_eq!(started.status, AiAssistRunStatus::Running);
+    assert!(started.result.is_none(), "start never carries a result");
+    wait_assist_terminal(engine, events, &started.assist_id)
 }
 
 #[test]
@@ -299,7 +339,7 @@ fn ai_degrades_honestly_without_credentials() {
     let status: AiStatusResult = call(&mut engine, methods::AI_STATUS, json!({}));
     assert!(!status.configured);
 
-    // Assist refuses instead of fabricating a translation.
+    // Assist refuses to start instead of fabricating a translation.
     let params = serde_json::to_value(AiAssistParams {
         segment_id: listed.segments[0].id.clone(),
         action: AiAssistAction::Translate,
@@ -307,7 +347,7 @@ fn ai_degrades_honestly_without_credentials() {
     })
     .expect("params");
     assert_eq!(
-        call_err(&mut engine, methods::AI_ASSIST, params),
+        call_err(&mut engine, methods::AI_ASSIST_START, params),
         RpcErrorCode::AiNotConfigured
     );
 
@@ -338,6 +378,7 @@ fn ai_degrades_honestly_without_credentials() {
 fn ai_assist_checks_tag_integrity_and_never_touches_confirmed_segments() {
     let workspace = tempfile::tempdir().expect("tempdir");
     let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
     let project: tl_domain::Project = call(
         &mut engine,
         methods::PROJECT_CREATE,
@@ -374,11 +415,13 @@ fn ai_assist_checks_tag_integrity_and_never_touches_confirmed_segments() {
     // A proposal that drops the {button} placeholder is flagged as broken.
     let broken_url = spawn_sse_server("点击按钮继续。", Duration::ZERO);
     configure_loopback_ai(&mut engine, &broken_url);
-    let broken: AiAssistResult = call(
+    let broken = drive_assist(
         &mut engine,
-        methods::AI_ASSIST,
+        &events,
         json!({"segmentId": tagged.id, "action": "translate"}),
     );
+    assert_eq!(broken.status, AiAssistRunStatus::Done);
+    let broken = broken.result.expect("done run carries the proposal");
     assert!(!broken.tag_check.ok);
     assert_eq!(broken.tag_check.missing, vec!["{button}".to_string()]);
     assert!(broken.tag_check.extra.is_empty());
@@ -386,19 +429,21 @@ fn ai_assist_checks_tag_integrity_and_never_touches_confirmed_segments() {
     // A proposal that carries the placeholder through passes the check.
     let intact_url = spawn_sse_server("点击 {button} 继续。", Duration::ZERO);
     configure_loopback_ai(&mut engine, &intact_url);
-    let intact: AiAssistResult = call(
+    let intact = drive_assist(
         &mut engine,
-        methods::AI_ASSIST,
+        &events,
         json!({"segmentId": tagged.id, "action": "translate"}),
     );
+    assert_eq!(intact.status, AiAssistRunStatus::Done);
+    let intact = intact.result.expect("done run carries the proposal");
     assert!(intact.tag_check.ok);
     assert_eq!(intact.draft_target, "点击 {button} 继续。");
 
-    // Refine requires an existing target.
+    // Refine requires an existing target; the request never starts.
     assert_eq!(
         call_err(
             &mut engine,
-            methods::AI_ASSIST,
+            methods::AI_ASSIST_START,
             json!({"segmentId": plain.id, "action": "refine"}),
         ),
         RpcErrorCode::InvalidParams
@@ -419,7 +464,7 @@ fn ai_assist_checks_tag_integrity_and_never_touches_confirmed_segments() {
     assert_eq!(
         call_err(
             &mut engine,
-            methods::AI_ASSIST,
+            methods::AI_ASSIST_START,
             json!({"segmentId": plain.id, "action": "translate"}),
         ),
         RpcErrorCode::Conflict
@@ -427,10 +472,224 @@ fn ai_assist_checks_tag_integrity_and_never_touches_confirmed_segments() {
 }
 
 #[test]
+fn ai_assist_runs_off_the_rpc_thread_and_other_calls_answer_meanwhile() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Async assist", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(
+        workspace.path(),
+        "async-assist.txt",
+        "Assist must not block the grid.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    let segment = listed.segments[0].clone();
+
+    // The provider sleeps before answering; a blocking assist would freeze
+    // every call below for the whole delay.
+    let delay = Duration::from_millis(1_500);
+    let base_url = spawn_sse_server("异步草稿。", delay);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let clock = Instant::now();
+    let started: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_START,
+        json!({"segmentId": segment.id, "action": "translate"}),
+    );
+    assert_eq!(started.status, AiAssistRunStatus::Running);
+
+    // Unrelated RPC traffic keeps flowing while the provider call is in
+    // flight: project listing, grid reads, TM lookups, status polls.
+    let projects: tl_protocol::ProjectListResult =
+        call(&mut engine, methods::PROJECT_LIST, json!({}));
+    assert_eq!(projects.projects.len(), 1);
+    let grid: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(grid.segments.len(), 1);
+    let lookup: TmLookupResult = call(
+        &mut engine,
+        methods::TM_LOOKUP,
+        json!({"projectId": project.id, "sourceText": segment.source_text}),
+    );
+    assert_eq!(lookup.total_matches, 0);
+    let polled: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_STATUS,
+        json!({"assistId": started.assist_id}),
+    );
+    assert_eq!(polled.status, AiAssistRunStatus::Running);
+    assert!(
+        clock.elapsed() < delay,
+        "RPC calls answered while the provider was still sleeping ({:?})",
+        clock.elapsed()
+    );
+
+    // A second assist for the same segment is refused while one is running.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_ASSIST_START,
+            json!({"segmentId": segment.id, "action": "translate"}),
+        ),
+        RpcErrorCode::Conflict
+    );
+
+    let finished = wait_assist_terminal(&mut engine, &events, &started.assist_id);
+    assert_eq!(finished.status, AiAssistRunStatus::Done);
+    let result = finished.result.expect("done run carries the proposal");
+    assert_eq!(result.draft_target, "异步草稿。");
+    assert!(result.tag_check.ok);
+
+    // Assist only proposes: the segment itself was never written.
+    let after: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(
+        after.segments[0].state,
+        tl_domain::SegmentState::Untranslated
+    );
+    assert!(after.segments[0].target_text.is_empty());
+}
+
+#[test]
+fn ai_assist_cancel_discards_late_results_and_frees_the_segment() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Cancel assist", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(workspace.path(), "cancel-assist.txt", "One sentence.\n");
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    let segment = listed.segments[0].clone();
+
+    let base_url = spawn_sse_server("慢速候选。", Duration::from_millis(600));
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let first: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_START,
+        json!({"segmentId": segment.id, "action": "translate"}),
+    );
+    let canceled: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_CANCEL,
+        json!({"assistId": first.assist_id}),
+    );
+    assert!(canceled.cancel_requested);
+
+    // A cancel-requested run no longer blocks a retry on the same segment.
+    let second: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_START,
+        json!({"segmentId": segment.id, "action": "translate"}),
+    );
+    assert_eq!(second.status, AiAssistRunStatus::Running);
+
+    // Even if the first provider call completes, its result is discarded.
+    let first_finished = wait_assist_terminal(&mut engine, &events, &first.assist_id);
+    assert_eq!(first_finished.status, AiAssistRunStatus::Canceled);
+    assert!(first_finished.result.is_none());
+
+    let second_finished = wait_assist_terminal(&mut engine, &events, &second.assist_id);
+    assert_eq!(second_finished.status, AiAssistRunStatus::Done);
+    assert_eq!(
+        second_finished
+            .result
+            .expect("second run result")
+            .draft_target,
+        "慢速候选。"
+    );
+
+    // Unknown assist runs are a NotFound, not a silent success.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_ASSIST_STATUS,
+            json!({"assistId": "missing"}),
+        ),
+        RpcErrorCode::NotFound
+    );
+}
+
+#[test]
+fn ai_assist_reports_provider_failure_honestly() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Failing assist", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(workspace.path(), "failing-assist.txt", "A sentence.\n");
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+
+    // Bind a port, then drop the listener: connections are refused.
+    let dead_url = {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind dead port");
+        format!("http://{}", listener.local_addr().expect("dead address"))
+    };
+    configure_loopback_ai(&mut engine, &dead_url);
+
+    let finished = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": listed.segments[0].id, "action": "translate"}),
+    );
+    assert_eq!(finished.status, AiAssistRunStatus::Failed);
+    assert!(finished.result.is_none(), "failed runs carry no proposal");
+    let message = finished.error_message.expect("failure reason");
+    assert!(
+        message.contains("unavailable"),
+        "honest provider error, got: {message}"
+    );
+}
+
+#[test]
 fn agent_run_pretranslates_drafts_and_parks_at_the_human_gate() {
     let workspace = tempfile::tempdir().expect("tempdir");
     let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
-    let events = engine.take_agent_events();
+    let events = engine.take_engine_events();
     let project: tl_domain::Project = call(
         &mut engine,
         methods::PROJECT_CREATE,
@@ -529,7 +788,7 @@ fn agent_run_pretranslates_drafts_and_parks_at_the_human_gate() {
 fn agent_run_cancels_between_segments_and_rejects_concurrent_runs() {
     let workspace = tempfile::tempdir().expect("tempdir");
     let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
-    let events = engine.take_agent_events();
+    let events = engine.take_engine_events();
     let project: tl_domain::Project = call(
         &mut engine,
         methods::PROJECT_CREATE,

@@ -296,7 +296,7 @@ try {
   const aiStatus = await call("ai.status", {});
   assert(aiStatus.configured === false, "AI unconfigured by default");
   await expectError(
-    "ai.assist",
+    "ai.assist.start",
     { segmentId: untranslated.id, action: "translate" },
     "aiNotConfigured",
   );
@@ -329,16 +329,38 @@ try {
   });
   assert(configured.configured === true, "loopback provider configured");
 
-  // Assist returns a candidate with a tag-integrity verdict and never
-  // touches confirmed segments.
-  const assist = await call("ai.assist", {
+  // Assist starts off the RPC thread and returns immediately; other RPC
+  // traffic keeps answering while the run is polled to its terminal state.
+  const assistStarted = await call("ai.assist.start", {
     segmentId: untranslated.id,
     action: "translate",
   });
-  assert(assist.draftTarget === aiReply, "assist streams the fixture reply");
-  assert(assist.tagCheck.ok === true, "assist reports tag integrity");
+  assert(assistStarted.status === "running", "assist starts asynchronously");
+  const duringAssist = await call("project.list", {});
+  assert(
+    duringAssist.projects.length === 1,
+    "RPC loop answers while assist is in flight",
+  );
+  let assistView = assistStarted;
+  const assistDeadline = Date.now() + 30_000;
+  while (assistView.status === "running") {
+    assert(Date.now() < assistDeadline, "assist run finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+    assistView = await call("ai.assist.status", {
+      assistId: assistStarted.assistId,
+    });
+  }
+  assert(assistView.status === "done", "assist run completes");
+  assert(
+    assistView.result.draftTarget === aiReply,
+    "assist streams the fixture reply",
+  );
+  assert(
+    assistView.result.tagCheck.ok === true,
+    "assist reports tag integrity",
+  );
   await expectError(
-    "ai.assist",
+    "ai.assist.start",
     { segmentId: first.id, action: "translate" },
     "conflict",
   );
@@ -405,7 +427,7 @@ try {
   await call("engine.shutdown", {});
   await new Promise((resolveExit) => child.once("exit", resolveExit));
   console.log(
-    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async agent run parked at the human gate",
+    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async assist, async agent run parked at the human gate",
   );
 } catch (error) {
   child.kill();

@@ -64,7 +64,9 @@ pub mod methods {
     pub const QA_LIST: &str = "qa.list";
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
-    pub const AI_ASSIST: &str = "ai.assist";
+    pub const AI_ASSIST_START: &str = "ai.assist.start";
+    pub const AI_ASSIST_STATUS: &str = "ai.assist.status";
+    pub const AI_ASSIST_CANCEL: &str = "ai.assist.cancel";
     pub const AI_AGENT_START: &str = "ai.agent.start";
     pub const AI_AGENT_STATUS: &str = "ai.agent.status";
     pub const AI_AGENT_CANCEL: &str = "ai.agent.cancel";
@@ -158,8 +160,12 @@ pub struct RpcMethodCatalog {
     pub ai_configure: MethodContract<AiConfigureParams, AiStatusResult>,
     #[serde(rename = "ai.status")]
     pub ai_status: MethodContract<AiStatusParams, AiStatusResult>,
-    #[serde(rename = "ai.assist")]
-    pub ai_assist: MethodContract<AiAssistParams, AiAssistResult>,
+    #[serde(rename = "ai.assist.start")]
+    pub ai_assist_start: MethodContract<AiAssistParams, AiAssistRunView>,
+    #[serde(rename = "ai.assist.status")]
+    pub ai_assist_status: MethodContract<AiAssistStatusParams, AiAssistRunView>,
+    #[serde(rename = "ai.assist.cancel")]
+    pub ai_assist_cancel: MethodContract<AiAssistCancelParams, AiAssistRunView>,
     #[serde(rename = "ai.agent.start")]
     pub ai_agent_start: MethodContract<AgentStartParams, AgentRunView>,
     #[serde(rename = "ai.agent.status")]
@@ -240,7 +246,9 @@ mod tests {
             methods::QA_LIST,
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
-            methods::AI_ASSIST,
+            methods::AI_ASSIST_START,
+            methods::AI_ASSIST_STATUS,
+            methods::AI_ASSIST_CANCEL,
             methods::AI_AGENT_START,
             methods::AI_AGENT_STATUS,
             methods::AI_AGENT_CANCEL,
