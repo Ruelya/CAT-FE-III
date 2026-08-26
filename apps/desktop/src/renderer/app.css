@@ -81,6 +81,10 @@ body {
   font-size: var(--tl-text-xs);
   color: var(--tl-gray-4);
   font-family: var(--tl-font-mono);
+  padding: 3px 8px;
+  border: 1px solid var(--tl-gray-8);
+  border-radius: var(--tl-radius-sm);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .app-header button.tl-button[data-variant="ghost"] {
@@ -102,12 +106,42 @@ body {
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-muted);
   font-family: var(--tl-font-mono);
+  min-width: 0;
 }
 
 .app-statusbar__message {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
+}
+
+/* Right-aligned live stats: progress is chrome, not panel content. */
+.app-statusbar__stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-4);
+  flex: none;
+}
+
+.app-statusbar__stat {
+  white-space: nowrap;
+}
+
+.app-statusbar__stat[data-tone="danger"] {
+  color: var(--tl-status-danger);
+}
+
+.app-statusbar__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.app-statusbar__progress .tl-progress {
+  width: 96px;
 }
 
 /* Inert wrapper around the main surface; display:contents keeps the
@@ -131,6 +165,7 @@ body {
   justify-content: center;
   padding: var(--tl-space-6);
   background: rgba(27, 32, 43, 0.42);
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .engine-gate__card {
@@ -144,6 +179,7 @@ body {
   border-radius: var(--tl-radius-sm);
   background: var(--tl-color-surface);
   box-shadow: var(--tl-shadow-overlay);
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
 }
 
 .engine-gate__card[data-state="down"] {
@@ -231,10 +267,23 @@ body {
   cursor: pointer;
   font: inherit;
   color: inherit;
+  box-shadow: inset 2px 0 0 transparent;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .project-list__item:hover {
   background: var(--tl-color-accent-faint);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+.project-list__item:focus-visible {
+  outline: none;
+  background: var(--tl-color-accent-faint);
+  box-shadow:
+    inset 2px 0 0 var(--tl-color-accent),
+    inset 0 0 0 1px var(--tl-color-accent);
 }
 
 .project-list__name {
@@ -300,6 +349,13 @@ body {
   padding-right: var(--tl-space-2);
   border-left: 2px solid transparent;
   border-bottom: 1px solid var(--tl-color-border);
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.document-list__item:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
 }
 
 .document-list__item[data-active="true"] {
@@ -321,6 +377,26 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-1);
+}
+
+.document-list__select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--tl-color-accent);
+}
+
+/* Per-document progress: bar plus numeric percent, never color-only. */
+.document-list__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin-top: var(--tl-space-1);
+}
+
+.document-list__pct {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  min-width: 30px;
+  text-align: right;
 }
 
 .document-list__confirm {
@@ -488,15 +564,21 @@ body {
   border-bottom: 1px solid var(--tl-color-border);
   cursor: pointer;
   vertical-align: top;
+  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .segment-grid tbody tr:hover {
   background: var(--tl-color-accent-faint);
 }
 
+/* The active row reads as the working surface: tinted, framed top and
+   bottom, and carrying a 2px accent spine on the left. */
 .segment-grid tbody tr[data-active="true"] {
   background: var(--tl-color-accent-faint);
-  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+  box-shadow:
+    inset 2px 0 0 var(--tl-color-accent),
+    inset 0 1px 0 var(--tl-color-accent-soft),
+    inset 0 -1px 0 var(--tl-color-accent-soft);
 }
 
 .segment-grid td {
@@ -510,6 +592,25 @@ body {
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-faint);
   width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status spine on the ordinal cell: a scannable color column that mirrors
+   the state badge (never the only signal — the badge carries the words).
+   QA problems override the state color; the active accent sits on the row
+   itself, one pixel to the left of this spine. */
+.segment-grid tbody tr[data-state="draft"] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0
+    color-mix(in srgb, var(--tl-color-accent) 45%, transparent);
+}
+
+.segment-grid tbody tr[data-state="confirmed"] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0
+    color-mix(in srgb, var(--tl-status-ok) 55%, transparent);
+}
+
+.segment-grid tbody tr[data-qa] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0 var(--tl-status-danger);
 }
 
 .segment-grid__source {
@@ -524,6 +625,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-2);
+  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .segment-grid__target-editor textarea {
@@ -537,6 +639,8 @@ body {
   padding: var(--tl-space-2) var(--tl-space-3);
   resize: vertical;
   min-height: 48px;
+  box-shadow: var(--tl-shadow-raised);
+  transition: box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .segment-grid__target-editor textarea:focus-visible {
@@ -554,10 +658,41 @@ body {
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-faint);
   font-family: var(--tl-font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+  white-space: nowrap;
+}
+
+.segment-grid__hint-sep {
+  color: var(--tl-color-border-strong);
+}
+
+/* Language tags in the column headers: lowercase BCP-47, deliberately
+   quieter than the uppercase column titles. */
+.segment-grid__locale {
+  margin-left: var(--tl-space-2);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--tl-color-text-faint);
 }
 
 .segment-grid__state {
-  width: 88px;
+  width: 96px;
+}
+
+/* Badges stack vertically so state, QA, and TM match stay scannable in a
+   narrow column instead of wrapping unpredictably. */
+.segment-grid__state-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tl-space-1);
+}
+
+.segment-grid__match {
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .segment-grid__placeholder {
@@ -577,6 +712,10 @@ body {
 
 .dock-tabs button {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tl-space-2);
   font: inherit;
   font-size: var(--tl-text-sm);
   font-weight: 600;
@@ -586,15 +725,73 @@ body {
   border-radius: var(--tl-radius-sm);
   padding: var(--tl-space-2) 0;
   cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.dock-tabs button:hover:not([data-active="true"]) {
+  color: var(--tl-color-text);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.dock-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
 }
 
 .dock-tabs button[data-active="true"] {
   background: var(--tl-color-surface-raised);
   color: var(--tl-color-accent-strong);
-  box-shadow: inset 0 0 0 1px var(--tl-color-border);
+  box-shadow:
+    inset 0 0 0 1px var(--tl-color-border),
+    var(--tl-shadow-raised);
+}
+
+/* Live counters on dock tabs (QA open issues, best TM score). */
+.dock-tabs__chip {
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text-muted);
+  font-variant-numeric: tabular-nums;
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
+}
+
+.dock-tabs__chip[data-tone="ok"] {
+  background: var(--tl-status-ok-soft);
+  color: var(--tl-status-ok);
+}
+
+.dock-tabs__chip[data-tone="accent"] {
+  background: var(--tl-color-accent-soft);
+  color: var(--tl-color-accent-strong);
+}
+
+.dock-tabs__chip[data-tone="danger"] {
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
 }
 
 .dock-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Keyed by the active tab: each dock switch replays a short entrance. */
+.dock-view {
+  display: flex;
+  flex-direction: column;
+  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
+}
+
+.dock-view > .tl-panel {
   flex: 1;
   min-height: 0;
 }
@@ -615,6 +812,18 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-2);
+  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
+  transition: border-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.match-card:hover,
+.issue-card:hover {
+  border-color: var(--tl-color-border-strong);
+}
+
+.match-card__grade-label {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
 }
 
 .match-card__row {
@@ -676,6 +885,7 @@ body {
   font-size: var(--tl-text-sm);
   line-height: 1.5;
   color: var(--tl-color-text-muted);
+  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .honest-note[data-tone="danger"] {
@@ -815,6 +1025,9 @@ body {
 
 .form-row > * {
   flex: 1;
+  /* Text inputs have a large intrinsic min-width; without this the row
+     overflows its column and grows a horizontal scrollbar. */
+  min-width: 0;
 }
 
 /* Concordance */
@@ -885,6 +1098,20 @@ body {
   background: var(--tl-color-surface);
   color: var(--tl-color-text-muted);
   cursor: pointer;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.preview__tabs button:hover:not([data-active="true"]) {
+  border-color: var(--tl-color-accent);
+  color: var(--tl-color-text);
+}
+
+.preview__tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
 }
 
 .preview__tabs button[data-active="true"] {
@@ -892,6 +1119,12 @@ body {
   border-color: var(--tl-color-accent);
   color: var(--tl-color-text);
   font-weight: 600;
+}
+
+/* Re-showing a pane (display flips from none) replays the entrance fade,
+   so tab switches inside the preview read as a deliberate transition. */
+.preview__pane {
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .preview__summary {
@@ -933,10 +1166,18 @@ body {
   margin-right: 0.25em;
   cursor: pointer;
   text-align: left;
+  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .preview__segment:hover {
   background: var(--tl-color-accent-faint);
+}
+
+.preview__segment:focus-visible {
+  outline: none;
+  background: var(--tl-color-accent-faint);
+  box-shadow: var(--tl-focus-ring);
+  border-radius: 2px;
 }
 
 .preview__segment[data-state="confirmed"] {

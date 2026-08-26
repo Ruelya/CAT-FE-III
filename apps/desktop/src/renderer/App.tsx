@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
-import { Button, StatusDot } from "@translunar/ui";
+import { Button, SegmentProgress, StatusDot } from "@translunar/ui";
 
 import type {
   EngineLifecycleState,
@@ -12,6 +12,7 @@ import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { TmManageDialog } from "./components/TmManageDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
+import type { WorkbenchStats } from "./views/WorkbenchView.js";
 
 type EngineDotState = "ok" | "busy" | "down";
 
@@ -56,6 +57,11 @@ export function App() {
   const [tmManageOpen, setTmManageOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
     "INSTRUMENT · Translunar CAT 绿场骨架",
+  );
+  // Live document stats reported by the workbench; the status bar shows
+  // them as first-class chrome so progress never hides inside a panel.
+  const [workbenchStats, setWorkbenchStats] = useState<WorkbenchStats | null>(
+    null,
   );
 
   useEffect(() => {
@@ -178,6 +184,7 @@ export function App() {
             onStatusMessage={handleStatusMessage}
             onDocumentOpenChange={setDocumentOpen}
             onProjectUpdated={setProject}
+            onStatsChange={setWorkbenchStats}
           />
         ) : (
           <ProjectsView
@@ -205,7 +212,62 @@ export function App() {
       </div>
 
       <footer className="app-statusbar">
-        <span className="app-statusbar__message">{statusMessage}</span>
+        {/* Keying by content replays the entrance slide on every new
+            message, giving each status line a visible moment. */}
+        <span className="app-statusbar__message" key={statusMessage}>
+          {statusMessage}
+        </span>
+        {workbenchStats ? (
+          <span className="app-statusbar__stats">
+            <span className="app-statusbar__stat" title="当前句段 / 总句段">
+              句段{" "}
+              <span className="tl-num">
+                {workbenchStats.activeOrdinal !== null
+                  ? `${workbenchStats.activeOrdinal + 1}/${workbenchStats.counts.total}`
+                  : workbenchStats.counts.total}
+              </span>
+            </span>
+            <span className="app-statusbar__stat" title="已确认句段">
+              确认{" "}
+              <span className="tl-num">{workbenchStats.counts.confirmed}</span>
+            </span>
+            {workbenchStats.counts.draft > 0 ? (
+              <span className="app-statusbar__stat" title="草稿句段">
+                草稿{" "}
+                <span className="tl-num">{workbenchStats.counts.draft}</span>
+              </span>
+            ) : null}
+            {workbenchStats.counts.openIssues > 0 ? (
+              <span
+                className="app-statusbar__stat"
+                data-tone="danger"
+                title="未解决 QA 问题"
+              >
+                QA{" "}
+                <span className="tl-num">
+                  {workbenchStats.counts.openIssues}
+                </span>
+              </span>
+            ) : null}
+            <span className="app-statusbar__progress">
+              <SegmentProgress
+                total={workbenchStats.counts.total}
+                confirmed={workbenchStats.counts.confirmed}
+                draft={workbenchStats.counts.draft}
+                label={`已确认 ${workbenchStats.counts.confirmed}/${workbenchStats.counts.total}`}
+              />
+              <span className="tl-num">
+                {workbenchStats.counts.total > 0
+                  ? `${Math.round(
+                      (workbenchStats.counts.confirmed /
+                        workbenchStats.counts.total) *
+                        100,
+                    )}%`
+                  : "—"}
+              </span>
+            </span>
+          </span>
+        ) : null}
       </footer>
 
       {engineReady ? null : (

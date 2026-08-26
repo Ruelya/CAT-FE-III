@@ -580,6 +580,83 @@ describe("WorkbenchView find next/prev", () => {
   });
 });
 
+describe("WorkbenchView segment navigation", () => {
+  const NAV_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0, targetText: "第一句。" },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Already done.",
+      targetText: "已完成。",
+      state: "confirmed",
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Still open.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  it("advances past confirmed rows to the next open segment after a confirm", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+
+    // s2 is already confirmed, so the selection skips it and the editor
+    // opens on the untranslated s3 — the classic confirm-and-move-on loop.
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+
+  it("steps the selection with Alt+↑/↓ and never wraps", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+
+    // At the bottom the selection stays put instead of wrapping around.
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(screen.getByLabelText("句段 3 译文")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+
+    // Plain arrows (no Alt) stay inside the editor for caret movement.
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(screen.getByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+});
+
 describe("WorkbenchView find & replace", () => {
   it("replaces inside the active segment's target through segment.update", async () => {
     const handlers = baseHandlers();
@@ -1380,5 +1457,81 @@ describe("WorkbenchView QA waive", () => {
     ).toBe(false);
     // The button unlocks so the user can retry once the engine is back.
     expect(screen.getByRole("button", { name: "忽略" })).toBeEnabled();
+  });
+});
+
+describe("WorkbenchView segment intel", () => {
+  const TM_MATCH = {
+    entry: {
+      id: "tm-1",
+      memoryId: "m1",
+      sourceHash: "hash",
+      sourceText: "The retention period is 30 days.",
+      targetText: "保留期为 30 天。",
+      originProjectId: "p1",
+      originDocumentId: "d1",
+      originSegmentId: "s1",
+      confirmedAtMs: 1,
+    },
+    score: 100,
+    grade: "exact",
+  };
+
+  it("surfaces the best TM match on the tab chip, active row, and dock", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.lookup"] = () => ({ matches: [TM_MATCH], totalMatches: 1 });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The tab chip carries the live score but stays out of the accessible
+    // name, so the tab is still reachable as plain "TM".
+    const tmTab = screen.getByRole("button", { name: "TM" });
+    await waitFor(() => {
+      expect(tmTab).toHaveTextContent("100%");
+    });
+    // The active grid row shows the same match quality inline.
+    expect(screen.getByTitle("TM 最佳匹配 100%")).toBeInTheDocument();
+    // And the TM dock (default tab) lists the entry with its apply action.
+    expect(screen.getByText("应用为草稿")).toBeInTheDocument();
+    expect(
+      screen.getByText("源：The retention period is 30 days."),
+    ).toBeInTheDocument();
+  });
+
+  it("reports live document stats to the shell status bar", async () => {
+    installBridge(baseHandlers());
+    const onStatsChange = vi.fn();
+    const view = render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onStatsChange={onStatsChange}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await waitFor(() => {
+      expect(onStatsChange).toHaveBeenCalledWith({
+        documentName: "guide.txt",
+        counts: {
+          total: 1,
+          untranslated: 0,
+          draft: 1,
+          confirmed: 0,
+          openIssues: 0,
+        },
+        activeOrdinal: 0,
+      });
+    });
+    // Unmounting (project close) clears the stats instead of leaving the
+    // status bar pointing at a document that is no longer open.
+    view.unmount();
+    expect(onStatsChange).toHaveBeenLastCalledWith(null);
   });
 });

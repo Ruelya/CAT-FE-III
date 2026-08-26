@@ -7,8 +7,15 @@ import type {
   QaIssue,
   Segment,
   SegmentCounts,
+  TmMatchItem,
 } from "@translunar/contracts";
-import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
+import {
+  Button,
+  EmptyState,
+  Meter,
+  Panel,
+  SegmentProgress,
+} from "@translunar/ui";
 
 import type {
   EngineLifecycleState,
@@ -53,6 +60,16 @@ export interface WorkbenchViewProps {
   onDocumentOpenChange?: (open: boolean) => void;
   /** Called with the stored project after the import-defaults auto-save. */
   onProjectUpdated?: (project: Project) => void;
+  /** Live grid stats for the shell status bar; null when no document. */
+  onStatsChange?: (stats: WorkbenchStats | null) => void;
+}
+
+/** What the shell status bar shows about the open document. */
+export interface WorkbenchStats {
+  documentName: string;
+  counts: SegmentCounts;
+  /** Ordinal of the selected segment, or null when nothing is selected. */
+  activeOrdinal: number | null;
 }
 
 type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
@@ -112,6 +129,7 @@ export function WorkbenchView({
   onStatusMessage,
   onDocumentOpenChange,
   onProjectUpdated,
+  onStatsChange,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   // Per-document progress counts from document.list; the active document's
@@ -170,6 +188,39 @@ export function WorkbenchView({
   useEffect(() => {
     onDocumentOpenChange?.(activeDocument !== null);
   }, [activeDocument, onDocumentOpenChange]);
+
+  // TM lookup for the active segment lives here (not inside the TM dock) so
+  // the whole workbench reacts to selection: the dock list, the TM tab's
+  // best-score chip, and the active grid row all read the same result. The
+  // dependency is the segment object itself, so a confirm (which bumps the
+  // revision) re-queries and surfaces the entry it just wrote.
+  const [tmMatches, setTmMatches] = useState<TmMatchItem[]>([]);
+  const [tmError, setTmError] = useState<string | null>(null);
+  useEffect(() => {
+    setTmMatches([]);
+    setTmError(null);
+    if (!activeSegment) {
+      return;
+    }
+    let cancelled = false;
+    callEngine("tm.lookup", {
+      projectId: project.id,
+      sourceText: activeSegment.sourceText,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setTmMatches(result.matches);
+        }
+      })
+      .catch((lookupError: unknown) => {
+        if (!cancelled) {
+          setTmError(describeError(lookupError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, activeSegment]);
 
   const refreshDocuments = useCallback(async () => {
     const result = await callEngine("document.list", { projectId: project.id });
@@ -378,6 +429,71 @@ export function WorkbenchView({
     );
   }, []);
 
+  const openIssueSegmentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const issue of issues) {
+      if (issue.status === "open") {
+        ids.add(issue.segmentId);
+      }
+    }
+    return ids;
+  }, [issues]);
+
+  const filteredSegments = useMemo(
+    () => filterSegments(segments, filter, openIssueSegmentIds),
+    [segments, filter, openIssueSegmentIds],
+  );
+
+  // Trados-style flow: after a confirm, the selection steps down to the next
+  // visible segment that still needs work, so the keyboard loop stays
+  // type → Ctrl+Enter → type. `written` carries the freshly confirmed and
+  // propagated rows (state updates land asynchronously). Nothing wraps: at
+  // the bottom of the document the selection stays put.
+  const advanceAfterConfirm = useCallback(
+    (confirmedId: string, written: Segment[]) => {
+      const writtenById = new Map(written.map((item) => [item.id, item]));
+      const index = filteredSegments.findIndex(
+        (item) => item.id === confirmedId,
+      );
+      if (index < 0) {
+        return;
+      }
+      for (let i = index + 1; i < filteredSegments.length; i += 1) {
+        const candidate = filteredSegments[i]!;
+        const state = writtenById.get(candidate.id)?.state ?? candidate.state;
+        if (state !== "confirmed") {
+          setActiveSegmentId(candidate.id);
+          return;
+        }
+      }
+    },
+    [filteredSegments],
+  );
+
+  // Alt+↑/↓ step the selection through the visible rows without leaving the
+  // keyboard — the grid editor follows the selection.
+  const moveSelection = useCallback(
+    (delta: 1 | -1) => {
+      if (filteredSegments.length === 0) {
+        return;
+      }
+      const index = filteredSegments.findIndex(
+        (segment) => segment.id === activeSegmentId,
+      );
+      const next =
+        index < 0
+          ? delta === 1
+            ? 0
+            : filteredSegments.length - 1
+          : Math.min(filteredSegments.length - 1, Math.max(0, index + delta));
+      const target = filteredSegments[next];
+      if (target && target.id !== activeSegmentId) {
+        setActiveSegmentId(target.id);
+      }
+    },
+    [filteredSegments, activeSegmentId],
+  );
+
   const reloadSegments = useCallback(async () => {
     if (!activeDocumentId) {
       return;
@@ -456,6 +572,7 @@ export function WorkbenchView({
         onStatusMessage(
           `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
         );
+        advanceAfterConfirm(segment.id, [result.segment, ...result.propagated]);
       } catch (error) {
         if (isEngineUnavailable(error)) {
           setUnackedWrite({
@@ -473,7 +590,7 @@ export function WorkbenchView({
         await reloadSegments();
       }
     },
-    [applySegments, onStatusMessage, reloadSegments],
+    [applySegments, advanceAfterConfirm, onStatusMessage, reloadSegments],
   );
 
   const applyDraftToActive = useCallback(
@@ -580,6 +697,10 @@ export function WorkbenchView({
     [issues],
   );
 
+  // Engine results arrive best-first; the top hit drives the TM tab chip
+  // and the active row's match badge.
+  const bestTmMatch = tmMatches[0] ?? null;
+
   const counts = useMemo<SegmentCounts>(() => {
     let confirmed = 0;
     let draft = 0;
@@ -629,20 +750,27 @@ export function WorkbenchView({
     });
   }, [activeDocumentId, segments, counts]);
 
-  const openIssueSegmentIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const issue of issues) {
-      if (issue.status === "open") {
-        ids.add(issue.segmentId);
-      }
+  // Feed the shell status bar. Cleared on unmount (project close) so stale
+  // numbers never outlive the workbench that produced them.
+  useEffect(() => {
+    if (!onStatsChange) {
+      return;
     }
-    return ids;
-  }, [issues]);
-
-  const filteredSegments = useMemo(
-    () => filterSegments(segments, filter, openIssueSegmentIds),
-    [segments, filter, openIssueSegmentIds],
-  );
+    if (!activeDocument) {
+      onStatsChange(null);
+      return;
+    }
+    onStatsChange({
+      documentName: activeDocument.name,
+      counts,
+      activeOrdinal: activeSegment?.ordinal ?? null,
+    });
+  }, [onStatsChange, activeDocument, counts, activeSegment]);
+  useEffect(() => {
+    return () => {
+      onStatsChange?.(null);
+    };
+  }, [onStatsChange]);
 
   // Jump target may be hidden by the active filter; clear it so the jump
   // always lands (QA "定位句段", concordance hits, preview clicks).
@@ -854,12 +982,24 @@ export function WorkbenchView({
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
   // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter, Ctrl/Cmd+H focus the replace box.
+  // segment filter, Ctrl/Cmd+H focus the replace box, Alt+↑/↓ step the
+  // segment selection (works while typing in the target editor).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      if (
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown")
+      ) {
+        event.preventDefault();
+        moveSelection(event.key === "ArrowDown" ? 1 : -1);
         return;
       }
       // Plain F4 / Shift+F4 only — never Alt+F4 (OS window close) or
@@ -898,7 +1038,7 @@ export function WorkbenchView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter, focusReplace, findMatch]);
+  }, [openConcordance, focusFilter, focusReplace, findMatch, moveSelection]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding button/shortcut already calls; state guards keep the
@@ -1027,6 +1167,22 @@ export function WorkbenchView({
                               }`
                             : `${document.format} · ${document.segmentCount} 句段`}
                         </span>
+                        {progress && progress.total > 0 ? (
+                          <span className="document-list__progress">
+                            <SegmentProgress
+                              total={progress.total}
+                              confirmed={progress.confirmed}
+                              draft={progress.draft}
+                              label={`已确认 ${progress.confirmed}/${progress.total}`}
+                            />
+                            <span className="tl-num document-list__pct">
+                              {Math.round(
+                                (progress.confirmed / progress.total) * 100,
+                              )}
+                              %
+                            </span>
+                          </span>
+                        ) : null}
                       </button>
                       {pendingRemoveId === document.id ? (
                         <span
@@ -1305,6 +1461,9 @@ export function WorkbenchView({
                     ref={gridRef}
                     segments={filteredSegments}
                     activeSegmentId={activeSegmentId}
+                    activeMatch={bestTmMatch}
+                    sourceLocale={project.sourceLocale}
+                    targetLocale={project.targetLocale}
                     qaSegmentIds={openIssueSegmentIds}
                     onSelect={setActiveSegmentId}
                     onSaveDraft={(segment, text) =>
@@ -1344,14 +1503,37 @@ export function WorkbenchView({
                 onClick={() => setTab(key)}
               >
                 {label}
+                {/* Live chips react to the active segment/document. They are
+                    aria-hidden so accessible names stay stable ("TM", "QA");
+                    the same numbers live accessibly in the panel titles. */}
+                {key === "tm" && bestTmMatch ? (
+                  <span
+                    className="dock-tabs__chip"
+                    data-tone={bestTmMatch.grade === "fuzzy" ? "accent" : "ok"}
+                    aria-hidden="true"
+                  >
+                    {bestTmMatch.score}%
+                  </span>
+                ) : null}
+                {key === "qa" && openIssueCount > 0 ? (
+                  <span
+                    className="dock-tabs__chip"
+                    data-tone="danger"
+                    aria-hidden="true"
+                  >
+                    {openIssueCount}
+                  </span>
+                ) : null}
               </button>
             ))}
           </nav>
-          <div className="dock-panel">
+          {/* Keyed by tab: switching docks replays a short entrance slide. */}
+          <div className="dock-panel dock-view" key={tab}>
             {tab === "tm" ? (
               <TmPanel
-                projectId={project.id}
                 activeSegment={activeSegment}
+                matches={tmMatches}
+                error={tmError}
                 onApply={applyDraftToActive}
               />
             ) : null}

@@ -1,13 +1,12 @@
-import { useEffect, useState } from "react";
-
 import type { Segment, TmMatchItem } from "@translunar/contracts";
-import { Badge, Button, EmptyState, Panel } from "@translunar/ui";
-
-import { callEngine, describeError } from "../lib/engine.js";
+import { Button, EmptyState, MatchBadge, Panel } from "@translunar/ui";
 
 export interface TmPanelProps {
-  projectId: string;
   activeSegment: Segment | null;
+  /** Matches for the active segment; the workbench owns the lookup. */
+  matches: TmMatchItem[];
+  /** Lookup failure, if the last query could not be answered. */
+  error: string | null;
   onApply: (targetText: string) => void;
 }
 
@@ -17,42 +16,31 @@ const GRADE_LABEL: Record<TmMatchItem["grade"], string> = {
   fuzzy: "模糊",
 };
 
-function gradeTone(grade: TmMatchItem["grade"]): "ok" | "accent" {
-  return grade === "fuzzy" ? "accent" : "ok";
-}
-
-export function TmPanel({ projectId, activeSegment, onApply }: TmPanelProps) {
-  const [matches, setMatches] = useState<TmMatchItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMatches([]);
-    setError(null);
-    if (!activeSegment) {
-      return;
-    }
-    let cancelled = false;
-    callEngine("tm.lookup", {
-      projectId,
-      sourceText: activeSegment.sourceText,
-    })
-      .then((result) => {
-        if (!cancelled) {
-          setMatches(result.matches);
-        }
-      })
-      .catch((lookupError: unknown) => {
-        if (!cancelled) {
-          setError(describeError(lookupError));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId, activeSegment]);
-
+/**
+ * TM dock: renders the workbench-owned lookup for the active segment. The
+ * same result also feeds the TM tab chip and the active grid row, so the
+ * three surfaces can never disagree about the best match.
+ */
+export function TmPanel({
+  activeSegment,
+  matches,
+  error,
+  onApply,
+}: TmPanelProps) {
   return (
-    <Panel title="翻译记忆" className="dock-panel">
+    <Panel
+      title="翻译记忆"
+      className="dock-panel"
+      actions={
+        matches.length > 0 ? (
+          <MatchBadge
+            score={matches[0]!.score}
+            grade={matches[0]!.grade}
+            title="最佳匹配分值"
+          />
+        ) : null
+      }
+    >
       {!activeSegment ? (
         <EmptyState title="未选中句段" hint="在网格中选中句段后自动查询 TM。" />
       ) : error ? (
@@ -70,8 +58,10 @@ export function TmPanel({ projectId, activeSegment, onApply }: TmPanelProps) {
             <div key={match.entry.id} className="match-card">
               <div className="match-card__row">
                 <span className="match-card__grade">
-                  <Badge tone={gradeTone(match.grade)}>{match.score}%</Badge>
-                  <Badge tone="neutral">{GRADE_LABEL[match.grade]}</Badge>
+                  <MatchBadge score={match.score} grade={match.grade} />
+                  <span className="match-card__grade-label">
+                    {GRADE_LABEL[match.grade]}
+                  </span>
                 </span>
                 <Button
                   size="sm"

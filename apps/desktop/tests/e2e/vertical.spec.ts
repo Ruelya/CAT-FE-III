@@ -168,14 +168,18 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   await expect(rows).toHaveCount(3);
   await shot("02-imported-grid.png");
 
-  // Edit and confirm segment 1 (writes the exact TM).
+  // Edit and confirm segment 1 (writes the exact TM). The confirm advances
+  // the selection to the next unconfirmed segment, Trados-style.
   const editor = page.getByLabel("句段 1 译文");
   await editor.fill("保留期为 30 天。");
   await page.getByRole("button", { name: "确认", exact: true }).click();
   await expect(rows.first()).toContainText("已确认");
   await expect(page.locator(".app-statusbar")).toContainText("写入 TM");
+  await expect(page.getByLabel("句段 2 译文")).toBeVisible();
 
-  // The TM dock shows the 100% exact match for the same source.
+  // Re-select segment 1: the TM dock reacts to the active segment and now
+  // shows the 100% exact match written by the confirm.
+  await rows.first().click();
   await expect(page.locator(".match-card").first()).toContainText("100%");
   await shot("03-confirmed-tm-hit.png");
 

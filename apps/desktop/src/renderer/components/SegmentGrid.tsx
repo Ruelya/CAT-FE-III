@@ -9,8 +9,8 @@ import {
 } from "react";
 import type { Ref } from "react";
 
-import type { Segment, SegmentState } from "@translunar/contracts";
-import { Badge, Button } from "@translunar/ui";
+import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
+import { Badge, Button, Kbd, MatchBadge } from "@translunar/ui";
 import type { BadgeTone } from "@translunar/ui";
 
 export interface SegmentGridHandle {
@@ -35,6 +35,11 @@ export interface SegmentGridHandle {
 export interface SegmentGridProps {
   segments: Segment[];
   activeSegmentId: string | null;
+  /** Best TM match for the active segment (live lookup, never stored). */
+  activeMatch?: TmMatchItem | null;
+  /** Language pair shown in the column headers (e.g. "en-US"). */
+  sourceLocale?: string;
+  targetLocale?: string;
   /** Segment ids with open QA issues. */
   qaSegmentIds: ReadonlySet<string>;
   onSelect: (segmentId: string) => void;
@@ -59,6 +64,9 @@ const FALLBACK_VIEWPORT = 600;
 export function SegmentGrid({
   segments,
   activeSegmentId,
+  activeMatch = null,
+  sourceLocale,
+  targetLocale,
   qaSegmentIds,
   onSelect,
   onSaveDraft,
@@ -288,8 +296,18 @@ export function SegmentGrid({
         <thead>
           <tr>
             <th className="segment-grid__ordinal">#</th>
-            <th className="segment-grid__source">源文</th>
-            <th className="segment-grid__target">译文</th>
+            <th className="segment-grid__source">
+              源文
+              {sourceLocale ? (
+                <span className="segment-grid__locale">{sourceLocale}</span>
+              ) : null}
+            </th>
+            <th className="segment-grid__target">
+              译文
+              {targetLocale ? (
+                <span className="segment-grid__locale">{targetLocale}</span>
+              ) : null}
+            </th>
             <th className="segment-grid__state">状态</th>
           </tr>
         </thead>
@@ -306,6 +324,8 @@ export function SegmentGrid({
               <tr
                 key={segment.id}
                 data-active={isActive}
+                data-state={segment.state}
+                data-qa={qaSegmentIds.has(segment.id) || undefined}
                 data-segment-id={segment.id}
                 ref={(element) => measureRow(segment.id, element)}
                 onClick={() => onSelect(segment.id)}
@@ -370,7 +390,9 @@ export function SegmentGrid({
                           确认
                         </Button>
                         <span className="segment-grid__hint">
-                          Ctrl+Enter 确认
+                          <Kbd>Ctrl+Enter</Kbd> 确认并下一句
+                          <span className="segment-grid__hint-sep">·</span>
+                          <Kbd>Alt+↑/↓</Kbd> 切换句段
                         </span>
                       </div>
                     </div>
@@ -381,12 +403,23 @@ export function SegmentGrid({
                   )}
                 </td>
                 <td className="segment-grid__state">
-                  <Badge tone={tone}>{label}</Badge>{" "}
-                  {qaSegmentIds.has(segment.id) ? (
-                    <Badge tone="danger" title="存在未解决的 QA 问题">
-                      QA
-                    </Badge>
-                  ) : null}
+                  <span className="segment-grid__state-stack">
+                    <Badge tone={tone}>{label}</Badge>
+                    {qaSegmentIds.has(segment.id) ? (
+                      <Badge tone="danger" title="存在未解决的 QA 问题">
+                        QA
+                      </Badge>
+                    ) : null}
+                    {isActive && activeMatch ? (
+                      <span className="segment-grid__match">
+                        <MatchBadge
+                          score={activeMatch.score}
+                          grade={activeMatch.grade}
+                          title={`TM 最佳匹配 ${activeMatch.score}%`}
+                        />
+                      </span>
+                    ) : null}
+                  </span>
                 </td>
               </tr>
             );
