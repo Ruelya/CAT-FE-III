@@ -168,7 +168,6 @@ export function TmManageDialog({
           <TextField
             label="搜索源文或译文"
             value={queryInput}
-            placeholder="输入关键词后回车"
             onChange={(event) => setQueryInput(event.target.value)}
           />
           <Button type="submit" size="sm" variant="outline" disabled={busy}>
@@ -196,15 +195,9 @@ export function TmManageDialog({
 
         {total === 0 ? (
           appliedQuery ? (
-            <EmptyState
-              title="无匹配条目"
-              hint="换一个关键词，或清空搜索查看全部条目。"
-            />
+            <EmptyState title="无匹配条目" />
           ) : (
-            <EmptyState
-              title="TM 暂无条目"
-              hint="在工作台确认句段或在项目设置导入外部 TM 后，条目会出现在这里。"
-            />
+            <EmptyState title="TM 暂无条目" />
           )
         ) : (
           <div className="dock-stack">
@@ -254,7 +247,7 @@ export function TmManageDialog({
                     {confirmingDeleteId === entry.id ? (
                       <>
                         <span className="tm-manage__confirm">
-                          确认删除该条目？删除后模糊匹配和预翻译都不再使用它。
+                          确认删除该条目？
                         </span>
                         <Button
                           size="sm"
@@ -330,11 +323,6 @@ export function TmManageDialog({
             </Button>
           </div>
         ) : null}
-
-        <p className="settings__note">
-          此处仅管理项目 TM
-          条目：编辑会同步更新模糊索引，删除后匹配立即消失。确认句段仍在工作台完成，导入/导出走项目设置。
-        </p>
       </div>
     </Dialog>
   );

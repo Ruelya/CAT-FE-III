@@ -222,24 +222,11 @@ export function PreviewDialog({
       onClose={onClose}
       wide
       footer={
-        mode === "layout" ? (
-          <span className="preview__legend">
-            <span className="preview__legend-note">
-              {layoutJumpAvailable
-                ? documentFormat === "bilingual-docx"
-                  ? "版式视图由导出管线生成；点击译文单元格可跳转到编辑网格，精确排版以导出文件为准。"
-                  : "版式视图由导出管线生成；点击段落可跳转到编辑网格，精确排版以导出文件为准。"
-                : "版式视图由导出管线生成，此格式暂不支持点段跳转；以导出文件为准。"}
-            </span>
-          </span>
-        ) : (
+        mode === "layout" ? null : (
           <span className="preview__legend">
             <Badge tone="ok">已确认</Badge>
             <Badge tone="accent">草稿</Badge>
-            <Badge tone="warn">未译（显示源文）</Badge>
-            <span className="preview__legend-note">
-              点击句段可跳转到编辑网格；精确的空白与格式以导出结果为准。
-            </span>
+            <Badge tone="warn">未译</Badge>
           </span>
         )
       }
@@ -276,9 +263,8 @@ export function PreviewDialog({
               共 {model.totalSegments} 个句段：{model.translatedSegments}{" "}
               个已有译文
               {model.fallbackSegments > 0
-                ? `，${model.fallbackSegments} 个未译（以源文回填显示）`
-                : "，全部完成"}
-              。
+                ? `，${model.fallbackSegments} 个未译`
+                : ""}
             </p>
             <div className="preview__document" ref={proofreadRef}>
               {model.blocks.map((block) => (
@@ -294,7 +280,7 @@ export function PreviewDialog({
                       data-active={part.segmentId === activeSegmentId}
                       title={
                         part.fallback
-                          ? `句段 #${part.ordinal + 1} 未译，显示源文`
+                          ? `句段 #${part.ordinal + 1}（未译）`
                           : `句段 #${part.ordinal + 1}`
                       }
                       onClick={() => onJump(part.segmentId)}
@@ -313,13 +299,11 @@ export function PreviewDialog({
               hidden={mode !== "layout"}
             >
               {layout.phase === "loading" ? (
-                <p className="preview__summary">
-                  正在通过导出管线生成 DOCX 版式预览…
-                </p>
+                <p className="preview__summary">正在生成版式预览…</p>
               ) : null}
               {layout.phase === "refreshing" ? (
                 <p className="preview__summary" role="status">
-                  句段已更新，正在重新生成版式预览…
+                  正在重新生成版式预览…
                 </p>
               ) : null}
               {layout.phase === "error" ? (
@@ -329,8 +313,7 @@ export function PreviewDialog({
               ) : null}
               {layout.phase === "ready" ? (
                 <p className="preview__summary">
-                  与「导出译文」同一管线：已回填 {layout.translatedSegments}{" "}
-                  个已译单元，未译段落保持源文。
+                  已回填 {layout.translatedSegments} 个已译单元
                 </p>
               ) : null}
               {/*

@@ -107,7 +107,7 @@ describe("AgentPanel", () => {
     );
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByText(/没有密钥时它不会启动/)).toBeInTheDocument();
+      expect(screen.getByText("未配置 AI 供应商")).toBeInTheDocument();
     });
     expect(
       screen.getByRole("button", { name: "创建任务单并运行" }),

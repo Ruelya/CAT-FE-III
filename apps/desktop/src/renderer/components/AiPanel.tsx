@@ -149,9 +149,7 @@ export function AiPanel({
           return;
         }
         if (isAiNotConfigured(assistError)) {
-          setError(
-            "尚未配置 AI 供应商——引擎拒绝伪造译文。请先在下方填写密钥。",
-          );
+          setError("未配置 AI 供应商");
         } else {
           setError(`AI 调用失败：${describeError(assistError)}`);
         }
@@ -175,7 +173,7 @@ export function AiPanel({
     const assistId = activeAssistId;
     setActiveAssistId(null);
     setBusy(false);
-    onStatusMessage("已取消 AI 请求；引擎会丢弃该次结果");
+    onStatusMessage("已取消 AI 请求");
     try {
       await callEngine("ai.assist.cancel", { assistId });
     } catch {
@@ -219,15 +217,9 @@ export function AiPanel({
         {configured ? (
           <>
             {!activeSegment ? (
-              <EmptyState
-                title="未选中句段"
-                hint="选中句段后可请求 AI 草稿。"
-              />
+              <EmptyState title="未选中句段" />
             ) : confirmedSegment ? (
-              <div className="honest-note">
-                该句段已确认。AI 辅助不会覆盖已确认的译文——如需修改，请先在
-                网格中另行编辑。
-              </div>
+              <div className="honest-note">该句段已确认</div>
             ) : (
               <div className="tl-toolbar">
                 <Button
@@ -330,10 +322,6 @@ export function AiPanel({
           </>
         ) : (
           <>
-            <div className="honest-note">
-              AI 辅助需要真实的供应商密钥。未配置时引擎会如实返回
-              「aiNotConfigured」，不会假装成功。密钥仅保存在引擎内存中。
-            </div>
             <form
               className="form-stack"
               onSubmit={(event) => {
@@ -357,21 +345,18 @@ export function AiPanel({
               <TextField
                 label="模型"
                 value={model}
-                placeholder="例如 gpt-5.2"
                 onChange={(event) => setModel(event.target.value)}
                 required
               />
               <TextField
-                label="Base URL（可选，兼容端点必填）"
+                label="Base URL"
                 value={baseUrl}
-                placeholder="https://…"
                 onChange={(event) => setBaseUrl(event.target.value)}
               />
               <TextField
                 label="API Key"
                 type="password"
                 value={apiKey}
-                placeholder="sk-…"
                 onChange={(event) => setApiKey(event.target.value)}
                 required
               />

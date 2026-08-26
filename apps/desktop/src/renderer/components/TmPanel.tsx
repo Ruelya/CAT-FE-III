@@ -42,16 +42,13 @@ export function TmPanel({
       }
     >
       {!activeSegment ? (
-        <EmptyState title="未选中句段" hint="在网格中选中句段后自动查询 TM。" />
+        <EmptyState title="未选中句段" />
       ) : error ? (
         <div className="honest-note" data-tone="danger" role="alert">
           {error}
         </div>
       ) : matches.length === 0 ? (
-        <EmptyState
-          title="无匹配"
-          hint="确认句段后会写入项目 TM；相同源文显示 100% 精确匹配，相似源文按分值显示模糊匹配。"
-        />
+        <EmptyState title="无匹配" />
       ) : (
         <div className="dock-stack">
           {matches.map((match) => (

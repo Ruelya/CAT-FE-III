@@ -377,7 +377,7 @@ export function WorkbenchView({
           setSegments(segmentResult.segments);
           setIssues(issueResult.issues);
         }
-        onStatusMessage("引擎已恢复，文档与句段已从引擎重新同步");
+        onStatusMessage("引擎已恢复，已重新同步");
       } catch (error) {
         onStatusMessage(`引擎恢复后同步失败：${describeError(error)}`);
       }
@@ -414,7 +414,7 @@ export function WorkbenchView({
           documentId: target.id,
         });
         onStatusMessage(
-          `已移除「${target.name}」：删除 ${result.removedSegments} 个句段、${result.removedQaIssues} 条 QA 记录；项目 TM、术语库与原始文件保留`,
+          `已移除「${target.name}」：删除 ${result.removedSegments} 个句段、${result.removedQaIssues} 条 QA 记录`,
         );
         setOpenDocumentIds((current) =>
           current.filter((id) => id !== target.id),
@@ -514,7 +514,7 @@ export function WorkbenchView({
   // 取消: nothing was written and the existing file stays as it is.
   const cancelOverwriteExport = useCallback(() => {
     setOverwritePrompt(null);
-    onStatusMessage("已取消导出：保留现有文件，未做任何修改");
+    onStatusMessage("已取消导出");
   }, [onStatusMessage]);
 
   const applySegments = useCallback(
@@ -815,11 +815,7 @@ export function WorkbenchView({
             item.id === result.issue.id ? result.issue : item,
           ),
         );
-        onStatusMessage(
-          waived
-            ? "已忽略 QA 问题：问题并未修复，未确认句段、未写入 TM"
-            : "已恢复 QA 问题为未解决",
-        );
+        onStatusMessage(waived ? "已忽略 QA 问题" : "已恢复 QA 问题为未解决");
       } catch (error) {
         // The issue keeps its current status; nothing is pretended.
         onStatusMessage(
@@ -1079,9 +1075,7 @@ export function WorkbenchView({
       return;
     }
     if (activeSegment.state === "confirmed" && !includeConfirmed) {
-      onStatusMessage(
-        `句段 #${activeSegment.ordinal + 1} 已确认，未替换；勾选「含已确认」后重试（替换会使其退回草稿）`,
-      );
+      onStatusMessage(`句段 #${activeSegment.ordinal + 1} 已确认，未替换`);
       return;
     }
     try {
@@ -1092,7 +1086,7 @@ export function WorkbenchView({
       });
       applySegments([result.segment]);
       onStatusMessage(
-        `句段 #${activeSegment.ordinal + 1} 已替换 ${replaced.count} 处「${query}」，按 F4 跳到下一个匹配`,
+        `句段 #${activeSegment.ordinal + 1} 已替换 ${replaced.count} 处「${query}」`,
       );
     } catch (error) {
       onStatusMessage(`替换失败：${describeError(error)}`);
@@ -1135,7 +1129,7 @@ export function WorkbenchView({
       applySegments(result.segments);
       const skippedNote =
         result.skippedConfirmed > 0
-          ? `；跳过 ${result.skippedConfirmed} 个已确认句段（勾选「含已确认」后可替换）`
+          ? `；跳过 ${result.skippedConfirmed} 个已确认句段`
           : "";
       if (result.segments.length === 0) {
         onStatusMessage(`全部替换：译文中没有「${query}」${skippedNote}`);
@@ -1395,10 +1389,7 @@ export function WorkbenchView({
               <h2 className="explorer__caption">文件</h2>
             </header>
             {documents.length === 0 ? (
-              <EmptyState
-                title="暂无文档"
-                hint="导入 DOCX、TXT、Markdown、HTML、XLIFF、XLSX 或 PPTX 开始翻译。"
-              />
+              <EmptyState title="暂无文档" />
             ) : (
               <div className="document-list">
                 {documents.map((document) => {
@@ -1558,7 +1549,7 @@ export function WorkbenchView({
                     type="button"
                     className="doc-tabs__close"
                     aria-label={`关闭标签页 ${document.name}`}
-                    title="关闭标签页（文档保留在项目中）"
+                    title="关闭标签页"
                     onClick={() => closeDocumentTab(document.id)}
                   >
                     ×
@@ -1587,18 +1578,14 @@ export function WorkbenchView({
                   <span>
                     句段 #{unackedWrite.ordinal + 1} 的
                     {unackedWrite.kind === "draft" ? "草稿" : "确认"}
-                    未被引擎确认写入（{unackedWrite.message}）。
-                    编辑器中的文本仍保留；
-                    {unackedWrite.kind === "draft"
-                      ? "引擎恢复后继续输入即可自动重新保存，或按 Ctrl+Enter 确认。"
-                      : "引擎恢复后请重新确认该句段（Ctrl+Enter）。"}
+                    未被引擎确认写入（{unackedWrite.message}）
                   </span>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => setUnackedWrite(null)}
                   >
-                    知道了
+                    关闭
                   </Button>
                 </div>
               ) : null}
@@ -1624,9 +1611,8 @@ export function WorkbenchView({
                 <input
                   ref={findInputRef}
                   className="grid-toolbar__search grid-toolbar__find"
-                  aria-label="查找跳转"
-                  placeholder="查找（F4 下一个）…"
-                  title="跳到下一个匹配句段，不隐藏其他句段"
+                  aria-label="查找"
+                  placeholder="查找"
                   value={findQuery}
                   onChange={(event) => setFindQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -1664,8 +1650,7 @@ export function WorkbenchView({
                   ref={replaceInputRef}
                   className="grid-toolbar__search grid-toolbar__find"
                   aria-label="替换为"
-                  placeholder="替换为…（Ctrl+H）"
-                  title="替换查找命中的译文文本；源文永不修改"
+                  placeholder="替换为"
                   value={replaceWith}
                   onChange={(event) => setReplaceWith(event.target.value)}
                   onKeyDown={(event) => {
@@ -1682,7 +1667,7 @@ export function WorkbenchView({
                   size="sm"
                   variant="ghost"
                   aria-label="替换"
-                  title="替换当前句段译文中的所有匹配；无匹配时跳到下一个"
+                  title="替换（Ctrl+H）"
                   disabled={findQuery.trim().length === 0 || busy}
                   onClick={() => void replaceInActive()}
                 >
@@ -1692,16 +1677,13 @@ export function WorkbenchView({
                   size="sm"
                   variant="ghost"
                   aria-label="全部替换"
-                  title="替换当前文档所有句段译文中的匹配（不限当前筛选）"
+                  title="全部替换"
                   disabled={findQuery.trim().length === 0 || busy}
                   onClick={() => void replaceAllInDocument()}
                 >
                   全部替换
                 </Button>
-                <label
-                  className="grid-toolbar__checkbox"
-                  title="勾选后替换也会改写已确认句段，并使其退回草稿；TM 不受影响"
-                >
+                <label className="grid-toolbar__checkbox">
                   <input
                     type="checkbox"
                     checked={includeConfirmed}
@@ -1715,10 +1697,7 @@ export function WorkbenchView({
               {segments.length === 0 ? (
                 <EmptyState title="该文档没有句段" />
               ) : filteredSegments.length === 0 ? (
-                <EmptyState
-                  title="没有符合筛选条件的句段"
-                  hint="调整状态筛选或右上角的文本搜索，或点击「清除」。"
-                />
+                <EmptyState title="没有符合筛选条件的句段" />
               ) : (
                 <SegmentGrid
                   ref={gridRef}
@@ -1753,7 +1732,7 @@ export function WorkbenchView({
                   aria-selected={previewOpen}
                   className="view-tabs__tab"
                   data-active={previewOpen}
-                  title="打开译文预览（校对视图与版式视图）"
+                  title="译文预览"
                   onClick={() => setPreviewOpen(true)}
                 >
                   预览
@@ -1763,15 +1742,9 @@ export function WorkbenchView({
           ) : (
             <div className="workbench__center-empty">
               {documents.length === 0 ? (
-                <EmptyState
-                  title="选择或导入一个文档"
-                  hint="通过工具栏「导入」添加文档后，句段会在这里以网格显示。"
-                />
+                <EmptyState title="选择或导入一个文档" />
               ) : (
-                <EmptyState
-                  title="没有打开的文档"
-                  hint="在左侧文件列表中点击文件即可打开。"
-                />
+                <EmptyState title="没有打开的文档" />
               )}
             </div>
           )}

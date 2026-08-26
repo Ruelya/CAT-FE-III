@@ -238,11 +238,6 @@ export function ImportDocumentDialog({
             </span>
           )}
         </div>
-        <p className="settings__note">
-          自定义 SRX 仅在句子分段时生效；段落分段按空行切分，不使用 SRX。
-          导入成功后，本次的分段方式与 SRX
-          选择会自动保存为项目默认，下次导入沿用，也可在「项目设置」中修改。
-        </p>
 
         {error ? (
           <div className="honest-note" data-tone="danger" role="alert">

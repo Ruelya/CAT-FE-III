@@ -47,10 +47,7 @@ describe("QaPanel", () => {
     );
     expect(screen.getByText("尚未运行检查")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "忽略" })).toBeNull();
-    // One button runs the whole rule library; neither the button nor the
-    // hint may claim QA is numbers-only.
     expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
-    expect(screen.getByText(/内联标签\/占位符完整性/)).toBeInTheDocument();
   });
 
   it("renders token evidence for tag issues and hides empty evidence", () => {
@@ -115,10 +112,7 @@ describe("QaPanel", () => {
     // One 忽略 (open card), one 恢复 (waived card), never both on one card.
     expect(screen.getAllByRole("button", { name: "忽略" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "恢复" })).toHaveLength(1);
-    // The waived card says honestly that nothing was fixed or written.
-    expect(
-      screen.getByText(/已忽略：问题仍存在，未确认句段、未写入 TM/),
-    ).toBeInTheDocument();
+    // The waived card keeps the recorded note.
     expect(screen.getByText(/备注：客户已确认/)).toBeInTheDocument();
   });
 

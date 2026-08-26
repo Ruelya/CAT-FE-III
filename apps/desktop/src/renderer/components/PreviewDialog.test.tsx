@@ -87,7 +87,7 @@ describe("PreviewDialog", () => {
     // Untranslated segment shows source text, flagged as fallback.
     const fallback = screen.getByText("Untranslated one.");
     expect(fallback).toHaveAttribute("data-fallback", "true");
-    expect(screen.getByText(/1 个未译（以源文回填显示）/)).toBeInTheDocument();
+    expect(screen.getByText(/1 个未译/)).toBeInTheDocument();
   });
 
   it("jumps back to the grid from a preview segment", async () => {
@@ -165,9 +165,6 @@ describe("PreviewDialog", () => {
     // Clicking an un-anchored paragraph does nothing — no fake jumps.
     await userEvent.click(screen.getByText("Chrome-only paragraph"));
     expect(onJump).toHaveBeenCalledTimes(1);
-    // The footer no longer claims click jump is unsupported.
-    expect(screen.getByText(/点击段落可跳转到编辑网格/)).toBeInTheDocument();
-    expect(screen.queryByText(/不支持点段跳转/)).not.toBeInTheDocument();
   });
 
   it("jumps from an anchored target cell in the bilingual layout view", async () => {
@@ -203,12 +200,6 @@ describe("PreviewDialog", () => {
     // Clicking the un-anchored source cell does nothing — no fake jumps.
     await userEvent.click(screen.getByText("Source-cell paragraph"));
     expect(onJump).toHaveBeenCalledTimes(1);
-    // The footer names the real interaction and no longer claims click jump
-    // is unsupported.
-    expect(
-      screen.getByText(/点击译文单元格可跳转到编辑网格/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/不支持点段跳转/)).not.toBeInTheDocument();
   });
 
   it("regenerates the layout when segments change while the dialog stays open", async () => {

@@ -49,10 +49,7 @@ export function QaPanel({
       }
     >
       {issues.length === 0 ? (
-        <EmptyState
-          title="尚未运行检查"
-          hint="QA 会对每个已译句段运行整套确定性规则：数字与单位、内联标签/占位符完整性、术语、标点、长度与一致性等。"
-        />
+        <EmptyState title="尚未运行检查" />
       ) : (
         <div className="dock-stack">
           {[...open, ...waived, ...resolved].map((issue) => {
@@ -115,12 +112,9 @@ export function QaPanel({
                     {targetEvidence.join(", ")}]
                   </span>
                 ) : null}
-                {issue.status === "waived" ? (
-                  // Honest reminder: waiving parks the issue, it does not fix
-                  // it — nothing was confirmed and nothing reached the TM.
+                {issue.status === "waived" && issue.waiveNote ? (
                   <span className="issue-card__note">
-                    已忽略：问题仍存在，未确认句段、未写入 TM
-                    {issue.waiveNote ? `（备注：${issue.waiveNote}）` : ""}
+                    备注：{issue.waiveNote}
                   </span>
                 ) : null}
               </div>

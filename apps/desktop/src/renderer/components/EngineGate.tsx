@@ -25,21 +25,17 @@ export function EngineGate({
 
   let dot: "busy" | "down" = "busy";
   let title: string;
-  let body: string;
+  let body: string | null;
   if (state === "down") {
     dot = "down";
     title = "翻译引擎已停止";
-    body =
-      "编辑已锁定：引擎进程未运行，任何修改都无法保存。" +
-      "可尝试重新启动引擎；若持续失败，请检查引擎日志。";
+    body = "编辑已锁定";
   } else if (state === "restarting") {
-    title = "翻译引擎已意外退出，正在自动重启";
-    body =
-      `第 ${status?.restarts ?? 0} 次重试。重启期间编辑已锁定；` +
-      "引擎未确认写入的草稿不会保存，恢复后请检查最近编辑的句段。";
+    title = "翻译引擎正在自动重启";
+    body = `第 ${status?.restarts ?? 0} 次重试，编辑已锁定`;
   } else {
-    title = "正在启动本地翻译引擎";
-    body = "引擎就绪前编辑不可用，就绪后此提示会自动消失。";
+    title = "正在启动翻译引擎";
+    body = null;
   }
 
   return (
@@ -54,7 +50,7 @@ export function EngineGate({
           <StatusDot state={dot} />
           {title}
         </p>
-        <p className="engine-gate__body">{body}</p>
+        {body ? <p className="engine-gate__body">{body}</p> : null}
         {status?.lastError ? (
           <p className="engine-gate__error">{status.lastError}</p>
         ) : null}

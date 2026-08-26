@@ -91,7 +91,7 @@ describe("AiPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("未配置")).toBeInTheDocument();
     });
-    expect(screen.getByText(/不会假装成功/)).toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeInTheDocument();
     expect(screen.queryByText("AI 翻译")).not.toBeInTheDocument();
   });
 
@@ -109,13 +109,13 @@ describe("AiPanel", () => {
     installBridge(invoke);
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("例如 gpt-5.2")).toBeInTheDocument();
+      expect(screen.getByLabelText("模型")).toBeInTheDocument();
     });
     await userEvent.type(
-      screen.getByPlaceholderText("例如 gpt-5.2"),
+      screen.getByLabelText("模型"),
       "gpt-test",
     );
-    await userEvent.type(screen.getByPlaceholderText("sk-…"), "sk-test");
+    await userEvent.type(screen.getByLabelText("API Key"), "sk-test");
     await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
@@ -158,14 +158,14 @@ describe("AiPanel", () => {
     });
     await userEvent.selectOptions(screen.getByLabelText("供应商"), "gemini");
     await userEvent.type(
-      screen.getByPlaceholderText("例如 gpt-5.2"),
+      screen.getByLabelText("模型"),
       "gemini-2.5-flash",
     );
     await userEvent.type(
-      screen.getByPlaceholderText("https://…"),
+      screen.getByLabelText("Base URL"),
       "https://gateway.example/v1beta",
     );
-    await userEvent.type(screen.getByPlaceholderText("sk-…"), "test-key");
+    await userEvent.type(screen.getByLabelText("API Key"), "test-key");
     await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("ai.configure", {
@@ -208,14 +208,14 @@ describe("AiPanel", () => {
       "openaiResponses",
     );
     await userEvent.type(
-      screen.getByPlaceholderText("例如 gpt-5.2"),
+      screen.getByLabelText("模型"),
       "gpt-5-mini",
     );
     await userEvent.type(
-      screen.getByPlaceholderText("https://…"),
+      screen.getByLabelText("Base URL"),
       "https://gateway.example/v1",
     );
-    await userEvent.type(screen.getByPlaceholderText("sk-…"), "test-key");
+    await userEvent.type(screen.getByLabelText("API Key"), "test-key");
     await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("ai.configure", {
@@ -398,7 +398,7 @@ describe("AiPanel", () => {
       activeSegment: { ...segment, state: "confirmed", targetText: "已确认" },
     });
     await waitFor(() => {
-      expect(screen.getByText(/不会覆盖已确认的译文/)).toBeInTheDocument();
+      expect(screen.getByText("该句段已确认")).toBeInTheDocument();
     });
     expect(screen.queryByText("AI 翻译")).not.toBeInTheDocument();
   });
