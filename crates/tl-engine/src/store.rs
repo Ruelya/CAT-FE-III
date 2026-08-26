@@ -2641,8 +2641,7 @@ mod tests {
         assert!(issue.params.is_empty(), "no invented params");
 
         let mut parameterized = issue;
-        parameterized.params =
-            BTreeMap::from([("ratio".to_string(), "420".to_string())]);
+        parameterized.params = BTreeMap::from([("ratio".to_string(), "420".to_string())]);
         parameterized.updated_at_ms = 6;
         store
             .apply(&StateDelta {

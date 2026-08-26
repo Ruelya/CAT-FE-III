@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import type {
   Project,
+  QaProfileView,
   Termbase,
   TermbaseListResult,
 } from "@translunar/contracts";
@@ -79,6 +80,9 @@ export function ProjectSettingsDialog({
   const [managedTermbaseId, setManagedTermbaseId] = useState<string | null>(
     null,
   );
+  // The project's effective QA profile (qa.profile.get); carries the
+  // revision the next qa.profile.update must be based on.
+  const [qaProfile, setQaProfile] = useState<QaProfileView | null>(null);
   // An export the engine refused because the destination exists. Kept until
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
   // existing file untouched).
@@ -126,7 +130,50 @@ export function ProjectSettingsDialog({
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
+    setQaProfile(null);
+    callEngine("qa.profile.get", { projectId: project.id })
+      .then(setQaProfile)
+      .catch((profileError: unknown) => {
+        setError(describeError(profileError));
+      });
   }, [open, project, refreshTermbases]);
+
+  // Toggle the QA export gate through qa.profile.update. The stored view's
+  // revision is the optimistic-concurrency base; the result replaces the
+  // view wholesale, so consecutive toggles stay coherent.
+  const setExportGate = useCallback(
+    async (blocked: boolean) => {
+      if (!qaProfile) {
+        return;
+      }
+      beginAction("qa.profile");
+      setError(null);
+      setNotice(null);
+      try {
+        const updated = await callEngine("qa.profile.update", {
+          projectId: project.id,
+          baseRevision: qaProfile.revision,
+          blockExportOnError: blocked,
+        });
+        setQaProfile(updated);
+        setNotice(blocked ? "已开启导出前 QA 检查" : "已关闭导出前 QA 检查");
+      } catch (updateError) {
+        setError(describeError(updateError));
+        // The stored revision may have moved (e.g. a concurrent settings
+        // save); refetch so the next toggle is based on reality.
+        try {
+          setQaProfile(
+            await callEngine("qa.profile.get", { projectId: project.id }),
+          );
+        } catch {
+          // The error banner already reports the failure.
+        }
+      } finally {
+        endAction("qa.profile");
+      }
+    },
+    [qaProfile, project.id, beginAction, endAction],
+  );
 
   const saveProjectInfo = useCallback(async () => {
     setBusy(true);
@@ -578,6 +625,23 @@ export function ProjectSettingsDialog({
               保存导入默认
             </Button>
           </div>
+        </section>
+
+        <section className="settings__section">
+          <h3 className="settings__heading">质量检查</h3>
+          {qaProfile ? (
+            <label className="settings__row">
+              <input
+                type="checkbox"
+                checked={qaProfile.blockExportOnError}
+                disabled={pending.has("qa.profile")}
+                onChange={(event) => void setExportGate(event.target.checked)}
+              />
+              有错误时阻止导出
+            </label>
+          ) : (
+            <p className="settings__note">配置未加载。</p>
+          )}
         </section>
 
         <section className="settings__section">

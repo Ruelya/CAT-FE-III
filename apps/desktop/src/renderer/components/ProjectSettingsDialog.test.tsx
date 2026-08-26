@@ -1098,4 +1098,87 @@ describe("ProjectSettingsDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  const QA_PROFILE_VIEW = {
+    baseProfileId: "builtin.qa.cjk-professional",
+    severityOverrides: {},
+    settings: {
+      maxTargetChars: null,
+      minLengthRatioPercent: 35,
+      maxLengthRatioPercent: 300,
+      cjkSpacing: true,
+      cjkPunctuation: true,
+      requireSentenceFinalPunctuation: true,
+    },
+    blockExportOnError: false,
+    revision: 1,
+  };
+
+  it("toggles the export gate through qa.profile.update with the fetched revision", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: QA_PROFILE_VIEW });
+      }
+      if (method === "qa.profile.update") {
+        return Promise.resolve({
+          ok: true,
+          result: { ...QA_PROFILE_VIEW, blockExportOnError: true, revision: 2 },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const toggle = await screen.findByRole("checkbox", {
+      name: "有错误时阻止导出",
+    });
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(toggle).toBeChecked();
+    });
+    const update = calls.find(([method]) => method === "qa.profile.update");
+    expect(update?.[1]).toEqual({
+      projectId: "p1",
+      baseRevision: 1,
+      blockExportOnError: true,
+    });
+    expect(screen.getByText("已开启导出前 QA 检查")).toBeInTheDocument();
+  });
+
+  it("keeps the gate off and reports honestly when qa.profile.update fails", async () => {
+    installBridge((method) => {
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: QA_PROFILE_VIEW });
+      }
+      if (method === "qa.profile.update") {
+        return Promise.resolve({
+          ok: false,
+          error: { code: "conflict", message: "project revision is 5" },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: { termbases: [], mounts: [] },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const toggle = await screen.findByRole("checkbox", {
+      name: "有错误时阻止导出",
+    });
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "project revision is 5",
+      );
+    });
+    // The stored profile was refetched; the checkbox shows the real state.
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByText("已开启导出前 QA 检查")).not.toBeInTheDocument();
+  });
 });

@@ -11,6 +11,10 @@ use tl_domain::{
     QaSeverity, ReviewRevision, SegmentOrigin, SegmentOriginKind, normalize_text, number_mismatch,
     placeholder_mismatch, sha256_hex,
 };
+// Settings moved to the domain crate (project configuration stores a
+// project-level replacement); re-exported so `tl_qa::QaRuleSettings` keeps
+// working for existing callers.
+pub use tl_domain::QaRuleSettings;
 use tl_filter_office::{OfficePackage, validate_xml};
 use zip::ZipArchive;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -101,30 +105,6 @@ pub struct QaRegexRule {
     pub message: String,
     #[serde(default)]
     pub replacement_hint: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct QaRuleSettings {
-    pub max_target_chars: Option<u32>,
-    pub min_length_ratio_percent: u16,
-    pub max_length_ratio_percent: u16,
-    pub cjk_spacing: bool,
-    pub cjk_punctuation: bool,
-    pub require_sentence_final_punctuation: bool,
-}
-
-impl Default for QaRuleSettings {
-    fn default() -> Self {
-        Self {
-            max_target_chars: None,
-            min_length_ratio_percent: 35,
-            max_length_ratio_percent: 300,
-            cjk_spacing: true,
-            cjk_punctuation: true,
-            require_sentence_final_punctuation: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1113,11 +1093,17 @@ impl CompiledQaProfile {
                         ("ratio".to_string(), ratio.to_string()),
                         (
                             "min".to_string(),
-                            self.definition.settings.min_length_ratio_percent.to_string(),
+                            self.definition
+                                .settings
+                                .min_length_ratio_percent
+                                .to_string(),
                         ),
                         (
                             "max".to_string(),
-                            self.definition.settings.max_length_ratio_percent.to_string(),
+                            self.definition
+                                .settings
+                                .max_length_ratio_percent
+                                .to_string(),
                         ),
                     ]),
                 );
@@ -2209,7 +2195,10 @@ mod tests {
         assert_eq!(finding.severity, QaSeverity::Warning);
         assert_eq!(finding.category, QaCategory::Behavior);
         assert_eq!(finding.params.get("score"), Some(&"87".to_string()));
-        assert_eq!(finding.evidence.target_values, vec!["保存文件。".to_string()]);
+        assert_eq!(
+            finding.evidence.target_values,
+            vec!["保存文件。".to_string()]
+        );
     }
 
     #[test]

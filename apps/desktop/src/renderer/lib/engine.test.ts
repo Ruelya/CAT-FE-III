@@ -7,6 +7,7 @@ import {
   isAiNotConfigured,
   isEngineUnavailable,
   isExportBlocked,
+  qaGateBlock,
 } from "./engine.js";
 
 function installBridge(invoke: DesktopApi["invoke"]): void {
@@ -64,6 +65,50 @@ describe("isExportBlocked", () => {
       false,
     );
     expect(isExportBlocked(new Error("exportBlocked"))).toBe(false);
+  });
+});
+
+describe("qaGateBlock", () => {
+  it("carries RpcError.data through callEngine and parses the gate payload", async () => {
+    installBridge(
+      vi.fn().mockResolvedValue({
+        ok: false,
+        error: {
+          code: "exportBlocked",
+          message: "export blocked: 2 error-severity QA issue(s) are open",
+          data: {
+            reason: "qaGate",
+            openErrors: 2,
+            ruleIds: ["qa.number-mismatch", "qa.term-missing:t1"],
+          },
+        },
+      }),
+    );
+    const failure = await callEngine("document.export", {
+      documentId: "d1",
+      outputPath: "/tmp/out.txt",
+    }).catch((error: unknown) => error);
+    expect(qaGateBlock(failure)).toEqual({
+      openErrors: 2,
+      ruleIds: ["qa.number-mismatch", "qa.term-missing:t1"],
+    });
+  });
+
+  it("returns null for the plain destination-exists refusal and foreign errors", () => {
+    expect(
+      qaGateBlock(
+        new EngineClientError("exportBlocked", "output path already exists"),
+      ),
+    ).toBeNull();
+    expect(
+      qaGateBlock(
+        new EngineClientError("exportBlocked", "?", { reason: "other" }),
+      ),
+    ).toBeNull();
+    expect(
+      qaGateBlock(new EngineClientError("conflict", "?", { reason: "qaGate" })),
+    ).toBeNull();
+    expect(qaGateBlock(new Error("qaGate"))).toBeNull();
   });
 });
 

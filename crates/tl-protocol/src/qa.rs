@@ -1,8 +1,10 @@
 //! QA domain: deterministic checks over document segments.
 
+use std::collections::BTreeMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tl_domain::QaIssue;
+use tl_domain::{QaIssue, QaRuleSettings, QaSeverity};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -93,4 +95,66 @@ pub struct QaWaiveResult {
     /// Every issue the call changed, straight from the store. Clients
     /// replace their copies of these rows wholesale.
     pub issues: Vec<QaIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaProfileGetParams {
+    pub project_id: String,
+}
+
+/// The QA profile the engine will actually run for one project: the
+/// resolved built-in base plus the project-level overrides layered on it.
+/// Built-in profiles are immutable; the project layer is a clone-then-
+/// override (memoQ convention), stored in the project configuration.
+///
+/// Returned by both `qa.profile.get` and `qa.profile.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaProfileView {
+    /// The built-in profile the project resolves to (configured id when it
+    /// names a built-in, otherwise the target-locale default).
+    pub base_profile_id: String,
+    /// Project-level severity remaps (rule id → severity), layered over the
+    /// base profile's table. Built-in profiles ship without remaps, so this
+    /// is also the effective table.
+    pub severity_overrides: BTreeMap<String, QaSeverity>,
+    /// Effective settings: the project replacement when one is stored,
+    /// otherwise the base profile's own values.
+    pub settings: QaRuleSettings,
+    /// Whether `document.export` refuses while error-severity open issues
+    /// exist. Off by default.
+    pub block_export_on_error: bool,
+    /// Project revision, for `qa.profile.update` optimistic concurrency.
+    pub revision: u64,
+}
+
+/// `qa.profile.update` — write the project-level QA overrides. Omitted
+/// fields keep their stored values; provided fields replace them wholesale
+/// (`severityOverrides: {}` clears every remap). The engine compiles the
+/// merged profile before storing anything, so a configuration that cannot
+/// run is rejected instead of persisted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaProfileUpdateParams {
+    pub project_id: String,
+    /// Optimistic concurrency: must match the project's current revision.
+    pub base_revision: u64,
+    /// Replacement severity remap table. Keys must be rule ids
+    /// (`qa.`-prefixed, including parameterized `qa.term-*:<id>` /
+    /// `qa.regex:<id>` forms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity_overrides: Option<BTreeMap<String, QaSeverity>>,
+    /// Replacement settings. `null` inside the option is not expressible —
+    /// send `clearSettings: true` to drop the project replacement and
+    /// return to the base profile's values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<QaRuleSettings>,
+    /// Drop the stored settings replacement (mutually exclusive with
+    /// `settings`).
+    #[serde(default)]
+    pub clear_settings: bool,
+    /// Toggle the export gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_export_on_error: Option<bool>,
 }

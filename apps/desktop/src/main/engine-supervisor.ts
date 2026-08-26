@@ -34,6 +34,8 @@ export class EngineRpcError extends Error {
   constructor(
     public readonly code: string,
     message: string,
+    /** Structured payload from `RpcError.data`; undefined for most errors. */
+    public readonly data?: unknown,
   ) {
     super(message);
     this.name = "EngineRpcError";
@@ -275,12 +277,13 @@ export class EngineSupervisor {
       clearTimeout(entry.timer);
       this.pending.delete(id);
       const error = value.error as
-        { code?: string; message?: string } | null | undefined;
+        { code?: string; message?: string; data?: unknown } | null | undefined;
       if (error) {
         entry.reject(
           new EngineRpcError(
             error.code ?? "internal",
             error.message ?? "engine returned an error",
+            error.data,
           ),
         );
       } else {

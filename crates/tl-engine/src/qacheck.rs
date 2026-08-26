@@ -30,9 +30,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tl_asset::TermEntry;
-use tl_domain::{NumberEvidence, Project, QaIssue, QaIssueStatus, Segment, SegmentState, new_id};
+use tl_domain::{
+    NumberEvidence, Project, QaIssue, QaIssueStatus, QaProfileOverrides, QaSeverity, Segment,
+    SegmentState, new_id,
+};
 use tl_protocol::{
-    QaListParams, QaListResult, QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
+    QaListParams, QaListResult, QaProfileGetParams, QaProfileUpdateParams, QaProfileView,
+    QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
 };
 use tl_qa::{
     CompiledQaProfile, QaCandidateEvidence, QaConsistencySegment, QaFindingCandidate,
@@ -232,10 +236,24 @@ impl Engine {
     }
 
     /// The project's effective QA profile: the configured id when it names
-    /// a built-in profile, otherwise the locale default.
+    /// a built-in profile, otherwise the locale default, with the project's
+    /// stored overrides (severity remaps, settings replacement) layered on
+    /// top. Built-in profiles stay immutable; the project layer is a
+    /// clone-then-override.
     fn compiled_profile(
         project: &Project,
     ) -> Result<(QaProfileDefinition, CompiledQaProfile), EngineError> {
+        let definition = Self::effective_profile_definition(project)?;
+        let profile = CompiledQaProfile::compile(definition.clone())
+            .map_err(|error| EngineError::Internal(error.to_string()))?;
+        Ok((definition, profile))
+    }
+
+    /// Resolve the built-in base profile and apply the project overrides,
+    /// without compiling. Shared by [`Engine::compiled_profile`] and the
+    /// `qa.profile.*` endpoints so reads, writes, and runs all agree on the
+    /// merge.
+    fn effective_profile_definition(project: &Project) -> Result<QaProfileDefinition, EngineError> {
         let profiles = built_in_profiles();
         let profile_id = project
             .configuration
@@ -243,14 +261,162 @@ impl Engine {
             .as_deref()
             .filter(|id| profiles.iter().any(|profile| profile.id == *id))
             .unwrap_or_else(|| default_profile_id(&project.target_locale));
-        let definition = profiles
+        let mut definition = profiles
             .iter()
             .find(|profile| profile.id == profile_id)
             .cloned()
             .ok_or_else(|| EngineError::Internal(format!("missing QA profile {profile_id}")))?;
-        let profile = CompiledQaProfile::compile(definition.clone())
-            .map_err(|error| EngineError::Internal(error.to_string()))?;
-        Ok((definition, profile))
+        if let Some(overrides) = &project.configuration.qa_profile {
+            definition
+                .severity_overrides
+                .extend(overrides.severity_overrides.clone());
+            if let Some(settings) = &overrides.settings {
+                definition.settings = settings.clone();
+            }
+        }
+        Ok(definition)
+    }
+
+    /// `qa.profile.get`: the profile the engine will actually run for this
+    /// project — resolved base id, effective severity remaps and settings,
+    /// the export-gate flag, and the project revision for the update call.
+    pub(crate) fn qa_profile_get(
+        &self,
+        params: QaProfileGetParams,
+    ) -> Result<QaProfileView, EngineError> {
+        let project = self.require_project(&params.project_id)?;
+        Self::profile_view(project)
+    }
+
+    /// `qa.profile.update`: write the project-level overrides. Provided
+    /// fields replace the stored values wholesale; omitted fields keep them.
+    /// The merged profile is compiled before anything is stored, so a
+    /// configuration that cannot run is refused instead of persisted.
+    pub(crate) fn qa_profile_update(
+        &mut self,
+        params: QaProfileUpdateParams,
+    ) -> Result<QaProfileView, EngineError> {
+        let project = self.require_project(&params.project_id)?.clone();
+        if params.base_revision != project.revision {
+            return Err(EngineError::Conflict(format!(
+                "project revision is {}, request was based on {}",
+                project.revision, params.base_revision
+            )));
+        }
+        if params.clear_settings && params.settings.is_some() {
+            return Err(EngineError::InvalidParams(
+                "settings and clearSettings are contradictory; provide at most one".to_string(),
+            ));
+        }
+        if let Some(overrides) = &params.severity_overrides {
+            for rule_id in overrides.keys() {
+                if !rule_id.starts_with("qa.") {
+                    return Err(EngineError::InvalidParams(format!(
+                        "severity override key {rule_id} is not a rule id (expected a qa. prefix)"
+                    )));
+                }
+            }
+        }
+
+        let mut stored = project.configuration.qa_profile.clone().unwrap_or_default();
+        if let Some(overrides) = params.severity_overrides {
+            stored.severity_overrides = overrides;
+        }
+        if params.clear_settings {
+            stored.settings = None;
+        } else if let Some(settings) = params.settings {
+            stored.settings = Some(settings);
+        }
+        if let Some(block) = params.block_export_on_error {
+            stored.block_export_on_error = block;
+        }
+        // Never store a default overrides blob: an all-default layer is the
+        // same as no layer, and `None` keeps old configs byte-stable.
+        let qa_profile = (stored != QaProfileOverrides::default()).then_some(stored);
+
+        // Compile the merged result before writing: a profile that cannot
+        // run (e.g. min ratio above max) is rejected here, not at the next
+        // qa.run.
+        let mut candidate = project.clone();
+        candidate.configuration.qa_profile = qa_profile.clone();
+        let definition = Self::effective_profile_definition(&candidate)?;
+        CompiledQaProfile::compile(definition)
+            .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
+
+        if candidate.configuration == project.configuration {
+            return Self::profile_view(&project);
+        }
+        let now = now_ms();
+        let updated = {
+            let entry = self
+                .state
+                .projects
+                .get_mut(&params.project_id)
+                .expect("project just resolved");
+            entry.configuration.qa_profile = qa_profile;
+            entry.revision += 1;
+            entry.updated_at_ms = now;
+            entry.clone()
+        };
+        self.store.apply(&StateDelta {
+            projects: vec![updated.clone()],
+            ..Default::default()
+        })?;
+        Self::profile_view(&updated)
+    }
+
+    fn profile_view(project: &Project) -> Result<QaProfileView, EngineError> {
+        let definition = Self::effective_profile_definition(project)?;
+        let overrides = project.configuration.qa_profile.clone().unwrap_or_default();
+        Ok(QaProfileView {
+            // The merged definition keeps the base id; report that as base.
+            base_profile_id: definition.id,
+            severity_overrides: definition.severity_overrides,
+            settings: definition.settings,
+            block_export_on_error: overrides.block_export_on_error,
+            revision: project.revision,
+        })
+    }
+
+    /// The QA export gate: re-check the document (a full `qa.run`, persisted
+    /// like any run) and refuse with structured `exportBlocked` data while
+    /// error-severity open issues exist. Waived rows never block — waiving
+    /// is exactly the recorded human decision to accept a finding.
+    pub(crate) fn enforce_qa_export_gate(&mut self, document_id: &str) -> Result<(), EngineError> {
+        let run = self.qa_run(QaRunParams {
+            document_id: document_id.to_string(),
+        })?;
+        let blocking: Vec<&QaIssue> = run
+            .issues
+            .iter()
+            .filter(|issue| {
+                issue.status == QaIssueStatus::Open && issue.severity == QaSeverity::Error
+            })
+            .collect();
+        if blocking.is_empty() {
+            return Ok(());
+        }
+        let mut rule_ids: Vec<&str> = Vec::new();
+        for issue in &blocking {
+            if !rule_ids.contains(&issue.rule_id.as_str()) {
+                rule_ids.push(&issue.rule_id);
+            }
+            if rule_ids.len() == 3 {
+                break;
+            }
+        }
+        Err(EngineError::QaGateBlocked {
+            message: format!(
+                "{} error-severity QA issue(s) are open; first rules: {}",
+                blocking.len(),
+                rule_ids.join(", ")
+            ),
+            data: serde_json::json!({
+                "reason": "qaGate",
+                "openErrors": blocking.len(),
+                "ruleIds": rule_ids,
+            }),
+        })
     }
 
     /// `qa.waive`: record a human decision on findings. Waiving flips open

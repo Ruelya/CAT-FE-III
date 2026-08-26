@@ -615,6 +615,13 @@
         "outputPath": {
           "type": "string"
         },
+        "overrideQaGate": {
+          "description": "Pass the QA export gate this once. When the project's QA profile has\n`blockExportOnError`, the engine re-checks the document before\nexporting and refuses with `exportBlocked` (error `data.reason` =\n`\"qaGate\"`, plus open-error count and leading rule ids) while\nerror-severity open issues exist. Same honest pattern as `overwrite`:\nrefuse → the user decides explicitly → pass. Defaults to false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "overwrite": {
           "description": "Replace an existing destination file (staged sibling temp + atomic\nrename). Defaults to false: the export is refused with `exportBlocked`\nwhen the path exists. Even with overwrite, the engine refuses paths\ninside its own managed data directory — it cannot tell who owns an\narbitrary file on disk, but its own project data it can protect.",
           "type": [
@@ -1479,10 +1486,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiConfigureParams"
+          "$ref": "#/$defs/QaProfileGetParams"
         },
         "result": {
-          "$ref": "#/$defs/AiStatusResult"
+          "$ref": "#/$defs/QaProfileView"
         }
       },
       "additionalProperties": false,
@@ -1496,10 +1503,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiStatusParams"
+          "$ref": "#/$defs/QaProfileUpdateParams"
         },
         "result": {
-          "$ref": "#/$defs/AiStatusResult"
+          "$ref": "#/$defs/QaProfileView"
         }
       },
       "additionalProperties": false,
@@ -1530,10 +1537,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistParams"
+          "$ref": "#/$defs/AiConfigureParams"
         },
         "result": {
-          "$ref": "#/$defs/AiAssistRunView"
+          "$ref": "#/$defs/AiStatusResult"
         }
       },
       "additionalProperties": false,
@@ -1547,10 +1554,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistStatusParams"
+          "$ref": "#/$defs/AiStatusParams"
         },
         "result": {
-          "$ref": "#/$defs/AiAssistRunView"
+          "$ref": "#/$defs/AiStatusResult"
         }
       },
       "additionalProperties": false,
@@ -1564,7 +1571,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistCancelParams"
+          "$ref": "#/$defs/AiAssistParams"
         },
         "result": {
           "$ref": "#/$defs/AiAssistRunView"
@@ -1581,6 +1588,40 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiAssistStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract44": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract45": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
@@ -1593,7 +1634,7 @@
         "result"
       ]
     },
-    "MethodContract44": {
+    "MethodContract46": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1610,7 +1651,7 @@
         "result"
       ]
     },
-    "MethodContract45": {
+    "MethodContract47": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1888,6 +1929,17 @@
             "null"
           ],
           "default": null
+        },
+        "qaProfile": {
+          "description": "Project-level QA profile overrides (severity remaps, settings, export\ngate) applied over the built-in profile named by `qa_profile_id`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QaProfileOverrides"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "qaProfileId": {
           "type": [
@@ -2179,6 +2231,178 @@
         "total"
       ]
     },
+    "QaProfileGetParams": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "QaProfileOverrides": {
+      "description": "Project-level QA profile overrides, applied over the resolved built-in\nprofile (memoQ convention: built-ins are immutable, the project layer is\na clone-then-override). Absent overrides mean the built-in profile runs\nexactly as shipped.",
+      "type": "object",
+      "properties": {
+        "blockExportOnError": {
+          "description": "Export gate: `document.export` refuses while error-severity open\nissues exist (an explicit `overrideQaGate` lets the user pass).\nOff by default — the gate is configured, never ambient.",
+          "type": "boolean",
+          "default": false
+        },
+        "settings": {
+          "description": "Full replacement of the base profile's tunable settings. `None`\nkeeps the base profile's own values.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QaRuleSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "severityOverrides": {
+          "description": "Per-rule severity remaps (rule id → severity) layered over the base\nprofile's table. Keys may name parameterized rules\n(`qa.term-missing:<id>`, `qa.regex:<id>`) as well as fixed ones.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/QaSeverity"
+          }
+        }
+      }
+    },
+    "QaProfileUpdateParams": {
+      "description": "`qa.profile.update` — write the project-level QA overrides. Omitted\nfields keep their stored values; provided fields replace them wholesale\n(`severityOverrides: {}` clears every remap). The engine compiles the\nmerged profile before storing anything, so a configuration that cannot\nrun is rejected instead of persisted.",
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "description": "Optimistic concurrency: must match the project's current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "blockExportOnError": {
+          "description": "Toggle the export gate.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "clearSettings": {
+          "description": "Drop the stored settings replacement (mutually exclusive with\n`settings`).",
+          "type": "boolean",
+          "default": false
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "settings": {
+          "description": "Replacement settings. `null` inside the option is not expressible —\nsend `clearSettings: true` to drop the project replacement and\nreturn to the base profile's values.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QaRuleSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "severityOverrides": {
+          "description": "Replacement severity remap table. Keys must be rule ids\n(`qa.`-prefixed, including parameterized `qa.term-*:<id>` /\n`qa.regex:<id>` forms).",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/QaSeverity"
+          }
+        }
+      },
+      "required": [
+        "projectId",
+        "baseRevision"
+      ]
+    },
+    "QaProfileView": {
+      "description": "The QA profile the engine will actually run for one project: the\nresolved built-in base plus the project-level overrides layered on it.\nBuilt-in profiles are immutable; the project layer is a clone-then-\noverride (memoQ convention), stored in the project configuration.\n\nReturned by both `qa.profile.get` and `qa.profile.update`.",
+      "type": "object",
+      "properties": {
+        "baseProfileId": {
+          "description": "The built-in profile the project resolves to (configured id when it\nnames a built-in, otherwise the target-locale default).",
+          "type": "string"
+        },
+        "blockExportOnError": {
+          "description": "Whether `document.export` refuses while error-severity open issues\nexist. Off by default.",
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "Project revision, for `qa.profile.update` optimistic concurrency.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "settings": {
+          "description": "Effective settings: the project replacement when one is stored,\notherwise the base profile's own values.",
+          "$ref": "#/$defs/QaRuleSettings"
+        },
+        "severityOverrides": {
+          "description": "Project-level severity remaps (rule id → severity), layered over the\nbase profile's table. Built-in profiles ship without remaps, so this\nis also the effective table.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/QaSeverity"
+          }
+        }
+      },
+      "required": [
+        "baseProfileId",
+        "severityOverrides",
+        "settings",
+        "blockExportOnError",
+        "revision"
+      ]
+    },
+    "QaRuleSettings": {
+      "description": "Tunable knobs of a QA profile (thresholds and locale-convention toggles).\nLives in the domain crate because project configuration stores a\nproject-level replacement of these values.",
+      "type": "object",
+      "properties": {
+        "cjkPunctuation": {
+          "type": "boolean"
+        },
+        "cjkSpacing": {
+          "type": "boolean"
+        },
+        "maxLengthRatioPercent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "maxTargetChars": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "minLengthRatioPercent": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "requireSentenceFinalPunctuation": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "minLengthRatioPercent",
+        "maxLengthRatioPercent",
+        "cjkSpacing",
+        "cjkPunctuation",
+        "requireSentenceFinalPunctuation"
+      ]
+    },
     "QaRunParams": {
       "type": "object",
       "properties": {
@@ -2325,28 +2549,28 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract45"
+          "$ref": "#/$defs/MethodContract47"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract43"
+          "$ref": "#/$defs/MethodContract45"
         },
         "ai.agent.status": {
-          "$ref": "#/$defs/MethodContract44"
+          "$ref": "#/$defs/MethodContract46"
         },
         "ai.assist.cancel": {
-          "$ref": "#/$defs/MethodContract42"
+          "$ref": "#/$defs/MethodContract44"
         },
         "ai.assist.start": {
-          "$ref": "#/$defs/MethodContract40"
+          "$ref": "#/$defs/MethodContract42"
         },
         "ai.assist.status": {
-          "$ref": "#/$defs/MethodContract41"
+          "$ref": "#/$defs/MethodContract43"
         },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract38"
+          "$ref": "#/$defs/MethodContract40"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract39"
+          "$ref": "#/$defs/MethodContract41"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract11"
@@ -2383,6 +2607,12 @@
         },
         "qa.list": {
           "$ref": "#/$defs/MethodContract36"
+        },
+        "qa.profile.get": {
+          "$ref": "#/$defs/MethodContract38"
+        },
+        "qa.profile.update": {
+          "$ref": "#/$defs/MethodContract39"
         },
         "qa.run": {
           "$ref": "#/$defs/MethodContract35"
@@ -2499,6 +2729,8 @@
         "qa.run",
         "qa.list",
         "qa.waive",
+        "qa.profile.get",
+        "qa.profile.update",
         "ai.configure",
         "ai.status",
         "ai.assist.start",

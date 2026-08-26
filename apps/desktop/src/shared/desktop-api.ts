@@ -3,6 +3,8 @@
 export interface EngineRpcErrorShape {
   code: string;
   message: string;
+  /** Structured error payload (`RpcError.data`), passed through verbatim. */
+  data?: unknown;
 }
 
 export type EngineInvokeResponse =

@@ -3362,3 +3362,235 @@ fn confirming_an_unedited_fuzzy_match_opens_a_behavioral_warning() {
         "tmExact confirms never fire the fuzzy behavioral check"
     );
 }
+
+/// qa.profile.get/update: the project layer clones and overrides the
+/// built-in profile — severity remaps flow into qa.run results, settings
+/// that cannot compile are refused instead of stored, stale revisions
+/// conflict, and the stored overrides survive a restart.
+#[test]
+fn qa_profile_overrides_remap_severity_and_guard_updates() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "profile.txt", "The amount is 30.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+    harness.set_target(&segment, "金额是 40。");
+
+    // Fresh project: the zh-CN default base, no remaps, gate off.
+    let view = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(view["baseProfileId"], "builtin.qa.cjk-professional");
+    assert_eq!(view["severityOverrides"], json!({}));
+    assert_eq!(view["blockExportOnError"], false);
+    assert_eq!(view["settings"]["minLengthRatioPercent"], 35);
+    let revision = view["revision"].as_u64().expect("revision");
+
+    // Guards: stale revision, non-rule keys, uncompilable settings, and
+    // contradictory settings/clearSettings all refuse without storing.
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision + 7,
+                "blockExportOnError": true,
+            })
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "severityOverrides": { "not-a-rule": "warning" },
+            })
+        ),
+        "invalidParams"
+    );
+    let mut broken_settings = view["settings"].clone();
+    broken_settings["minLengthRatioPercent"] = json!(500);
+    broken_settings["maxLengthRatioPercent"] = json!(100);
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "settings": broken_settings,
+            })
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "settings": view["settings"],
+                "clearSettings": true,
+            })
+        ),
+        "invalidParams"
+    );
+    let unchanged = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(unchanged["revision"].as_u64(), Some(revision));
+
+    // Remap number-mismatch to warning: the next run reports the remapped
+    // severity on the same finding.
+    let updated = harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": revision,
+            "severityOverrides": { "qa.number-mismatch": "warning" },
+        }),
+    );
+    assert_eq!(
+        updated["severityOverrides"]["qa.number-mismatch"],
+        "warning"
+    );
+    let bumped = updated["revision"].as_u64().expect("revision");
+    assert!(bumped > revision, "a stored override bumps the revision");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let mismatch = run["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.number-mismatch")
+        .expect("number mismatch issue")
+        .clone();
+    assert_eq!(mismatch["severity"], "warning");
+
+    // The overrides live on the project row: a restart keeps them.
+    harness.reopen();
+    let reloaded = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(
+        reloaded["severityOverrides"]["qa.number-mismatch"],
+        "warning"
+    );
+    assert_eq!(reloaded["revision"].as_u64(), Some(bumped));
+
+    // Clearing the remaps restores the built-in severity.
+    let cleared = harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": bumped,
+            "severityOverrides": {},
+        }),
+    );
+    assert_eq!(cleared["severityOverrides"], json!({}));
+    let rerun = harness.call("qa.run", json!({ "documentId": document_id }));
+    let mismatch = rerun["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.number-mismatch")
+        .expect("number mismatch issue")
+        .clone();
+    assert_eq!(mismatch["severity"], "error");
+}
+
+/// The QA export gate (PRD S3 ②): off by default, refuses with structured
+/// `exportBlocked` data while error-severity open issues exist, lets an
+/// explicit override or a recorded waiver through, and runs before the
+/// destination-exists check.
+#[test]
+fn export_gate_blocks_open_errors_until_override_or_waiver() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "gate.txt", "The amount is 30.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+    harness.set_target(&segment, "金额是 40。");
+
+    // Default: no gate. The export goes through with the open error.
+    let plain_path = harness.path_of("gate-plain.txt");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+
+    // Enable the gate.
+    let view = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": view["revision"],
+            "blockExportOnError": true,
+        }),
+    );
+
+    // The gate refuses with the count and rule ids in message and data, and
+    // writes nothing.
+    let gated_path = harness.path_of("gate-blocked.txt");
+    let refusal = harness.raw(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": gated_path }),
+    );
+    let error = refusal.error.expect("gate refusal");
+    assert_eq!(
+        serde_json::to_value(error.code).expect("code"),
+        json!("exportBlocked")
+    );
+    assert!(
+        error.message.contains("qa.number-mismatch"),
+        "{}",
+        error.message
+    );
+    let data = error.data.expect("gate data");
+    assert_eq!(data["reason"], "qaGate");
+    assert_eq!(data["openErrors"], 1);
+    assert_eq!(data["ruleIds"], json!(["qa.number-mismatch"]));
+    assert!(
+        !std::path::Path::new(&gated_path).exists(),
+        "a refused export writes nothing"
+    );
+
+    // The explicit override is the user's decision: the export proceeds.
+    harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": gated_path,
+            "overrideQaGate": true,
+        }),
+    );
+    assert!(std::path::Path::new(&gated_path).exists());
+
+    // The gate runs before the destination check: exporting onto the file
+    // just written still reports the QA refusal first, and an override then
+    // surfaces the plain destination-exists refusal (no qaGate data).
+    let layered = harness.raw(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": gated_path }),
+    );
+    assert_eq!(
+        layered.error.expect("qa refusal").data.expect("data")["reason"],
+        "qaGate"
+    );
+    let exists = harness.raw(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": gated_path,
+            "overrideQaGate": true,
+        }),
+    );
+    let exists_error = exists.error.expect("destination refusal");
+    assert!(exists_error.data.is_none());
+    assert!(exists_error.message.contains("already exists"));
+
+    // Waiving the finding is the recorded acceptance: the gate opens
+    // without any override.
+    let issues = harness.call("qa.list", json!({ "documentId": document_id }));
+    let issue_id = issues["issues"][0]["id"].as_str().expect("issue id");
+    harness.call("qa.waive", json!({ "issueId": issue_id, "waived": true }));
+    let waived_path = harness.path_of("gate-waived.txt");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": waived_path }),
+    );
+    assert!(std::path::Path::new(&waived_path).exists());
+}

@@ -82,6 +82,14 @@ pub enum EngineError {
     Filter(#[from] FilterError),
     #[error("export blocked: {0}")]
     ExportBlocked(String),
+    /// The QA export gate refused: same `exportBlocked` wire code as the
+    /// destination-exists refusal, but with structured `data` so clients can
+    /// offer the matching decision (override the gate vs overwrite a file).
+    #[error("export blocked: {message}")]
+    QaGateBlocked {
+        message: String,
+        data: serde_json::Value,
+    },
     #[error("AI provider is not configured")]
     AiNotConfigured,
     #[error("AI call failed: {0}")]
@@ -100,6 +108,7 @@ impl EngineError {
             Self::Conflict(_) => RpcErrorCode::Conflict,
             Self::Filter(_) => RpcErrorCode::FilterFailed,
             Self::ExportBlocked(_) => RpcErrorCode::ExportBlocked,
+            Self::QaGateBlocked { .. } => RpcErrorCode::ExportBlocked,
             Self::AiNotConfigured => RpcErrorCode::AiNotConfigured,
             Self::AiFailed(_) => RpcErrorCode::AiFailed,
             Self::Io(_) => RpcErrorCode::Io,
@@ -111,7 +120,10 @@ impl EngineError {
         RpcError {
             code: self.code(),
             message: self.to_string(),
-            data: None,
+            data: match self {
+                Self::QaGateBlocked { data, .. } => Some(data.clone()),
+                _ => None,
+            },
         }
     }
 }
@@ -353,6 +365,8 @@ impl Engine {
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),
             methods::QA_LIST => to_value(self.qa_list(parse(params)?)?),
             methods::QA_WAIVE => to_value(self.qa_waive(parse(params)?)?),
+            methods::QA_PROFILE_GET => to_value(self.qa_profile_get(parse(params)?)?),
+            methods::QA_PROFILE_UPDATE => to_value(self.qa_profile_update(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
             methods::AI_STATUS => to_value(self.ai_status()),
             methods::AI_ASSIST_START => to_value(self.ai_assist_start(parse(params)?)?),
@@ -869,6 +883,23 @@ impl Engine {
         &mut self,
         params: DocumentExportParams,
     ) -> Result<DocumentExportResult, EngineError> {
+        let record = self.require_document(&params.document_id)?;
+        // QA export gate (PRD S3 ②): when the project profile opts in, the
+        // document is re-checked before anything touches disk, and
+        // error-severity open issues refuse the export. The gate precedes
+        // the destination check — no point negotiating an overwrite for a
+        // file the gate would never write. `overrideQaGate: true` is the
+        // user's explicit decision to export anyway.
+        let gate_enabled = self
+            .require_project(&record.document.project_id)?
+            .configuration
+            .qa_profile
+            .as_ref()
+            .is_some_and(|overrides| overrides.block_export_on_error);
+        if gate_enabled && !params.override_qa_gate.unwrap_or(false) {
+            let document_id = record.document.id.clone();
+            self.enforce_qa_export_gate(&document_id)?;
+        }
         let record = self.require_document(&params.document_id)?;
         let output = PathBuf::from(&params.output_path);
         let replace_existing = output.exists();

@@ -112,6 +112,8 @@ class EngineFailure {
   constructor(
     public readonly code: string,
     public readonly message: string,
+    /** Structured `RpcError.data`, e.g. the QA gate refusal payload. */
+    public readonly data?: unknown,
   ) {}
 }
 
@@ -151,7 +153,7 @@ function installBridge(
       if (value instanceof EngineFailure) {
         return Promise.resolve({
           ok: false,
-          error: { code: value.code, message: value.message },
+          error: { code: value.code, message: value.message, data: value.data },
         });
       }
       return Promise.resolve({ ok: true, result: value });
@@ -2248,6 +2250,172 @@ describe("WorkbenchView export overwrite confirm", () => {
     // Only the refused no-clobber call ever reached the engine.
     expect(exportCalls).toHaveLength(1);
     expect(onStatusMessage).toHaveBeenCalledWith("已取消导出");
+  });
+});
+
+describe("WorkbenchView QA export gate", () => {
+  const GATE_FAILURE = new EngineFailure(
+    "exportBlocked",
+    "export blocked: 2 error-severity QA issue(s) are open; first rules: qa.number-mismatch, qa.tag-placeholder_missing",
+    {
+      reason: "qaGate",
+      openErrors: 2,
+      ruleIds: ["qa.number-mismatch", "qa.tag-placeholder_missing"],
+    },
+  );
+
+  /** Bridge where the QA gate blocks the plain export until overridden. */
+  function installGateBridge() {
+    const handlers = baseHandlers();
+    const exportCalls: unknown[] = [];
+    handlers["document.export"] = (params) => {
+      exportCalls.push(params);
+      if ((params as { overrideQaGate?: boolean }).overrideQaGate !== true) {
+        return GATE_FAILURE;
+      }
+      return {
+        outputPath: "/tmp/out.txt",
+        translatedSegments: 1,
+        degradation: [],
+      };
+    };
+    const bridge = installBridge(handlers);
+    bridge.chooseExportPath.mockResolvedValue("/tmp/out.txt");
+    return { bridge, exportCalls };
+  }
+
+  it("surfaces the gate refusal and retries with overrideQaGate only after 仍要导出", async () => {
+    const { exportCalls } = installGateBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+
+    // The refusal is a question with the engine's own numbers, not a toast.
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "存在 QA 错误，仍要导出吗？",
+    });
+    expect(prompt).toHaveTextContent("2 个错误未解决");
+    expect(prompt).toHaveTextContent(
+      "qa.number-mismatch、qa.tag-placeholder_missing",
+    );
+    expect(exportCalls).toHaveLength(1);
+    expect(exportCalls[0]).not.toHaveProperty("overrideQaGate");
+    expect(
+      onStatusMessage.mock.calls.some(([message]) =>
+        String(message).includes("导出失败"),
+      ),
+    ).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "仍要导出" }));
+    await waitFor(() => {
+      expect(exportCalls).toHaveLength(2);
+    });
+    expect(exportCalls[1]).toMatchObject({
+      documentId: "d1",
+      outputPath: "/tmp/out.txt",
+      overrideQaGate: true,
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "导出完成：/tmp/out.txt（1 个已译单元）",
+      );
+    });
+    expect(
+      screen.queryByRole("alertdialog", { name: "存在 QA 错误，仍要导出吗？" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("取消 sends no override call and keeps the findings in view", async () => {
+    const { exportCalls } = installGateBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+    await screen.findByRole("alertdialog", {
+      name: "存在 QA 错误，仍要导出吗？",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(
+      screen.queryByRole("alertdialog", { name: "存在 QA 错误，仍要导出吗？" }),
+    ).not.toBeInTheDocument();
+    // Only the refused gate call ever reached the engine.
+    expect(exportCalls).toHaveLength(1);
+    expect(onStatusMessage).toHaveBeenCalledWith("已取消导出");
+  });
+
+  it("carries the gate decision through a destination-exists overwrite", async () => {
+    const handlers = baseHandlers();
+    const exportCalls: {
+      overrideQaGate?: boolean;
+      overwrite?: boolean;
+    }[] = [];
+    handlers["document.export"] = (params) => {
+      const typed = params as { overrideQaGate?: boolean; overwrite?: boolean };
+      exportCalls.push(typed);
+      if (typed.overrideQaGate !== true) {
+        return GATE_FAILURE;
+      }
+      if (typed.overwrite !== true) {
+        return new EngineFailure(
+          "exportBlocked",
+          "output path already exists: /tmp/out.txt",
+        );
+      }
+      return {
+        outputPath: "/tmp/out.txt",
+        translatedSegments: 1,
+        degradation: [],
+      };
+    };
+    const bridge = installBridge(handlers);
+    bridge.chooseExportPath.mockResolvedValue("/tmp/out.txt");
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+
+    // Gate first (the engine checks QA before the destination), then the
+    // plain destination question; the final retry carries both decisions.
+    await screen.findByRole("alertdialog", {
+      name: "存在 QA 错误，仍要导出吗？",
+    });
+    await userEvent.click(screen.getByRole("button", { name: "仍要导出" }));
+    await screen.findByRole("alertdialog", {
+      name: "目标已存在，要覆盖吗？",
+    });
+    await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
+    await waitFor(() => {
+      expect(exportCalls).toHaveLength(3);
+    });
+    expect(exportCalls[2]).toMatchObject({
+      overrideQaGate: true,
+      overwrite: true,
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "导出完成（已覆盖）：/tmp/out.txt（1 个已译单元）",
+      );
+    });
   });
 });
 
