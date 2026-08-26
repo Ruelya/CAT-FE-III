@@ -1,6 +1,11 @@
 /* INSTRUMENT base controls. Flat, dense, hairline-bordered. */
 
-/* Shared entrance keyframes: small amplitude, decelerating, causal. */
+/*
+ * Motion budget (the only sanctioned attachment points):
+ * dialog/overlay entrance (tl-fade-in backdrop + tl-rise-in surface),
+ * engine busy pulse (tl-pulse), progress width transitions, and the
+ * 120ms hover/focus color transitions on controls. Nothing else animates.
+ */
 @keyframes tl-fade-in {
   from {
     opacity: 0;
@@ -18,17 +23,6 @@
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes tl-slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -73,7 +67,8 @@
 
 .tl-button[data-size="sm"] {
   font-size: var(--tl-text-sm);
-  padding: 4px 8px;
+  padding: 3px 8px;
+  min-height: var(--tl-ctl-h-sm);
 }
 
 .tl-button[data-variant="primary"] {
@@ -183,7 +178,7 @@ textarea.tl-field__control {
   line-height: 1;
   padding: 3px 6px;
   border-radius: var(--tl-radius-sm);
-  border: 1px solid var(--tl-color-border);
+  border: var(--tl-border-hairline);
   background: var(--tl-color-sunken);
   color: var(--tl-color-text-muted);
   white-space: nowrap;
@@ -213,15 +208,20 @@ textarea.tl-field__control {
   color: var(--tl-status-danger);
 }
 
+/* Panels are flat regions split by hairlines; the raised floating look is
+   an explicit opt-in, never the default. */
 .tl-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--tl-color-surface);
-  border: 1px solid var(--tl-color-border);
-  border-radius: var(--tl-radius-md);
   overflow: hidden;
-  box-shadow: var(--tl-shadow-raised);
+}
+
+.tl-panel[data-raised="true"] {
+  background: var(--tl-color-surface-raised);
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-md);
 }
 
 .tl-panel__header {
@@ -230,7 +230,7 @@ textarea.tl-field__control {
   justify-content: space-between;
   gap: var(--tl-space-3);
   padding: var(--tl-space-3) var(--tl-space-4);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   background: var(--tl-color-sunken);
 }
 
@@ -290,30 +290,24 @@ textarea.tl-field__control {
   background: var(--tl-status-danger);
 }
 
+/* Empty state: one quiet line of text, top-left, no ceremony. */
 .tl-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--tl-space-3);
-  padding: var(--tl-space-6);
-  text-align: center;
+  padding: var(--tl-space-3) var(--tl-space-4);
+  text-align: left;
   color: var(--tl-color-text-faint);
   font-family: var(--tl-font-ui);
-  font-size: var(--tl-text-md);
-  animation: tl-fade-in var(--tl-motion-slow) var(--tl-ease-out);
+  font-size: var(--tl-text-sm);
 }
 
 .tl-empty__title {
-  font-size: var(--tl-text-md);
-  font-weight: 600;
-  color: var(--tl-color-text-muted);
+  font-size: var(--tl-text-sm);
+  font-weight: 400;
+  color: var(--tl-color-text-faint);
   margin: 0;
 }
 
 .tl-empty__hint {
-  margin: 0;
-  max-width: 340px;
+  margin: var(--tl-space-1) 0 0;
   line-height: 1.5;
 }
 
@@ -352,17 +346,17 @@ textarea.tl-field__control {
   justify-content: space-between;
   gap: var(--tl-space-3);
   padding: var(--tl-space-3) var(--tl-space-4);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   background: var(--tl-color-sunken);
 }
 
+/* Dialog titles read as sentences (13px/600); the uppercase micro-title
+   treatment is reserved for sidebar section heads and table headers. */
 .tl-dialog__title {
   font-family: var(--tl-font-ui);
-  font-size: var(--tl-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tl-color-text-muted);
+  font-size: var(--tl-text-md);
+  font-weight: 600;
+  color: var(--tl-color-text);
   margin: 0;
 }
 
@@ -379,7 +373,7 @@ textarea.tl-field__control {
   justify-content: flex-end;
   gap: var(--tl-space-3);
   padding: var(--tl-space-3) var(--tl-space-4);
-  border-top: 1px solid var(--tl-color-border);
+  border-top: var(--tl-border-hairline);
   background: var(--tl-color-surface);
 }
 
@@ -389,7 +383,7 @@ textarea.tl-field__control {
   height: 4px;
   border-radius: 2px;
   background: var(--tl-color-sunken);
-  border: 1px solid var(--tl-color-border);
+  border: var(--tl-border-hairline);
   overflow: hidden;
   vertical-align: middle;
 }
@@ -429,6 +423,63 @@ textarea.tl-field__control {
   transition: width var(--tl-motion-slow) var(--tl-ease-out);
 }
 
+/* TM match chip: score + origin abbreviation, two segments. The glyphic
+   score is the information; the tone (exact green / fuzzy blue) is the
+   second channel, never the only one. */
+.tl-match {
+  display: inline-flex;
+  align-items: stretch;
+  font-size: var(--tl-text-xs);
+  font-weight: 600;
+  line-height: 1;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tl-match__score {
+  padding: 3px 5px;
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text-muted);
+}
+
+.tl-match__origin {
+  padding: 3px 5px;
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-faint);
+  border-left: var(--tl-border-hairline);
+  letter-spacing: 0.03em;
+}
+
+.tl-match[data-tone="ok"] {
+  border-color: var(--tl-status-ok);
+}
+
+.tl-match[data-tone="ok"] .tl-match__score {
+  background: var(--tl-status-ok-soft);
+  color: var(--tl-status-ok);
+}
+
+.tl-match[data-tone="ok"] .tl-match__origin {
+  border-left-color: var(--tl-status-ok);
+  color: var(--tl-status-ok);
+}
+
+.tl-match[data-tone="accent"] {
+  border-color: var(--tl-color-accent);
+}
+
+.tl-match[data-tone="accent"] .tl-match__score {
+  background: var(--tl-color-accent-soft);
+  color: var(--tl-color-accent-strong);
+}
+
+.tl-match[data-tone="accent"] .tl-match__origin {
+  border-left-color: var(--tl-color-accent);
+  color: var(--tl-color-accent-strong);
+}
+
 /* Keyboard-shortcut chip for inline hints. */
 .tl-kbd {
   display: inline-block;
@@ -436,7 +487,7 @@ textarea.tl-field__control {
   font-size: 10px;
   line-height: 1;
   padding: 2px 4px;
-  border: 1px solid var(--tl-color-border);
+  border: var(--tl-border-hairline);
   border-bottom-width: 2px;
   border-radius: var(--tl-radius-sm);
   background: var(--tl-color-surface-raised);

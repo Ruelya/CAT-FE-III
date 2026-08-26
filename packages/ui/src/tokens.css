@@ -39,8 +39,12 @@
   --tl-color-surface: var(--tl-gray-1);
   --tl-color-surface-raised: var(--tl-gray-0);
   --tl-color-sunken: var(--tl-gray-3);
+  /* Selected row/item background: distinct from hover (sunken). */
+  --tl-color-surface-active: #f1f4fa;
   --tl-color-border: var(--tl-gray-4);
   --tl-color-border-strong: var(--tl-gray-5);
+  /* Composite hairline: the only allowed structural boundary. */
+  --tl-border-hairline: 1px solid var(--tl-color-border);
   --tl-color-text: var(--tl-gray-9);
   --tl-color-text-muted: var(--tl-gray-7);
   --tl-color-text-faint: var(--tl-gray-6);
@@ -50,11 +54,12 @@
   --tl-color-accent-faint: var(--tl-blue-accent-faint);
   --tl-color-on-accent: #ffffff;
 
-  /* Typography. */
+  /* Typography: bundled IBM Plex (fonts.css) + system CJK fallbacks. */
   --tl-font-ui:
-    "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",
+    system-ui, sans-serif;
   --tl-font-mono:
-    "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+    "IBM Plex Mono", ui-monospace, "SFMono-Regular", "Consolas", monospace;
   --tl-text-xs: 11px;
   --tl-text-sm: 12px;
   --tl-text-md: 13px;
@@ -70,6 +75,17 @@
   --tl-space-4: 12px;
   --tl-space-5: 16px;
   --tl-space-6: 24px;
+
+  /* Density: every fixed row/control height reads from here. */
+  --tl-row-h-grid: 32px;
+  --tl-row-h-list: 24px;
+  --tl-ctl-h-sm: 22px;
+  --tl-ctl-h-md: 28px;
+  --tl-icon-sm: 14px;
+  --tl-icon-md: 16px;
+  --tl-ribbon-h: 56px;
+  --tl-statusbar-h: 24px;
+  --tl-tab-h: 30px;
 
   /* Focus and overlays. */
   --tl-focus-ring:

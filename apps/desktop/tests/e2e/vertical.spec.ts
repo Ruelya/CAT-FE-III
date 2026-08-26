@@ -184,26 +184,31 @@ test("vertical slice through the workbench", async () => {
   const editor = page.getByLabel("句段 1 译文");
   await editor.fill("保留期为 30 天。");
   await editor.press("Control+Enter");
-  await expect(rows.first()).toContainText("已确认");
+  // The state column is one glyph chip whose accessible name carries the
+  // full story (never color-only, no stacked text badges).
+  await expect(
+    rows.first().locator('.segment-grid__chip[data-state="confirmed"]'),
+  ).toBeVisible();
   await expect(page.locator(".app-statusbar")).toContainText("写入 TM");
   await expect(page.getByLabel("句段 2 译文")).toBeVisible();
 
   // Re-select segment 1: the TM dock reacts to the active segment and now
-  // shows the 100% exact match written by the confirm.
+  // shows the 100 exact match written by the confirm (score + origin chip).
   await rows.first().click();
-  await expect(page.locator(".match-card").first()).toContainText("100%");
+  const bestMatch = page.locator(".match-card").first();
+  await expect(bestMatch.locator(".tl-match__score")).toHaveText("100");
+  await expect(bestMatch.locator(".tl-match__origin")).toHaveText("TM");
   await shot("03-confirmed-tm-hit.png");
 
   // Draft a wrong number in segment 2, then run the full QA library.
   // No save button: typing persists the draft automatically after the
-  // pause — the row's state badge flips to 草稿 once the engine acks it
-  // (the state cell, specifically: the editor hint also says 草稿).
+  // pause — the row's state chip flips to ✎ (草稿) once the engine acks it.
   await rows.nth(1).click();
   const editor2 = page.getByLabel("句段 2 译文");
   await editor2.fill("表中金额：1,300。");
-  await expect(rows.nth(1).locator(".segment-grid__state")).toContainText(
-    "草稿",
-  );
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
   await page.getByRole("button", { name: "QA", exact: true }).click();
   await page.getByRole("button", { name: "运行 QA" }).click();
   // The engine now runs the full rule library, so target the number issue
@@ -214,14 +219,14 @@ test("vertical slice through the workbench", async () => {
 
   // Waive the number issue: a human decision on record, not a fake resolve.
   // The card flips to 已忽略; the segment stays a draft and nothing is
-  // confirmed or written to the TM (asserted via the state badge below).
+  // confirmed or written to the TM (asserted via the state chip below).
   await numberIssue.getByRole("button", { name: "忽略" }).click();
   const waivedIssue = page.locator(".issue-card", { hasText: "1300" }).first();
   await expect(waivedIssue).toContainText("已忽略");
   await expect(page.locator(".app-statusbar")).toContainText("已忽略 QA 问题");
-  await expect(rows.nth(1).locator(".segment-grid__state")).toContainText(
-    "草稿",
-  );
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
   await shot("04b-qa-issue-waived.png");
 
   // 恢复 brings the same issue back to 未解决 for the rest of the run.
@@ -634,7 +639,8 @@ test("application menu mirrors workbench state and shortcuts", async () => {
     "翻译记忆面板",
     "QA 面板",
     "筛选句段",
-    "一致性检索（取选中文本）",
+    "命令面板",
+    "检索（取选中文本）",
   ]) {
     expect((await findMenuItem(label))?.enabled, label).toBe(true);
   }
@@ -644,12 +650,12 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   // them; menu-owned accelerators are registered normally.
   const items = await snapshotMenuItems();
   const byLabel = new Map(items.map((item) => [item.label, item]));
-  expect(byLabel.get("一致性检索（取选中文本）")?.accelerator).toBe("F3");
-  expect(byLabel.get("一致性检索（取选中文本）")?.registerAccelerator).toBe(
-    false,
-  );
+  expect(byLabel.get("检索（取选中文本）")?.accelerator).toBe("F3");
+  expect(byLabel.get("检索（取选中文本）")?.registerAccelerator).toBe(false);
   expect(byLabel.get("确认当前句段")?.registerAccelerator).toBe(false);
   expect(byLabel.get("筛选句段")?.registerAccelerator).toBe(false);
+  expect(byLabel.get("命令面板")?.accelerator).toBe("CmdOrCtrl+Shift+P");
+  expect(byLabel.get("命令面板")?.registerAccelerator).toBe(false);
   expect(byLabel.get("导入文档…")?.accelerator).toBe("CmdOrCtrl+O");
   expect(byLabel.get("导入文档…")?.registerAccelerator).toBe(true);
 
@@ -662,4 +668,23 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   await expect(page.locator(".tl-dialog")).toContainText("译文预览");
   await page.getByRole("button", { name: "关闭对话框" }).click();
   await expect(page.locator(".tl-dialog")).toHaveCount(0);
+
+  // Command palette: summon → filter → execute, keyboard only, landing on
+  // the same dispatch as the menu (the term dock opens).
+  await page.keyboard.press("Control+K");
+  const palette = page.getByRole("dialog", { name: "命令面板" });
+  await expect(palette).toBeVisible();
+  await page.getByLabel("搜索命令").fill("术语面板");
+  // Let the ~200ms rise-in settle so the screenshot shows the palette.
+  await page.waitForTimeout(300);
+  await shot("15-command-palette.png");
+  await page.keyboard.press("Enter");
+  await expect(palette).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "添加术语" })).toBeVisible();
+
+  // 返回项目列表 lands on the full-bleed projects list, with the project
+  // created earlier as a hairline row at workbench density.
+  expect(await clickMenuItem("返回项目列表")).toBe(true);
+  await expect(page.getByRole("button", { name: /演示项目/ })).toBeVisible();
+  await shot("16-projects-list.png");
 });

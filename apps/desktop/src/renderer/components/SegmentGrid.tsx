@@ -10,8 +10,7 @@ import {
 import type { Ref } from "react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
-import { Badge, MatchBadge } from "@translunar/ui";
-import type { BadgeTone } from "@translunar/ui";
+import { MatchBadge } from "@translunar/ui";
 
 export interface SegmentGridHandle {
   /**
@@ -42,6 +41,8 @@ export interface SegmentGridProps {
   targetLocale?: string;
   /** Segment ids with open QA issues. */
   qaSegmentIds: ReadonlySet<string>;
+  /** Open-issue counts per segment (from qa.list); drives the ⚠n badge. */
+  qaCounts?: ReadonlyMap<string, number>;
   onSelect: (segmentId: string) => void;
   /**
    * Persists the segment's draft text (Trados-style: typing keeps the
@@ -62,10 +63,12 @@ export interface SegmentGridProps {
   ref?: Ref<SegmentGridHandle>;
 }
 
-const STATE_LABEL: Record<SegmentState, [string, BadgeTone]> = {
-  untranslated: ["未译", "neutral"],
-  draft: ["草稿", "accent"],
-  confirmed: ["已确认", "ok"],
+/* One combined status chip per row: glyph first, color second — the state
+   is readable without color, and no text badges stack in the column. */
+const STATE_CHIP: Record<SegmentState, { glyph: string; label: string }> = {
+  untranslated: { glyph: "○", label: "未译" },
+  draft: { glyph: "✎", label: "草稿" },
+  confirmed: { glyph: "✓", label: "已确认" },
 };
 
 /** Rows above this count are windowed instead of fully rendered. */
@@ -83,6 +86,7 @@ export function SegmentGrid({
   sourceLocale,
   targetLocale,
   qaSegmentIds,
+  qaCounts,
   onSelect,
   onSaveDraft,
   onConfirm,
@@ -458,7 +462,12 @@ export function SegmentGrid({
           ) : null}
           {visible.map((segment) => {
             const isActive = segment.id === activeSegmentId;
-            const [label, tone] = STATE_LABEL[segment.state];
+            const { glyph, label } = STATE_CHIP[segment.state];
+            const hasQa = qaSegmentIds.has(segment.id);
+            const qaCount = qaCounts?.get(segment.id) ?? 0;
+            const statusLabel = hasQa
+              ? `${label}，${qaCount > 0 ? `${qaCount} 个` : "存在"}未解决 QA 问题`
+              : label;
             return (
               <tr
                 key={segment.id}
@@ -512,28 +521,35 @@ export function SegmentGrid({
                         }}
                       />
                     </div>
-                  ) : segment.targetText ? (
-                    segment.targetText
                   ) : (
-                    <span className="segment-grid__placeholder">—</span>
+                    segment.targetText
                   )}
                 </td>
                 <td className="segment-grid__state">
-                  <span className="segment-grid__state-stack">
-                    <Badge tone={tone}>{label}</Badge>
-                    {qaSegmentIds.has(segment.id) ? (
-                      <Badge tone="danger" title="存在未解决的 QA 问题">
-                        QA
-                      </Badge>
-                    ) : null}
+                  <span className="segment-grid__status">
+                    <span
+                      className="segment-grid__chip"
+                      data-state={segment.state}
+                      role="img"
+                      aria-label={statusLabel}
+                      title={statusLabel}
+                    >
+                      <span aria-hidden="true">{glyph}</span>
+                      {hasQa ? (
+                        <span
+                          className="segment-grid__chip-qa"
+                          aria-hidden="true"
+                        >
+                          ⚠{qaCount > 0 ? qaCount : ""}
+                        </span>
+                      ) : null}
+                    </span>
                     {isActive && activeMatch ? (
-                      <span className="segment-grid__match">
-                        <MatchBadge
-                          score={activeMatch.score}
-                          grade={activeMatch.grade}
-                          title={`TM 最佳匹配 ${activeMatch.score}%`}
-                        />
-                      </span>
+                      <MatchBadge
+                        score={activeMatch.score}
+                        grade={activeMatch.grade}
+                        title={`TM 最佳匹配 ${activeMatch.score}%`}
+                      />
                     ) : null}
                   </span>
                 </td>

@@ -135,7 +135,7 @@ export function ConcordancePanel({
 
   return (
     <Panel
-      title="Concordance 检索"
+      title="检索"
       className="dock-panel"
       actions={
         query.trim() ? <Badge tone="accent">{hits.length} 命中</Badge> : null

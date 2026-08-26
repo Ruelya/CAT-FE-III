@@ -72,8 +72,9 @@ describe("ProjectsView", () => {
     await waitFor(() => {
       expect(screen.getByText("进行中项目")).toBeInTheDocument();
     });
-    // Panel title counts only active projects; the archived one is hidden.
-    expect(screen.getByText("项目列表（1）")).toBeInTheDocument();
+    // The list caption counts only active projects; the archived one is
+    // hidden until the toggle reveals it.
+    expect(screen.getByText("项目（1）")).toBeInTheDocument();
     expect(screen.queryByText("旧项目")).not.toBeInTheDocument();
 
     await userEvent.click(

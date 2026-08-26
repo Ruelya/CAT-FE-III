@@ -9,7 +9,9 @@
       "default": "./src/index.ts"
     },
     "./tokens.css": "./src/tokens.css",
-    "./components.css": "./src/components.css"
+    "./fonts.css": "./src/fonts.css",
+    "./components.css": "./src/components.css",
+    "./fonts/*": "./fonts/*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

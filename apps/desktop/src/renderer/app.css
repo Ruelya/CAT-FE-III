@@ -24,22 +24,21 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 30px;
+  grid-template-rows: minmax(0, 1fr) var(--tl-statusbar-h);
   height: 100%;
 }
 
-/* Bottom status bar: live message on the left, real document counts and
-   engine health on the right. */
+/* Bottom status bar: a 24px instrument readout strip. The message renders
+   in the UI stack (CJK never goes through mono); numbers wear .tl-num. */
 .app-statusbar {
   display: flex;
   align-items: center;
   gap: var(--tl-space-5);
   padding: 0 var(--tl-space-4);
-  border-top: 1px solid var(--tl-color-border);
+  border-top: var(--tl-border-hairline);
   background: var(--tl-color-surface);
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-muted);
-  font-family: var(--tl-font-mono);
   min-width: 0;
 }
 
@@ -48,7 +47,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 /* Right-aligned live stats: progress is chrome, not panel content. */
@@ -84,7 +82,7 @@ body {
   gap: var(--tl-space-2);
   white-space: nowrap;
   padding-left: var(--tl-space-4);
-  border-left: 1px solid var(--tl-color-border);
+  border-left: var(--tl-border-hairline);
 }
 
 /* Inert wrapper around the main surface; display:contents keeps the
@@ -99,7 +97,7 @@ body {
 .engine-gate {
   position: fixed;
   top: 0;
-  bottom: 30px;
+  bottom: var(--tl-statusbar-h);
   left: 0;
   right: 0;
   z-index: 50;
@@ -172,23 +170,56 @@ body {
   margin: var(--tl-space-3) var(--tl-space-3) 0;
 }
 
-/* Projects view */
+/* Projects view: full-bleed working surface at workbench density — a
+   form toolbar over a flat hairline-separated list, no centered card. */
 
 .projects-view {
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: var(--tl-space-5);
-  padding: var(--tl-space-6);
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
-  align-items: start;
-}
-
-.projects-view form {
   display: flex;
   flex-direction: column;
-  gap: var(--tl-space-4);
+  min-height: 0;
+  background: var(--tl-color-surface-raised);
+}
+
+.projects-view__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+  background: var(--tl-color-surface);
+  flex: none;
+}
+
+.projects-view__toolbar .tl-field {
+  flex: 0 1 240px;
+  min-width: 0;
+}
+
+.projects-view__error {
+  margin: var(--tl-space-2) var(--tl-space-4) 0;
+}
+
+.projects-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-2) var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+  flex: none;
+}
+
+.projects-view__caption {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-faint);
+}
+
+.projects-view .project-list {
+  overflow-y: auto;
 }
 
 .project-list {
@@ -202,11 +233,12 @@ body {
   justify-content: space-between;
   gap: var(--tl-space-3);
   width: 100%;
+  min-height: var(--tl-row-h-list);
   text-align: left;
-  padding: var(--tl-space-4);
+  padding: var(--tl-space-2) var(--tl-space-4);
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   cursor: pointer;
   font: inherit;
   color: inherit;
@@ -217,13 +249,12 @@ body {
 }
 
 .project-list__item:hover {
-  background: var(--tl-color-accent-faint);
-  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+  background: var(--tl-color-sunken);
 }
 
 .project-list__item:focus-visible {
   outline: none;
-  background: var(--tl-color-accent-faint);
+  background: var(--tl-color-surface-active);
   box-shadow:
     inset 2px 0 0 var(--tl-color-accent),
     inset 0 0 0 1px var(--tl-color-accent);
@@ -242,15 +273,14 @@ body {
   color: var(--tl-color-text-muted);
 }
 
-/* Archived projects stay reachable but off by default; the toggle sits above
-   the list so the count is honest even while they are hidden. */
+/* Archived projects stay reachable but off by default; the toggle sits in
+   the list header so the count is honest even while they are hidden. */
 .project-list__archived-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-muted);
-  padding: var(--tl-space-2) var(--tl-space-4);
   user-select: none;
 }
 
@@ -266,7 +296,8 @@ body {
 }
 
 /* Ribbon toolbar: labeled icon groups, hairline group dividers,
-   far-right search. */
+   far-right search. Items that do not fit fold into the trailing 更多
+   menu — the ribbon never scrolls. */
 
 .ribbon {
   grid-column: 1 / -1;
@@ -275,12 +306,19 @@ body {
   gap: var(--tl-space-2);
   padding: var(--tl-space-1) var(--tl-space-3);
   background: var(--tl-color-surface);
-  border-bottom: 1px solid var(--tl-color-border);
-  min-height: 56px;
-  overflow-x: auto;
+  border-bottom: var(--tl-border-hairline);
+  min-height: var(--tl-ribbon-h);
+  overflow: hidden;
 }
 
-.ribbon__group {
+.ribbon__commands {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+  min-width: 0;
+}
+
+.ribbon__slot {
   display: flex;
   align-items: stretch;
   gap: var(--tl-space-1);
@@ -291,6 +329,52 @@ body {
   margin: var(--tl-space-2) var(--tl-space-1);
   background: var(--tl-color-border);
   flex: none;
+}
+
+.ribbon__more {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.ribbon__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--tl-space-1);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  box-shadow: var(--tl-shadow-pop);
+}
+
+.ribbon__menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ribbon__menu-item:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.ribbon__menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .ribbon__button {
@@ -429,12 +513,12 @@ body {
   min-height: 0;
   overflow-y: auto;
   background: var(--tl-color-surface);
-  border-right: 1px solid var(--tl-color-border);
+  border-right: var(--tl-border-hairline);
 }
 
 .explorer__section {
   padding: var(--tl-space-3) 0 var(--tl-space-4);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
 }
 
 .explorer__section--files {
@@ -662,7 +746,7 @@ body {
   gap: 1px;
   padding: var(--tl-space-2) var(--tl-space-2) 0;
   background: var(--tl-color-bg);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   overflow-x: auto;
   flex: none;
 }
@@ -744,15 +828,17 @@ body {
 }
 
 /* View tabs under the grid: the grid is the working view; 预览 opens the
-   real preview (proofread + DOCX layout) built from the export pipeline. */
+   real preview (proofread + DOCX layout) built from the export pipeline.
+   Underline tab grammar — shared with dock and preview tabs. */
 
 .view-tabs {
   display: flex;
   gap: var(--tl-space-1);
   padding: 0 var(--tl-space-3);
-  border-top: 1px solid var(--tl-color-border);
+  border-top: var(--tl-border-hairline);
   background: var(--tl-color-surface);
   flex: none;
+  min-height: var(--tl-tab-h);
 }
 
 .view-tabs__tab {
@@ -761,7 +847,7 @@ body {
   color: var(--tl-color-text-muted);
   background: transparent;
   border: none;
-  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
   padding: var(--tl-space-2) var(--tl-space-3);
   cursor: pointer;
   transition:
@@ -781,26 +867,28 @@ body {
 .view-tabs__tab[data-active="true"] {
   color: var(--tl-color-accent-strong);
   font-weight: 600;
-  border-top-color: var(--tl-color-accent);
+  border-bottom-color: var(--tl-color-accent);
 }
 
-/* Segment grid toolbar (state filter + find/replace). */
+/* Segment grid toolbar (state filter + find/replace). One row, no wrap:
+   inputs shrink before anything folds or clips. */
 
 .grid-toolbar {
   display: flex;
   align-items: center;
   gap: var(--tl-space-2);
   padding: var(--tl-space-2) var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   background: var(--tl-color-surface);
   flex: none;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .grid-toolbar__sep {
   width: 1px;
   height: 18px;
   background: var(--tl-color-border);
+  flex: none;
 }
 
 .grid-toolbar__select,
@@ -811,7 +899,8 @@ body {
   background: var(--tl-color-surface-raised);
   border: 1px solid var(--tl-color-border-strong);
   border-radius: var(--tl-radius-sm);
-  padding: 4px 8px;
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
 }
 
 .grid-toolbar__select:focus-visible,
@@ -822,7 +911,9 @@ body {
 }
 
 .grid-toolbar__search {
-  width: 200px;
+  width: 180px;
+  flex: 0 1 auto;
+  min-width: 60px;
 }
 
 .grid-toolbar__search::placeholder {
@@ -831,7 +922,7 @@ body {
 
 /* Find next/prev box: navigates the selection without hiding rows. */
 .grid-toolbar__find {
-  width: 150px;
+  width: 140px;
 }
 
 .grid-toolbar__checkbox {
@@ -886,29 +977,30 @@ body {
   z-index: 1;
 }
 
+/* Row states are three separate readings: hover is neutral gray, the
+   selected row is a neutral-blue surface with a left accent spine, and the
+   editing row (currently the same row — the editor mounts on selection)
+   adds a 1px accent perimeter. Never the same color for two states. */
 .segment-grid tbody tr {
-  border-bottom: 1px solid var(--tl-color-border);
-  cursor: pointer;
+  border-bottom: var(--tl-border-hairline);
+  height: var(--tl-row-h-grid);
   vertical-align: top;
   transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
-.segment-grid tbody tr:hover {
-  background: var(--tl-color-accent-faint);
+.segment-grid tbody tr:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
 }
 
-/* The active row reads as the working surface: tinted, framed top and
-   bottom, and carrying a 2px accent spine on the left. */
 .segment-grid tbody tr[data-active="true"] {
-  background: var(--tl-color-accent-faint);
+  background: var(--tl-color-surface-active);
   box-shadow:
     inset 2px 0 0 var(--tl-color-accent),
-    inset 0 1px 0 var(--tl-color-accent-soft),
-    inset 0 -1px 0 var(--tl-color-accent-soft);
+    inset 0 0 0 1px var(--tl-color-accent);
 }
 
 .segment-grid td {
-  padding: var(--tl-space-3);
+  padding: 6px var(--tl-space-3);
   font-size: var(--tl-text-md);
   line-height: 1.5;
 }
@@ -947,31 +1039,30 @@ body {
   width: 42%;
 }
 
+/* Geometry-stable inline editing: the textarea sits in the exact text box
+   of the cell (same font, same line-height, zero chrome), so entering edit
+   mode never changes the row box. Height follows content only; the row's
+   1px accent perimeter carries the editing signal. */
 .segment-grid__target-editor {
   display: flex;
   flex-direction: column;
-  gap: var(--tl-space-2);
-  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .segment-grid__target-editor textarea {
+  display: block;
   width: 100%;
   font: inherit;
   line-height: 1.5;
-  border: 1px solid var(--tl-color-accent);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-surface-raised);
-  color: inherit;
-  padding: var(--tl-space-2) var(--tl-space-3);
-  resize: vertical;
-  min-height: 48px;
-  box-shadow: var(--tl-shadow-raised);
-  transition: box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
-}
-
-.segment-grid__target-editor textarea:focus-visible {
+  border: none;
   outline: none;
-  box-shadow: var(--tl-focus-ring);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
 }
 
 /* Language tags in the column headers: lowercase BCP-47, deliberately
@@ -985,24 +1076,60 @@ body {
 }
 
 .segment-grid__state {
-  width: 96px;
+  width: 72px;
 }
 
-/* Badges stack vertically so state, QA, and TM match stay scannable in a
-   narrow column instead of wrapping unpredictably. */
-.segment-grid__state-stack {
+/* One combined status chip per row: the glyph is the information, the
+   color is the second channel. QA problems overlay a counted badge; the
+   active row's live TM score chip sits beside it. */
+.segment-grid__status {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--tl-space-1);
+  align-items: center;
+  gap: var(--tl-space-2);
 }
 
-.segment-grid__match {
-  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
-}
-
-.segment-grid__placeholder {
+.segment-grid__chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 3px;
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
   color: var(--tl-color-text-faint);
+}
+
+.segment-grid__chip[data-state="draft"] {
+  color: var(--tl-color-accent);
+  border-color: var(--tl-color-accent-soft);
+}
+
+.segment-grid__chip[data-state="confirmed"] {
+  color: var(--tl-status-ok);
+  border-color: var(--tl-status-ok-soft);
+}
+
+.segment-grid__chip-qa {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 3px;
+  border: 1px solid var(--tl-status-danger);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+  white-space: nowrap;
 }
 
 /* Right resource rail */
@@ -1012,14 +1139,14 @@ body {
   flex-direction: column;
   min-height: 0;
   background: var(--tl-color-surface);
-  border-left: 1px solid var(--tl-color-border);
+  border-left: var(--tl-border-hairline);
 }
 
 /* Rail tabs: underlined text tabs across the top of the rail. */
 .dock-tabs {
   display: flex;
   background: var(--tl-color-surface);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
   flex: none;
   overflow-x: auto;
 }
@@ -1072,7 +1199,6 @@ body {
   background: var(--tl-color-sunken);
   color: var(--tl-color-text-muted);
   font-variant-numeric: tabular-nums;
-  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .dock-tabs__chip[data-tone="ok"] {
@@ -1095,46 +1221,47 @@ body {
   min-height: 0;
 }
 
-/* Keyed by the active tab: each dock switch replays a short entrance. */
 .dock-view {
   display: flex;
   flex-direction: column;
-  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 /* Rail panels sit flush inside the rail: the rail border is the frame. */
 .dock-view > .tl-panel {
   flex: 1;
   min-height: 0;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background: var(--tl-color-surface);
 }
 
 .dock-stack {
   display: flex;
   flex-direction: column;
-  gap: var(--tl-space-4);
 }
 
+/* Dock hits and issues are flat hairline-separated rows, not cards. */
 .match-card,
 .issue-card,
 .agent-step {
-  border: 1px solid var(--tl-color-border);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-surface-raised);
-  padding: var(--tl-space-3);
+  border-bottom: var(--tl-border-hairline);
+  padding: var(--tl-space-3) 0;
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-2);
-  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
-  transition: border-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
-.match-card:hover,
-.issue-card:hover {
-  border-color: var(--tl-color-border-strong);
+.match-card:last-child,
+.issue-card:last-child,
+.agent-step:last-child {
+  border-bottom: none;
+}
+
+/* The best (first) hit leads with a grade spine: exact green, fuzzy blue. */
+.match-card[data-grade] {
+  padding-left: var(--tl-space-3);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+.match-card[data-grade="exact"] {
+  box-shadow: inset 2px 0 0 var(--tl-status-ok);
 }
 
 .match-card__grade-label {
@@ -1192,16 +1319,13 @@ body {
   color: var(--tl-color-text-faint);
 }
 
+/* Single-line banner grammar: left spine + text, no color fill. */
 .honest-note {
-  border: 1px solid var(--tl-color-border-strong);
-  border-left: 3px solid var(--tl-status-warn);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-surface-raised);
-  padding: var(--tl-space-3);
+  border-left: 2px solid var(--tl-status-warn);
+  padding: var(--tl-space-1) var(--tl-space-3);
   font-size: var(--tl-text-sm);
   line-height: 1.5;
   color: var(--tl-color-text-muted);
-  animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .honest-note[data-tone="danger"] {
@@ -1242,10 +1366,8 @@ body {
 }
 
 .ai-draft {
-  border: 1px solid var(--tl-color-accent);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-accent-faint);
-  padding: var(--tl-space-3);
+  border-left: 2px solid var(--tl-color-accent);
+  padding: var(--tl-space-2) var(--tl-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-2);
@@ -1295,11 +1417,8 @@ body {
 }
 
 .agent-gate {
-  border: 1px solid var(--tl-color-accent);
-  border-left: 3px solid var(--tl-color-accent);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-accent-faint);
-  padding: var(--tl-space-3);
+  border-left: 2px solid var(--tl-color-accent);
+  padding: var(--tl-space-2) var(--tl-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--tl-space-2);
@@ -1397,31 +1516,30 @@ body {
   word-break: break-word;
 }
 
-/* Preview dialog */
+/* Preview dialog: underline tab grammar, same as dock and view tabs. */
 
 .preview__tabs {
   display: flex;
-  gap: var(--tl-space-2);
+  gap: var(--tl-space-1);
   margin-bottom: var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
 }
 
 .preview__tabs button {
   font: inherit;
   font-size: var(--tl-text-sm);
-  padding: var(--tl-space-1) var(--tl-space-3);
-  border: 1px solid var(--tl-color-border-strong);
-  border-radius: var(--tl-radius-sm);
-  background: var(--tl-color-surface);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
   color: var(--tl-color-text-muted);
   cursor: pointer;
   transition:
-    background-color var(--tl-motion-fast) var(--tl-ease-standard),
     border-color var(--tl-motion-fast) var(--tl-ease-standard),
     color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .preview__tabs button:hover:not([data-active="true"]) {
-  border-color: var(--tl-color-accent);
   color: var(--tl-color-text);
 }
 
@@ -1431,16 +1549,9 @@ body {
 }
 
 .preview__tabs button[data-active="true"] {
-  background: var(--tl-color-accent-faint);
-  border-color: var(--tl-color-accent);
-  color: var(--tl-color-text);
+  color: var(--tl-color-accent-strong);
+  border-bottom-color: var(--tl-color-accent);
   font-weight: 600;
-}
-
-/* Re-showing a pane (display flips from none) replays the entrance fade,
-   so tab switches inside the preview read as a deliberate transition. */
-.preview__pane {
-  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .preview__summary {
@@ -1460,7 +1571,7 @@ body {
   flex-direction: column;
   gap: var(--tl-space-4);
   background: var(--tl-color-surface-raised);
-  border: 1px solid var(--tl-color-border);
+  border: var(--tl-border-hairline);
   border-radius: var(--tl-radius-sm);
   padding: var(--tl-space-6);
 }
@@ -1563,7 +1674,7 @@ body {
   flex-direction: column;
   gap: var(--tl-space-3);
   padding-bottom: var(--tl-space-5);
-  border-bottom: 1px solid var(--tl-color-border);
+  border-bottom: var(--tl-border-hairline);
 }
 
 .settings__section:last-child {
@@ -1658,4 +1769,102 @@ body {
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text-muted);
   word-break: break-all;
+}
+
+/* Command palette: the searchable catalog of every command. A floating
+   overlay surface (sanctioned entrance), fixed 28px result rows, shortcut
+   chips on the right, no decoration. */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 96px;
+  background: rgba(27, 32, 43, 0.28);
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
+}
+
+.palette {
+  width: min(560px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  box-shadow: var(--tl-shadow-overlay);
+  overflow: hidden;
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.palette__input {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-md);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  outline: none;
+  border-bottom: var(--tl-border-hairline);
+  padding: var(--tl-space-3) var(--tl-space-4);
+}
+
+.palette__input::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.palette__list {
+  max-height: 336px;
+  overflow-y: auto;
+  padding: var(--tl-space-1) 0;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--tl-space-4);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.palette__item[data-selected="true"] {
+  background: var(--tl-color-surface-active);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+.palette__item:hover:not([data-selected="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.palette__item[aria-disabled="true"] {
+  color: var(--tl-color-text-faint);
+  cursor: default;
+}
+
+.palette__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette__label mark {
+  background: transparent;
+  color: var(--tl-color-accent-strong);
+  font-weight: 600;
+}
+
+.palette__empty {
+  padding: var(--tl-space-3) var(--tl-space-4);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-faint);
 }

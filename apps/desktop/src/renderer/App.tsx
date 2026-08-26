@@ -42,7 +42,7 @@ function engineLabel(status: EngineStatusPayload | null): string {
     case "restarting":
       return `engine: 重启中 (${status.restarts})`;
     case "down":
-      return `engine: 已停止${status.lastError ? ` — ${status.lastError}` : ""}`;
+      return `engine: 已停止${status.lastError ? `：${status.lastError}` : ""}`;
   }
 }
 
@@ -89,6 +89,21 @@ export function App() {
       documentOpen: project !== null && documentOpen,
     });
   }, [project, documentOpen]);
+
+  // Window title reports the working object: project — document — langs.
+  // Real data only: the project in memory and the workbench-reported
+  // document name; no project means the bare app name.
+  useEffect(() => {
+    if (!project) {
+      document.title = "Translunar";
+      return;
+    }
+    const langs = `(${project.sourceLocale} → ${project.targetLocale})`;
+    const documentName = workbenchStats?.documentName;
+    document.title = documentName
+      ? `${project.name} — ${documentName} ${langs}`
+      : `${project.name} ${langs}`;
+  }, [project, workbenchStats?.documentName]);
 
   // Shell-level menu commands; workbench-level ones are handled inside
   // WorkbenchView. Both go through the same actions as the ribbon buttons.
@@ -178,11 +193,8 @@ export function App() {
       </div>
 
       <footer className="app-statusbar">
-        {/* Keying by content replays the entrance slide on every new
-            message, giving each status line a visible moment. */}
-        <span className="app-statusbar__message" key={statusMessage}>
-          {statusMessage}
-        </span>
+        {/* Messages replace silently; a readout strip never animates. */}
+        <span className="app-statusbar__message">{statusMessage}</span>
         <span className="app-statusbar__stats">
           {workbenchStats ? (
             <>
@@ -231,15 +243,17 @@ export function App() {
                   draft={workbenchStats.counts.draft}
                   label={`已确认 ${workbenchStats.counts.confirmed}/${workbenchStats.counts.total}`}
                 />
-                <span className="tl-num">
-                  {workbenchStats.counts.total > 0
-                    ? `${Math.round(
-                        (workbenchStats.counts.confirmed /
-                          workbenchStats.counts.total) *
-                          100,
-                      )}%`
-                    : "—"}
-                </span>
+                {/* No placeholder glyphs: an empty total renders nothing. */}
+                {workbenchStats.counts.total > 0 ? (
+                  <span className="tl-num">
+                    {Math.round(
+                      (workbenchStats.counts.confirmed /
+                        workbenchStats.counts.total) *
+                        100,
+                    )}
+                    %
+                  </span>
+                ) : null}
               </span>
             </>
           ) : null}

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -431,6 +432,62 @@ describe("WorkbenchView application menu commands", () => {
   });
 });
 
+describe("WorkbenchView command palette", () => {
+  it("opens with Ctrl+K and runs a command through the same dispatch", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const palette = screen.getByRole("dialog", { name: "命令面板" });
+    expect(palette).toBeInTheDocument();
+    // Executing a dock command lands on the exact same setTab path the
+    // menu and dock buttons use.
+    await userEvent.type(screen.getByLabelText("搜索命令"), "QA 面板");
+    await userEvent.click(screen.getByRole("option", { name: /QA 面板/ }));
+    expect(
+      screen.queryByRole("dialog", { name: "命令面板" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+  });
+
+  it("opens via Ctrl+Shift+P and the menu command, listing document jumps", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true });
+    expect(
+      screen.getByRole("dialog", { name: "命令面板" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /打开文档：guide.txt/ }),
+    ).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByLabelText("搜索命令"), { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "命令面板" }),
+    ).not.toBeInTheDocument();
+
+    // The application menu item takes the identical path.
+    act(() => {
+      bridge.emitMenuCommand("open-command-palette");
+    });
+    expect(
+      screen.getByRole("dialog", { name: "命令面板" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("WorkbenchView Trados-style editor flow", () => {
   it("auto-saves typing quietly and confirms with the fresh revision", async () => {
     const handlers = baseHandlers();
@@ -573,7 +630,10 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "day");
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "day",
+    );
     // The find box navigates only; unlike the filter it hides no rows.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
     expect(screen.getByText("First day of work.")).toBeInTheDocument();
@@ -618,7 +678,10 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "missing");
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "missing",
+    );
     fireEvent.keyDown(window, { key: "F4" });
     expect(onStatusMessage).toHaveBeenCalledWith("查找「missing」：没有匹配");
     // The selection did not move anywhere.
@@ -636,7 +699,10 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "day");
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "day",
+    );
     act(() => {
       bridge.emitMenuCommand("find-next");
     });
@@ -659,7 +725,9 @@ describe("WorkbenchView find next/prev", () => {
     await screen.findByLabelText("句段 1 译文");
 
     fireEvent.keyDown(window, { key: "F4" });
-    expect(document.activeElement).toBe(screen.getByLabelText("查找", { selector: "input" }));
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("查找", { selector: "input" }),
+    );
   });
 
   it("keeps the F3 chord on concordance, untouched by find next", async () => {
@@ -788,9 +856,17 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
+    // The ribbon also has a 替换 button (focuses the box); the replace
+    // action itself lives in the find/replace toolbar.
+    const toolbar = within(
+      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "30 天",
+    );
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
 
     await waitFor(() => {
       expect(updateParams).toMatchObject({
@@ -832,16 +908,22 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
+    const toolbar = within(
+      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "30 天",
+    );
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
 
     // Nothing was written; the guard is reported.
     expect(updateCalls).toHaveLength(0);
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认，未替换");
 
     await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
-    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
     await waitFor(() => {
       expect(updateCalls).toHaveLength(1);
     });
@@ -878,7 +960,10 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "30 天",
+    );
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
     await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
 
@@ -923,7 +1008,10 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "missing");
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "missing",
+    );
     await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
     await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
 
@@ -1657,13 +1745,18 @@ describe("WorkbenchView ribbon", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    await userEvent.click(screen.getByRole("button", { name: "查找" }));
-    expect(document.activeElement).toBe(screen.getByLabelText("查找", { selector: "input" }));
-    await userEvent.click(screen.getByRole("button", { name: "替换…" }));
+    // Ribbon buttons share accessible names with grid-toolbar controls
+    // (替换), so scope the clicks to the toolbar.
+    const ribbon = within(screen.getByRole("toolbar", { name: "工具栏" }));
+    await userEvent.click(ribbon.getByRole("button", { name: "查找" }));
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("查找", { selector: "input" }),
+    );
+    await userEvent.click(ribbon.getByRole("button", { name: "替换" }));
     expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
-    await userEvent.click(screen.getByRole("button", { name: "筛选" }));
+    await userEvent.click(ribbon.getByRole("button", { name: "筛选" }));
     expect(document.activeElement).toBe(screen.getByLabelText("按文本筛选"));
-    await userEvent.click(screen.getByRole("button", { name: "一致性检索" }));
+    await userEvent.click(ribbon.getByRole("button", { name: "检索" }));
     expect(await screen.findByLabelText(/检索词/)).toBeInTheDocument();
   });
 });

@@ -98,18 +98,42 @@ describe("SegmentGrid", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("flags segments with open QA issues", () => {
+  it("flags segments with open QA issues on the status chip", () => {
     render(
       <SegmentGrid
         segments={[segment("s1", 0, "30 days.", "60 天。")]}
         activeSegmentId={null}
         qaSegmentIds={new Set(["s1"])}
+        qaCounts={new Map([["s1", 2]])}
         onSelect={vi.fn()}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
       />,
     );
-    expect(screen.getByText("QA")).toBeInTheDocument();
+    // The chip is one combined glyph unit: state glyph + ⚠n QA overlay,
+    // with the full story in the accessible name (never color-only).
+    const chip = screen.getByRole("img", {
+      name: "草稿，2 个未解决 QA 问题",
+    });
+    expect(chip).toHaveTextContent("⚠2");
+  });
+
+  it("reports the state through the chip's accessible name", () => {
+    render(
+      <SegmentGrid
+        segments={[
+          segment("s1", 0, "Hello."),
+          segment("s2", 1, "World.", "世界。"),
+        ]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "未译" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "草稿" })).toBeInTheDocument();
   });
 
   it("renders every row for small documents (no virtualization)", () => {

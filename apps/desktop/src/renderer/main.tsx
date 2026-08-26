@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import "@translunar/ui/fonts.css";
 import "@translunar/ui/tokens.css";
 import "@translunar/ui/components.css";
 import "./app.css";

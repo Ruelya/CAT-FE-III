@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { IconSettings } from "@tabler/icons-react";
+
 import type {
   Document,
   DocumentImportResult,
@@ -34,6 +36,8 @@ import type {
   SegmentFilterSpec,
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
+import { CommandPalette } from "../components/CommandPalette.js";
+import type { PaletteEntry } from "../components/CommandPalette.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
 import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
@@ -164,6 +168,7 @@ export function WorkbenchView({
   const [includeConfirmed, setIncludeConfirmed] = useState(false);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
@@ -538,6 +543,17 @@ export function WorkbenchView({
       }
     }
     return ids;
+  }, [issues]);
+
+  // Open-issue counts per segment feed the ⚠n overlay on the status chip.
+  const openIssueCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const issue of issues) {
+      if (issue.status === "open") {
+        counts.set(issue.segmentId, (counts.get(issue.segmentId) ?? 0) + 1);
+      }
+    }
+    return counts;
   }, [issues]);
 
   const filteredSegments = useMemo(
@@ -1169,13 +1185,24 @@ export function WorkbenchView({
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
   // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter, Ctrl/Cmd+H focus the replace box, Alt+↑/↓ step the
+  // segment filter, Ctrl/Cmd+H focus the replace box, Ctrl/Cmd+K and
+  // Ctrl/Cmd+Shift+P summon the command palette, Alt+↑/↓ step the
   // segment selection (works while typing in the target editor).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        ((!event.shiftKey && (event.key === "k" || event.key === "K")) ||
+          (event.shiftKey && (event.key === "p" || event.key === "P")))
+      ) {
+        event.preventDefault();
+        setPaletteOpen(true);
         return;
       }
       if (
@@ -1248,6 +1275,9 @@ export function WorkbenchView({
             void exportDocument();
           }
           break;
+        case "open-command-palette":
+          setPaletteOpen(true);
+          break;
         case "open-preview":
           if (activeDocument) {
             setPreviewOpen(true);
@@ -1299,6 +1329,84 @@ export function WorkbenchView({
     });
   }, []);
 
+  // The command palette catalog: every MenuCommand (workbench commands go
+  // through handleMenuCommand — the same dispatch the menu uses; shell
+  // commands run the props the shell handed down), plus dock switches
+  // (already MenuCommands) and one jump per project document. Labels and
+  // shortcuts mirror the application menu.
+  const paletteEntries = useMemo<PaletteEntry[]>(() => {
+    const documentOpen = activeDocument !== null;
+    const command = (
+      id: MenuCommand,
+      label: string,
+      enabled: boolean,
+      shortcut?: string,
+    ): PaletteEntry => ({
+      id,
+      label,
+      shortcut,
+      enabled,
+      run: () => handleMenuCommand(id),
+    });
+    return [
+      command("import-document", "导入文档…", !busy, "Ctrl+O"),
+      command("export-document", "导出译文…", documentOpen && !busy, "Ctrl+E"),
+      ...(onOpenSettings
+        ? [
+            {
+              id: "open-project-settings",
+              label: "项目设置…",
+              shortcut: "Ctrl+,",
+              enabled: true,
+              run: onOpenSettings,
+            },
+          ]
+        : []),
+      ...(onCloseProject
+        ? [
+            {
+              id: "close-project",
+              label: "返回项目列表",
+              enabled: true,
+              run: onCloseProject,
+            },
+          ]
+        : []),
+      command("confirm-segment", "确认当前句段", documentOpen, "Ctrl+Enter"),
+      command("open-preview", "译文预览…", documentOpen, "Ctrl+P"),
+      command("focus-filter", "筛选句段", documentOpen, "Ctrl+F"),
+      command("find-next", "查找下一个", documentOpen, "F4"),
+      command("find-prev", "查找上一个", documentOpen, "Shift+F4"),
+      command("focus-replace", "替换…", documentOpen, "Ctrl+H"),
+      command("open-concordance", "检索（取选中文本）", true, "F3"),
+      command("show-dock-tm", "翻译记忆面板", true, "Ctrl+1"),
+      command("show-dock-term", "术语面板", true, "Ctrl+2"),
+      command("show-dock-concordance", "检索面板", true, "Ctrl+3"),
+      command("show-dock-qa", "QA 面板", true, "Ctrl+4"),
+      command("show-dock-ai", "AI 辅助面板", true, "Ctrl+5"),
+      command("show-dock-agent", "Agent 面板", true, "Ctrl+6"),
+      ...documents.map((document): PaletteEntry => ({
+        id: `open-document:${document.id}`,
+        label: `打开文档：${document.name}`,
+        enabled: true,
+        run: () => {
+          void loadDocument(document.id).catch((error: unknown) => {
+            onStatusMessage(`加载文档失败：${describeError(error)}`);
+          });
+        },
+      })),
+    ];
+  }, [
+    activeDocument,
+    busy,
+    documents,
+    handleMenuCommand,
+    loadDocument,
+    onCloseProject,
+    onOpenSettings,
+    onStatusMessage,
+  ]);
+
   return (
     <AiStatusProvider>
       <main className="workbench">
@@ -1341,21 +1449,7 @@ export function WorkbenchView({
                   title="项目设置"
                   onClick={onOpenSettings}
                 >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                    focusable="false"
-                  >
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.08A1.7 1.7 0 0 0 10 4.09V4a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56h.08a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.08A1.7 1.7 0 0 0 21 12h.09a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6-1z" />
-                  </svg>
+                  <IconSettings size={15} stroke={1.75} aria-hidden />
                 </button>
               ) : null}
             </header>
@@ -1589,7 +1683,11 @@ export function WorkbenchView({
                   </Button>
                 </div>
               ) : null}
-              <div className="grid-toolbar">
+              <div
+                className="grid-toolbar"
+                role="toolbar"
+                aria-label="筛选与查找替换"
+              >
                 <select
                   className="grid-toolbar__select"
                   aria-label="按状态筛选"
@@ -1707,6 +1805,7 @@ export function WorkbenchView({
                   sourceLocale={project.sourceLocale}
                   targetLocale={project.targetLocale}
                   qaSegmentIds={openIssueSegmentIds}
+                  qaCounts={openIssueCounts}
                   onSelect={setActiveSegmentId}
                   onSaveDraft={(segment, text) =>
                     saveDraft(segment, text, { quiet: true })
@@ -1793,8 +1892,7 @@ export function WorkbenchView({
               </button>
             ))}
           </nav>
-          {/* Keyed by tab: switching docks replays a short entrance slide. */}
-          <div className="dock-panel dock-view" key={tab}>
+          <div className="dock-panel dock-view">
             {tab === "tm" ? (
               <TmPanel
                 activeSegment={activeSegment}
@@ -1850,6 +1948,12 @@ export function WorkbenchView({
             ) : null}
           </div>
         </aside>
+
+        <CommandPalette
+          open={paletteOpen}
+          entries={paletteEntries}
+          onClose={() => setPaletteOpen(false)}
+        />
 
         <ImportDocumentDialog
           open={importOpen}

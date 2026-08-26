@@ -1,10 +1,33 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode, Ref } from "react";
+
+import {
+  IconBolt,
+  IconCheck,
+  IconDatabase,
+  IconDots,
+  IconFileExport,
+  IconFileImport,
+  IconFilter,
+  IconFolders,
+  IconListSearch,
+  IconReplace,
+  IconSearch,
+} from "@tabler/icons-react";
 
 /**
  * Ribbon toolbar under the application menu: labeled icon groups that all
  * dispatch the exact same handlers as the menu commands and keyboard
  * chords — the ribbon never grows behavior of its own, and every button is
  * disabled honestly when its target state is missing (no document, busy).
+ * Items that no longer fit the row collapse into the trailing 更多 menu
+ * instead of scrolling.
  */
 export interface RibbonProps {
   /** A document is open in the grid; document commands enable. */
@@ -31,7 +54,9 @@ export interface RibbonProps {
   onConcordance: () => void;
 }
 
-interface RibbonButtonProps {
+interface RibbonItem {
+  id: string;
+  group: string;
   label: string;
   title: string;
   icon: ReactNode;
@@ -39,117 +64,7 @@ interface RibbonButtonProps {
   onClick: () => void;
 }
 
-function RibbonButton({
-  label,
-  title,
-  icon,
-  disabled,
-  onClick,
-}: RibbonButtonProps) {
-  return (
-    <button
-      type="button"
-      className="ribbon__button"
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="ribbon__icon" aria-hidden="true">
-        {icon}
-      </span>
-      <span className="ribbon__label">{label}</span>
-    </button>
-  );
-}
-
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      focusable="false"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
-}
-
-const ICONS = {
-  projects: (
-    <Icon>
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </Icon>
-  ),
-  tm: (
-    <Icon>
-      <ellipse cx="12" cy="6" rx="7" ry="3" />
-      <path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6" />
-      <path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" />
-    </Icon>
-  ),
-  import: (
-    <Icon>
-      <path d="M12 3v10" />
-      <path d="m8 9 4 4 4-4" />
-      <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-    </Icon>
-  ),
-  export: (
-    <Icon>
-      <path d="M12 13V3" />
-      <path d="m8 7 4-4 4 4" />
-      <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-    </Icon>
-  ),
-  confirm: (
-    <Icon>
-      <path d="m4 12.5 5 5L20 6.5" />
-    </Icon>
-  ),
-  pretranslate: (
-    <Icon>
-      <path d="M13 2 4.5 13.5H11l-1 8.5L18.5 10H12z" />
-    </Icon>
-  ),
-  find: (
-    <Icon>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m16 16 5 5" />
-    </Icon>
-  ),
-  replace: (
-    <Icon>
-      <path d="M4 8h12" />
-      <path d="m13 4 4 4-4 4" />
-      <path d="M20 16H8" />
-      <path d="m11 12-4 4 4 4" />
-    </Icon>
-  ),
-  filter: (
-    <Icon>
-      <path d="M4 5h16l-6.5 8v6l-3 2v-8z" />
-    </Icon>
-  ),
-  concordance: (
-    <Icon>
-      <path d="M4 19.5V5a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2.5z" />
-      <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H19v-5" />
-    </Icon>
-  ),
-  search: (
-    <Icon>
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m16 16 5 5" />
-    </Icon>
-  ),
-};
+const ICON_PROPS = { size: 18, stroke: 1.75, "aria-hidden": true } as const;
 
 export function Ribbon({
   documentOpen,
@@ -172,92 +87,269 @@ export function Ribbon({
   onFocusFilter,
   onConcordance,
 }: RibbonProps) {
+  const items: RibbonItem[] = [
+    ...(onCloseProject
+      ? [
+          {
+            id: "projects",
+            group: "项目",
+            label: "项目列表",
+            title: "返回项目列表",
+            icon: <IconFolders {...ICON_PROPS} />,
+            onClick: onCloseProject,
+          },
+        ]
+      : []),
+    ...(onOpenTmManage
+      ? [
+          {
+            id: "tm",
+            group: "项目",
+            label: "TM 管理",
+            title: "TM 管理",
+            icon: <IconDatabase {...ICON_PROPS} />,
+            onClick: onOpenTmManage,
+          },
+        ]
+      : []),
+    {
+      id: "import",
+      group: "文档",
+      label: "导入",
+      title: "导入文档（Ctrl+O）",
+      icon: <IconFileImport {...ICON_PROPS} />,
+      disabled: busy,
+      onClick: onImport,
+    },
+    {
+      id: "export",
+      group: "文档",
+      label: "导出译文",
+      title: "导出译文（Ctrl+E）",
+      icon: <IconFileExport {...ICON_PROPS} />,
+      disabled: !documentOpen || busy,
+      onClick: onExport,
+    },
+    {
+      id: "confirm",
+      group: "编辑",
+      label: "确认句段",
+      title: "确认句段（Ctrl+Enter）",
+      icon: <IconCheck {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onConfirmSegment,
+    },
+    {
+      id: "pretranslate",
+      group: "编辑",
+      label: "预翻译",
+      title: "预翻译",
+      icon: <IconBolt {...ICON_PROPS} />,
+      disabled: !documentOpen || busy,
+      onClick: onPretranslate,
+    },
+    {
+      id: "find",
+      group: "审校",
+      label: "查找",
+      title: "查找（F4）",
+      icon: <IconSearch {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onFocusFind,
+    },
+    {
+      id: "replace",
+      group: "审校",
+      label: "替换",
+      title: "替换（Ctrl+H）",
+      icon: <IconReplace {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onFocusReplace,
+    },
+    {
+      id: "filter",
+      group: "审校",
+      label: "筛选",
+      title: "筛选（Ctrl+F）",
+      icon: <IconFilter {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onFocusFilter,
+    },
+    {
+      id: "concordance",
+      group: "审校",
+      label: "检索",
+      title: "检索（F3，取选中文本）",
+      icon: <IconListSearch {...ICON_PROPS} />,
+      onClick: onConcordance,
+    },
+  ];
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const commandsRef = useRef<HTMLDivElement | null>(null);
+  const tailRef = useRef<HTMLDivElement | null>(null);
+  // Stable per-item widths measured while everything is visible; used to
+  // decide how many leading items fit before the rest fold into 更多.
+  const widthsRef = useRef(new Map<string, number>());
+  const [visibleCount, setVisibleCount] = useState(items.length);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  const recompute = useCallback(() => {
+    const container = containerRef.current;
+    const tail = tailRef.current;
+    if (!container || !tail || container.clientWidth === 0) {
+      return;
+    }
+    const styles = getComputedStyle(container);
+    const padding =
+      (parseFloat(styles.paddingLeft) || 0) +
+      (parseFloat(styles.paddingRight) || 0);
+    // Reserve room for the search tail and the 更多 button + gaps.
+    const available = container.clientWidth - padding - tail.offsetWidth - 56;
+    let used = 0;
+    let fit = 0;
+    let previousGroup: string | null = null;
+    for (const item of itemsRef.current) {
+      const width = widthsRef.current.get(item.id) ?? 64;
+      const divider =
+        previousGroup !== null && previousGroup !== item.group ? 9 : 2;
+      used += width + divider;
+      if (used > available) {
+        break;
+      }
+      fit += 1;
+      previousGroup = item.group;
+    }
+    setVisibleCount((current) => (current === fit ? current : fit));
+  }, []);
+
+  // Measure item widths on mount (all items render once before folding).
+  useLayoutEffect(() => {
+    const commands = commandsRef.current;
+    if (!commands) {
+      return;
+    }
+    for (const element of commands.querySelectorAll<HTMLElement>(
+      "[data-ribbon-id]",
+    )) {
+      const id = element.dataset["ribbonId"];
+      if (id && element.offsetWidth > 0) {
+        widthsRef.current.set(id, element.offsetWidth);
+      }
+    }
+    recompute();
+  }, [recompute]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => recompute());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [recompute]);
+
+  // The 更多 menu closes on outside click or Escape, like a native menu.
+  useEffect(() => {
+    if (!moreOpen) {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMoreOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [moreOpen]);
+
+  const visible = items.slice(0, visibleCount);
+  const overflow = items.slice(visibleCount);
+
   return (
-    <div className="ribbon" role="toolbar" aria-label="工具栏">
-      <div className="ribbon__group" role="group" aria-label="项目">
-        {onCloseProject ? (
-          <RibbonButton
-            label="项目列表"
-            title="返回项目列表"
-            icon={ICONS.projects}
-            onClick={onCloseProject}
-          />
+    <div
+      className="ribbon"
+      role="toolbar"
+      aria-label="工具栏"
+      ref={containerRef}
+    >
+      <div className="ribbon__commands" ref={commandsRef}>
+        {visible.map((item, index) => (
+          <span key={item.id} className="ribbon__slot" data-ribbon-id={item.id}>
+            {index > 0 && visible[index - 1]!.group !== item.group ? (
+              <span className="ribbon__divider" />
+            ) : null}
+            <button
+              type="button"
+              className="ribbon__button"
+              title={item.title}
+              disabled={item.disabled}
+              onClick={item.onClick}
+            >
+              <span className="ribbon__icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              <span className="ribbon__label">{item.label}</span>
+            </button>
+          </span>
+        ))}
+        {overflow.length > 0 ? (
+          <div className="ribbon__more" ref={moreRef}>
+            <button
+              type="button"
+              className="ribbon__button"
+              title="更多命令"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              <span className="ribbon__icon" aria-hidden="true">
+                <IconDots {...ICON_PROPS} />
+              </span>
+              <span className="ribbon__label">更多</span>
+            </button>
+            {moreOpen ? (
+              <div className="ribbon__menu" role="menu">
+                {overflow.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitem"
+                    className="ribbon__menu-item"
+                    title={item.title}
+                    disabled={item.disabled}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      item.onClick();
+                    }}
+                  >
+                    <span className="ribbon__icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
-        {onOpenTmManage ? (
-          <RibbonButton
-            label="TM 管理"
-            title="TM 管理"
-            icon={ICONS.tm}
-            onClick={onOpenTmManage}
-          />
-        ) : null}
-      </div>
-      <span className="ribbon__divider" />
-      <div className="ribbon__group" role="group" aria-label="文档">
-        <RibbonButton
-          label="导入"
-          title="导入文档（Ctrl+O）"
-          icon={ICONS.import}
-          disabled={busy}
-          onClick={onImport}
-        />
-        <RibbonButton
-          label="导出译文"
-          title="导出译文（Ctrl+E）"
-          icon={ICONS.export}
-          disabled={!documentOpen || busy}
-          onClick={onExport}
-        />
-      </div>
-      <span className="ribbon__divider" />
-      <div className="ribbon__group" role="group" aria-label="编辑">
-        <RibbonButton
-          label="确认句段"
-          title="确认句段（Ctrl+Enter）"
-          icon={ICONS.confirm}
-          disabled={!documentOpen}
-          onClick={onConfirmSegment}
-        />
-        <RibbonButton
-          label="预翻译"
-          title="预翻译"
-          icon={ICONS.pretranslate}
-          disabled={!documentOpen || busy}
-          onClick={onPretranslate}
-        />
-      </div>
-      <span className="ribbon__divider" />
-      <div className="ribbon__group" role="group" aria-label="审校">
-        <RibbonButton
-          label="查找"
-          title="查找（F4）"
-          icon={ICONS.find}
-          disabled={!documentOpen}
-          onClick={onFocusFind}
-        />
-        <RibbonButton
-          label="替换…"
-          title="替换（Ctrl+H）"
-          icon={ICONS.replace}
-          disabled={!documentOpen}
-          onClick={onFocusReplace}
-        />
-        <RibbonButton
-          label="筛选"
-          title="筛选（Ctrl+F）"
-          icon={ICONS.filter}
-          disabled={!documentOpen}
-          onClick={onFocusFilter}
-        />
-        <RibbonButton
-          label="一致性检索"
-          title="一致性检索（F3）"
-          icon={ICONS.concordance}
-          onClick={onConcordance}
-        />
       </div>
       <span className="ribbon__spacer" />
-      <div className="ribbon__search">
+      <div className="ribbon__search" ref={tailRef}>
         {filterActive ? (
           <>
             <span className="ribbon__filter-count tl-num">
@@ -274,7 +366,7 @@ export function Ribbon({
         ) : null}
         <span className="ribbon__search-box">
           <span className="ribbon__search-icon" aria-hidden="true">
-            {ICONS.search}
+            <IconSearch size={13} stroke={1.75} aria-hidden />
           </span>
           <input
             ref={filterInputRef}

@@ -10,9 +10,13 @@ export interface TmPanelProps {
   onApply: (targetText: string) => void;
 }
 
-const GRADE_LABEL: Record<TmMatchItem["grade"], string> = {
+/**
+ * Labels for the grades the engine actually returns. The contract type
+ * still carries "inContext" but no lookup path emits it — a dead grade
+ * renders without a label instead of inventing one.
+ */
+const GRADE_LABEL: Partial<Record<TmMatchItem["grade"], string>> = {
   exact: "精确",
-  inContext: "上下文",
   fuzzy: "模糊",
 };
 
@@ -51,14 +55,20 @@ export function TmPanel({
         <EmptyState title="无匹配" />
       ) : (
         <div className="dock-stack">
-          {matches.map((match) => (
-            <div key={match.entry.id} className="match-card">
+          {matches.map((match, index) => (
+            <div
+              key={match.entry.id}
+              className="match-card"
+              data-grade={index === 0 ? match.grade : undefined}
+            >
               <div className="match-card__row">
                 <span className="match-card__grade">
                   <MatchBadge score={match.score} grade={match.grade} />
-                  <span className="match-card__grade-label">
-                    {GRADE_LABEL[match.grade]}
-                  </span>
+                  {GRADE_LABEL[match.grade] ? (
+                    <span className="match-card__grade-label">
+                      {GRADE_LABEL[match.grade]}
+                    </span>
+                  ) : null}
                 </span>
                 <Button
                   size="sm"

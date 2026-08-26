@@ -36,6 +36,7 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "CmdOrCtrl+Enter",
   "CmdOrCtrl+F",
   "CmdOrCtrl+H",
+  "CmdOrCtrl+Shift+P",
 ];
 
 const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
@@ -113,6 +114,16 @@ export function buildMenuTemplate(
   const viewMenu: MenuItemConstructorOptions = {
     label: "视图",
     submenu: [
+      // Renderer-owned Ctrl+Shift+P (with Ctrl+K as a synonym chord the
+      // renderer also listens for) summons the command palette.
+      commandItem(
+        "命令面板",
+        "open-command-palette",
+        context.projectOpen,
+        "CmdOrCtrl+Shift+P",
+        true,
+      ),
+      SEPARATOR,
       commandItem(
         "译文预览…",
         "open-preview",
@@ -133,7 +144,7 @@ export function buildMenuTemplate(
         "CmdOrCtrl+2",
       ),
       commandItem(
-        "一致性检索面板",
+        "检索面板",
         "show-dock-concordance",
         context.projectOpen,
         "CmdOrCtrl+3",
@@ -197,7 +208,7 @@ export function buildMenuTemplate(
       ),
       // Renderer-owned F3 seeds concordance from the current selection.
       commandItem(
-        "一致性检索（取选中文本）",
+        "检索（取选中文本）",
         "open-concordance",
         context.projectOpen,
         "F3",
