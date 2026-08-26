@@ -368,9 +368,11 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await app.evaluate((_electronModule, path) => {
     process.env.TL_FAKE_TM_OPEN_PATH = path;
   }, tmCsvPath);
+  // The import names its destination memory — the writable working memory
+  // is the picker's default, never an implicit fallback.
   await page.getByRole("button", { name: "导入外部 TM…" }).click();
   await expect(page.getByRole("status")).toContainText(
-    "外部 TM 导入完成：读取 2 条，新增 2，更新 0",
+    "外部 TM 导入完成（库「演示项目」）：读取 2 条，新增 2，更新 0",
   );
 
   // TM export: 1 confirmed entry + 2 imported ones land in a real TMX file.
@@ -379,7 +381,9 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
     process.env.TL_FAKE_TM_SAVE_PATH = path;
   }, tmExportPath);
   await page.getByRole("button", { name: "导出 TM…" }).click();
-  await expect(page.getByRole("status")).toContainText("TM 导出完成：3 条");
+  await expect(page.getByRole("status")).toContainText(
+    "TM 导出完成（库「演示项目」）：3 条",
+  );
   expect(existsSync(tmExportPath)).toBe(true);
   expect(statSync(tmExportPath).size).toBeGreaterThan(0);
 
@@ -408,7 +412,7 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await expect(overwritePrompt).toBeVisible();
   await page.getByRole("button", { name: "覆盖" }).click();
   await expect(page.getByRole("status")).toContainText(
-    "TM 导出完成（已覆盖）：3 条",
+    "TM 导出完成（已覆盖，库「演示项目」）：3 条",
   );
   expect(existsSync(tmExportPath)).toBe(true);
   expect(statSync(tmExportPath).size).toBeGreaterThan(0);
@@ -1144,4 +1148,103 @@ test("multi-TM: writable switch routes confirm writes, merged lookup names the m
   await expect(dialog.getByText("源：Send 7 files.")).toHaveCount(0);
   await shot("31-write-landed-in-writable-only.png");
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+});
+
+// S3d: the deterministic correction channel and the explicit import target.
+// Runs with the multi-TM state: 风格库 is the writable mount, the project
+// memory 演示项目 is read-only.
+test("S3d: QA corrections apply from the panel and TM import targets a named memory", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // A fresh document whose one finding is mechanically fixable: the
+  // target's single number diverges from the source's single number.
+  const fixablePath = join(workDir, "fixable.txt");
+  writeFileSync(fixablePath, "Ship 10 boxes.\n");
+  await importThroughDialog(fixablePath);
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「fixable.txt」",
+    { timeout: 30_000 },
+  );
+  await rows.first().click();
+  await page.getByLabel("句段 1 译文").fill("运送 12 个箱子。");
+  await expect(
+    rows.first().locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+
+  // Run QA: the engine proposes the exact replacement text and the panel
+  // previews it verbatim — the 应用修复 button exists only because an
+  // engine correction does.
+  await page.getByRole("button", { name: "QA", exact: true }).click();
+  await page.getByRole("button", { name: "运行 QA" }).click();
+  await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
+  const numberIssue = page.locator(".issue-card", {
+    hasText: "qa.number-mismatch",
+  });
+  await expect(numberIssue).toContainText("修复为：运送 10 个箱子。");
+  await shot("32-correction-preview.png");
+
+  // 应用修复 rewrites the target through the guarded channel; the finding
+  // resolves in the same transaction and the row stays a draft — applying
+  // never confirms and never writes TM.
+  await numberIssue.getByRole("button", { name: /^应用修复/ }).click();
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #1 已应用修复",
+  );
+  await expect(rows.first().locator(".segment-grid__target")).toHaveText(
+    "运送 10 个箱子。",
+  );
+  await expect(page.getByText("质量检查（未解决 0）")).toBeVisible();
+  await expect(numberIssue).toContainText("已解决");
+  await expect(
+    rows.first().locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+  await shot("33-correction-applied.png");
+
+  // TM import into an explicitly named memory: the settings picker
+  // defaults to the writable 风格库; picking the read-only 演示项目
+  // routes the file there instead.
+  const namedCsv = join(workDir, "named-import.csv");
+  writeFileSync(
+    namedCsv,
+    "source,target\nName the target memory.,给目标记忆库命名。\n",
+  );
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_TM_OPEN_PATH = path;
+  }, namedCsv);
+  await page.getByRole("button", { name: "项目设置" }).click();
+  const settingsDialog = page.locator(".tl-dialog");
+  const memoryPicker = settingsDialog.getByRole("combobox", {
+    name: "记忆库",
+  });
+  await expect(memoryPicker.locator("option:checked")).toHaveText(
+    "风格库（可写）",
+  );
+  await memoryPicker.selectOption({ label: "演示项目" });
+  await settingsDialog.getByRole("button", { name: "导入外部 TM…" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "外部 TM 导入完成（库「演示项目」）：读取 1 条，新增 1，更新 0",
+  );
+  await shot("34-import-into-named-memory.png");
+  await settingsDialog
+    .getByRole("button", { name: "关闭", exact: true })
+    .click();
+
+  // The entries listing proves where the row landed: the read-only
+  // 演示项目 holds it, the writable 风格库 does not.
+  await page.getByRole("button", { name: "TM 管理" }).click();
+  const manageDialog = page.locator(".tl-dialog", { hasText: "TM 管理" });
+  await manageDialog
+    .getByRole("combobox", { name: "记忆库", exact: true })
+    .selectOption({ label: "演示项目" });
+  await expect(
+    manageDialog.getByText("源：Name the target memory."),
+  ).toBeVisible();
+  await manageDialog
+    .getByRole("combobox", { name: "记忆库", exact: true })
+    .selectOption({ label: "风格库" });
+  await expect(
+    manageDialog.getByText("源：Name the target memory."),
+  ).toHaveCount(0);
+  await shot("35-named-import-landed.png");
+  await manageDialog.getByRole("button", { name: "关闭", exact: true }).click();
 });

@@ -13,8 +13,9 @@
 
 use tl_asset::{Memory, MemoryMount};
 use tl_protocol::{
-    MemoryAttachParams, MemoryAttachResult, MemoryCreateParams, MemoryDetachParams,
-    MemoryDetachResult, MemoryListParams, MemoryListResult, MemoryUpdateParams, MemoryUpdateResult,
+    MemoryAttachParams, MemoryAttachResult, MemoryCreateParams, MemoryDeleteParams,
+    MemoryDeleteResult, MemoryDetachParams, MemoryDetachResult, MemoryListParams, MemoryListResult,
+    MemoryRenameParams, MemoryRenameResult, MemoryUpdateParams, MemoryUpdateResult,
 };
 
 use crate::store::StateDelta;
@@ -303,6 +304,81 @@ impl Engine {
             }
         }
         changed
+    }
+
+    /// Rename the memory itself — mounts and entries stay untouched, and
+    /// the new name shows up in every project the memory is mounted on.
+    pub(crate) fn memory_rename(
+        &mut self,
+        params: MemoryRenameParams,
+    ) -> Result<MemoryRenameResult, EngineError> {
+        let name = params.name.trim();
+        if name.is_empty() {
+            return Err(EngineError::InvalidParams(
+                "memory name must not be empty".to_string(),
+            ));
+        }
+        let memory = self.require_memory(&params.memory_id)?.clone();
+        if memory.revision != params.base_revision {
+            return Err(EngineError::Conflict(format!(
+                "memory revision moved to {}; refresh before renaming",
+                memory.revision
+            )));
+        }
+        if memory.name == name {
+            return Ok(MemoryRenameResult { memory });
+        }
+        let mut renamed = memory;
+        renamed.name = name.to_string();
+        renamed.revision += 1;
+        renamed.updated_at_ms = now_ms();
+        self.store.apply(&StateDelta {
+            memories: vec![renamed.clone()],
+            ..Default::default()
+        })?;
+        self.state
+            .memories
+            .insert(renamed.id.clone(), renamed.clone());
+        Ok(MemoryRenameResult { memory: renamed })
+    }
+
+    /// Delete a memory for good. Honest conflicts, never a silent orphan:
+    /// mounted anywhere refuses (detach it from every project first), and
+    /// remaining entries refuse unless `deleteEntries` explicitly asks for
+    /// the cascade. The cascade removes the entries, the memory row, and
+    /// the in-memory fuzzy index in the same mutation.
+    pub(crate) fn memory_delete(
+        &mut self,
+        params: MemoryDeleteParams,
+    ) -> Result<MemoryDeleteResult, EngineError> {
+        let memory = self.require_memory(&params.memory_id)?.clone();
+        let mounted_on = self
+            .state
+            .memory_mounts
+            .iter()
+            .filter(|mount| mount.memory_id == params.memory_id)
+            .count();
+        if mounted_on > 0 {
+            return Err(EngineError::Conflict(format!(
+                "memory is mounted on {mounted_on} project(s); detach it everywhere first"
+            )));
+        }
+        let entries = self.store.tm_entry_count(&params.memory_id, None)?;
+        if entries > 0 && !params.delete_entries {
+            return Err(EngineError::Conflict(format!(
+                "memory still holds {entries} TM entries; pass deleteEntries to remove them with it"
+            )));
+        }
+        self.store.apply(&StateDelta {
+            deleted_memories: vec![params.memory_id.clone()],
+            ..Default::default()
+        })?;
+        self.state.memories.remove(&params.memory_id);
+        self.tm_indexes.remove(&params.memory_id);
+        Ok(MemoryDeleteResult {
+            memory,
+            deleted_entries: entries,
+        })
     }
 
     pub(crate) fn require_memory(&self, memory_id: &str) -> Result<&Memory, EngineError> {

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tl_domain::{QaIssue, QaRuleSettings, QaSeverity};
+use tl_domain::{QaIssue, QaRuleSettings, QaSeverity, Segment};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +95,71 @@ pub struct QaWaiveResult {
     /// Every issue the call changed, straight from the store. Clients
     /// replace their copies of these rows wholesale.
     pub issues: Vec<QaIssue>,
+}
+
+/// `qa.fix.list` — the engine-proposed corrections for a document's open
+/// findings (PRD S3 ④).
+///
+/// Corrections are recomputed from each segment's *current* target text at
+/// call time, never persisted: a stale issue whose text was already edited
+/// simply stops producing one. Only mechanically fixable rules propose
+/// anything (edge whitespace, CJK half-width punctuation and the ASCII
+/// ellipsis, adjacent repeated words, the unambiguous single-number
+/// mismatch); a finding without a correction is honestly absent from the
+/// list. Locked segments are shielded — their findings never offer a fix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFixListParams {
+    pub document_id: String,
+}
+
+/// One engine-proposed correction. The client previews `fixedTargetText`
+/// verbatim and applies it through `qa.fix.apply` — it never invents or
+/// edits replacement text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFix {
+    pub issue_id: String,
+    pub segment_id: String,
+    pub rule_id: String,
+    /// Segment revision the fix was computed against; pass it as
+    /// `baseRevision` to `qa.fix.apply`.
+    pub base_revision: u64,
+    /// The target text the fix replaces (the segment's current text).
+    pub current_target_text: String,
+    /// The full replacement target text, applied verbatim.
+    pub fixed_target_text: String,
+    /// Short English description of the mechanical change; clients
+    /// localize by `ruleId`, like issue messages.
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFixListResult {
+    pub fixes: Vec<QaFix>,
+}
+
+/// `qa.fix.apply` — apply one correction through the exact `segment.update`
+/// guards: a stale `baseRevision` conflicts, a locked segment conflicts,
+/// and a confirmed segment honestly returns to draft. The engine recomputes
+/// the correction from the current text (a finding without one conflicts);
+/// the segment's QA refreshes in the same transaction. Applying never
+/// confirms and never writes TM.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFixApplyParams {
+    pub issue_id: String,
+    /// Optimistic concurrency: must match the segment's current revision.
+    pub base_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaFixApplyResult {
+    pub segment: Segment,
+    /// The segment's full issue list after the same-transaction refresh.
+    pub qa_issues: Vec<QaIssue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

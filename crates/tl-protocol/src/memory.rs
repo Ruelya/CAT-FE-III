@@ -67,6 +67,48 @@ pub struct MemoryDetachResult {
     pub mount: MemoryMount,
 }
 
+/// `memory.rename` — rename the memory itself (mount edits stay in
+/// `memory.update`). The new name applies everywhere the memory is
+/// mounted; entries and mounts are untouched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRenameParams {
+    pub memory_id: String,
+    pub name: String,
+    /// Optimistic concurrency: must match the memory's current revision.
+    pub base_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRenameResult {
+    pub memory: Memory,
+}
+
+/// `memory.delete` — remove a memory row for good. Honest conflicts, never
+/// a silent orphan: mounted anywhere fails (detach it from every project
+/// first), and entries remaining fails unless `deleteEntries` explicitly
+/// asks for the cascade. The conflict message names the entry count so the
+/// caller can put a real number in front of the user.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDeleteParams {
+    pub memory_id: String,
+    /// Delete the memory's TM entries along with it. Defaults to false:
+    /// a memory that still holds entries conflicts instead.
+    #[serde(default)]
+    pub delete_entries: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDeleteResult {
+    /// The memory as it was at deletion time.
+    pub memory: Memory,
+    /// TM entries removed in the same transaction (0 for an empty memory).
+    pub deleted_entries: u32,
+}
+
 /// Edit one mount: enable/disable the read path, promote/demote the
 /// working memory, and/or move the mount to a new priority position.
 /// Omitted fields stay unchanged.

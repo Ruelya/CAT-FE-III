@@ -1040,6 +1040,42 @@
         "targetLocale"
       ]
     },
+    "MemoryDeleteParams": {
+      "description": "`memory.delete` — remove a memory row for good. Honest conflicts, never\na silent orphan: mounted anywhere fails (detach it from every project\nfirst), and entries remaining fails unless `deleteEntries` explicitly\nasks for the cascade. The conflict message names the entry count so the\ncaller can put a real number in front of the user.",
+      "type": "object",
+      "properties": {
+        "deleteEntries": {
+          "description": "Delete the memory's TM entries along with it. Defaults to false:\na memory that still holds entries conflicts instead.",
+          "type": "boolean",
+          "default": false
+        },
+        "memoryId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "memoryId"
+      ]
+    },
+    "MemoryDeleteResult": {
+      "type": "object",
+      "properties": {
+        "deletedEntries": {
+          "description": "TM entries removed in the same transaction (0 for an empty memory).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "memory": {
+          "description": "The memory as it was at deletion time.",
+          "$ref": "#/$defs/Memory"
+        }
+      },
+      "required": [
+        "memory",
+        "deletedEntries"
+      ]
+    },
     "MemoryDetachParams": {
       "type": "object",
       "properties": {
@@ -1146,6 +1182,40 @@
         "revision",
         "createdAtMs",
         "updatedAtMs"
+      ]
+    },
+    "MemoryRenameParams": {
+      "description": "`memory.rename` — rename the memory itself (mount edits stay in\n`memory.update`). The new name applies everywhere the memory is\nmounted; entries and mounts are untouched.",
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "description": "Optimistic concurrency: must match the memory's current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "memoryId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "memoryId",
+        "name",
+        "baseRevision"
+      ]
+    },
+    "MemoryRenameResult": {
+      "type": "object",
+      "properties": {
+        "memory": {
+          "$ref": "#/$defs/Memory"
+        }
+      },
+      "required": [
+        "memory"
       ]
     },
     "MemoryUpdateParams": {
@@ -1565,10 +1635,10 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/TermbaseCreateParams"
+          "$ref": "#/$defs/MemoryRenameParams"
         },
         "result": {
-          "$ref": "#/$defs/Termbase"
+          "$ref": "#/$defs/MemoryRenameResult"
         }
       },
       "additionalProperties": false,
@@ -1599,6 +1669,40 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/MemoryDeleteParams"
+        },
+        "result": {
+          "$ref": "#/$defs/MemoryDeleteResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract31": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermbaseCreateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/Termbase"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract32": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermbaseListParams"
         },
         "result": {
@@ -1611,7 +1715,7 @@
         "result"
       ]
     },
-    "MethodContract31": {
+    "MethodContract33": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1628,7 +1732,7 @@
         "result"
       ]
     },
-    "MethodContract32": {
+    "MethodContract34": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1645,7 +1749,7 @@
         "result"
       ]
     },
-    "MethodContract33": {
+    "MethodContract35": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1662,7 +1766,7 @@
         "result"
       ]
     },
-    "MethodContract34": {
+    "MethodContract36": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1679,7 +1783,7 @@
         "result"
       ]
     },
-    "MethodContract35": {
+    "MethodContract37": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1696,7 +1800,7 @@
         "result"
       ]
     },
-    "MethodContract36": {
+    "MethodContract38": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1713,7 +1817,7 @@
         "result"
       ]
     },
-    "MethodContract37": {
+    "MethodContract39": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1722,40 +1826,6 @@
         },
         "result": {
           "$ref": "#/$defs/TermDeleteResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract38": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermListParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermListResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract39": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermLookupParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermLookupResult"
         }
       },
       "additionalProperties": false,
@@ -1786,6 +1856,40 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract41": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/TermLookupParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermLookupResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract42": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/QaRunParams"
         },
         "result": {
@@ -1798,7 +1902,7 @@
         "result"
       ]
     },
-    "MethodContract41": {
+    "MethodContract43": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1815,7 +1919,7 @@
         "result"
       ]
     },
-    "MethodContract42": {
+    "MethodContract44": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1832,7 +1936,41 @@
         "result"
       ]
     },
-    "MethodContract43": {
+    "MethodContract45": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaFixListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaFixListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract46": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/QaFixApplyParams"
+        },
+        "result": {
+          "$ref": "#/$defs/QaFixApplyResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract47": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1849,7 +1987,7 @@
         "result"
       ]
     },
-    "MethodContract44": {
+    "MethodContract48": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1866,7 +2004,7 @@
         "result"
       ]
     },
-    "MethodContract45": {
+    "MethodContract49": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1875,74 +2013,6 @@
         },
         "result": {
           "$ref": "#/$defs/AiStatusResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract46": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiStatusParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiStatusResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract47": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiAssistParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiAssistRunView"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract48": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiAssistStatusParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiAssistRunView"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract49": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiAssistCancelParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiAssistRunView"
         }
       },
       "additionalProperties": false,
@@ -1973,6 +2043,74 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiStatusResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract51": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract52": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistStatusParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract53": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiAssistCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract54": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
@@ -1985,7 +2123,7 @@
         "result"
       ]
     },
-    "MethodContract51": {
+    "MethodContract55": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2002,7 +2140,7 @@
         "result"
       ]
     },
-    "MethodContract52": {
+    "MethodContract56": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2437,6 +2575,112 @@
       },
       "required": [
         "projectId"
+      ]
+    },
+    "QaFix": {
+      "description": "One engine-proposed correction. The client previews `fixedTargetText`\nverbatim and applies it through `qa.fix.apply` — it never invents or\nedits replacement text.",
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "description": "Segment revision the fix was computed against; pass it as\n`baseRevision` to `qa.fix.apply`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "currentTargetText": {
+          "description": "The target text the fix replaces (the segment's current text).",
+          "type": "string"
+        },
+        "description": {
+          "description": "Short English description of the mechanical change; clients\nlocalize by `ruleId`, like issue messages.",
+          "type": "string"
+        },
+        "fixedTargetText": {
+          "description": "The full replacement target text, applied verbatim.",
+          "type": "string"
+        },
+        "issueId": {
+          "type": "string"
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "segmentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "issueId",
+        "segmentId",
+        "ruleId",
+        "baseRevision",
+        "currentTargetText",
+        "fixedTargetText",
+        "description"
+      ]
+    },
+    "QaFixApplyParams": {
+      "description": "`qa.fix.apply` — apply one correction through the exact `segment.update`\nguards: a stale `baseRevision` conflicts, a locked segment conflicts,\nand a confirmed segment honestly returns to draft. The engine recomputes\nthe correction from the current text (a finding without one conflicts);\nthe segment's QA refreshes in the same transaction. Applying never\nconfirms and never writes TM.",
+      "type": "object",
+      "properties": {
+        "baseRevision": {
+          "description": "Optimistic concurrency: must match the segment's current revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "issueId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "issueId",
+        "baseRevision"
+      ]
+    },
+    "QaFixApplyResult": {
+      "type": "object",
+      "properties": {
+        "qaIssues": {
+          "description": "The segment's full issue list after the same-transaction refresh.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QaIssue"
+          }
+        },
+        "segment": {
+          "$ref": "#/$defs/Segment"
+        }
+      },
+      "required": [
+        "segment",
+        "qaIssues"
+      ]
+    },
+    "QaFixListParams": {
+      "description": "`qa.fix.list` — the engine-proposed corrections for a document's open\nfindings (PRD S3 ④).\n\nCorrections are recomputed from each segment's *current* target text at\ncall time, never persisted: a stale issue whose text was already edited\nsimply stops producing one. Only mechanically fixable rules propose\nanything (edge whitespace, CJK half-width punctuation and the ASCII\nellipsis, adjacent repeated words, the unambiguous single-number\nmismatch); a finding without a correction is honestly absent from the\nlist. Locked segments are shielded — their findings never offer a fix.",
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ]
+    },
+    "QaFixListResult": {
+      "type": "object",
+      "properties": {
+        "fixes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QaFix"
+          }
+        }
+      },
+      "required": [
+        "fixes"
       ]
     },
     "QaIssue": {
@@ -2883,28 +3127,28 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract52"
+          "$ref": "#/$defs/MethodContract56"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract50"
+          "$ref": "#/$defs/MethodContract54"
         },
         "ai.agent.status": {
-          "$ref": "#/$defs/MethodContract51"
+          "$ref": "#/$defs/MethodContract55"
         },
         "ai.assist.cancel": {
-          "$ref": "#/$defs/MethodContract49"
+          "$ref": "#/$defs/MethodContract53"
         },
         "ai.assist.start": {
-          "$ref": "#/$defs/MethodContract47"
+          "$ref": "#/$defs/MethodContract51"
         },
         "ai.assist.status": {
-          "$ref": "#/$defs/MethodContract48"
+          "$ref": "#/$defs/MethodContract52"
         },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract45"
+          "$ref": "#/$defs/MethodContract49"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract46"
+          "$ref": "#/$defs/MethodContract50"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract11"
@@ -2930,11 +3174,17 @@
         "memory.create": {
           "$ref": "#/$defs/MethodContract24"
         },
+        "memory.delete": {
+          "$ref": "#/$defs/MethodContract30"
+        },
         "memory.detach": {
           "$ref": "#/$defs/MethodContract27"
         },
         "memory.list": {
           "$ref": "#/$defs/MethodContract25"
+        },
+        "memory.rename": {
+          "$ref": "#/$defs/MethodContract29"
         },
         "memory.update": {
           "$ref": "#/$defs/MethodContract28"
@@ -2954,20 +3204,26 @@
         "project.update": {
           "$ref": "#/$defs/MethodContract6"
         },
-        "qa.list": {
-          "$ref": "#/$defs/MethodContract41"
+        "qa.fix.apply": {
+          "$ref": "#/$defs/MethodContract46"
         },
-        "qa.profile.get": {
+        "qa.fix.list": {
+          "$ref": "#/$defs/MethodContract45"
+        },
+        "qa.list": {
           "$ref": "#/$defs/MethodContract43"
         },
+        "qa.profile.get": {
+          "$ref": "#/$defs/MethodContract47"
+        },
         "qa.profile.update": {
-          "$ref": "#/$defs/MethodContract44"
+          "$ref": "#/$defs/MethodContract48"
         },
         "qa.run": {
-          "$ref": "#/$defs/MethodContract40"
+          "$ref": "#/$defs/MethodContract42"
         },
         "qa.waive": {
-          "$ref": "#/$defs/MethodContract42"
+          "$ref": "#/$defs/MethodContract44"
         },
         "segment.confirm": {
           "$ref": "#/$defs/MethodContract15"
@@ -2985,37 +3241,37 @@
           "$ref": "#/$defs/MethodContract13"
         },
         "term.add": {
-          "$ref": "#/$defs/MethodContract35"
-        },
-        "term.delete": {
           "$ref": "#/$defs/MethodContract37"
         },
-        "term.list": {
-          "$ref": "#/$defs/MethodContract38"
-        },
-        "term.lookup": {
+        "term.delete": {
           "$ref": "#/$defs/MethodContract39"
         },
+        "term.list": {
+          "$ref": "#/$defs/MethodContract40"
+        },
+        "term.lookup": {
+          "$ref": "#/$defs/MethodContract41"
+        },
         "term.update": {
-          "$ref": "#/$defs/MethodContract36"
+          "$ref": "#/$defs/MethodContract38"
         },
         "termbase.attach": {
-          "$ref": "#/$defs/MethodContract31"
-        },
-        "termbase.create": {
-          "$ref": "#/$defs/MethodContract29"
-        },
-        "termbase.detach": {
-          "$ref": "#/$defs/MethodContract32"
-        },
-        "termbase.export": {
-          "$ref": "#/$defs/MethodContract34"
-        },
-        "termbase.import": {
           "$ref": "#/$defs/MethodContract33"
         },
+        "termbase.create": {
+          "$ref": "#/$defs/MethodContract31"
+        },
+        "termbase.detach": {
+          "$ref": "#/$defs/MethodContract34"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract36"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract35"
+        },
         "termbase.list": {
-          "$ref": "#/$defs/MethodContract30"
+          "$ref": "#/$defs/MethodContract32"
         },
         "tm.delete": {
           "$ref": "#/$defs/MethodContract20"
@@ -3069,6 +3325,8 @@
         "memory.attach",
         "memory.detach",
         "memory.update",
+        "memory.rename",
+        "memory.delete",
         "termbase.create",
         "termbase.list",
         "termbase.attach",
@@ -3083,6 +3341,8 @@
         "qa.run",
         "qa.list",
         "qa.waive",
+        "qa.fix.list",
+        "qa.fix.apply",
         "qa.profile.get",
         "qa.profile.update",
         "ai.configure",

@@ -355,6 +355,11 @@ pub struct StateDelta {
     pub deleted_term_entries: Vec<String>,
     /// `(project_id, memory_id)` mount rows removed by memory.detach.
     pub deleted_memory_mounts: Vec<(String, String)>,
+    /// Memory ids removed by memory.delete. Each id cascades inside the
+    /// same transaction: the memory's TM entries, then the memory row.
+    /// The engine only issues this after refusing mounted memories, so
+    /// no mount rows can be left dangling.
+    pub deleted_memories: Vec<String>,
     /// `(project_id, termbase_id)` mount rows removed by termbase.detach.
     pub deleted_termbase_mounts: Vec<(String, String)>,
     /// Document ids removed by document.remove. Each id cascades inside the
@@ -380,6 +385,7 @@ impl StateDelta {
             && self.deleted_tm_entries.is_empty()
             && self.deleted_term_entries.is_empty()
             && self.deleted_memory_mounts.is_empty()
+            && self.deleted_memories.is_empty()
             && self.deleted_termbase_mounts.is_empty()
             && self.deleted_documents.is_empty()
     }
@@ -1217,6 +1223,14 @@ fn write_delta(conn: &Connection, delta: &StateDelta) -> io::Result<()> {
         statement
             .execute(params![project_id, memory_id])
             .map_err(db_err)?;
+    }
+    for memory_id in &delta.deleted_memories {
+        delete_row(
+            conn,
+            "DELETE FROM tm_entries WHERE memory_id = ?1",
+            memory_id,
+        )?;
+        delete_row(conn, "DELETE FROM memories WHERE id = ?1", memory_id)?;
     }
     for (project_id, termbase_id) in &delta.deleted_termbase_mounts {
         let mut statement = conn

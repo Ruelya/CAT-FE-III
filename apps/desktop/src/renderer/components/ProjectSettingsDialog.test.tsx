@@ -57,12 +57,53 @@ interface BridgePickers {
   srx?: string | null;
 }
 
+function tmMemory(id: string, name: string) {
+  return {
+    id,
+    name,
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    revision: 1,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+}
+
+function tmMount(memoryId: string, priority: number, writable: boolean) {
+  return {
+    projectId: "p1",
+    memoryId,
+    priority,
+    enabled: true,
+    writable,
+    revision: 1,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+}
+
+/** One writable working memory — the shape every real project starts with. */
+const DEFAULT_MEMORY_LIST = {
+  memories: [tmMemory("tm-p1", "主记忆库")],
+  mounts: [tmMount("tm-p1", 0, true)],
+};
+
 function installBridge(
   invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
   pickers: BridgePickers = {},
+  memoryList: typeof DEFAULT_MEMORY_LIST = DEFAULT_MEMORY_LIST,
 ) {
+  // memory.list feeds the TM import/export picker; serve it here so every
+  // test's engine mock keeps focusing on the calls it actually asserts.
+  const wrapped = (
+    method: string,
+    params: unknown,
+  ): Promise<EngineInvokeResponse> =>
+    method === "memory.list"
+      ? Promise.resolve({ ok: true, result: memoryList })
+      : invoke(method, params);
   const bridge = {
-    invoke: vi.fn(invoke),
+    invoke: vi.fn(wrapped),
     chooseTmImportFile: vi.fn(() => Promise.resolve(pickers.tmImport ?? null)),
     chooseTmExportPath: vi.fn(() => Promise.resolve(pickers.tmExport ?? null)),
     chooseTermbaseImportFile: vi.fn(() =>
@@ -559,16 +600,23 @@ describe("ProjectSettingsDialog", () => {
       { tmImport: "/tmp/legacy.tmx" },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导入外部 TM…" }),
+    );
     await waitFor(() => {
       expect(
-        screen.getByText(/外部 TM 导入完成：读取 5 条，新增 3，更新 2/),
+        screen.getByText(
+          /外部 TM 导入完成（库「主记忆库」）：读取 5 条，新增 3，更新 2/,
+        ),
       ).toBeInTheDocument();
     });
+    // The destination memory is always explicit — the writable working
+    // memory is the default pick, never an implicit fallback.
     const importCall = calls.find(([method]) => method === "tm.import");
     expect(importCall?.[1]).toEqual({
       projectId: "p1",
       path: "/tmp/legacy.tmx",
+      memoryId: "tm-p1",
     });
   });
 
@@ -585,7 +633,9 @@ describe("ProjectSettingsDialog", () => {
       { tmImport: null },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导入外部 TM…" }),
+    );
     expect(calls.some(([method]) => method === "tm.import")).toBe(false);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -607,7 +657,9 @@ describe("ProjectSettingsDialog", () => {
       { tmImport: "/tmp/gone.tmx" },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导入外部 TM…" }),
+    );
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
         "TM file /tmp/gone.tmx",
@@ -635,17 +687,23 @@ describe("ProjectSettingsDialog", () => {
       { tmExport: "/tmp/out.tmx" },
     );
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导出 TM…" }),
+    );
     await waitFor(() => {
       expect(
-        screen.getByText(/TM 导出完成：7 条 → \/tmp\/out.tmx/),
+        screen.getByText(/TM 导出完成（库「主记忆库」）：7 条 → \/tmp\/out.tmx/),
       ).toBeInTheDocument();
     });
     // The save dialog gets a sensible default filename derived from the
     // project name, so the picked path starts from something meaningful.
     expect(bridge.chooseTmExportPath).toHaveBeenCalledWith("演示项目-tm.tmx");
     const exportCall = calls.find(([method]) => method === "tm.export");
-    expect(exportCall?.[1]).toEqual({ projectId: "p1", path: "/tmp/out.tmx" });
+    expect(exportCall?.[1]).toEqual({
+      projectId: "p1",
+      path: "/tmp/out.tmx",
+      memoryId: "tm-p1",
+    });
   });
 
   /** Engine that blocks the plain export but honors an explicit overwrite. */
@@ -681,7 +739,9 @@ describe("ProjectSettingsDialog", () => {
     const calls: Array<[string, unknown]> = [];
     blockedTmExportBridge(calls);
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导出 TM…" }),
+    );
 
     // The refusal surfaces as an explicit question, not an error alert.
     const prompt = await screen.findByRole("alertdialog", {
@@ -693,18 +753,23 @@ describe("ProjectSettingsDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "覆盖" }));
     await waitFor(() => {
       expect(
-        screen.getByText(/TM 导出完成（已覆盖）：7 条 → \/tmp\/out.tmx/),
+        screen.getByText(
+          /TM 导出完成（已覆盖，库「主记忆库」）：7 条 → \/tmp\/out.tmx/,
+        ),
       ).toBeInTheDocument();
     });
+    // The retry hits the exact memory the refused call did.
     const exportCalls = calls.filter(([method]) => method === "tm.export");
     expect(exportCalls).toHaveLength(2);
     expect(exportCalls[0]?.[1]).toEqual({
       projectId: "p1",
       path: "/tmp/out.tmx",
+      memoryId: "tm-p1",
     });
     expect(exportCalls[1]?.[1]).toEqual({
       projectId: "p1",
       path: "/tmp/out.tmx",
+      memoryId: "tm-p1",
       overwrite: true,
     });
     expect(
@@ -716,7 +781,9 @@ describe("ProjectSettingsDialog", () => {
     const calls: Array<[string, unknown]> = [];
     blockedTmExportBridge(calls);
     render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "导出 TM…" }),
+    );
     await screen.findByRole("alertdialog", {
       name: "目标已存在，要覆盖吗？",
     });
@@ -790,6 +857,93 @@ describe("ProjectSettingsDialog", () => {
     });
   });
 
+  it("imports into and exports from an explicitly picked non-writable memory", async () => {
+    const calls: Array<[string, unknown]> = [];
+    installBridge(
+      (method, params) => {
+        calls.push([method, params]);
+        if (method === "tm.import") {
+          return Promise.resolve({
+            ok: true,
+            result: { imported: 2, added: 2, updated: 0 },
+          });
+        }
+        if (method === "tm.export") {
+          return Promise.resolve({
+            ok: true,
+            result: { exported: 3, outputPath: "/tmp/ref.tmx" },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        });
+      },
+      { tmImport: "/tmp/ref.tmx", tmExport: "/tmp/ref.tmx" },
+      {
+        memories: [tmMemory("tm-p1", "主记忆库"), tmMemory("m-ref", "参考库")],
+        mounts: [tmMount("tm-p1", 0, true), tmMount("m-ref", 1, false)],
+      },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const picker = await screen.findByLabelText("记忆库");
+    // The writable working memory is the default pick.
+    expect(picker).toHaveValue("tm-p1");
+
+    await userEvent.selectOptions(picker, "m-ref");
+    await userEvent.click(screen.getByRole("button", { name: "导入外部 TM…" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /外部 TM 导入完成（库「参考库」）：读取 2 条，新增 2，更新 0/,
+        ),
+      ).toBeInTheDocument();
+    });
+    const importCall = calls.find(([method]) => method === "tm.import");
+    expect(importCall?.[1]).toEqual({
+      projectId: "p1",
+      path: "/tmp/ref.tmx",
+      memoryId: "m-ref",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "导出 TM…" }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/TM 导出完成（库「参考库」）：3 条 → \/tmp\/ref.tmx/),
+      ).toBeInTheDocument();
+    });
+    const exportCall = calls.find(([method]) => method === "tm.export");
+    expect(exportCall?.[1]).toEqual({
+      projectId: "p1",
+      path: "/tmp/ref.tmx",
+      memoryId: "m-ref",
+    });
+  });
+
+  it("shows an honest note instead of TM file actions when nothing is mounted", async () => {
+    installBridge(
+      () =>
+        Promise.resolve({
+          ok: true,
+          result: { termbases: [], mounts: [] },
+        }),
+      {},
+      { memories: [], mounts: [] },
+    );
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(
+        screen.getByText(/未挂载记忆库，无法导入或导出/),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByRole("button", { name: "导入外部 TM…" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "导出 TM…" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps unrelated settings actions usable while a TM import runs", async () => {
     let finishImport: (response: EngineInvokeResponse) => void = () => {};
     installBridge(
@@ -837,7 +991,9 @@ describe("ProjectSettingsDialog", () => {
     finishImport({ ok: true, result: { imported: 2, added: 1, updated: 1 } });
     await waitFor(() => {
       expect(
-        screen.getByText(/外部 TM 导入完成：读取 2 条，新增 1，更新 1/),
+        screen.getByText(
+          /外部 TM 导入完成（库「主记忆库」）：读取 2 条，新增 1，更新 1/,
+        ),
       ).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "导入外部 TM…" })).toBeEnabled();

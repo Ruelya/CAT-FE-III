@@ -35,17 +35,18 @@ use tl_domain::{
     SegmentState, new_id,
 };
 use tl_protocol::{
-    QaListParams, QaListResult, QaProfileGetParams, QaProfileUpdateParams, QaProfileView,
-    QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
+    QaFix, QaFixApplyParams, QaFixApplyResult, QaFixListParams, QaFixListResult, QaListParams,
+    QaListResult, QaProfileGetParams, QaProfileUpdateParams, QaProfileView, QaRunParams,
+    QaRunResult, QaWaiveParams, QaWaiveResult,
 };
 use tl_qa::{
     CompiledQaProfile, QaCandidateEvidence, QaConsistencySegment, QaFindingCandidate,
     QaProfileDefinition, QaSegmentInput, QaTermExpectation, built_in_profiles, default_profile_id,
-    evaluate_consistency,
+    evaluate_consistency, propose_correction,
 };
 
 use crate::store::StateDelta;
-use crate::{Engine, EngineError, now_ms};
+use crate::{Engine, EngineError, apply_origin_rules, now_ms};
 
 /// Rule ids produced by [`evaluate_consistency`] — the cross-segment pass a
 /// segment-scoped refresh cannot honestly re-evaluate.
@@ -530,6 +531,127 @@ impl Engine {
         })?;
         sort_issues(&mut issues);
         Ok(QaWaiveResult { issues })
+    }
+
+    /// `qa.fix.list`: the engine-proposed corrections for a document's open
+    /// issues, recomputed from each segment's current target text — never
+    /// persisted, so a fix can never go stale silently. A finding whose
+    /// rule has no mechanical fix, whose text was already edited, or whose
+    /// segment is locked is honestly absent from the list.
+    pub(crate) fn qa_fix_list(
+        &self,
+        params: QaFixListParams,
+    ) -> Result<QaFixListResult, EngineError> {
+        let record = self.require_document(&params.document_id)?;
+        let issues = self
+            .store
+            .document_qa_issues_page(&record.document.id, 0, None)?;
+        // One store read per segment, however many issues it carries.
+        let mut segments: BTreeMap<String, Segment> = BTreeMap::new();
+        let mut fixes = Vec::new();
+        for issue in issues {
+            if issue.status != QaIssueStatus::Open {
+                continue;
+            }
+            if !segments.contains_key(&issue.segment_id) {
+                let segment = self.store.segment(&issue.segment_id)?.ok_or_else(|| {
+                    EngineError::Internal(format!(
+                        "QA issue {} references missing segment {}",
+                        issue.id, issue.segment_id
+                    ))
+                })?;
+                segments.insert(issue.segment_id.clone(), segment);
+            }
+            let segment = segments
+                .get(&issue.segment_id)
+                .expect("segment just cached");
+            if segment.locked {
+                continue;
+            }
+            let Some(correction) =
+                propose_correction(&issue.rule_id, &segment.source_text, &segment.target_text)
+            else {
+                continue;
+            };
+            fixes.push(QaFix {
+                issue_id: issue.id,
+                segment_id: issue.segment_id.clone(),
+                rule_id: issue.rule_id,
+                base_revision: segment.revision,
+                current_target_text: segment.target_text.clone(),
+                fixed_target_text: correction.fixed_target_text,
+                description: correction.description,
+            });
+        }
+        Ok(QaFixListResult { fixes })
+    }
+
+    /// `qa.fix.apply`: apply one engine-proposed correction through the
+    /// exact `segment.update` guards — stale `baseRevision` conflicts,
+    /// locked segments conflict, and a confirmed segment honestly returns
+    /// to draft (the state is recomputed from the new text, same as an
+    /// edit). The correction is recomputed from the current text here; the
+    /// client never supplies replacement text. The rewritten segment and
+    /// its refreshed QA rows commit in one transaction (the S3a channel).
+    /// Applying never confirms and never writes TM.
+    pub(crate) fn qa_fix_apply(
+        &mut self,
+        params: QaFixApplyParams,
+    ) -> Result<QaFixApplyResult, EngineError> {
+        let issue = self
+            .store
+            .qa_issue_by_id(&params.issue_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("QA issue {}", params.issue_id)))?;
+        if issue.status != QaIssueStatus::Open {
+            return Err(EngineError::Conflict(
+                "issue is not open; there is nothing to fix".to_string(),
+            ));
+        }
+        let mut segment = self
+            .store
+            .segment(&issue.segment_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("segment {}", issue.segment_id)))?;
+        if segment.revision != params.base_revision {
+            return Err(EngineError::Conflict(format!(
+                "segment revision moved to {}; refresh before editing",
+                segment.revision
+            )));
+        }
+        if segment.locked {
+            return Err(EngineError::Conflict(
+                "segment is locked; unlock it before editing".to_string(),
+            ));
+        }
+        let correction =
+            propose_correction(&issue.rule_id, &segment.source_text, &segment.target_text)
+                .ok_or_else(|| {
+                    EngineError::Conflict(
+                        "finding has no engine correction for the current text".to_string(),
+                    )
+                })?;
+        let project = {
+            let record = self.require_document(&segment.document_id)?;
+            self.require_project(&record.document.project_id)?.clone()
+        };
+        let now = now_ms();
+        segment.target_text = correction.fixed_target_text;
+        segment.state = if segment.target_text.trim().is_empty() {
+            SegmentState::Untranslated
+        } else {
+            SegmentState::Draft
+        };
+        // A correction rewrote the text without applying stored material:
+        // plain-edit origin semantics, same as typing.
+        apply_origin_rules(&mut segment, None, true);
+        segment.revision += 1;
+        segment.updated_at_ms = now;
+        let (changed_issues, qa_issues) = self.refresh_segment_qa(&project, &segment)?;
+        self.store.apply(&StateDelta {
+            segments: vec![segment.clone()],
+            qa_issues: changed_issues,
+            ..Default::default()
+        })?;
+        Ok(QaFixApplyResult { segment, qa_issues })
     }
 
     /// One page of a document's issues straight from SQL — open first, then

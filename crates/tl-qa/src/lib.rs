@@ -1241,6 +1241,197 @@ impl CompiledQaProfile {
     }
 }
 
+/// A deterministic, engine-proposed replacement for one finding's target
+/// text (PRD S3 ④). The fixed text is complete — the client applies it
+/// verbatim and never invents replacement text of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QaCorrection {
+    /// The full replacement target text.
+    pub fixed_target_text: String,
+    /// Short English description of the mechanical change; clients
+    /// localize by rule id, like issue messages.
+    pub description: String,
+}
+
+/// Propose the mechanical fix for one finding, or `None` when the rule has
+/// no safe deterministic correction — the channel never guesses.
+///
+/// Fixable rules: edge whitespace (trim), CJK half-width sentence
+/// punctuation and the ASCII ellipsis (full-width forms), adjacent repeated
+/// words (collapse), and the unambiguous single-number mismatch (copy the
+/// source's number). Everything else — missing terms, tag damage, length,
+/// consistency — needs a human sentence, not a string transform.
+///
+/// The fix is recomputed from the *current* target text at call time, so a
+/// stale issue whose text was already edited simply stops producing one:
+/// every branch returns `None` unless the fixed text differs.
+pub fn propose_correction(
+    rule_id: &str,
+    source_text: &str,
+    target_text: &str,
+) -> Option<QaCorrection> {
+    match rule_id {
+        "qa.edge-whitespace" => {
+            let fixed = target_text.trim();
+            (fixed != target_text).then(|| QaCorrection {
+                fixed_target_text: fixed.to_string(),
+                description: "Remove leading and trailing whitespace.".to_string(),
+            })
+        }
+        "qa.cjk-halfwidth-punctuation" => {
+            fix_cjk_halfwidth_punctuation(target_text).map(|fixed| QaCorrection {
+                fixed_target_text: fixed,
+                description: "Replace half-width punctuation next to CJK text with full-width."
+                    .to_string(),
+            })
+        }
+        "qa.cjk-ellipsis" => target_text.contains("...").then(|| QaCorrection {
+            fixed_target_text: target_text.replace("...", "……"),
+            description: "Replace ... with …….".to_string(),
+        }),
+        "qa.repeated-word" => fix_repeated_word(target_text).map(|fixed| QaCorrection {
+            fixed_target_text: fixed,
+            description: "Remove the repeated word.".to_string(),
+        }),
+        "qa.number-mismatch" => {
+            fix_number_mismatch(source_text, target_text).map(|(fixed, expected, found)| {
+                QaCorrection {
+                    fixed_target_text: fixed,
+                    description: format!("Replace {found} with {expected}."),
+                }
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Replace every half-width `, ; : ? !` adjacent to a CJK character with
+/// its full-width counterpart. Adjacency is judged on the original text —
+/// replacements only touch punctuation, so neighbors never change class.
+fn fix_cjk_halfwidth_punctuation(target: &str) -> Option<String> {
+    let characters: Vec<char> = target.chars().collect();
+    let mut fixed = String::with_capacity(target.len());
+    let mut changed = false;
+    for (index, character) in characters.iter().enumerate() {
+        let full_width = match character {
+            ',' => '，',
+            ';' => '；',
+            ':' => '：',
+            '?' => '？',
+            '!' => '！',
+            _ => {
+                fixed.push(*character);
+                continue;
+            }
+        };
+        let cjk_adjacent = index
+            .checked_sub(1)
+            .is_some_and(|before| is_cjk(characters[before]))
+            || characters
+                .get(index + 1)
+                .is_some_and(|after| is_cjk(*after));
+        if cjk_adjacent {
+            fixed.push(full_width);
+            changed = true;
+        } else {
+            fixed.push(*character);
+        }
+    }
+    changed.then_some(fixed)
+}
+
+/// Collapse adjacent repeated words the way [`repeated_word`] detects them.
+/// A pair collapses only when at least one occurrence is a bare word (no
+/// attached punctuation), so the surviving token keeps the pair's real
+/// punctuation. Repeats the detector still flags afterwards — e.g. a repeat
+/// across a punctuation-only token — mean no safe fix exists.
+fn fix_repeated_word(target: &str) -> Option<String> {
+    fn normalized(token: &str) -> String {
+        token
+            .trim_matches(|value: char| !value.is_alphanumeric())
+            .to_lowercase()
+    }
+    fn is_bare(token: &str) -> bool {
+        !token.is_empty() && token.chars().all(char::is_alphanumeric)
+    }
+    fn token_spans(text: &str) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut start: Option<usize> = None;
+        for (index, character) in text.char_indices() {
+            if character.is_whitespace() {
+                if let Some(from) = start.take() {
+                    spans.push((from, index));
+                }
+            } else if start.is_none() {
+                start = Some(index);
+            }
+        }
+        if let Some(from) = start {
+            spans.push((from, text.len()));
+        }
+        spans
+    }
+
+    let mut fixed = target.to_string();
+    let mut changed = false;
+    loop {
+        let spans = token_spans(&fixed);
+        let mut collapsed = false;
+        for pair in spans.windows(2) {
+            let (first_start, first_end) = pair[0];
+            let (second_start, second_end) = pair[1];
+            let first = &fixed[first_start..first_end];
+            let second = &fixed[second_start..second_end];
+            let word = normalized(first);
+            if word.is_empty() || word != normalized(second) {
+                continue;
+            }
+            let removal = if is_bare(second) {
+                first_end..second_end
+            } else if is_bare(first) {
+                first_start..second_start
+            } else {
+                return None; // Punctuation on both occurrences: not mechanical.
+            };
+            fixed.replace_range(removal, "");
+            collapsed = true;
+            changed = true;
+            break;
+        }
+        if !collapsed {
+            break;
+        }
+    }
+    if !changed || repeated_word(&fixed).is_some() {
+        return None;
+    }
+    Some(fixed)
+}
+
+/// The unambiguous number fix: exactly one number on each side, and the
+/// target's number appears exactly once as a literal substring. Anything
+/// else — dropped numbers, multiple numbers, formatted digits that do not
+/// literally match their token — has no single mechanical answer.
+/// Returns `(fixed text, expected, found)`.
+fn fix_number_mismatch(source: &str, target: &str) -> Option<(String, String, String)> {
+    let source_numbers = tl_domain::number_tokens(source);
+    let target_numbers = tl_domain::number_tokens(target);
+    let [expected] = source_numbers.as_slice() else {
+        return None;
+    };
+    let [found] = target_numbers.as_slice() else {
+        return None;
+    };
+    if expected == found || target.matches(found.as_str()).count() != 1 {
+        return None;
+    }
+    Some((
+        target.replacen(found.as_str(), expected, 1),
+        expected.clone(),
+        found.clone(),
+    ))
+}
+
 pub fn standard_profile() -> QaProfileDefinition {
     profile_with_id(STANDARD_PROFILE_ID, "Standard", false)
 }
@@ -2358,6 +2549,111 @@ mod tests {
                 .expect("canonical candidates");
         assert_eq!(canonical[0].rule_id, first.rule_id);
         assert!(canonicalize_qa_candidates(&[segment], vec![first.clone(), first]).is_err());
+    }
+
+    #[test]
+    fn corrections_cover_the_mechanical_rules_only() {
+        // Edge whitespace: trim.
+        let trimmed = propose_correction("qa.edge-whitespace", "Source.", " 译文。 ")
+            .expect("whitespace fix");
+        assert_eq!(trimmed.fixed_target_text, "译文。");
+        assert!(propose_correction("qa.edge-whitespace", "Source.", "译文。").is_none());
+
+        // Half-width punctuation next to CJK becomes full-width; the Latin
+        // clause keeps its ASCII comma.
+        let punctuation = propose_correction(
+            "qa.cjk-halfwidth-punctuation",
+            "Source.",
+            "你好,世界! See a, b.",
+        )
+        .expect("punctuation fix");
+        assert_eq!(punctuation.fixed_target_text, "你好，世界！ See a, b.");
+
+        // ASCII ellipsis becomes the CJK one.
+        let ellipsis =
+            propose_correction("qa.cjk-ellipsis", "Source.", "稍候...").expect("ellipsis fix");
+        assert_eq!(ellipsis.fixed_target_text, "稍候……");
+
+        // Unfixable rules never produce a correction — no guessing.
+        assert!(propose_correction("qa.empty-target", "Source.", "").is_none());
+        assert!(propose_correction("qa.length-ratio", "Source.", "很长的译文").is_none());
+    }
+
+    #[test]
+    fn repeated_word_fix_collapses_cleanly_or_not_at_all() {
+        let simple =
+            propose_correction("qa.repeated-word", "s", "word word 测试").expect("repeat fix");
+        assert_eq!(simple.fixed_target_text, "word 测试");
+        // The clean occurrence is removed so the punctuation survives.
+        let punctuated =
+            propose_correction("qa.repeated-word", "s", "end word word.").expect("repeat fix");
+        assert_eq!(punctuated.fixed_target_text, "end word.");
+        // Case-insensitive detection keeps the sentence-initial capital.
+        let cased = propose_correction("qa.repeated-word", "s", "Word word x").expect("repeat fix");
+        assert_eq!(cased.fixed_target_text, "Word x");
+        // Triple repeats collapse all the way down.
+        let triple = propose_correction("qa.repeated-word", "s", "a a a b").expect("repeat fix");
+        assert_eq!(triple.fixed_target_text, "a b");
+        assert!(repeated_word(&triple.fixed_target_text).is_none());
+        // Punctuation on both occurrences: no mechanical answer.
+        assert!(propose_correction("qa.repeated-word", "s", "(word word)").is_none());
+        assert!(propose_correction("qa.repeated-word", "s", "no repeat here").is_none());
+    }
+
+    #[test]
+    fn number_fix_requires_the_unambiguous_single_number_shape() {
+        let fix = propose_correction(
+            "qa.number-mismatch",
+            "The retention period is 30 days.",
+            "保留期为 60 天。",
+        )
+        .expect("number fix");
+        assert_eq!(fix.fixed_target_text, "保留期为 30 天。");
+        assert_eq!(fix.description, "Replace 60 with 30.");
+        // Two source numbers: which one the target meant is not mechanical.
+        assert!(
+            propose_correction("qa.number-mismatch", "30 days or 60 days", "保留 90 天").is_none()
+        );
+        // Target dropped the number entirely: no insertion point to guess.
+        assert!(propose_correction("qa.number-mismatch", "30 days", "保留期若干天").is_none());
+        // Full-width digits do not literally contain their normalized token.
+        assert!(propose_correction("qa.number-mismatch", "30 days", "保留期６０天").is_none());
+        // Matching numbers (stale issue): nothing to fix.
+        assert!(propose_correction("qa.number-mismatch", "30 days", "保留期 30 天").is_none());
+    }
+
+    #[test]
+    fn corrections_resolve_their_own_findings() {
+        // Applying a proposed fix must clear the finding on the next
+        // evaluation — a fix that leaves its own rule firing is a lie.
+        let profile = CompiledQaProfile::compile(cjk_profile()).expect("profile");
+        let cases = [
+            ("qa.edge-whitespace", "Source 30.", " 译文 30。 "),
+            (
+                "qa.cjk-halfwidth-punctuation",
+                "Source 30.",
+                "你好,世界 30。",
+            ),
+            ("qa.cjk-ellipsis", "Source 30.", "稍候 30...。"),
+            ("qa.repeated-word", "Source 30.", "词 word word 30。"),
+            ("qa.number-mismatch", "Source 30.", "译文 60。"),
+        ];
+        for (rule_id, source, target) in cases {
+            let fires = |text: &str| {
+                profile
+                    .evaluate_segment(&input(source, text, "zh-CN"))
+                    .into_iter()
+                    .any(|finding| finding.rule_id == rule_id)
+            };
+            assert!(fires(target), "{rule_id} should fire on {target:?}");
+            let correction =
+                propose_correction(rule_id, source, target).expect("correction exists");
+            assert!(
+                !fires(&correction.fixed_target_text),
+                "{rule_id} still fires on {:?}",
+                correction.fixed_target_text
+            );
+        }
     }
 
     #[test]
