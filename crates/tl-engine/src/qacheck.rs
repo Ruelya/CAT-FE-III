@@ -36,8 +36,8 @@ use tl_protocol::{
 };
 use tl_qa::{
     CompiledQaProfile, QaCandidateEvidence, QaConsistencySegment, QaFindingCandidate,
-    QaProfileDefinition, QaSegmentInput, QaTermExpectation, built_in_profiles,
-    default_profile_id, evaluate_consistency,
+    QaProfileDefinition, QaSegmentInput, QaTermExpectation, built_in_profiles, default_profile_id,
+    evaluate_consistency,
 };
 
 use crate::store::StateDelta;

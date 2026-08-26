@@ -2497,6 +2497,78 @@ mod tests {
         assert_eq!(reopened.segment("s1").expect("read"), Some(stamped));
     }
 
+    /// A database written before migration 5 (no `locked` column) upgrades
+    /// in place: legacy segment rows read back unlocked, a lock write
+    /// round-trips through the new column, and locked rows drop out of the
+    /// propagation-sibling query.
+    #[test]
+    fn migrates_pre_lock_databases_and_locked_rows_leave_sibling_query() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut conn =
+            Connection::open(directory.path().join(DB_FILE_NAME)).expect("raw connection");
+        let tx = conn.transaction().expect("tx");
+        tx.execute_batch(SCHEMA_V1).expect("v1");
+        tx.execute_batch(SCHEMA_V2).expect("v2");
+        tx.execute_batch(SCHEMA_V3).expect("v3");
+        tx.execute_batch(SCHEMA_V4).expect("v4");
+        tx.commit().expect("commit");
+        conn.pragma_update(None, "user_version", 4)
+            .expect("version");
+        // A segment row exactly as a pre-lock engine wrote it.
+        conn.execute(
+            "INSERT INTO segments (id, document_id, ordinal, structural_path, source_text,
+               target_text, state, revision, source_hash, context_hash, updated_at_ms, leading,
+               origin_edited)
+             VALUES ('s1', 'd1', 0, 'p:0', 'Source 0.', '', 'untranslated', 3, 'h1', 'c1', 5, '',
+               0)",
+            [],
+        )
+        .expect("legacy row");
+        drop(conn);
+
+        let (mut store, _) = Store::open(directory.path()).expect("open migrates to v5");
+        let legacy = store
+            .segment("s1")
+            .expect("read")
+            .expect("legacy row survives");
+        assert!(!legacy.locked, "legacy rows read back unlocked");
+
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 1)],
+                ..Default::default()
+            })
+            .expect("apply metadata");
+        assert_eq!(
+            store
+                .untranslated_siblings("p1", "h1", "elsewhere")
+                .expect("siblings")
+                .len(),
+            1
+        );
+
+        let mut locked = legacy;
+        locked.locked = true;
+        locked.revision = 4;
+        store
+            .apply(&StateDelta {
+                segments: vec![locked.clone()],
+                ..Default::default()
+            })
+            .expect("apply lock");
+        drop(store);
+        let (reopened, _) = Store::open(directory.path()).expect("reopen");
+        assert_eq!(reopened.segment("s1").expect("read"), Some(locked));
+        assert!(
+            reopened
+                .untranslated_siblings("p1", "h1", "elsewhere")
+                .expect("siblings")
+                .is_empty(),
+            "locked rows never propagate"
+        );
+    }
+
     /// Every read path returns the stored origin, and the counts include
     /// the engine-computed source word count (UAX #29 / CJK-per-char 口径).
     #[test]

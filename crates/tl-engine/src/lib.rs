@@ -1182,7 +1182,10 @@ impl Engine {
     /// pretranslate, propagation, and agent drafting skip the row; QA
     /// leaves its issues untouched. The write is idempotent but still bumps
     /// the revision, like every mutation.
-    fn segment_lock(&mut self, params: SegmentLockParams) -> Result<SegmentLockResult, EngineError> {
+    fn segment_lock(
+        &mut self,
+        params: SegmentLockParams,
+    ) -> Result<SegmentLockResult, EngineError> {
         let now = now_ms();
         let mut segment = self
             .store
