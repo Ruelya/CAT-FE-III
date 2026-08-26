@@ -43,12 +43,13 @@ use tl_protocol::{
     AiAssistCancelParams, AiAssistParams, AiAssistResult, AiAssistRunStatus, AiAssistRunView,
     AiAssistStatusParams, AiConfigureParams, AiProviderKind, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
-    DocumentListResult, DocumentRemoveParams, DocumentRemoveResult, EngineCapabilities,
-    EngineReadyNotification, InitializeParams, InitializeResult, PROTOCOL_VERSION,
-    ProjectArchiveParams, ProjectCreateParams, ProjectGetParams, ProjectListResult,
-    ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode, RpcNotification, RpcRequest,
-    RpcResponse, SegmentConfirmParams, SegmentConfirmResult, SegmentListParams, SegmentListResult,
-    SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods, notifications,
+    DocumentListResult, DocumentProgress, DocumentRemoveParams, DocumentRemoveResult,
+    EngineCapabilities, EngineReadyNotification, InitializeParams, InitializeResult,
+    PROTOCOL_VERSION, ProjectArchiveParams, ProjectCreateParams, ProjectGetParams,
+    ProjectListResult, ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode, RpcNotification,
+    RpcRequest, RpcResponse, SegmentConfirmParams, SegmentConfirmResult, SegmentListParams,
+    SegmentListResult, SegmentReplaceParams, SegmentReplaceResult, SegmentUpdateParams,
+    SegmentUpdateResult, ShutdownResult, methods, notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
@@ -327,6 +328,7 @@ impl Engine {
             methods::DOCUMENT_EXPORT => to_value(self.document_export(parse(params)?)?),
             methods::SEGMENT_LIST => to_value(self.segment_list(parse(params)?)?),
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
+            methods::SEGMENT_REPLACE => to_value(self.segment_replace(parse(params)?)?),
             methods::SEGMENT_CONFIRM => to_value(self.segment_confirm(parse(params)?)?),
             methods::TM_LOOKUP => to_value(self.tm_lookup(parse(params)?)?),
             methods::TM_LIST => to_value(self.tm_list(parse(params)?)?),
@@ -773,7 +775,19 @@ impl Engine {
             .map(|record| record.document.clone())
             .collect();
         documents.sort_by_key(|document| document.imported_at_ms);
-        Ok(DocumentListResult { documents })
+        // Progress is counted in SQL per document (two indexed aggregates
+        // each); no segment or QA rows are materialized for the rail.
+        let mut progress = Vec::with_capacity(documents.len());
+        for document in &documents {
+            progress.push(DocumentProgress {
+                document_id: document.id.clone(),
+                counts: self.store.document_segment_counts(&document.id)?,
+            });
+        }
+        Ok(DocumentListResult {
+            documents,
+            progress,
+        })
     }
 
     /// Remove one document from its project: the document row, its
@@ -972,6 +986,75 @@ impl Engine {
             ..Default::default()
         })?;
         Ok(SegmentUpdateResult { segment })
+    }
+
+    /// Document-wide search-and-replace over target text, in one SQLite
+    /// transaction. Matching is case-insensitive (per-character Unicode
+    /// lowercase folding — the grid find box semantics) and non-overlapping;
+    /// source text is never touched.
+    ///
+    /// Honesty rules: rewritten segments become drafts — including formerly
+    /// confirmed ones when `includeConfirmed` is set, because the
+    /// confirmation covered the old text — and the TM is never written
+    /// (replace drafts, it never confirms). Without `includeConfirmed`,
+    /// matching confirmed segments are skipped and reported instead of
+    /// silently rewritten. A target emptied by the replacement honestly
+    /// returns to `untranslated`, mirroring `segment.update`.
+    fn segment_replace(
+        &mut self,
+        params: SegmentReplaceParams,
+    ) -> Result<SegmentReplaceResult, EngineError> {
+        if params.find.is_empty() {
+            return Err(EngineError::InvalidParams(
+                "find text must not be empty".to_string(),
+            ));
+        }
+        let record = self.require_document(&params.document_id)?;
+        let include_confirmed = params.include_confirmed.unwrap_or(false);
+        let rows = self
+            .store
+            .document_segments_page(&record.document.id, 0, None)?;
+        let now = now_ms();
+        let mut segments = Vec::new();
+        let mut replaced_occurrences = 0u32;
+        let mut demoted_confirmed = 0u32;
+        let mut skipped_confirmed = 0u32;
+        for mut segment in rows {
+            let Some((target, count)) =
+                replace_case_insensitive(&segment.target_text, &params.find, &params.replace_with)
+            else {
+                continue;
+            };
+            if segment.state == SegmentState::Confirmed {
+                if !include_confirmed {
+                    skipped_confirmed += 1;
+                    continue;
+                }
+                demoted_confirmed += 1;
+            }
+            segment.target_text = target;
+            segment.state = if segment.target_text.trim().is_empty() {
+                SegmentState::Untranslated
+            } else {
+                SegmentState::Draft
+            };
+            segment.revision += 1;
+            segment.updated_at_ms = now;
+            replaced_occurrences = replaced_occurrences.saturating_add(count);
+            segments.push(segment);
+        }
+        if !segments.is_empty() {
+            self.store.apply(&StateDelta {
+                segments: segments.clone(),
+                ..Default::default()
+            })?;
+        }
+        Ok(SegmentReplaceResult {
+            segments,
+            replaced_occurrences,
+            demoted_confirmed,
+            skipped_confirmed,
+        })
     }
 
     fn segment_confirm(
@@ -1603,6 +1686,62 @@ impl Engine {
     }
 }
 
+/// Case-insensitive, non-overlapping search-and-replace. Folds one
+/// character at a time through [`char::to_lowercase`], so it matches the
+/// renderer find box (`toLowerCase().includes(...)`) for practical inputs;
+/// a haystack character whose folding straddles the needle boundary is
+/// honestly treated as a non-match rather than half-replaced. Returns the
+/// rewritten string and the occurrence count, or `None` when the needle
+/// does not occur (or is empty).
+fn replace_case_insensitive(
+    haystack: &str,
+    needle: &str,
+    replacement: &str,
+) -> Option<(String, u32)> {
+    if needle.is_empty() {
+        return None;
+    }
+    let needle_folded: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
+    let haystack_chars: Vec<char> = haystack.chars().collect();
+    let mut result = String::with_capacity(haystack.len());
+    let mut count = 0u32;
+    let mut index = 0usize;
+    while index < haystack_chars.len() {
+        if let Some(end) = fold_match_at(&haystack_chars, index, &needle_folded) {
+            result.push_str(replacement);
+            count += 1;
+            index = end;
+        } else {
+            result.push(haystack_chars[index]);
+            index += 1;
+        }
+    }
+    if count == 0 {
+        None
+    } else {
+        Some((result, count))
+    }
+}
+
+/// When the haystack characters starting at `start` fold to exactly the
+/// (already folded) needle characters, returns the haystack index one past
+/// the match.
+fn fold_match_at(haystack: &[char], start: usize, needle_folded: &[char]) -> Option<usize> {
+    let mut needle_position = 0usize;
+    let mut index = start;
+    while needle_position < needle_folded.len() {
+        let character = *haystack.get(index)?;
+        for folded in character.to_lowercase() {
+            if needle_folded.get(needle_position) != Some(&folded) {
+                return None;
+            }
+            needle_position += 1;
+        }
+        index += 1;
+    }
+    Some(index)
+}
+
 /// Append a step to the run, refresh its timestamp, and emit the reserved
 /// step notification carrying the current run status.
 fn push_agent_step(
@@ -1632,4 +1771,49 @@ fn push_agent_step(
         })
         .unwrap_or(Value::Null),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_case_insensitive;
+
+    #[test]
+    fn replaces_case_insensitively_and_counts_occurrences() {
+        assert_eq!(
+            replace_case_insensitive("Server error: SERVER down", "server", "服务器"),
+            Some(("服务器 error: 服务器 down".to_string(), 2))
+        );
+        assert_eq!(
+            replace_case_insensitive("保留期为 30 天。", "30 天", "60 天"),
+            Some(("保留期为 60 天。".to_string(), 1))
+        );
+    }
+
+    #[test]
+    fn returns_none_without_a_match_or_with_an_empty_needle() {
+        assert_eq!(replace_case_insensitive("nothing here", "miss", "x"), None);
+        assert_eq!(replace_case_insensitive("text", "", "x"), None);
+    }
+
+    #[test]
+    fn replacements_never_rematch_and_empty_replacement_deletes() {
+        // The replacement text contains the needle; occurrences must not
+        // cascade into an infinite or double replacement.
+        assert_eq!(
+            replace_case_insensitive("aba", "a", "aa"),
+            Some(("aabaa".to_string(), 2))
+        );
+        assert_eq!(
+            replace_case_insensitive("well, well", "well", ""),
+            Some((", ".to_string(), 2))
+        );
+    }
+
+    #[test]
+    fn folds_non_ascii_case_pairs() {
+        assert_eq!(
+            replace_case_insensitive("СЕРВЕР готов", "сервер", "server"),
+            Some(("server готов".to_string(), 1))
+        );
+    }
 }

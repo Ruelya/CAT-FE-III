@@ -580,6 +580,322 @@ describe("WorkbenchView find next/prev", () => {
   });
 });
 
+describe("WorkbenchView find & replace", () => {
+  it("replaces inside the active segment's target through segment.update", async () => {
+    const handlers = baseHandlers();
+    let updateParams: unknown = null;
+    handlers["segment.update"] = (params) => {
+      updateParams = params;
+      return {
+        segment: {
+          ...SEGMENT,
+          targetText: "文件的为 60 天。",
+          revision: 2,
+        },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
+    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+
+    await waitFor(() => {
+      expect(updateParams).toMatchObject({
+        segmentId: "s1",
+        targetText: "文件的为 60 天。",
+        baseRevision: 1,
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 已替换 1 处「30 天」，按 F4 跳到下一个匹配",
+    );
+  });
+
+  it("refuses to rewrite a confirmed segment until 含已确认 is checked", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [{ ...SEGMENT, state: "confirmed" }],
+    });
+    const updateCalls: unknown[] = [];
+    handlers["segment.update"] = (params) => {
+      updateCalls.push(params);
+      return {
+        segment: {
+          ...SEGMENT,
+          state: "draft",
+          targetText: "文件的为 60 天。",
+          revision: 2,
+        },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
+    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+
+    // Nothing was written; the message explains the guard and the way out.
+    expect(updateCalls).toHaveLength(0);
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 已确认，未替换；勾选「含已确认」后重试（替换会使其退回草稿）",
+    );
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
+    await userEvent.click(screen.getByRole("button", { name: "替换" }));
+    await waitFor(() => {
+      expect(updateCalls).toHaveLength(1);
+    });
+    expect(updateCalls[0]).toMatchObject({
+      segmentId: "s1",
+      targetText: "文件的为 60 天。",
+    });
+  });
+
+  it("runs 全部替换 through one segment.replace call and reports honest counts", async () => {
+    const handlers = baseHandlers();
+    let replaceParams: unknown = null;
+    handlers["segment.replace"] = (params) => {
+      replaceParams = params;
+      return {
+        segments: [{ ...SEGMENT, targetText: "文件的为 60 天。", revision: 2 }],
+        replacedOccurrences: 2,
+        demotedConfirmed: 0,
+        skippedConfirmed: 1,
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
+    await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
+
+    await waitFor(() => {
+      expect(replaceParams).toEqual({
+        documentId: "d1",
+        find: "30 天",
+        replaceWith: "60 天",
+        includeConfirmed: false,
+      });
+    });
+    // The rewritten segment lands in the grid without a full reload, and
+    // the skipped-confirmed count is not hidden from the user.
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 60 天。");
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "全部替换完成：1 个句段、2 处「30 天」→「60 天」；跳过 1 个已确认句段（勾选「含已确认」后可替换）",
+    );
+  });
+
+  it("passes includeConfirmed to segment.replace when 含已确认 is checked", async () => {
+    const handlers = baseHandlers();
+    let replaceParams: unknown = null;
+    handlers["segment.replace"] = (params) => {
+      replaceParams = params;
+      return {
+        segments: [],
+        replacedOccurrences: 0,
+        demotedConfirmed: 0,
+        skippedConfirmed: 0,
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.type(screen.getByLabelText("查找跳转"), "missing");
+    await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
+    await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
+
+    await waitFor(() => {
+      expect(replaceParams).toMatchObject({ includeConfirmed: true });
+    });
+    // No match: the report says so instead of pretending success.
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "全部替换：译文中没有「missing」",
+    );
+  });
+
+  it("focuses the replace box via Ctrl+H and the menu 替换… command", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const replaceInput = screen.getByLabelText("替换为");
+
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
+    expect(document.activeElement).toBe(replaceInput);
+
+    (document.activeElement as HTMLElement).blur();
+    act(() => {
+      bridge.emitMenuCommand("focus-replace");
+    });
+    expect(document.activeElement).toBe(replaceInput);
+  });
+});
+
+describe("WorkbenchView document rail progress", () => {
+  const DOCUMENT_2 = {
+    ...DOCUMENT,
+    id: "d2",
+    name: "second.txt",
+    segmentCount: 10,
+  };
+
+  it("shows per-document confirmed/draft/QA counts from document.list", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT, DOCUMENT_2],
+      progress: [
+        {
+          documentId: "d1",
+          counts: {
+            total: 1,
+            untranslated: 0,
+            draft: 1,
+            confirmed: 0,
+            openIssues: 0,
+          },
+        },
+        {
+          documentId: "d2",
+          counts: {
+            total: 10,
+            untranslated: 3,
+            draft: 2,
+            confirmed: 5,
+            openIssues: 1,
+          },
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    // The inactive document keeps its list-time counts, including QA.
+    expect(
+      screen.getByText("txt · 确认 5/10 · 草稿 2 · QA 1"),
+    ).toBeInTheDocument();
+    // The active document reflects the loaded grid (1 draft segment).
+    expect(screen.getByText("txt · 确认 0/1 · 草稿 1")).toBeInTheDocument();
+  });
+
+  it("updates the active document's rail entry live when a segment is confirmed", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT],
+      progress: [
+        {
+          documentId: "d1",
+          counts: {
+            total: 1,
+            untranslated: 0,
+            draft: 1,
+            confirmed: 0,
+            openIssues: 0,
+          },
+        },
+      ],
+    });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...SEGMENT, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+    expect(screen.getByText("txt · 确认 0/1 · 草稿 1")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+    // No document.list round-trip needed: the rail follows the grid.
+    await waitFor(() => {
+      expect(screen.getByText("txt · 确认 1/1")).toBeInTheDocument();
+    });
+  });
+
+  it("falls back to the plain segment count when the engine sends no progress", async () => {
+    const handlers = baseHandlers();
+    // An older engine (or a crashed migration) answers without the
+    // progress field; an empty grid also never fabricates live counts.
+    handlers["segment.list"] = () => ({ segments: [] });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("guide.txt")).toBeInTheDocument();
+    expect(screen.getByText("txt · 1 句段")).toBeInTheDocument();
+  });
+});
+
 describe("WorkbenchView engine-down honesty", () => {
   it("keeps a persistent unsaved alert when the engine never acks a draft write", async () => {
     const handlers = baseHandlers();

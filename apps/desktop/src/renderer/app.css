@@ -239,12 +239,27 @@ body {
 
 .project-list__name {
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-2);
 }
 
 .project-list__locales {
   font-family: var(--tl-font-mono);
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-muted);
+}
+
+/* Archived projects stay reachable but off by default; the toggle sits above
+   the list so the count is honest even while they are hidden. */
+.project-list__archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  padding: var(--tl-space-2) var(--tl-space-4);
+  user-select: none;
 }
 
 /* Workbench */
@@ -382,7 +397,26 @@ body {
    sits slightly apart from the hide-style filter controls. */
 .grid-toolbar__find {
   width: 160px;
-  margin-left: var(--tl-space-3);
+}
+
+/* Second toolbar row: find/replace. Kept visually lighter than the filter
+   row so the hide-filter and the navigate/replace tools read as different
+   mechanisms. */
+.grid-toolbar--find {
+  padding-top: var(--tl-space-2);
+  padding-bottom: var(--tl-space-2);
+  background: var(--tl-color-surface-raised);
+  flex-wrap: wrap;
+}
+
+.grid-toolbar__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .grid-toolbar__count {

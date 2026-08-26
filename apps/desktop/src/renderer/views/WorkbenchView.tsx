@@ -6,6 +6,7 @@ import type {
   Project,
   QaIssue,
   Segment,
+  SegmentCounts,
 } from "@translunar/contracts";
 import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
 
@@ -26,6 +27,7 @@ import {
   filterSegments,
   findSegmentMatch,
   isFilterActive,
+  replaceSegmentText,
 } from "../lib/segment-filter.js";
 import type {
   SegmentFilterSpec,
@@ -112,6 +114,12 @@ export function WorkbenchView({
   onProjectUpdated,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
+  // Per-document progress counts from document.list; the active document's
+  // entry is kept live from the loaded segments/issues so the rail never
+  // lags behind the grid.
+  const [documentProgress, setDocumentProgress] = useState<
+    Record<string, SegmentCounts>
+  >({});
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<QaIssue[]>([]);
@@ -122,11 +130,18 @@ export function WorkbenchView({
   // Find next/prev query (F4 / Shift+F4). Unlike `filter`, it never hides
   // rows: it only moves the selection through matching segments.
   const [findQuery, setFindQuery] = useState("");
+  // Replacement text for 替换/全部替换; replaces occurrences of the find
+  // query inside target text only.
+  const [replaceWith, setReplaceWith] = useState("");
+  // Whether replace may rewrite confirmed segments (demoting them back to
+  // draft). Off by default: confirmed work is skipped and reported.
+  const [includeConfirmed, setIncludeConfirmed] = useState(false);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // Two-step remove: the first 移除 click only arms this id; the row then
   // shows 确认移除/取消 and nothing is deleted until the explicit confirm.
@@ -159,6 +174,13 @@ export function WorkbenchView({
   const refreshDocuments = useCallback(async () => {
     const result = await callEngine("document.list", { projectId: project.id });
     setDocuments(result.documents);
+    const progress: Record<string, SegmentCounts> = {};
+    // Older engines (and test doubles) may answer without the progress
+    // field; the rail then falls back to the plain segment count.
+    for (const entry of result.progress ?? []) {
+      progress[entry.documentId] = entry.counts;
+    }
+    setDocumentProgress(progress);
     return result.documents;
   }, [project.id]);
 
@@ -553,18 +575,59 @@ export function WorkbenchView({
     [onStatusMessage],
   );
 
-  const counts = useMemo(() => {
+  const openIssueCount = useMemo(
+    () => issues.filter((issue) => issue.status === "open").length,
+    [issues],
+  );
+
+  const counts = useMemo<SegmentCounts>(() => {
     let confirmed = 0;
     let draft = 0;
+    let untranslated = 0;
     for (const segment of segments) {
       if (segment.state === "confirmed") {
         confirmed += 1;
       } else if (segment.state === "draft") {
         draft += 1;
+      } else {
+        untranslated += 1;
       }
     }
-    return { total: segments.length, confirmed, draft };
-  }, [segments]);
+    return {
+      total: segments.length,
+      untranslated,
+      draft,
+      confirmed,
+      openIssues: openIssueCount,
+    };
+  }, [segments, openIssueCount]);
+
+  // Keep the rail entry of the active document in sync with the loaded
+  // grid, so confirms/drafts show up there without re-querying the engine.
+  // The documentId guard skips the switch window where `segments` still
+  // holds the previous document's rows.
+  useEffect(() => {
+    if (!activeDocumentId || segments.length === 0) {
+      return;
+    }
+    if (segments[0]?.documentId !== activeDocumentId) {
+      return;
+    }
+    setDocumentProgress((current) => {
+      const existing = current[activeDocumentId];
+      if (
+        existing &&
+        existing.total === counts.total &&
+        existing.untranslated === counts.untranslated &&
+        existing.draft === counts.draft &&
+        existing.confirmed === counts.confirmed &&
+        existing.openIssues === counts.openIssues
+      ) {
+        return current;
+      }
+      return { ...current, [activeDocumentId]: counts };
+    });
+  }, [activeDocumentId, segments, counts]);
 
   const openIssueSegmentIds = useMemo(() => {
     const ids = new Set<string>();
@@ -663,10 +726,135 @@ export function WorkbenchView({
     ],
   );
 
+  const focusReplace = useCallback(() => {
+    const input = replaceInputRef.current;
+    if (!input) {
+      return false;
+    }
+    input.focus();
+    input.select();
+    return true;
+  }, []);
+
+  // 替换: replace every occurrence of the find query inside the active
+  // segment's saved target (case-insensitive, like find). A confirmed
+  // segment is only rewritten with 含已确认 checked — the engine then holds
+  // it as a draft again, since the confirmation covered the old text. When
+  // the active segment has no match, this acts as find-next instead of
+  // silently doing nothing.
+  const replaceInActive = useCallback(async () => {
+    if (!activeDocument) {
+      return;
+    }
+    const query = findQuery.trim();
+    if (query.length === 0) {
+      const input = findInputRef.current;
+      input?.focus();
+      input?.select();
+      return;
+    }
+    if (!activeSegment) {
+      findMatch("next");
+      return;
+    }
+    const replaced = replaceSegmentText(
+      activeSegment.targetText,
+      query,
+      replaceWith,
+    );
+    if (!replaced) {
+      findMatch("next");
+      return;
+    }
+    if (activeSegment.state === "confirmed" && !includeConfirmed) {
+      onStatusMessage(
+        `句段 #${activeSegment.ordinal + 1} 已确认，未替换；勾选「含已确认」后重试（替换会使其退回草稿）`,
+      );
+      return;
+    }
+    try {
+      const result = await callEngine("segment.update", {
+        segmentId: activeSegment.id,
+        targetText: replaced.text,
+        baseRevision: activeSegment.revision,
+      });
+      applySegments([result.segment]);
+      onStatusMessage(
+        `句段 #${activeSegment.ordinal + 1} 已替换 ${replaced.count} 处「${query}」，按 F4 跳到下一个匹配`,
+      );
+    } catch (error) {
+      onStatusMessage(`替换失败：${describeError(error)}`);
+      await reloadSegments();
+    }
+  }, [
+    activeDocument,
+    activeSegment,
+    findQuery,
+    replaceWith,
+    includeConfirmed,
+    findMatch,
+    applySegments,
+    onStatusMessage,
+    reloadSegments,
+  ]);
+
+  // 全部替换: one engine call rewrites every matching target in the whole
+  // document (not just the filtered rows), in a single transaction. The
+  // result is applied to the loaded grid and reported with honest counts,
+  // including confirmed segments that were skipped or demoted to draft.
+  const replaceAllInDocument = useCallback(async () => {
+    if (!activeDocument) {
+      return;
+    }
+    const query = findQuery.trim();
+    if (query.length === 0) {
+      const input = findInputRef.current;
+      input?.focus();
+      input?.select();
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await callEngine("segment.replace", {
+        documentId: activeDocument.id,
+        find: query,
+        replaceWith,
+        includeConfirmed,
+      });
+      applySegments(result.segments);
+      const skippedNote =
+        result.skippedConfirmed > 0
+          ? `；跳过 ${result.skippedConfirmed} 个已确认句段（勾选「含已确认」后可替换）`
+          : "";
+      if (result.segments.length === 0) {
+        onStatusMessage(`全部替换：译文中没有「${query}」${skippedNote}`);
+        return;
+      }
+      const demotedNote =
+        result.demotedConfirmed > 0
+          ? `；${result.demotedConfirmed} 个已确认句段退回草稿`
+          : "";
+      onStatusMessage(
+        `全部替换完成：${result.segments.length} 个句段、${result.replacedOccurrences} 处「${query}」→「${replaceWith}」${demotedNote}${skippedNote}`,
+      );
+    } catch (error) {
+      onStatusMessage(`全部替换失败：${describeError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [
+    activeDocument,
+    findQuery,
+    replaceWith,
+    includeConfirmed,
+    applySegments,
+    onStatusMessage,
+  ]);
+
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
   // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter.
+  // segment filter, Ctrl/Cmd+H focus the replace box.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
@@ -695,11 +883,22 @@ export function WorkbenchView({
         if (focusFilter()) {
           event.preventDefault();
         }
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        (event.key === "h" || event.key === "H")
+      ) {
+        if (focusReplace()) {
+          event.preventDefault();
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter, findMatch]);
+  }, [openConcordance, focusFilter, focusReplace, findMatch]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding button/shortcut already calls; state guards keep the
@@ -733,6 +932,9 @@ export function WorkbenchView({
         case "focus-filter":
           focusFilter();
           break;
+        case "focus-replace":
+          focusReplace();
+          break;
         case "find-next":
           findMatch("next");
           break;
@@ -754,6 +956,7 @@ export function WorkbenchView({
       activeDocument,
       openConcordance,
       focusFilter,
+      focusReplace,
       findMatch,
       onStatusMessage,
     ],
@@ -795,61 +998,74 @@ export function WorkbenchView({
               />
             ) : (
               <div className="document-list">
-                {documents.map((document) => (
-                  <div
-                    key={document.id}
-                    className="document-list__item"
-                    data-active={document.id === activeDocumentId}
-                  >
-                    <button
-                      type="button"
-                      className="document-list__select"
-                      onClick={() => void loadDocument(document.id)}
+                {documents.map((document) => {
+                  const progress = documentProgress[document.id];
+                  return (
+                    <div
+                      key={document.id}
+                      className="document-list__item"
+                      data-active={document.id === activeDocumentId}
                     >
-                      <span className="document-list__name">
-                        {document.name}
-                      </span>
-                      <span className="document-list__meta">
-                        {document.format} · {document.segmentCount} 句段
-                      </span>
-                    </button>
-                    {pendingRemoveId === document.id ? (
-                      <span
-                        className="document-list__confirm"
-                        role="group"
-                        aria-label={`确认移除 ${document.name}`}
+                      <button
+                        type="button"
+                        className="document-list__select"
+                        onClick={() => void loadDocument(document.id)}
                       >
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => void removeDocument(document)}
-                          disabled={busy}
+                        <span className="document-list__name">
+                          {document.name}
+                        </span>
+                        <span className="document-list__meta">
+                          {progress
+                            ? `${document.format} · 确认 ${progress.confirmed}/${progress.total}${
+                                progress.draft > 0
+                                  ? ` · 草稿 ${progress.draft}`
+                                  : ""
+                              }${
+                                progress.openIssues > 0
+                                  ? ` · QA ${progress.openIssues}`
+                                  : ""
+                              }`
+                            : `${document.format} · ${document.segmentCount} 句段`}
+                        </span>
+                      </button>
+                      {pendingRemoveId === document.id ? (
+                        <span
+                          className="document-list__confirm"
+                          role="group"
+                          aria-label={`确认移除 ${document.name}`}
                         >
-                          确认移除
-                        </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => void removeDocument(document)}
+                            disabled={busy}
+                          >
+                            确认移除
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setPendingRemoveId(null)}
+                            disabled={busy}
+                          >
+                            取消
+                          </Button>
+                        </span>
+                      ) : (
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => setPendingRemoveId(null)}
+                          className="document-list__remove"
+                          aria-label={`移除 ${document.name}`}
+                          onClick={() => setPendingRemoveId(document.id)}
                           disabled={busy}
                         >
-                          取消
+                          移除
                         </Button>
-                      </span>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="document-list__remove"
-                        aria-label={`移除 ${document.name}`}
-                        onClick={() => setPendingRemoveId(document.id)}
-                        disabled={busy}
-                      >
-                        移除
-                      </Button>
-                    )}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Panel>
@@ -970,6 +1186,22 @@ export function WorkbenchView({
                       </Button>
                     </>
                   ) : null}
+                  <span className="grid-toolbar__spacer" />
+                  <span className="grid-toolbar__progress">
+                    <Meter
+                      ratio={
+                        counts.total > 0 ? counts.confirmed / counts.total : 0
+                      }
+                      label={`已确认 ${counts.confirmed}/${counts.total}`}
+                    />
+                    <span className="grid-toolbar__progress-text">
+                      {counts.total > 0
+                        ? `${Math.round((counts.confirmed / counts.total) * 100)}%`
+                        : "—"}
+                    </span>
+                  </span>
+                </div>
+                <div className="grid-toolbar grid-toolbar--find">
                   <input
                     ref={findInputRef}
                     className="grid-toolbar__search grid-toolbar__find"
@@ -1009,20 +1241,57 @@ export function WorkbenchView({
                   >
                     下一个
                   </Button>
-                  <span className="grid-toolbar__spacer" />
-                  <span className="grid-toolbar__progress">
-                    <Meter
-                      ratio={
-                        counts.total > 0 ? counts.confirmed / counts.total : 0
+                  <input
+                    ref={replaceInputRef}
+                    className="grid-toolbar__search grid-toolbar__find"
+                    aria-label="替换为"
+                    placeholder="替换为…（Ctrl+H）"
+                    title="替换查找命中的译文文本；源文永不修改"
+                    value={replaceWith}
+                    onChange={(event) => setReplaceWith(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing) {
+                        return;
                       }
-                      label={`已确认 ${counts.confirmed}/${counts.total}`}
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void replaceInActive();
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="替换"
+                    title="替换当前句段译文中的所有匹配；无匹配时跳到下一个"
+                    disabled={findQuery.trim().length === 0 || busy}
+                    onClick={() => void replaceInActive()}
+                  >
+                    替换
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="全部替换"
+                    title="替换当前文档所有句段译文中的匹配（不限当前筛选）"
+                    disabled={findQuery.trim().length === 0 || busy}
+                    onClick={() => void replaceAllInDocument()}
+                  >
+                    全部替换
+                  </Button>
+                  <label
+                    className="grid-toolbar__checkbox"
+                    title="勾选后替换也会改写已确认句段，并使其退回草稿；TM 不受影响"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={includeConfirmed}
+                      onChange={(event) =>
+                        setIncludeConfirmed(event.target.checked)
+                      }
                     />
-                    <span className="grid-toolbar__progress-text">
-                      {counts.total > 0
-                        ? `${Math.round((counts.confirmed / counts.total) * 100)}%`
-                        : "—"}
-                    </span>
-                  </span>
+                    含已确认
+                  </label>
                 </div>
                 {segments.length === 0 ? (
                   <EmptyState title="该文档没有句段" />

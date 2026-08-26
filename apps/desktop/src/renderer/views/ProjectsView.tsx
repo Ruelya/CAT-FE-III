@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
-import { Button, EmptyState, Panel, TextField } from "@translunar/ui";
+import { Badge, Button, EmptyState, Panel, TextField } from "@translunar/ui";
 
 import type { EngineLifecycleState } from "../../shared/desktop-api.js";
 import { callEngine, describeError } from "../lib/engine.js";
@@ -23,6 +23,10 @@ export function ProjectsView({
   const [targetLocale, setTargetLocale] = useState("zh-CN");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Archived projects are hidden by default so the list reads as "what am I
+  // working on"; the toggle keeps them reachable (archive is reversible in
+  // project settings, so hiding them forever would be dishonest).
+  const [showArchived, setShowArchived] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -76,6 +80,13 @@ export function ProjectsView({
     refresh,
   ]);
 
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.lifecycle !== "archived"),
+    [projects],
+  );
+  const archivedCount = projects.length - activeProjects.length;
+  const visibleProjects = showArchived ? projects : activeProjects;
+
   return (
     <main className="projects-view">
       <Panel title="新建项目">
@@ -121,22 +132,42 @@ export function ProjectsView({
         </form>
       </Panel>
 
-      <Panel title={`项目列表（${projects.length}）`}>
+      <Panel title={`项目列表（${activeProjects.length}）`}>
+        {archivedCount > 0 ? (
+          <label className="project-list__archived-toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(event) => setShowArchived(event.target.checked)}
+            />
+            显示已归档项目（{archivedCount}）
+          </label>
+        ) : null}
         {projects.length === 0 ? (
           <EmptyState
             title="还没有项目"
             hint="创建第一个项目后即可导入 DOCX 文档并开始翻译。"
           />
+        ) : visibleProjects.length === 0 ? (
+          <EmptyState
+            title="没有进行中的项目"
+            hint="所有项目都已归档。勾选上方开关可查看并重新打开它们。"
+          />
         ) : (
           <div className="project-list">
-            {projects.map((project) => (
+            {visibleProjects.map((project) => (
               <button
                 key={project.id}
                 type="button"
                 className="project-list__item"
                 onClick={() => onOpenProject(project)}
               >
-                <span className="project-list__name">{project.name}</span>
+                <span className="project-list__name">
+                  {project.name}
+                  {project.lifecycle === "archived" ? (
+                    <Badge tone="neutral">已归档</Badge>
+                  ) : null}
+                </span>
                 <span className="project-list__locales">
                   {project.sourceLocale} → {project.targetLocale}
                 </span>
