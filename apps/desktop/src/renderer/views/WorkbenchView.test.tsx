@@ -968,7 +968,8 @@ describe("WorkbenchView document rail progress", () => {
         onStatusMessage={vi.fn()}
       />,
     );
-    expect(await screen.findByText("guide.txt")).toBeInTheDocument();
+    // The name appears in the explorer file list and the open tab.
+    expect(await screen.findAllByText("guide.txt")).not.toHaveLength(0);
     expect(screen.getByText("txt · 1 句段")).toBeInTheDocument();
   });
 });
@@ -1457,6 +1458,345 @@ describe("WorkbenchView QA waive", () => {
     ).toBe(false);
     // The button unlocks so the user can retry once the engine is back.
     expect(screen.getByRole("button", { name: "忽略" })).toBeEnabled();
+  });
+});
+
+describe("WorkbenchView ribbon", () => {
+  it("routes 导出译文 through the same chooseExportPath seam as the menu", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导出译文" }));
+    await waitFor(() => {
+      expect(bridge.chooseExportPath).toHaveBeenCalledWith(
+        "guide-translated.txt",
+      );
+    });
+    // The user cancelled (null), so no engine export call happens.
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "document.export"),
+    ).toBe(false);
+  });
+
+  it("确认句段 confirms the live editor draft and reports honestly without one", async () => {
+    const handlers = baseHandlers();
+    let confirmParams: unknown = null;
+    handlers["segment.confirm"] = (params) => {
+      confirmParams = params;
+      return {
+        segment: { ...SEGMENT, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "确认句段" }));
+    await waitFor(() => {
+      expect(confirmParams).toMatchObject({ segmentId: "s1" });
+    });
+    // With the active row filtered out no editor is mounted: the ribbon
+    // command reports instead of guessing.
+    await userEvent.type(screen.getByLabelText("按文本筛选"), "无匹配文本");
+    await waitFor(() => {
+      expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "确认句段" }));
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "没有正在编辑的句段，无法确认",
+    );
+  });
+
+  it("opens the import dialog and dispatches the shell callbacks", async () => {
+    installBridge(baseHandlers());
+    const onOpenSettings = vi.fn();
+    const onOpenTmManage = vi.fn();
+    const onCloseProject = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        onOpenTmManage={onOpenTmManage}
+        onCloseProject={onCloseProject}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "导入" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("导入文档");
+    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    await userEvent.click(screen.getByRole("button", { name: "项目设置" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "TM 管理" }));
+    expect(onOpenTmManage).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "项目列表" }));
+    expect(onCloseProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses the workbench inputs from the review group buttons", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "查找" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("查找跳转"));
+    await userEvent.click(screen.getByRole("button", { name: "替换…" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
+    await userEvent.click(screen.getByRole("button", { name: "筛选" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("按文本筛选"));
+    await userEvent.click(screen.getByRole("button", { name: "一致性检索" }));
+    expect(await screen.findByLabelText(/检索词/)).toBeInTheDocument();
+  });
+});
+
+describe("WorkbenchView document tabs", () => {
+  const DOCUMENT_2 = {
+    ...DOCUMENT,
+    id: "d2",
+    name: "second.txt",
+    segmentCount: 1,
+  };
+  const SEGMENT_2: Segment = {
+    ...SEGMENT,
+    id: "s2",
+    documentId: "d2",
+    sourceText: "Second file text.",
+    targetText: "第二个文档。",
+  };
+
+  function installTabsBridge() {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({ documents: [DOCUMENT, DOCUMENT_2] });
+    handlers["segment.list"] = (params) => ({
+      segments:
+        (params as { documentId: string }).documentId === "d2"
+          ? [SEGMENT_2]
+          : [SEGMENT],
+    });
+    return installBridge(handlers);
+  }
+
+  it("opens a tab per opened file and switches between them", async () => {
+    installTabsBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+    // Only the auto-opened first document has a tab.
+    expect(screen.getAllByRole("tab")).toHaveLength(3); // guide + 文本/预览 view tabs
+    expect(screen.getByRole("tab", { name: "guide.txt" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // Opening the second file from the explorer adds its tab and loads it.
+    await userEvent.click(screen.getByText("second.txt"));
+    const secondTab = await screen.findByRole("tab", { name: "second.txt" });
+    await waitFor(() => {
+      expect(secondTab).toHaveAttribute("aria-selected", "true");
+    });
+    const secondEditor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(secondEditor.value).toBe("第二个文档。");
+    });
+
+    // Clicking the first tab switches straight back.
+    await userEvent.click(screen.getByRole("tab", { name: "guide.txt" }));
+    const firstEditor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(firstEditor.value).toBe("文件的为 30 天。");
+    });
+  });
+
+  it("closing a tab keeps the document in the project and never removes it", async () => {
+    const bridge = installTabsBridge();
+    const onDocumentOpenChange = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onDocumentOpenChange={onDocumentOpenChange}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "关闭标签页 guide.txt" }),
+    );
+    // The tab is gone but the file stays listed in the explorer, and no
+    // remove call ever reached the engine.
+    expect(
+      screen.queryByRole("tab", { name: "guide.txt" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("guide.txt")).toBeInTheDocument();
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "document.remove"),
+    ).toBe(false);
+    // No document is open: the grid says so and the menu context follows.
+    expect(screen.getByText("没有打开的文档")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onDocumentOpenChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  it("closing the active tab activates its neighbor", async () => {
+    installTabsBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByText("second.txt"));
+    const secondTab = await screen.findByRole("tab", { name: "second.txt" });
+    await waitFor(() => {
+      expect(secondTab).toHaveAttribute("aria-selected", "true");
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "关闭标签页 second.txt" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "guide.txt" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+  });
+
+  it("the 预览 view tab opens the real preview dialog", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("tab", { name: "预览" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("译文预览");
+  });
+});
+
+describe("WorkbenchView project explorer", () => {
+  it("shows the language pair, real aggregate progress, and project details", async () => {
+    const handlers = baseHandlers();
+    const DOCUMENT_2 = {
+      ...DOCUMENT,
+      id: "d2",
+      name: "second.txt",
+      segmentCount: 10,
+    };
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT, DOCUMENT_2],
+      progress: [
+        {
+          documentId: "d1",
+          counts: {
+            total: 1,
+            untranslated: 0,
+            draft: 1,
+            confirmed: 0,
+            openIssues: 0,
+          },
+        },
+        {
+          documentId: "d2",
+          counts: {
+            total: 10,
+            untranslated: 3,
+            draft: 2,
+            confirmed: 5,
+            openIssues: 1,
+          },
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    // Language pair and aggregate progress derived from document.list.
+    expect(screen.getByText("en-US → zh-CN")).toBeInTheDocument();
+    // 5 confirmed of 11 total segments -> 45%.
+    expect(screen.getByText("45%")).toBeInTheDocument();
+
+    // Details region carries the real counts, not placeholders.
+    const details = screen.getByRole("region", { name: "项目详情" });
+    expect(details).toHaveTextContent("文件数");
+    expect(details).toHaveTextContent("2");
+    expect(details).toHaveTextContent("总句段");
+    expect(details).toHaveTextContent("11");
+    expect(details).toHaveTextContent("已确认句段");
+    expect(details).toHaveTextContent("5（45%）");
+  });
+
+  it("omits the aggregate ratio when the engine sent no per-file progress", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: [] });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    expect(await screen.findAllByText("guide.txt")).not.toHaveLength(0);
+    // No progress data: the details show the honest segment count but no
+    // invented confirmed ratio, and no progress bar renders up top.
+    const details = screen.getByRole("region", { name: "项目详情" });
+    expect(details).toHaveTextContent("总句段");
+    expect(details).not.toHaveTextContent("已确认句段");
+    expect(screen.queryByText(/^进度：/)).not.toBeInTheDocument();
   });
 });
 

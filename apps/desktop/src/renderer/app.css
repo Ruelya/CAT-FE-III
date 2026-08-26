@@ -1,4 +1,7 @@
-/* INSTRUMENT application shell. */
+/* Application shell: light professional workspace.
+   Pane map (matches the reference layout): native menu row above the web
+   contents, then ribbon toolbar / left project explorer / center bilingual
+   grid / right resource rail / bottom status bar. */
 
 * {
   box-sizing: border-box;
@@ -21,86 +24,17 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 44px 1fr 30px;
+  grid-template-rows: minmax(0, 1fr) 30px;
   height: 100%;
 }
 
-.app-header {
-  display: flex;
-  align-items: center;
-  gap: var(--tl-space-4);
-  padding: 0 var(--tl-space-5);
-  background: var(--tl-gray-9);
-  color: var(--tl-gray-2);
-}
-
-.app-header__brand {
-  font-size: var(--tl-text-sm);
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--tl-gray-0);
-  white-space: nowrap;
-}
-
-.app-header__brand em {
-  font-style: normal;
-  color: var(--tl-blue-accent-soft);
-}
-
-.app-header__divider {
-  width: 1px;
-  height: 18px;
-  background: var(--tl-gray-7);
-}
-
-.app-header__context {
-  display: flex;
-  align-items: center;
-  gap: var(--tl-space-3);
-  min-width: 0;
-  font-size: var(--tl-text-sm);
-  color: var(--tl-gray-4);
-}
-
-.app-header__context strong {
-  color: var(--tl-gray-1);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-header__spacer {
-  flex: 1;
-}
-
-.app-header__engine {
-  display: flex;
-  align-items: center;
-  gap: var(--tl-space-2);
-  font-size: var(--tl-text-xs);
-  color: var(--tl-gray-4);
-  font-family: var(--tl-font-mono);
-  padding: 3px 8px;
-  border: 1px solid var(--tl-gray-8);
-  border-radius: var(--tl-radius-sm);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.app-header button.tl-button[data-variant="ghost"] {
-  color: var(--tl-gray-3);
-}
-
-.app-header button.tl-button[data-variant="ghost"]:hover:not(:disabled) {
-  background: var(--tl-gray-8);
-  color: var(--tl-gray-0);
-}
-
+/* Bottom status bar: live message on the left, real document counts and
+   engine health on the right. */
 .app-statusbar {
   display: flex;
   align-items: center;
   gap: var(--tl-space-5);
-  padding: 0 var(--tl-space-5);
+  padding: 0 var(--tl-space-4);
   border-top: 1px solid var(--tl-color-border);
   background: var(--tl-color-surface);
   font-size: var(--tl-text-xs);
@@ -144,18 +78,27 @@ body {
   width: 96px;
 }
 
+.app-statusbar__engine {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  white-space: nowrap;
+  padding-left: var(--tl-space-4);
+  border-left: 1px solid var(--tl-color-border);
+}
+
 /* Inert wrapper around the main surface; display:contents keeps the
    app-shell grid rows intact while the engine gate is up. */
 .app-main {
   display: contents;
 }
 
-/* Engine gate: honest blocking surface between header and statusbar while
-   the engine is starting, restarting, or down. */
+/* Engine gate: honest blocking surface above the status bar while the
+   engine is starting, restarting, or down. */
 
 .engine-gate {
   position: fixed;
-  top: 44px;
+  top: 0;
   bottom: 30px;
   left: 0;
   right: 0;
@@ -220,13 +163,13 @@ body {
   justify-content: flex-end;
 }
 
-/* Unacked write alert inside the grid panel. */
+/* Unacked write alert inside the center pane. */
 .workbench-unacked {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--tl-space-3);
-  margin-bottom: var(--tl-space-3);
+  margin: var(--tl-space-3) var(--tl-space-3) 0;
 }
 
 /* Projects view */
@@ -311,30 +254,297 @@ body {
   user-select: none;
 }
 
-/* Workbench */
+/* Workbench: ribbon on top, explorer | grid | resource rail below.
+   Panes are flat surfaces split by hairline borders — no floating cards. */
 
 .workbench {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) 350px;
-  gap: var(--tl-space-3);
-  padding: var(--tl-space-3);
+  grid-template-columns: 260px minmax(0, 1fr) 336px;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
+  background: var(--tl-color-surface-raised);
 }
 
-.workbench__rail,
-.workbench__dock {
+/* Ribbon toolbar: labeled icon groups, hairline group dividers,
+   far-right search. */
+
+.ribbon {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  gap: var(--tl-space-3);
-  min-height: 0;
+  align-items: stretch;
+  gap: var(--tl-space-2);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  background: var(--tl-color-surface);
+  border-bottom: 1px solid var(--tl-color-border);
+  min-height: 56px;
+  overflow-x: auto;
 }
 
-.workbench__center {
+.ribbon__group {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+}
+
+.ribbon__divider {
+  width: 1px;
+  margin: var(--tl-space-2) var(--tl-space-1);
+  background: var(--tl-color-border);
+  flex: none;
+}
+
+.ribbon__button {
   display: flex;
   flex-direction: column;
-  min-width: 0;
-  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 52px;
+  padding: var(--tl-space-2) var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
 }
+
+.ribbon__button:hover:not(:disabled) {
+  background: var(--tl-color-accent-faint);
+  color: var(--tl-color-text);
+}
+
+.ribbon__button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.ribbon__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ribbon__icon {
+  display: inline-flex;
+  color: var(--tl-color-accent);
+}
+
+.ribbon__button:disabled .ribbon__icon {
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__label {
+  line-height: 1;
+}
+
+.ribbon__spacer {
+  flex: 1;
+}
+
+.ribbon__search {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  flex: none;
+}
+
+.ribbon__filter-count {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+}
+
+.ribbon__filter-clear {
+  font: inherit;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent-strong);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--tl-space-1) var(--tl-space-2);
+  border-radius: var(--tl-radius-sm);
+}
+
+.ribbon__filter-clear:hover {
+  background: var(--tl-color-accent-faint);
+}
+
+.ribbon__search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding: 0 var(--tl-space-3);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-color-surface-raised);
+  height: 28px;
+}
+
+.ribbon__search-box:focus-within {
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.ribbon__search-icon {
+  display: inline-flex;
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ribbon__search-input {
+  width: 180px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+
+.ribbon__search-input::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__search-input:disabled {
+  color: var(--tl-color-text-faint);
+  cursor: not-allowed;
+}
+
+/* Left project explorer */
+
+.workbench__explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--tl-color-surface);
+  border-right: 1px solid var(--tl-color-border);
+}
+
+.explorer__section {
+  padding: var(--tl-space-3) 0 var(--tl-space-4);
+  border-bottom: 1px solid var(--tl-color-border);
+}
+
+.explorer__section--files {
+  flex: none;
+}
+
+.explorer__section--details {
+  border-bottom: none;
+  margin-top: auto;
+}
+
+.explorer__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--tl-space-4);
+  margin-bottom: var(--tl-space-2);
+}
+
+.explorer__caption {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-faint);
+}
+
+.explorer__gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.explorer__gear:hover {
+  background: var(--tl-color-accent-faint);
+  color: var(--tl-color-accent-strong);
+}
+
+.explorer__gear:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.project-explorer__name {
+  margin: 0 var(--tl-space-4) var(--tl-space-1);
+  font-size: var(--tl-text-md);
+  font-weight: 700;
+  color: var(--tl-color-text);
+  word-break: break-word;
+}
+
+.explorer__langs {
+  margin: 0 var(--tl-space-4) var(--tl-space-2);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.explorer__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+  margin: 0 var(--tl-space-4);
+}
+
+.explorer__progress-label {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+.explorer__details {
+  margin: 0;
+  padding: 0 var(--tl-space-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.explorer__detail {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  padding: 3px 0;
+  font-size: var(--tl-text-xs);
+}
+
+.explorer__detail dt {
+  color: var(--tl-color-text-faint);
+  white-space: nowrap;
+}
+
+.explorer__detail dd {
+  margin: 0;
+  color: var(--tl-color-text);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* File list inside the explorer. */
 
 .document-list {
   display: flex;
@@ -348,7 +558,6 @@ body {
   gap: var(--tl-space-2);
   padding-right: var(--tl-space-2);
   border-left: 2px solid transparent;
-  border-bottom: 1px solid var(--tl-color-border);
   transition:
     background-color var(--tl-motion-fast) var(--tl-ease-standard),
     border-color var(--tl-motion-fast) var(--tl-ease-standard);
@@ -368,7 +577,7 @@ body {
   flex: 1;
   min-width: 0;
   text-align: left;
-  padding: var(--tl-space-3) var(--tl-space-4);
+  padding: var(--tl-space-2) var(--tl-space-4);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -390,6 +599,11 @@ body {
   align-items: center;
   gap: var(--tl-space-2);
   margin-top: var(--tl-space-1);
+  align-self: stretch;
+}
+
+.document-list__progress .tl-progress {
+  flex: 1;
 }
 
 .document-list__pct {
@@ -422,25 +636,171 @@ body {
   color: var(--tl-color-text-faint);
 }
 
-/* Segment grid */
+/* Center pane: file tabs, toolbar, bilingual grid, view tabs. */
 
-/* The grid panel body hosts a toolbar + the scrolling grid; the grid itself
-   must own the scrollbar so row virtualization can window against it. */
-.grid-panel > .tl-panel__body {
+.workbench__center {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  background: var(--tl-color-surface-raised);
 }
+
+.workbench__center-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Open-document tabs. Closing a tab never removes the document — the
+   explorer keeps it and the × label says so. */
+
+.doc-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  padding: var(--tl-space-2) var(--tl-space-2) 0;
+  background: var(--tl-color-bg);
+  border-bottom: 1px solid var(--tl-color-border);
+  overflow-x: auto;
+  flex: none;
+}
+
+.doc-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+  padding: 0 var(--tl-space-2) 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--tl-radius-sm) var(--tl-radius-sm) 0 0;
+  background: transparent;
+  box-shadow: inset 0 2px 0 transparent;
+  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
+  white-space: nowrap;
+}
+
+.doc-tabs__tab:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.doc-tabs__tab[data-active="true"] {
+  background: var(--tl-color-surface-raised);
+  border-color: var(--tl-color-border);
+  box-shadow: inset 0 2px 0 var(--tl-color-accent);
+  /* Merge into the pane below: the active tab and the grid read as one. */
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.doc-tabs__select {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  padding: var(--tl-space-2) var(--tl-space-2) var(--tl-space-2)
+    var(--tl-space-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.doc-tabs__tab[data-active="true"] .doc-tabs__select {
+  color: var(--tl-color-text);
+  font-weight: 600;
+}
+
+.doc-tabs__select:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+  border-radius: var(--tl-radius-sm);
+}
+
+.doc-tabs__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--tl-color-text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.doc-tabs__close:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.doc-tabs__close:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+/* View tabs under the grid: the grid is the working view; 预览 opens the
+   real preview (proofread + DOCX layout) built from the export pipeline. */
+
+.view-tabs {
+  display: flex;
+  gap: var(--tl-space-1);
+  padding: 0 var(--tl-space-3);
+  border-top: 1px solid var(--tl-color-border);
+  background: var(--tl-color-surface);
+  flex: none;
+}
+
+.view-tabs__tab {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-top: 2px solid transparent;
+  padding: var(--tl-space-2) var(--tl-space-3);
+  cursor: pointer;
+  transition:
+    color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.view-tabs__tab:hover {
+  color: var(--tl-color-text);
+}
+
+.view-tabs__tab:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.view-tabs__tab[data-active="true"] {
+  color: var(--tl-color-accent-strong);
+  font-weight: 600;
+  border-top-color: var(--tl-color-accent);
+}
+
+/* Segment grid toolbar (state filter + find/replace). */
 
 .grid-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--tl-space-3);
-  padding: var(--tl-space-3) var(--tl-space-4);
+  gap: var(--tl-space-2);
+  padding: var(--tl-space-2) var(--tl-space-3);
   border-bottom: 1px solid var(--tl-color-border);
   background: var(--tl-color-surface);
   flex: none;
+  flex-wrap: wrap;
+}
+
+.grid-toolbar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--tl-color-border);
 }
 
 .grid-toolbar__select,
@@ -469,20 +829,9 @@ body {
   color: var(--tl-color-text-faint);
 }
 
-/* Find next/prev box: navigates the selection without hiding rows, so it
-   sits slightly apart from the hide-style filter controls. */
+/* Find next/prev box: navigates the selection without hiding rows. */
 .grid-toolbar__find {
-  width: 160px;
-}
-
-/* Second toolbar row: find/replace. Kept visually lighter than the filter
-   row so the hide-filter and the navigate/replace tools read as different
-   mechanisms. */
-.grid-toolbar--find {
-  padding-top: var(--tl-space-2);
-  padding-bottom: var(--tl-space-2);
-  background: var(--tl-color-surface-raised);
-  flex-wrap: wrap;
+  width: 150px;
 }
 
 .grid-toolbar__checkbox {
@@ -495,30 +844,7 @@ body {
   user-select: none;
 }
 
-.grid-toolbar__count {
-  font-family: var(--tl-font-mono);
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-text-muted);
-  white-space: nowrap;
-}
-
-.grid-toolbar__spacer {
-  flex: 1;
-}
-
-.grid-toolbar__progress {
-  display: flex;
-  align-items: center;
-  gap: var(--tl-space-3);
-}
-
-.grid-toolbar__progress-text {
-  font-family: var(--tl-font-mono);
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-text-muted);
-  min-width: 34px;
-  text-align: right;
-}
+/* Segment grid */
 
 .segment-grid {
   flex: 1;
@@ -548,7 +874,7 @@ body {
 .segment-grid thead th {
   position: sticky;
   top: 0;
-  background: var(--tl-color-sunken);
+  background: var(--tl-color-surface);
   border-bottom: 1px solid var(--tl-color-border-strong);
   padding: var(--tl-space-2) var(--tl-space-3);
   font-size: var(--tl-text-xs);
@@ -699,15 +1025,23 @@ body {
   color: var(--tl-color-text-faint);
 }
 
-/* Dock */
+/* Right resource rail */
 
+.workbench__dock {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--tl-color-surface);
+  border-left: 1px solid var(--tl-color-border);
+}
+
+/* Rail tabs: underlined text tabs across the top of the rail. */
 .dock-tabs {
   display: flex;
-  gap: var(--tl-space-1);
-  background: var(--tl-color-sunken);
-  border: 1px solid var(--tl-color-border);
-  border-radius: var(--tl-radius-md);
-  padding: var(--tl-space-1);
+  background: var(--tl-color-surface);
+  border-bottom: 1px solid var(--tl-color-border);
+  flex: none;
+  overflow-x: auto;
 }
 
 .dock-tabs button {
@@ -715,26 +1049,26 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--tl-space-2);
+  gap: var(--tl-space-1);
   font: inherit;
   font-size: var(--tl-text-sm);
   font-weight: 600;
   color: var(--tl-color-text-muted);
   background: transparent;
   border: none;
-  border-radius: var(--tl-radius-sm);
-  padding: var(--tl-space-2) 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--tl-space-3) var(--tl-space-1);
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background-color var(--tl-motion-fast) var(--tl-ease-standard),
     color var(--tl-motion-fast) var(--tl-ease-standard),
-    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    background-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .dock-tabs button:hover:not([data-active="true"]) {
   color: var(--tl-color-text);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--tl-color-accent-faint);
 }
 
 .dock-tabs button:focus-visible {
@@ -743,11 +1077,8 @@ body {
 }
 
 .dock-tabs button[data-active="true"] {
-  background: var(--tl-color-surface-raised);
   color: var(--tl-color-accent-strong);
-  box-shadow:
-    inset 0 0 0 1px var(--tl-color-border),
-    var(--tl-shadow-raised);
+  border-bottom-color: var(--tl-color-accent);
 }
 
 /* Live counters on dock tabs (QA open issues, best TM score). */
@@ -791,9 +1122,14 @@ body {
   animation: tl-slide-up var(--tl-motion-base) var(--tl-ease-out);
 }
 
+/* Rail panels sit flush inside the rail: the rail border is the frame. */
 .dock-view > .tl-panel {
   flex: 1;
   min-height: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--tl-color-surface);
 }
 
 .dock-stack {
@@ -903,7 +1239,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: var(--tl-space-3);
-  margin-bottom: var(--tl-space-3);
+  margin: var(--tl-space-3) var(--tl-space-3) 0;
 }
 
 .export-overwrite__message {
