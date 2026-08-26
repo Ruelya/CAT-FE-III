@@ -41,6 +41,7 @@ export type AiProviderKind =
 export type AiAssistRunStatus = "running" | "done" | "failed" | "canceled";
 export type DegradationSeverity = "warning" | "error";
 export type DocumentStatus = "active" | "failed" | "superseded";
+export type QaSeverity = "error" | "warning" | "info";
 /**
  * Default segmentation mode applied when `document.import` is called without
  * an explicit segmentation choice. Serialized as `sentence` / `paragraph`,
@@ -48,7 +49,6 @@ export type DocumentStatus = "active" | "failed" | "superseded";
  */
 export type ProjectSegmentation = "sentence" | "paragraph";
 export type ProjectLifecycle = "active" | "archived" | "trash";
-export type QaSeverity = "error" | "warning" | "info";
 /**
  * Lifecycle of a persisted QA issue.
  *
@@ -100,14 +100,14 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract45;
-  "ai.agent.start": MethodContract43;
-  "ai.agent.status": MethodContract44;
-  "ai.assist.cancel": MethodContract42;
-  "ai.assist.start": MethodContract40;
-  "ai.assist.status": MethodContract41;
-  "ai.configure": MethodContract38;
-  "ai.status": MethodContract39;
+  "ai.agent.cancel": MethodContract47;
+  "ai.agent.start": MethodContract45;
+  "ai.agent.status": MethodContract46;
+  "ai.assist.cancel": MethodContract44;
+  "ai.assist.start": MethodContract42;
+  "ai.assist.status": MethodContract43;
+  "ai.configure": MethodContract40;
+  "ai.status": MethodContract41;
   "document.export": MethodContract11;
   "document.import": MethodContract8;
   "document.list": MethodContract9;
@@ -120,6 +120,8 @@ export interface RpcMethodCatalog {
   "project.list": MethodContract4;
   "project.update": MethodContract6;
   "qa.list": MethodContract36;
+  "qa.profile.get": MethodContract38;
+  "qa.profile.update": MethodContract39;
   "qa.run": MethodContract35;
   "qa.waive": MethodContract37;
   "segment.confirm": MethodContract15;
@@ -149,7 +151,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract45 {
+export interface MethodContract47 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -189,7 +191,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract43 {
+export interface MethodContract45 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -205,7 +207,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract44 {
+export interface MethodContract46 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -216,7 +218,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract42 {
+export interface MethodContract44 {
   params: AiAssistCancelParams;
   result: AiAssistRunView;
 }
@@ -265,7 +267,7 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract40 {
+export interface MethodContract42 {
   params: AiAssistParams;
   result: AiAssistRunView;
 }
@@ -278,7 +280,7 @@ export interface AiAssistParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract41 {
+export interface MethodContract43 {
   params: AiAssistStatusParams;
   result: AiAssistRunView;
 }
@@ -289,7 +291,7 @@ export interface AiAssistStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract38 {
+export interface MethodContract40 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -316,7 +318,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract39 {
+export interface MethodContract41 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -333,6 +335,15 @@ export interface MethodContract11 {
 export interface DocumentExportParams {
   documentId: string;
   outputPath: string;
+  /**
+   * Pass the QA export gate this once. When the project's QA profile has
+   * `blockExportOnError`, the engine re-checks the document before
+   * exporting and refuses with `exportBlocked` (error `data.reason` =
+   * `"qaGate"`, plus open-error count and leading rule ids) while
+   * error-severity open issues exist. Same honest pattern as `overwrite`:
+   * refuse → the user decides explicitly → pass. Defaults to false.
+   */
+  overrideQaGate?: boolean | null;
   /**
    * Replace an existing destination file (staged sibling temp + atomic
    * rename). Defaults to false: the export is refused with `exportBlocked`
@@ -594,6 +605,11 @@ export interface ProjectConfiguration {
   editorDefaults?: EditorPreferences | null;
   engineAllowlist?: string[];
   pipelineId?: string | null;
+  /**
+   * Project-level QA profile overrides (severity remaps, settings, export
+   * gate) applied over the built-in profile named by `qa_profile_id`.
+   */
+  qaProfile?: QaProfileOverrides | null;
   qaProfileId?: string | null;
   /**
    * Default segmentation for future imports. `None` means sentence mode.
@@ -620,6 +636,48 @@ export interface EditorPreferences {
   showNonprinting: boolean;
   theme: string;
   zoom: number;
+  [k: string]: unknown;
+}
+/**
+ * Project-level QA profile overrides, applied over the resolved built-in
+ * profile (memoQ convention: built-ins are immutable, the project layer is
+ * a clone-then-override). Absent overrides mean the built-in profile runs
+ * exactly as shipped.
+ */
+export interface QaProfileOverrides {
+  /**
+   * Export gate: `document.export` refuses while error-severity open
+   * issues exist (an explicit `overrideQaGate` lets the user pass).
+   * Off by default — the gate is configured, never ambient.
+   */
+  blockExportOnError?: boolean;
+  /**
+   * Full replacement of the base profile's tunable settings. `None`
+   * keeps the base profile's own values.
+   */
+  settings?: QaRuleSettings | null;
+  /**
+   * Per-rule severity remaps (rule id → severity) layered over the base
+   * profile's table. Keys may name parameterized rules
+   * (`qa.term-missing:<id>`, `qa.regex:<id>`) as well as fixed ones.
+   */
+  severityOverrides?: {
+    [k: string]: QaSeverity;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Tunable knobs of a QA profile (thresholds and locale-convention toggles).
+ * Lives in the domain crate because project configuration stores a
+ * project-level replacement of these values.
+ */
+export interface QaRuleSettings {
+  cjkPunctuation: boolean;
+  cjkSpacing: boolean;
+  maxLengthRatioPercent: number;
+  maxTargetChars?: number | null;
+  minLengthRatioPercent: number;
+  requireSentenceFinalPunctuation: boolean;
   [k: string]: unknown;
 }
 export interface TaskPackageProjectReference {
@@ -752,6 +810,15 @@ export interface QaIssue {
   fingerprint: string;
   id: string;
   message: string;
+  /**
+   * Structured message parameters (e.g. `{"expected": "30", "found":
+   * "40"}`) so clients can localize the finding; `message` stays the
+   * engine-produced English fallback. Empty for rules with nothing to
+   * parameterize; rows persisted before the field existed parse as empty.
+   */
+  params?: {
+    [k: string]: string;
+  };
   ruleId: string;
   segmentId: string;
   severity: QaSeverity;
@@ -780,6 +847,110 @@ export interface NumberEvidence {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
+export interface MethodContract38 {
+  params: QaProfileGetParams;
+  result: QaProfileView;
+}
+export interface QaProfileGetParams {
+  projectId: string;
+  [k: string]: unknown;
+}
+/**
+ * The QA profile the engine will actually run for one project: the
+ * resolved built-in base plus the project-level overrides layered on it.
+ * Built-in profiles are immutable; the project layer is a clone-then-
+ * override (memoQ convention), stored in the project configuration.
+ *
+ * Returned by both `qa.profile.get` and `qa.profile.update`.
+ */
+export interface QaProfileView {
+  /**
+   * The built-in profile the project resolves to (configured id when it
+   * names a built-in, otherwise the target-locale default).
+   */
+  baseProfileId: string;
+  /**
+   * Whether `document.export` refuses while error-severity open issues
+   * exist. Off by default.
+   */
+  blockExportOnError: boolean;
+  /**
+   * Project revision, for `qa.profile.update` optimistic concurrency.
+   */
+  revision: number;
+  settings: QaRuleSettings1;
+  /**
+   * Project-level severity remaps (rule id → severity), layered over the
+   * base profile's table. Built-in profiles ship without remaps, so this
+   * is also the effective table.
+   */
+  severityOverrides: {
+    [k: string]: QaSeverity;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Tunable knobs of a QA profile (thresholds and locale-convention toggles).
+ * Lives in the domain crate because project configuration stores a
+ * project-level replacement of these values.
+ */
+export interface QaRuleSettings1 {
+  cjkPunctuation: boolean;
+  cjkSpacing: boolean;
+  maxLengthRatioPercent: number;
+  maxTargetChars?: number | null;
+  minLengthRatioPercent: number;
+  requireSentenceFinalPunctuation: boolean;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract39 {
+  params: QaProfileUpdateParams;
+  result: QaProfileView;
+}
+/**
+ * `qa.profile.update` — write the project-level QA overrides. Omitted
+ * fields keep their stored values; provided fields replace them wholesale
+ * (`severityOverrides: {}` clears every remap). The engine compiles the
+ * merged profile before storing anything, so a configuration that cannot
+ * run is rejected instead of persisted.
+ */
+export interface QaProfileUpdateParams {
+  /**
+   * Optimistic concurrency: must match the project's current revision.
+   */
+  baseRevision: number;
+  /**
+   * Toggle the export gate.
+   */
+  blockExportOnError?: boolean | null;
+  /**
+   * Drop the stored settings replacement (mutually exclusive with
+   * `settings`).
+   */
+  clearSettings?: boolean;
+  projectId: string;
+  /**
+   * Replacement settings. `null` inside the option is not expressible —
+   * send `clearSettings: true` to drop the project replacement and
+   * return to the base profile's values.
+   */
+  settings?: QaRuleSettings | null;
+  /**
+   * Replacement severity remap table. Keys must be rule ids
+   * (`qa.`-prefixed, including parameterized `qa.term-*:<id>` /
+   * `qa.regex:<id>` forms).
+   */
+  severityOverrides?: {
+    [k: string]: QaSeverity;
+  } | null;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
 export interface MethodContract35 {
   params: QaRunParams;
   result: QaRunResult;
@@ -802,53 +973,63 @@ export interface MethodContract37 {
   result: QaWaiveResult;
 }
 /**
- * `qa.waive` — record a human decision about one issue without pretending
- * the finding went away.
+ * `qa.waive` — record a human decision about findings without pretending
+ * they went away.
  *
  * Waiving never edits the segment, never confirms it, and never writes TM:
- * the numbers still disagree, and the issue row says so. The waiver sticks
+ * the numbers still disagree, and the issue rows say so. The waiver sticks
  * exactly as long as later runs reproduce the same fingerprint (rule +
  * segment + evidence). When the evidence changes, the old row resolves and
  * the changed finding opens as a brand-new issue — a waiver never carries
  * over to evidence the user has not seen.
+ *
+ * Exactly one selector must be provided:
+ *
+ * - `issueId` — one issue. Waiving a resolved issue or restoring a
+ *   non-waived issue is a conflict.
+ * - `ruleId` + `documentId` — every issue of that rule in the document.
+ * - `segmentId` — every issue of that segment.
+ *
+ * The batch selectors are operation granularity, not storage granularity:
+ * each affected row records its own waiver, so audit and
+ * fingerprint-invalidation semantics are identical to per-issue waiving.
+ * Batches skip rows already in the requested state instead of erroring.
  */
 export interface QaWaiveParams {
-  issueId: string;
+  /**
+   * Scope for `ruleId`. Per-rule waivers are document-scoped — never a
+   * hidden project-wide exemption.
+   */
+  documentId?: string | null;
+  /**
+   * Selector: one issue by id.
+   */
+  issueId?: string | null;
   /**
    * Optional free-form note. Deliberately not required: an empty or
    * omitted note is a perfectly valid waiver.
    */
   note?: string | null;
   /**
-   * `true` waives an open issue; `false` restores a waived issue to open.
+   * Selector: every issue of this rule; requires `documentId`.
+   */
+  ruleId?: string | null;
+  /**
+   * Selector: every issue of this segment.
+   */
+  segmentId?: string | null;
+  /**
+   * `true` waives open issues; `false` restores waived issues to open.
    */
   waived: boolean;
   [k: string]: unknown;
 }
 export interface QaWaiveResult {
-  issue: QaIssue1;
-  [k: string]: unknown;
-}
-/**
- * The issue after the status change, straight from the store.
- */
-export interface QaIssue1 {
-  createdAtMs: number;
-  evidence: NumberEvidence;
-  fingerprint: string;
-  id: string;
-  message: string;
-  ruleId: string;
-  segmentId: string;
-  severity: QaSeverity;
-  status: QaIssueStatus;
-  updatedAtMs: number;
   /**
-   * Free-form note recorded with a waiver. Optional by design — waiving
-   * must not demand a ritual reason. Non-null only while `status` is
-   * [`QaIssueStatus::Waived`].
+   * Every issue the call changed, straight from the store. Clients
+   * replace their copies of these rows wholesale.
    */
-  waiveNote?: string | null;
+  issues: QaIssue[];
   [k: string]: unknown;
 }
 /**

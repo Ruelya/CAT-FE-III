@@ -8,8 +8,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tl_domain::{
-    QaSeverity, ReviewRevision, normalize_text, number_mismatch, placeholder_mismatch, sha256_hex,
+    QaSeverity, ReviewRevision, SegmentOrigin, SegmentOriginKind, normalize_text, number_mismatch,
+    placeholder_mismatch, sha256_hex,
 };
+// Settings moved to the domain crate (project configuration stores a
+// project-level replacement); re-exported so `tl_qa::QaRuleSettings` keeps
+// working for existing callers.
+pub use tl_domain::QaRuleSettings;
 use tl_filter_office::{OfficePackage, validate_xml};
 use zip::ZipArchive;
 use zip::write::{SimpleFileOptions, ZipWriter};
@@ -57,6 +62,9 @@ pub enum QaCategory {
     Length,
     Terminology,
     Consistency,
+    /// Workflow-behavior findings (e.g. a fuzzy match confirmed unedited)
+    /// rather than text-content findings.
+    Behavior,
     Custom,
 }
 
@@ -72,6 +80,7 @@ impl QaCategory {
             Self::Length => "length",
             Self::Terminology => "terminology",
             Self::Consistency => "consistency",
+            Self::Behavior => "behavior",
             Self::Custom => "custom",
         }
     }
@@ -96,30 +105,6 @@ pub struct QaRegexRule {
     pub message: String,
     #[serde(default)]
     pub replacement_hint: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct QaRuleSettings {
-    pub max_target_chars: Option<u32>,
-    pub min_length_ratio_percent: u16,
-    pub max_length_ratio_percent: u16,
-    pub cjk_spacing: bool,
-    pub cjk_punctuation: bool,
-    pub require_sentence_final_punctuation: bool,
-}
-
-impl Default for QaRuleSettings {
-    fn default() -> Self {
-        Self {
-            max_target_chars: None,
-            min_length_ratio_percent: 35,
-            max_length_ratio_percent: 300,
-            cjk_spacing: true,
-            cjk_punctuation: true,
-            require_sentence_final_punctuation: true,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -177,6 +162,10 @@ pub struct QaFindingCandidate {
     pub message: String,
     pub fingerprint: String,
     pub evidence: QaCandidateEvidence,
+    /// Structured message parameters for client-side localization;
+    /// `message` remains the English fallback. Not part of the fingerprint.
+    #[serde(default)]
+    pub params: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -205,6 +194,15 @@ pub struct QaSegmentInput {
     pub target_locale: String,
     pub tag_findings: Vec<QaTagFinding>,
     pub terms: Vec<QaTermExpectation>,
+    /// Whether the segment is confirmed. Behavioral rules only fire on
+    /// confirmed rows; defaults keep older serialized inputs parsing.
+    #[serde(default)]
+    pub confirmed: bool,
+    /// Where the current target came from, as stamped by the engine.
+    /// Absent means the behavioral rules cannot fire — origin facts are
+    /// never invented.
+    #[serde(default)]
+    pub origin: Option<SegmentOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -734,6 +732,7 @@ impl CompiledQaProfile {
         self.evaluate_length(input, &mut findings);
         self.evaluate_terms(input, &mut findings);
         self.evaluate_regex(input, &mut findings);
+        self.evaluate_behavior(input, &mut findings);
         findings.sort_by(|left, right| {
             left.category
                 .cmp(&right.category)
@@ -774,6 +773,28 @@ impl CompiledQaProfile {
         message: impl Into<String>,
         evidence: QaCandidateEvidence,
     ) {
+        self.push_with_params(
+            findings,
+            input,
+            rule_id,
+            classification,
+            message,
+            evidence,
+            BTreeMap::new(),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_with_params(
+        &self,
+        findings: &mut Vec<QaFindingCandidate>,
+        input: &QaSegmentInput,
+        rule_id: &str,
+        classification: (QaCategory, QaSeverity),
+        message: impl Into<String>,
+        evidence: QaCandidateEvidence,
+        params: BTreeMap<String, String>,
+    ) {
         if !self.enabled(rule_id) {
             return;
         }
@@ -787,6 +808,7 @@ impl CompiledQaProfile {
             message: message.into(),
             fingerprint,
             evidence,
+            params,
         });
     }
 
@@ -1056,7 +1078,7 @@ impl CompiledQaProfile {
             if ratio < usize::from(self.definition.settings.min_length_ratio_percent)
                 || ratio > usize::from(self.definition.settings.max_length_ratio_percent)
             {
-                self.push(
+                self.push_with_params(
                     findings,
                     input,
                     "qa.length-ratio",
@@ -1067,16 +1089,33 @@ impl CompiledQaProfile {
                         target_values: vec![target_chars.to_string()],
                         ..QaCandidateEvidence::default()
                     },
+                    BTreeMap::from([
+                        ("ratio".to_string(), ratio.to_string()),
+                        (
+                            "min".to_string(),
+                            self.definition
+                                .settings
+                                .min_length_ratio_percent
+                                .to_string(),
+                        ),
+                        (
+                            "max".to_string(),
+                            self.definition
+                                .settings
+                                .max_length_ratio_percent
+                                .to_string(),
+                        ),
+                    ]),
                 );
             }
         }
-        if self
+        if let Some(limit) = self
             .definition
             .settings
             .max_target_chars
-            .is_some_and(|limit| target_chars > limit as usize)
+            .filter(|limit| target_chars > *limit as usize)
         {
-            self.push(
+            self.push_with_params(
                 findings,
                 input,
                 "qa.target-length-limit",
@@ -1086,6 +1125,10 @@ impl CompiledQaProfile {
                     target_values: vec![target_chars.to_string()],
                     ..QaCandidateEvidence::default()
                 },
+                BTreeMap::from([
+                    ("limit".to_string(), limit.to_string()),
+                    ("found".to_string(), target_chars.to_string()),
+                ]),
             );
         }
     }
@@ -1128,6 +1171,37 @@ impl CompiledQaProfile {
                 }
             }
         }
+    }
+
+    /// Behavioral check: a fuzzy TM match confirmed without a single edit.
+    /// Fires only on engine-stamped facts (`confirmed`, `origin.kind ==
+    /// tmFuzzy`, `origin.edited == false`) — never inferred from text. The
+    /// evidence pins the confirmed target text, so a waiver holds across
+    /// reruns of the same text but never carries over to a different
+    /// confirmed-unedited translation.
+    fn evaluate_behavior(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
+        let Some(origin) = &input.origin else {
+            return;
+        };
+        if !input.confirmed || origin.kind != SegmentOriginKind::TmFuzzy || origin.edited {
+            return;
+        }
+        let mut params = BTreeMap::new();
+        if let Some(score) = origin.score {
+            params.insert("score".to_string(), score.to_string());
+        }
+        self.push_with_params(
+            findings,
+            input,
+            "qa.unedited-fuzzy",
+            (QaCategory::Behavior, QaSeverity::Warning),
+            "Fuzzy TM match was confirmed without edits.",
+            QaCandidateEvidence {
+                target_values: vec![input.target_text.clone()],
+                ..QaCandidateEvidence::default()
+            },
+            params,
+        );
     }
 
     fn evaluate_regex(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
@@ -1477,6 +1551,7 @@ fn profile_with_id(id: &str, name: &str, cjk: bool) -> QaProfileDefinition {
         "qa.regex",
         "qa.same-source-different-target",
         "qa.different-source-same-target",
+        "qa.unedited-fuzzy",
     ]
     .into_iter()
     .map(str::to_string)
@@ -1535,6 +1610,7 @@ fn consistency_finding(
         message: message.to_string(),
         fingerprint: finding_fingerprint(rule_id, &segment.segment_id, &evidence),
         evidence,
+        params: BTreeMap::new(),
     }
 }
 
@@ -1874,6 +1950,8 @@ mod tests {
             target_locale: target_locale.to_string(),
             tag_findings: Vec::new(),
             terms: Vec::new(),
+            confirmed: false,
+            origin: None,
         }
     }
 
@@ -2098,6 +2176,115 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unedited_confirmed_fuzzy_is_flagged_with_score_params() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let mut value = input("Save the file.", "保存文件。", "zh-CN");
+        value.confirmed = true;
+        value.origin = Some(SegmentOrigin {
+            kind: SegmentOriginKind::TmFuzzy,
+            score: Some(87),
+            model: None,
+            edited: false,
+        });
+        let finding = profile
+            .evaluate_segment(&value)
+            .into_iter()
+            .find(|finding| finding.rule_id == "qa.unedited-fuzzy")
+            .expect("unedited-fuzzy finding");
+        assert_eq!(finding.severity, QaSeverity::Warning);
+        assert_eq!(finding.category, QaCategory::Behavior);
+        assert_eq!(finding.params.get("score"), Some(&"87".to_string()));
+        assert_eq!(
+            finding.evidence.target_values,
+            vec!["保存文件。".to_string()]
+        );
+    }
+
+    #[test]
+    fn unedited_fuzzy_requires_all_three_engine_facts() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let fires = |confirmed: bool, kind: SegmentOriginKind, edited: bool| {
+            let mut value = input("Save the file.", "保存文件。", "zh-CN");
+            value.confirmed = confirmed;
+            value.origin = Some(SegmentOrigin {
+                kind,
+                score: None,
+                model: None,
+                edited,
+            });
+            profile
+                .evaluate_segment(&value)
+                .into_iter()
+                .any(|finding| finding.rule_id == "qa.unedited-fuzzy")
+        };
+        assert!(fires(true, SegmentOriginKind::TmFuzzy, false));
+        // Draft, edited, exact-match, and origin-less rows never fire.
+        assert!(!fires(false, SegmentOriginKind::TmFuzzy, false));
+        assert!(!fires(true, SegmentOriginKind::TmFuzzy, true));
+        assert!(!fires(true, SegmentOriginKind::TmExact, false));
+        let mut originless = input("Save the file.", "保存文件。", "zh-CN");
+        originless.confirmed = true;
+        assert!(
+            !profile
+                .evaluate_segment(&originless)
+                .into_iter()
+                .any(|finding| finding.rule_id == "qa.unedited-fuzzy")
+        );
+    }
+
+    #[test]
+    fn unedited_fuzzy_fingerprint_pins_the_confirmed_target_text() {
+        // The waiver rule rides on this: re-confirming the same text keeps
+        // the fingerprint (waiver holds); a different unedited translation
+        // is a new fingerprint (fresh open issue, never hidden).
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let finding_for = |target: &str| {
+            let mut value = input("Save the file.", target, "zh-CN");
+            value.confirmed = true;
+            value.origin = Some(SegmentOrigin {
+                kind: SegmentOriginKind::TmFuzzy,
+                score: Some(90),
+                model: None,
+                edited: false,
+            });
+            profile
+                .evaluate_segment(&value)
+                .into_iter()
+                .find(|finding| finding.rule_id == "qa.unedited-fuzzy")
+                .expect("unedited-fuzzy finding")
+        };
+        assert_eq!(
+            finding_for("保存文件。").fingerprint,
+            finding_for("保存文件。").fingerprint
+        );
+        assert_ne!(
+            finding_for("保存文件。").fingerprint,
+            finding_for("储存文件。").fingerprint
+        );
+    }
+
+    #[test]
+    fn length_rules_carry_message_params() {
+        let mut definition = standard_profile();
+        definition.settings.max_target_chars = Some(4);
+        let profile = CompiledQaProfile::compile(definition).expect("profile");
+        let findings = profile.evaluate_segment(&input("Hi", "way too long target", "en-US"));
+        let ratio = findings
+            .iter()
+            .find(|finding| finding.rule_id == "qa.length-ratio")
+            .expect("length-ratio finding");
+        assert_eq!(ratio.params.get("min"), Some(&"35".to_string()));
+        assert_eq!(ratio.params.get("max"), Some(&"300".to_string()));
+        assert_eq!(ratio.params.get("ratio"), Some(&"950".to_string()));
+        let limit = findings
+            .iter()
+            .find(|finding| finding.rule_id == "qa.target-length-limit")
+            .expect("target-length-limit finding");
+        assert_eq!(limit.params.get("limit"), Some(&"4".to_string()));
+        assert_eq!(limit.params.get("found"), Some(&"19".to_string()));
+    }
+
     fn execution_segment() -> QaExecutionSegment {
         QaExecutionSegment {
             project_id: "project-1".to_string(),
@@ -2118,6 +2305,7 @@ mod tests {
             message: "Finding".to_string(),
             fingerprint: fingerprint.to_string(),
             evidence: QaCandidateEvidence::default(),
+            params: BTreeMap::new(),
         }
     }
 

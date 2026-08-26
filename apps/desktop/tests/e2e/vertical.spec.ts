@@ -878,3 +878,202 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   await expect(page.getByRole("button", { name: /演示项目/ })).toBeVisible();
   await shot("16-projects-list.png");
 });
+
+// S3b: the QA export gate, against the real engine. Off by default (every
+// export above went through with open findings); switched on in project
+// settings it refuses the export, and only the explicit 仍要导出 passes.
+test("export gate refuses on QA errors until the user decides", async () => {
+  // Re-enter the project and open words.txt (rows: 2 confirmed, 1 empty).
+  await page.getByRole("button", { name: /演示项目/ }).click();
+  const rows = page.locator(".segment-grid tbody tr");
+  await page
+    .locator(".document-list__select", { hasText: "words.txt" })
+    .click();
+  await expect(rows.first()).toContainText("Billing is monthly.");
+
+  // Switch the gate on in the settings dialog (qa.profile.update).
+  await page.getByRole("button", { name: "项目设置" }).click();
+  const settingsDialog = page.locator(".tl-dialog");
+  const gateToggle = settingsDialog.getByRole("checkbox", {
+    name: "有错误时阻止导出",
+  });
+  await expect(gateToggle).not.toBeChecked();
+  await gateToggle.click();
+  await expect(page.getByRole("status")).toContainText(
+    "已开启导出前 QA 检查",
+  );
+  await shot("23-gate-toggle.png");
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
+
+  // Plant an error-severity finding: 30 in the source, 40 in the target.
+  await rows.nth(1).click();
+  const editor2 = page.getByLabel("句段 2 译文");
+  await editor2.fill("Retention is 40 days.");
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+
+  // The export is refused before anything touches disk; the question
+  // carries the engine's own count and rule ids — the planted number
+  // mismatch plus the untranslated row 3 (completeness error).
+  const gateExportPath = join(workDir, "gated.txt");
+  await app.evaluate((_electronModule, path) => {
+    process.env.TL_FAKE_SAVE_PATH = path;
+  }, gateExportPath);
+  await page.getByRole("button", { name: "导出译文" }).click();
+  const gatePrompt = page.getByRole("alertdialog", {
+    name: "存在 QA 错误，仍要导出吗？",
+  });
+  await expect(gatePrompt).toContainText("2 个错误未解决");
+  await expect(gatePrompt).toContainText("qa.number-mismatch");
+  await expect(gatePrompt).toContainText("qa.empty-target");
+  await shot("24-gate-refusal.png");
+
+  // 取消 writes nothing; the gate's engine-side qa.run already persisted
+  // the findings, so the QA dock shows them without a manual 运行 QA.
+  await page.getByRole("button", { name: "取消" }).click();
+  await expect(gatePrompt).toHaveCount(0);
+  await expect(page.locator(".app-statusbar")).toContainText("已取消导出");
+  expect(existsSync(gateExportPath)).toBe(false);
+  await page.getByRole("button", { name: "QA", exact: true }).click();
+  await expect(page.getByText("质量检查（未解决 2）")).toBeVisible();
+
+  // 仍要导出 is the recorded human decision: the retry passes the gate.
+  await page.getByRole("button", { name: "导出译文" }).click();
+  await expect(gatePrompt).toBeVisible();
+  await page.getByRole("button", { name: "仍要导出" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText("导出完成", {
+    timeout: 30_000,
+  });
+  expect(existsSync(gateExportPath)).toBe(true);
+  expect(statSync(gateExportPath).size).toBeGreaterThan(0);
+  await shot("25-gate-overridden.png");
+});
+
+// S3b: the behavioral check and the batch waivers, against the real engine.
+// A fuzzy TM match confirmed without edits is an engine finding
+// (qa.unedited-fuzzy, confirm-time); 忽略同类 / 忽略本句 waive a whole rule
+// or a whole segment in one recorded decision — the behavioral finding is
+// never swept up with them.
+test("unedited fuzzy confirm is flagged and batch waivers clear repeat noise", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // Seed the TM from a separate document so the fuzzy source below has a
+  // real entry to hit without tripping the in-document consistency rules.
+  const seedPath = join(workDir, "seed.txt");
+  writeFileSync(seedPath, "Restart the app to apply changes.\n");
+  await importThroughDialog(seedPath);
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「seed.txt」",
+    { timeout: 30_000 },
+  );
+  const seedEditor = page.getByLabel("句段 1 译文");
+  await seedEditor.fill("重启应用程序，以便应用全部更改。");
+  await seedEditor.press("Control+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #1 已确认并写入 TM",
+  );
+
+  // Working document: one near-duplicate of the seeded source for the
+  // behavioral half, three number rows for the batch-waiver half.
+  const behaviorPath = join(workDir, "behavior.txt");
+  writeFileSync(
+    behaviorPath,
+    [
+      "Restart the app to apply updates.",
+      "Add 5 users and 3 groups.",
+      "Send 7 files.",
+      "Buy 2 books.",
+    ].join("\n\n") + "\n",
+  );
+  await importThroughDialog(behaviorPath);
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「behavior.txt」：4 个句段",
+    { timeout: 30_000 },
+  );
+  await expect(rows).toHaveCount(4);
+
+  // Apply the fuzzy hit as a draft (the update stamps origin tmFuzzy,
+  // unedited) and confirm without touching the text. The confirm still
+  // writes TM — behavioral QA reports, it never blocks.
+  await rows.first().click();
+  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  const fuzzyCard = page.locator(".match-card").first();
+  await expect(fuzzyCard.locator(".tl-match__score")).toHaveText(/^\d{2}$/);
+  await fuzzyCard.getByRole("button", { name: "应用为草稿" }).click();
+  await expect(
+    rows.first().locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+  await page.getByLabel("句段 1 译文").press("Control+Alt+Shift+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #1 已确认并写入 TM，QA 1 个问题",
+  );
+
+  // The dock message is localized from the engine's params (the real
+  // score), not renderer guesswork.
+  await page.getByRole("button", { name: "QA", exact: true }).click();
+  await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
+  const fuzzyIssue = page.locator(".issue-card", {
+    hasText: "qa.unedited-fuzzy",
+  });
+  await expect(fuzzyIssue).toContainText("未解决");
+  await expect(fuzzyIssue).toContainText(/模糊匹配（\d+%）未修改即确认/);
+
+  // Draft the number rows: row 2 carries two findings (wrong number, no
+  // final punctuation), rows 3 and 4 one wrong number each.
+  await rows.nth(1).click();
+  await page.getByLabel("句段 2 译文").fill("添加 4 位用户和 3 个组");
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+  await rows.nth(2).click();
+  await page.getByLabel("句段 3 译文").fill("发送 8 个文件。");
+  await expect(
+    rows.nth(2).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+  await rows.nth(3).click();
+  await page.getByLabel("句段 4 译文").fill("购买 3 本书。");
+  await expect(
+    rows.nth(3).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+
+  // Full run: three number errors + one punctuation warning + the
+  // behavioral finding. The batch buttons appear only where they would
+  // touch more than the row's own 忽略.
+  await page.getByRole("button", { name: "运行 QA" }).click();
+  await expect(page.getByText("质量检查（未解决 5）")).toBeVisible();
+  await expect(
+    page.locator(".issue-card", { hasText: "qa.number-mismatch" }),
+  ).toHaveCount(3);
+  await shot("26-behavioral-finding-and-batch-buttons.png");
+
+  // 忽略本句 on the two-finding row: one decision, both findings waived.
+  await page
+    .locator(".issue-card", { hasText: "qa.missing-final-punctuation" })
+    .getByRole("button", { name: "忽略该句段全部问题" })
+    .click();
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已忽略 2 个 QA 问题",
+  );
+  await expect(page.getByText("质量检查（未解决 3）")).toBeVisible();
+
+  // 忽略同类 on a number card: the two remaining number findings go
+  // together; the behavioral finding is left alone.
+  await page
+    .locator(".issue-card", { hasText: "qa.number-mismatch" })
+    .filter({ hasText: "未解决" })
+    .first()
+    .getByRole("button", { name: "忽略本文档全部 qa.number-mismatch 问题" })
+    .click();
+  await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
+  await expect(fuzzyIssue).toContainText("未解决");
+
+  // Every waived finding stays on record with 恢复 offered — never hidden.
+  const waivedCards = page.locator(".issue-card", { hasText: "已忽略" });
+  await expect(waivedCards).toHaveCount(4);
+  await expect(
+    waivedCards.first().getByRole("button", { name: "恢复" }),
+  ).toBeVisible();
+  await shot("27-batch-waived-behavioral-stays.png");
+});

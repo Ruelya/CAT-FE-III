@@ -101,7 +101,7 @@ function registerIpc(): void {
         if (error instanceof EngineRpcError) {
           return {
             ok: false,
-            error: { code: error.code, message: error.message },
+            error: { code: error.code, message: error.message, data: error.data },
           };
         }
         const message =

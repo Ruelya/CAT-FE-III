@@ -1,7 +1,19 @@
-# S3 提案：memoQ 式 QA 升级包（契约先行，未立项）
+# S3 提案：memoQ 式 QA 升级包（契约先行，部分已落地）
 
-状态：**书面提案**。本文只固定契约边界，不附带任何 UI。六项各自独立立项，
-任何一项的 chrome 出现之日必须是其引擎能力落地之日（PRD §8.4 底线）。
+状态：**S3b 已落地 ⑤③②①**。已交付：`qa.unedited-fuzzy` 行为型检查（确认时
+钩子 + `qa.run` 复现，warning，score 存 `params`）；`QaIssue.params` 参数化
+文案（存储 V6，渲染端据此本地化长度/行为类规则）；`qa.waive` 三粒度
+（issueId / ruleId+documentId / segmentId，结果统一 `{ issues }`）；
+`qa.profile.get/update`（项目级 severity 重映射 + settings 覆写 +
+`blockExportOnError`，baseRevision 乐观并发）；`document.export` 导出闸门
+（缺省关闭，拒绝时 `exportBlocked` 带结构化 `data`，`overrideQaGate` 显式
+放行，渲染端「仍要导出/取消」对话）。severity 重映射的引擎通道与 RPC 已
+全部落地，但设置界面暂只暴露导出闸门开关（重映射 UI 需按规则枚举，留给
+⑥ Resolve 面板一并设计）。**未落地：④ Correction 自动修复通道与
+⑥ Resolve 式批处理面板**——按本文顺序为后续立项，届时 chrome 与引擎能力
+同日出现（PRD §8.4 底线）。
+
+以下为原提案全文，契约边界不变。
 
 对应 PRD：`workbench-refactor.md` §7.1 S3 行的六项与 §8.4 条目 2。
 验收蓝本：`memoq-and-peers.md` §6（warning/error 双级、严重度重映射、

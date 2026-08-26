@@ -97,6 +97,10 @@ pub struct ProjectConfiguration {
     /// default is paragraph, so switching back to sentence restores it.
     #[serde(default)]
     pub srx_path: Option<String>,
+    /// Project-level QA profile overrides (severity remaps, settings, export
+    /// gate) applied over the built-in profile named by `qa_profile_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qa_profile: Option<QaProfileOverrides>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -541,6 +545,56 @@ pub enum QaSeverity {
     Info,
 }
 
+/// Tunable knobs of a QA profile (thresholds and locale-convention toggles).
+/// Lives in the domain crate because project configuration stores a
+/// project-level replacement of these values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaRuleSettings {
+    pub max_target_chars: Option<u32>,
+    pub min_length_ratio_percent: u16,
+    pub max_length_ratio_percent: u16,
+    pub cjk_spacing: bool,
+    pub cjk_punctuation: bool,
+    pub require_sentence_final_punctuation: bool,
+}
+
+impl Default for QaRuleSettings {
+    fn default() -> Self {
+        Self {
+            max_target_chars: None,
+            min_length_ratio_percent: 35,
+            max_length_ratio_percent: 300,
+            cjk_spacing: true,
+            cjk_punctuation: true,
+            require_sentence_final_punctuation: true,
+        }
+    }
+}
+
+/// Project-level QA profile overrides, applied over the resolved built-in
+/// profile (memoQ convention: built-ins are immutable, the project layer is
+/// a clone-then-override). Absent overrides mean the built-in profile runs
+/// exactly as shipped.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaProfileOverrides {
+    /// Per-rule severity remaps (rule id → severity) layered over the base
+    /// profile's table. Keys may name parameterized rules
+    /// (`qa.term-missing:<id>`, `qa.regex:<id>`) as well as fixed ones.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_overrides: BTreeMap<String, QaSeverity>,
+    /// Full replacement of the base profile's tunable settings. `None`
+    /// keeps the base profile's own values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<QaRuleSettings>,
+    /// Export gate: `document.export` refuses while error-severity open
+    /// issues exist (an explicit `overrideQaGate` lets the user pass).
+    /// Off by default — the gate is configured, never ambient.
+    #[serde(default)]
+    pub block_export_on_error: bool,
+}
+
 /// Lifecycle of a persisted QA issue.
 ///
 /// - `Open`: the finding reproduced on the latest run and nobody accepted it.
@@ -585,6 +639,12 @@ pub struct QaIssue {
     pub message: String,
     pub fingerprint: String,
     pub evidence: NumberEvidence,
+    /// Structured message parameters (e.g. `{"expected": "30", "found":
+    /// "40"}`) so clients can localize the finding; `message` stays the
+    /// engine-produced English fallback. Empty for rules with nothing to
+    /// parameterize; rows persisted before the field existed parse as empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
     /// Free-form note recorded with a waiver. Optional by design — waiving
     /// must not demand a ritual reason. Non-null only while `status` is
     /// [`QaIssueStatus::Waived`].

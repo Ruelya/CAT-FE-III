@@ -80,6 +80,8 @@ export const ENGINE_METHODS = [
   "qa.run",
   "qa.list",
   "qa.waive",
+  "qa.profile.get",
+  "qa.profile.update",
   "ai.configure",
   "ai.status",
   "ai.assist.start",

@@ -79,7 +79,9 @@ const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+const MIGRATIONS: &[&str] = &[
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+];
 
 /// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
 /// DESC, id` walks this index instead of sorting the memory per request.
@@ -107,6 +109,13 @@ ALTER TABLE segments ADD COLUMN origin_edited INTEGER NOT NULL DEFAULT 0;
 /// unlocked, matching the wire default.
 const SCHEMA_V5: &str = "
 ALTER TABLE segments ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
+";
+
+/// `QaIssue.params` persistence: structured message parameters as a JSON
+/// object. NULL for rows written by earlier builds, read back as empty —
+/// old findings simply have nothing to parameterize.
+const SCHEMA_V6: &str = "
+ALTER TABLE qa_issues ADD COLUMN params TEXT;
 ";
 
 const SCHEMA_V1: &str = "
@@ -894,7 +903,8 @@ const TERM_ENTRY_COLUMNS: &str = "id, termbase_id, source_locale, source_term, \
 /// Qualified with the `q.` alias because every QA read joins through the
 /// document's segments.
 const QA_ISSUE_COLUMNS: &str = "q.id, q.segment_id, q.rule_id, q.severity, q.status, \
-     q.message, q.fingerprint, q.evidence, q.waive_note, q.created_at_ms, q.updated_at_ms";
+     q.message, q.fingerprint, q.evidence, q.params, q.waive_note, q.created_at_ms, \
+     q.updated_at_ms";
 
 fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
     Ok(Segment {
@@ -974,9 +984,11 @@ fn qa_issue_from_row(row: &Row) -> rusqlite::Result<QaIssue> {
         message: row.get(5)?,
         fingerprint: row.get(6)?,
         evidence: json_column(row, 7)?,
-        waive_note: row.get(8)?,
-        created_at_ms: row.get(9)?,
-        updated_at_ms: row.get(10)?,
+        // NULL for rows written before V6: nothing to parameterize.
+        params: optional_json_column(row, 8)?.unwrap_or_default(),
+        waive_note: row.get(9)?,
+        created_at_ms: row.get(10)?,
+        updated_at_ms: row.get(11)?,
     })
 }
 
@@ -1340,13 +1352,14 @@ fn upsert_qa_issue(conn: &Connection, issue: &QaIssue) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
             "INSERT INTO qa_issues (id, segment_id, rule_id, severity, status, message,
-               fingerprint, evidence, waive_note, created_at_ms, updated_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+               fingerprint, evidence, params, waive_note, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                severity = excluded.severity,
                status = excluded.status,
                message = excluded.message,
                evidence = excluded.evidence,
+               params = excluded.params,
                waive_note = excluded.waive_note,
                updated_at_ms = excluded.updated_at_ms",
         )
@@ -1361,6 +1374,7 @@ fn upsert_qa_issue(conn: &Connection, issue: &QaIssue) -> io::Result<()> {
             issue.message,
             issue.fingerprint,
             json_text(&issue.evidence)?,
+            json_text(&issue.params)?,
             issue.waive_note,
             issue.created_at_ms,
             issue.updated_at_ms,
@@ -1660,6 +1674,24 @@ fn json_column<T: DeserializeOwned>(row: &Row, index: usize) -> rusqlite::Result
     })
 }
 
+/// JSON column added by a later migration: NULL rows predate the column.
+fn optional_json_column<T: DeserializeOwned>(
+    row: &Row,
+    index: usize,
+) -> rusqlite::Result<Option<T>> {
+    let text: Option<String> = row.get(index)?;
+    text.map(|text| {
+        serde_json::from_str(&text).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                rusqlite::types::Type::Text,
+                error.into(),
+            )
+        })
+    })
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use tl_asset::{TermStatus, TermTranslation};
@@ -1773,6 +1805,10 @@ mod tests {
                 target_numbers: vec!["60".to_string()],
                 ..Default::default()
             },
+            params: BTreeMap::from([
+                ("expected".to_string(), "30".to_string()),
+                ("found".to_string(), "60".to_string()),
+            ]),
             waive_note: None,
             created_at_ms: 5,
             updated_at_ms: 5,
@@ -1995,6 +2031,7 @@ mod tests {
             message: format!("issue {id}"),
             fingerprint: format!("fp-{id}"),
             evidence: NumberEvidence::default(),
+            params: BTreeMap::new(),
             waive_note: None,
             created_at_ms,
             updated_at_ms: created_at_ms,
@@ -2566,6 +2603,57 @@ mod tests {
                 .expect("siblings")
                 .is_empty(),
             "locked rows never propagate"
+        );
+    }
+
+    /// A database written before migration 6 (no `params` column) upgrades
+    /// in place: legacy QA rows read back with empty params — nothing is
+    /// invented for old findings — and a parameterized row round-trips
+    /// through the new column afterwards.
+    #[test]
+    fn migrates_pre_params_databases_and_reads_legacy_qa_rows() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut conn =
+            Connection::open(directory.path().join(DB_FILE_NAME)).expect("raw connection");
+        let tx = conn.transaction().expect("tx");
+        for script in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5] {
+            tx.execute_batch(script).expect("legacy schema");
+        }
+        tx.commit().expect("commit");
+        conn.pragma_update(None, "user_version", 5)
+            .expect("version");
+        // A QA row exactly as a pre-params engine wrote it.
+        conn.execute(
+            "INSERT INTO qa_issues (id, segment_id, rule_id, severity, status, message,
+               fingerprint, evidence, waive_note, created_at_ms, updated_at_ms)
+             VALUES ('qa1', 's1', 'qa.length-ratio', 'warning', 'open', 'ratio off',
+               'fp1', '{\"sourceNumbers\":[],\"targetNumbers\":[]}', NULL, 5, 5)",
+            [],
+        )
+        .expect("legacy row");
+        drop(conn);
+
+        let (mut store, _) = Store::open(directory.path()).expect("open migrates to v6");
+        let issue = store
+            .qa_issue_by_id("qa1")
+            .expect("read")
+            .expect("legacy row survives");
+        assert!(issue.params.is_empty(), "no invented params");
+
+        let mut parameterized = issue;
+        parameterized.params = BTreeMap::from([("ratio".to_string(), "420".to_string())]);
+        parameterized.updated_at_ms = 6;
+        store
+            .apply(&StateDelta {
+                qa_issues: vec![parameterized.clone()],
+                ..Default::default()
+            })
+            .expect("apply params");
+        drop(store);
+        let (reopened, _) = Store::open(directory.path()).expect("reopen");
+        assert_eq!(
+            reopened.qa_issue_by_id("qa1").expect("read"),
+            Some(parameterized)
         );
     }
 

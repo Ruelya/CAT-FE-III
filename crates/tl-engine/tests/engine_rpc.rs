@@ -1896,10 +1896,10 @@ fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": true, "note": "客户确认金额以译文为准" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
-    assert_eq!(waived["issue"]["waiveNote"], "客户确认金额以译文为准");
+    assert_eq!(waived["issues"][0]["status"], "waived");
+    assert_eq!(waived["issues"][0]["waiveNote"], "客户确认金额以译文为准");
     assert_eq!(
-        waived["issue"]["evidence"]["targetNumbers"][0], "40",
+        waived["issues"][0]["evidence"]["targetNumbers"][0], "40",
         "the evidence still shows the mismatch; waiving does not rewrite it"
     );
 
@@ -1940,16 +1940,16 @@ fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": false }),
     );
-    assert_eq!(restored["issue"]["status"], "open");
-    assert!(restored["issue"]["waiveNote"].is_null());
+    assert_eq!(restored["issues"][0]["status"], "open");
+    assert!(restored["issues"][0]["waiveNote"].is_null());
 
     // Re-waive without any note: an empty note is a perfectly valid waiver.
     let rewaived = harness.call(
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": true, "note": "   " }),
     );
-    assert_eq!(rewaived["issue"]["status"], "waived");
-    assert!(rewaived["issue"]["waiveNote"].is_null());
+    assert_eq!(rewaived["issues"][0]["status"], "waived");
+    assert!(rewaived["issues"][0]["waiveNote"].is_null());
 
     // The waiver survives an engine restart: it lives on the SQL row.
     harness.reopen();
@@ -2070,7 +2070,7 @@ fn qa_flags_tag_placeholder_integrity_with_sticky_waivers_and_no_tm_writes() {
         "qa.waive",
         json!({ "issueId": missing_id, "waived": true, "note": "占位符由排版阶段补齐" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
+    assert_eq!(waived["issues"][0]["status"], "waived");
 
     // Human red line: waiving a tag issue confirms nothing and writes no TM.
     let after = harness.segments(&document_id);
@@ -2642,7 +2642,7 @@ fn document_remove_drops_waived_issues_with_the_document() {
         "qa.waive",
         json!({ "issueId": waived_id, "waived": true, "note": "客户已确认" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
+    assert_eq!(waived["issues"][0]["status"], "waived");
 
     // The removal counts the waived row alongside the open one.
     let removed = harness.call("document.remove", json!({ "documentId": document_id }));
@@ -3120,4 +3120,477 @@ fn qa_run_excludes_locked_segments_and_keeps_their_issues() {
     let final_run = harness.call("qa.run", json!({ "documentId": document_id }));
     assert_eq!(final_run["checkedSegments"], 2);
     assert_eq!(final_run["openIssues"], 0);
+}
+
+/// Granular waivers (PRD ③): one call can waive per rule (document-scoped)
+/// or per segment; storage stays per-issue, batches skip rows already in
+/// the requested state, and the strict per-issue conflicts are untouched.
+#[test]
+fn qa_waive_supports_rule_and_segment_granularity() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "granular.txt",
+        "The amount is 30.\n\nThe size is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    // Segment 0: number mismatch + edge whitespace; segment 1: mismatch only.
+    harness.set_target(&segments[0], " 金额是 40。");
+    harness.set_target(&segments[1], "大小是 60。");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(run["openIssues"], 3);
+
+    // Waive by rule: both number mismatches flip; the whitespace issue and
+    // the segment states stay untouched.
+    let by_rule = harness.call(
+        "qa.waive",
+        json!({
+            "ruleId": "qa.number-mismatch",
+            "documentId": document_id,
+            "waived": true,
+            "note": "数字以译文为准",
+        }),
+    );
+    let affected = by_rule["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(affected.iter().all(|issue| issue["status"] == "waived"
+        && issue["ruleId"] == "qa.number-mismatch"
+        && issue["waiveNote"] == "数字以译文为准"));
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    let open_rules: Vec<&str> = listed["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "open")
+        .filter_map(|issue| issue["ruleId"].as_str())
+        .collect();
+    assert_eq!(open_rules, vec!["qa.edge-whitespace"]);
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 0, "batch waiving must never write TM");
+
+    // The batch is idempotent: nothing left to flip, nothing touched.
+    let again = harness.call(
+        "qa.waive",
+        json!({ "ruleId": "qa.number-mismatch", "documentId": document_id, "waived": true }),
+    );
+    assert_eq!(again["issues"].as_array().expect("issues").len(), 0);
+
+    // Restore by rule flips both back and drops the notes.
+    let restored = harness.call(
+        "qa.waive",
+        json!({ "ruleId": "qa.number-mismatch", "documentId": document_id, "waived": false }),
+    );
+    let affected = restored["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(
+        affected
+            .iter()
+            .all(|issue| issue["status"] == "open" && issue["waiveNote"].is_null())
+    );
+
+    // Waive by segment: only segment 0's two issues flip.
+    let by_segment = harness.call(
+        "qa.waive",
+        json!({ "segmentId": segments[0]["id"], "waived": true }),
+    );
+    let affected = by_segment["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(
+        affected
+            .iter()
+            .all(|issue| issue["segmentId"] == segments[0]["id"])
+    );
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    let open_segments: Vec<&Value> = listed["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "open")
+        .collect();
+    assert_eq!(open_segments.len(), 1);
+    assert_eq!(open_segments[0]["segmentId"], segments[1]["id"]);
+
+    // Batch waivers persist like per-issue ones: they live on the SQL rows.
+    harness.reopen();
+    let reloaded = harness.call("qa.list", json!({ "documentId": document_id }));
+    let waived_count = reloaded["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "waived")
+        .count();
+    assert_eq!(waived_count, 2);
+
+    // Selector validation: exactly one of issueId / ruleId+documentId /
+    // segmentId, and honest notFound for unknown scopes.
+    assert_eq!(
+        harness.call_err("qa.waive", json!({ "waived": true })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({
+                "ruleId": "qa.number-mismatch",
+                "documentId": document_id,
+                "segmentId": segments[0]["id"],
+                "waived": true,
+            })
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "ruleId": "qa.number-mismatch", "waived": true })
+        ),
+        "invalidParams",
+        "per-rule waivers are document-scoped by contract"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "segmentId": segments[0]["id"], "documentId": document_id, "waived": true })
+        ),
+        "invalidParams",
+        "documentId only scopes ruleId"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "ruleId": "qa.number-mismatch", "documentId": "missing", "waived": true })
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "segmentId": "missing", "waived": true })
+        ),
+        "notFound"
+    );
+}
+
+/// The behavioral check: confirming a fuzzy TM match without editing it
+/// opens `qa.unedited-fuzzy` at confirm time (warning, score in params),
+/// the confirm and its TM write still go through, a full qa.run reproduces
+/// the same issue instead of duplicating it, and editing the target before
+/// re-confirming resolves it.
+#[test]
+fn confirming_an_unedited_fuzzy_match_opens_a_behavioral_warning() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "fuzzy.txt", "Save the file.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+
+    // Apply a fuzzy TM match: the write stamps tmFuzzy with the real score.
+    let applied = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segment["id"],
+            "targetText": "保存文件。",
+            "baseRevision": segment["revision"],
+            "origin": { "kind": "tmFuzzy", "score": 82 },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(applied["origin"]["edited"], false);
+
+    // Confirm without touching the text: warning opens, confirm not blocked.
+    let confirmed = harness.confirm(&applied);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["tmEntry"]["targetText"], "保存文件。",
+        "the behavioral warning never blocks the confirm or its TM write"
+    );
+    let issues = confirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .expect("unedited-fuzzy issue");
+    assert_eq!(behavioral["status"], "open");
+    assert_eq!(behavioral["severity"], "warning");
+    assert_eq!(behavioral["params"]["score"], "82");
+
+    // A full run reproduces the same fingerprint: no duplicate row.
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let behavioral_rows: Vec<&Value> = run["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .collect();
+    assert_eq!(behavioral_rows.len(), 1);
+    assert_eq!(behavioral_rows[0]["status"], "open");
+    assert_eq!(behavioral_rows[0]["id"], behavioral["id"]);
+
+    // Editing the target marks the origin edited; re-confirming resolves
+    // the behavioral issue in the same transaction.
+    let current = harness.segments(&document_id)[0].clone();
+    let edited = harness.set_target(&current, "保存该文件。");
+    assert_eq!(edited["origin"]["edited"], true);
+    let reconfirmed = harness.confirm(&edited);
+    let refreshed = reconfirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = refreshed
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .expect("behavioral row is kept, resolved");
+    assert_eq!(behavioral["status"], "resolved");
+
+    // Exact matches are not fuzzy: confirming an unedited tmExact apply
+    // stays clean.
+    let other_doc = harness.import_txt(&project_id, "exact.txt", "Close the file.\n");
+    let other = harness.segments(&other_doc)[0].clone();
+    let exact = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": other["id"],
+            "targetText": "关闭文件。",
+            "baseRevision": other["revision"],
+            "origin": { "kind": "tmExact", "score": 100 },
+        }),
+    )["segment"]
+        .clone();
+    let confirmed = harness.confirm(&exact);
+    assert!(
+        confirmed["qaIssues"]
+            .as_array()
+            .expect("qa issues")
+            .iter()
+            .all(|issue| issue["ruleId"] != "qa.unedited-fuzzy"),
+        "tmExact confirms never fire the fuzzy behavioral check"
+    );
+}
+
+/// qa.profile.get/update: the project layer clones and overrides the
+/// built-in profile — severity remaps flow into qa.run results, settings
+/// that cannot compile are refused instead of stored, stale revisions
+/// conflict, and the stored overrides survive a restart.
+#[test]
+fn qa_profile_overrides_remap_severity_and_guard_updates() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "profile.txt", "The amount is 30.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+    harness.set_target(&segment, "金额是 40。");
+
+    // Fresh project: the zh-CN default base, no remaps, gate off.
+    let view = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(view["baseProfileId"], "builtin.qa.cjk-professional");
+    assert_eq!(view["severityOverrides"], json!({}));
+    assert_eq!(view["blockExportOnError"], false);
+    assert_eq!(view["settings"]["minLengthRatioPercent"], 35);
+    let revision = view["revision"].as_u64().expect("revision");
+
+    // Guards: stale revision, non-rule keys, uncompilable settings, and
+    // contradictory settings/clearSettings all refuse without storing.
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision + 7,
+                "blockExportOnError": true,
+            })
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "severityOverrides": { "not-a-rule": "warning" },
+            })
+        ),
+        "invalidParams"
+    );
+    let mut broken_settings = view["settings"].clone();
+    broken_settings["minLengthRatioPercent"] = json!(500);
+    broken_settings["maxLengthRatioPercent"] = json!(100);
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "settings": broken_settings,
+            })
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.profile.update",
+            json!({
+                "projectId": project_id,
+                "baseRevision": revision,
+                "settings": view["settings"],
+                "clearSettings": true,
+            })
+        ),
+        "invalidParams"
+    );
+    let unchanged = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(unchanged["revision"].as_u64(), Some(revision));
+
+    // Remap number-mismatch to warning: the next run reports the remapped
+    // severity on the same finding.
+    let updated = harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": revision,
+            "severityOverrides": { "qa.number-mismatch": "warning" },
+        }),
+    );
+    assert_eq!(
+        updated["severityOverrides"]["qa.number-mismatch"],
+        "warning"
+    );
+    let bumped = updated["revision"].as_u64().expect("revision");
+    assert!(bumped > revision, "a stored override bumps the revision");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let mismatch = run["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.number-mismatch")
+        .expect("number mismatch issue")
+        .clone();
+    assert_eq!(mismatch["severity"], "warning");
+
+    // The overrides live on the project row: a restart keeps them.
+    harness.reopen();
+    let reloaded = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    assert_eq!(
+        reloaded["severityOverrides"]["qa.number-mismatch"],
+        "warning"
+    );
+    assert_eq!(reloaded["revision"].as_u64(), Some(bumped));
+
+    // Clearing the remaps restores the built-in severity.
+    let cleared = harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": bumped,
+            "severityOverrides": {},
+        }),
+    );
+    assert_eq!(cleared["severityOverrides"], json!({}));
+    let rerun = harness.call("qa.run", json!({ "documentId": document_id }));
+    let mismatch = rerun["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.number-mismatch")
+        .expect("number mismatch issue")
+        .clone();
+    assert_eq!(mismatch["severity"], "error");
+}
+
+/// The QA export gate (PRD S3 ②): off by default, refuses with structured
+/// `exportBlocked` data while error-severity open issues exist, lets an
+/// explicit override or a recorded waiver through, and runs before the
+/// destination-exists check.
+#[test]
+fn export_gate_blocks_open_errors_until_override_or_waiver() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "gate.txt", "The amount is 30.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+    harness.set_target(&segment, "金额是 40。");
+
+    // Default: no gate. The export goes through with the open error.
+    let plain_path = harness.path_of("gate-plain.txt");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": plain_path }),
+    );
+
+    // Enable the gate.
+    let view = harness.call("qa.profile.get", json!({ "projectId": project_id }));
+    harness.call(
+        "qa.profile.update",
+        json!({
+            "projectId": project_id,
+            "baseRevision": view["revision"],
+            "blockExportOnError": true,
+        }),
+    );
+
+    // The gate refuses with the count and rule ids in message and data, and
+    // writes nothing.
+    let gated_path = harness.path_of("gate-blocked.txt");
+    let refusal = harness.raw(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": gated_path }),
+    );
+    let error = refusal.error.expect("gate refusal");
+    assert_eq!(
+        serde_json::to_value(error.code).expect("code"),
+        json!("exportBlocked")
+    );
+    assert!(
+        error.message.contains("qa.number-mismatch"),
+        "{}",
+        error.message
+    );
+    let data = error.data.expect("gate data");
+    assert_eq!(data["reason"], "qaGate");
+    assert_eq!(data["openErrors"], 1);
+    assert_eq!(data["ruleIds"], json!(["qa.number-mismatch"]));
+    assert!(
+        !std::path::Path::new(&gated_path).exists(),
+        "a refused export writes nothing"
+    );
+
+    // The explicit override is the user's decision: the export proceeds.
+    harness.call(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": gated_path,
+            "overrideQaGate": true,
+        }),
+    );
+    assert!(std::path::Path::new(&gated_path).exists());
+
+    // The gate runs before the destination check: exporting onto the file
+    // just written still reports the QA refusal first, and an override then
+    // surfaces the plain destination-exists refusal (no qaGate data).
+    let layered = harness.raw(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": gated_path }),
+    );
+    assert_eq!(
+        layered.error.expect("qa refusal").data.expect("data")["reason"],
+        "qaGate"
+    );
+    let exists = harness.raw(
+        "document.export",
+        json!({
+            "documentId": document_id,
+            "outputPath": gated_path,
+            "overrideQaGate": true,
+        }),
+    );
+    let exists_error = exists.error.expect("destination refusal");
+    assert!(exists_error.data.is_none());
+    assert!(exists_error.message.contains("already exists"));
+
+    // Waiving the finding is the recorded acceptance: the gate opens
+    // without any override.
+    let issues = harness.call("qa.list", json!({ "documentId": document_id }));
+    let issue_id = issues["issues"][0]["id"].as_str().expect("issue id");
+    harness.call("qa.waive", json!({ "issueId": issue_id, "waived": true }));
+    let waived_path = harness.path_of("gate-waived.txt");
+    harness.call(
+        "document.export",
+        json!({ "documentId": document_id, "outputPath": waived_path }),
+    );
+    assert!(std::path::Path::new(&waived_path).exists());
 }

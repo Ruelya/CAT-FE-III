@@ -99,6 +99,14 @@ pub struct DocumentExportParams {
     /// arbitrary file on disk, but its own project data it can protect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
+    /// Pass the QA export gate this once. When the project's QA profile has
+    /// `blockExportOnError`, the engine re-checks the document before
+    /// exporting and refuses with `exportBlocked` (error `data.reason` =
+    /// `"qaGate"`, plus open-error count and leading rule ids) while
+    /// error-severity open issues exist. Same honest pattern as `overwrite`:
+    /// refuse → the user decides explicitly → pass. Defaults to false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_qa_gate: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

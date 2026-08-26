@@ -32,6 +32,7 @@ import {
   describeError,
   isEngineUnavailable,
   isExportBlocked,
+  qaGateBlock,
 } from "../lib/engine.js";
 import {
   EMPTY_FILTER,
@@ -62,6 +63,7 @@ import { QaPanel } from "../components/QaPanel.js";
 import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
 import { ExportOverwriteConfirm } from "../components/ExportOverwriteConfirm.js";
+import { ExportQaGateConfirm } from "../components/ExportQaGateConfirm.js";
 import { PreviewPane } from "../components/PreviewPane.js";
 import {
   DEFAULT_LAYOUT,
@@ -245,10 +247,21 @@ export function WorkbenchView({
   const [waivePendingId, setWaivePendingId] = useState<string | null>(null);
   // An export the engine refused because the destination exists. Kept until
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
-  // existing file untouched).
+  // existing file untouched). `overrideQaGate` remembers that the user
+  // already passed the QA gate for this export, so the overwrite retry
+  // carries the decision instead of re-refusing.
   const [overwritePrompt, setOverwritePrompt] = useState<{
     documentId: string;
     outputPath: string;
+    overrideQaGate?: boolean;
+  } | null>(null);
+  // An export the QA gate refused (error-severity open issues). Kept until
+  // the user explicitly picks 仍要导出 (retry with overrideQaGate) or 取消.
+  const [qaGatePrompt, setQaGatePrompt] = useState<{
+    documentId: string;
+    outputPath: string;
+    openErrors: number;
+    ruleIds: string[];
   } | null>(null);
 
   // Latest engine-acked copy of every loaded segment, kept fresh
@@ -353,6 +366,7 @@ export function WorkbenchView({
       setFilter(EMPTY_FILTER);
       setFindQuery("");
       setOverwritePrompt(null);
+      setQaGatePrompt(null);
       const [segmentResult, issueResult] = await Promise.all([
         callEngine("segment.list", { documentId }),
         callEngine("qa.list", { documentId }),
@@ -376,6 +390,7 @@ export function WorkbenchView({
     setFindQuery("");
     setUnackedWrite(null);
     setOverwritePrompt(null);
+    setQaGatePrompt(null);
   }, []);
 
   // Closes one editor tab. The document stays in the project (and in the
@@ -521,6 +536,17 @@ export function WorkbenchView({
     ],
   );
 
+  // Pull the persisted issue rows after an engine-side qa.run (the export
+  // gate runs one), so the panel shows exactly the findings that blocked.
+  const refreshIssues = useCallback(async (documentId: string) => {
+    try {
+      const result = await callEngine("qa.list", { documentId });
+      setIssues(result.issues);
+    } catch {
+      // Keep the current list; the gate prompt already carries the counts.
+    }
+  }, []);
+
   const exportDocument = useCallback(async () => {
     if (!activeDocument) {
       return;
@@ -534,6 +560,7 @@ export function WorkbenchView({
       return;
     }
     setOverwritePrompt(null);
+    setQaGatePrompt(null);
     setBusy(true);
     try {
       const result = await callEngine("document.export", {
@@ -544,7 +571,18 @@ export function WorkbenchView({
         `导出完成：${result.outputPath}（${result.translatedSegments} 个已译单元）`,
       );
     } catch (error) {
-      if (isExportBlocked(error)) {
+      const gate = qaGateBlock(error);
+      if (gate) {
+        // The QA gate refused; the user decides to fix, waive, or export
+        // anyway. Refreshing the panel here keeps the findings in view.
+        setQaGatePrompt({
+          documentId: activeDocument.id,
+          outputPath,
+          openErrors: gate.openErrors,
+          ruleIds: gate.ruleIds,
+        });
+        void refreshIssues(activeDocument.id);
+      } else if (isExportBlocked(error)) {
         // The engine never clobbers silently; hand the decision to the user.
         setOverwritePrompt({ documentId: activeDocument.id, outputPath });
       } else {
@@ -553,9 +591,50 @@ export function WorkbenchView({
     } finally {
       setBusy(false);
     }
-  }, [activeDocument, onStatusMessage]);
+  }, [activeDocument, onStatusMessage, refreshIssues]);
 
-  // 覆盖: retry the blocked export with the explicit overwrite flag.
+  // 仍要导出: the user's explicit decision to pass the QA gate this once.
+  const confirmQaGateExport = useCallback(async () => {
+    if (!qaGatePrompt) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await callEngine("document.export", {
+        documentId: qaGatePrompt.documentId,
+        outputPath: qaGatePrompt.outputPath,
+        overrideQaGate: true,
+      });
+      setQaGatePrompt(null);
+      onStatusMessage(
+        `导出完成：${result.outputPath}（${result.translatedSegments} 个已译单元）`,
+      );
+    } catch (error) {
+      setQaGatePrompt(null);
+      if (isExportBlocked(error) && !qaGateBlock(error)) {
+        // The gate is passed but the destination exists; the overwrite
+        // retry keeps the gate decision.
+        setOverwritePrompt({
+          documentId: qaGatePrompt.documentId,
+          outputPath: qaGatePrompt.outputPath,
+          overrideQaGate: true,
+        });
+      } else {
+        onStatusMessage(`导出失败：${describeError(error)}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [qaGatePrompt, onStatusMessage]);
+
+  // 取消: nothing was exported; the findings stay in the QA panel.
+  const cancelQaGateExport = useCallback(() => {
+    setQaGatePrompt(null);
+    onStatusMessage("已取消导出");
+  }, [onStatusMessage]);
+
+  // 覆盖: retry the blocked export with the explicit overwrite flag (and
+  // the already-made QA gate decision, when the export came through it).
   const confirmOverwriteExport = useCallback(async () => {
     if (!overwritePrompt) {
       return;
@@ -566,6 +645,7 @@ export function WorkbenchView({
         documentId: overwritePrompt.documentId,
         outputPath: overwritePrompt.outputPath,
         overwrite: true,
+        ...(overwritePrompt.overrideQaGate ? { overrideQaGate: true } : {}),
       });
       setOverwritePrompt(null);
       onStatusMessage(
@@ -1035,25 +1115,35 @@ export function WorkbenchView({
     }
   }, [activeDocumentId, onStatusMessage]);
 
-  // 忽略/恢复 one QA issue. Waiving records a human decision on the exact
-  // finding — it never confirms the segment and never writes TM, and the
-  // issue only stays waived while the same evidence keeps reproducing.
-  const setIssueWaived = useCallback(
-    async (issue: QaIssue, waived: boolean) => {
-      setWaivePendingId(issue.id);
+  // 忽略/恢复 QA issues at any of the three engine granularities: one
+  // issue, one rule across the document, or one segment. Waiving records a
+  // human decision on exact findings — it never confirms segments and never
+  // writes TM, and rows only stay waived while the same evidence keeps
+  // reproducing. The engine returns every row it changed; those replace the
+  // local copies wholesale.
+  const waiveIssues = useCallback(
+    async (
+      selector:
+        | { issueId: string }
+        | { ruleId: string; documentId: string }
+        | { segmentId: string },
+      waived: boolean,
+      pendingId: string,
+    ) => {
+      setWaivePendingId(pendingId);
       try {
-        const result = await callEngine("qa.waive", {
-          issueId: issue.id,
-          waived,
-        });
-        setIssues((current) =>
-          current.map((item) =>
-            item.id === result.issue.id ? result.issue : item,
-          ),
+        const result = await callEngine("qa.waive", { ...selector, waived });
+        const changed = new Map(
+          result.issues.map((issue) => [issue.id, issue]),
         );
-        onStatusMessage(waived ? "已忽略 QA 问题" : "已恢复 QA 问题为未解决");
+        setIssues((current) =>
+          current.map((item) => changed.get(item.id) ?? item),
+        );
+        const label =
+          result.issues.length > 1 ? `${result.issues.length} 个 QA 问题` : "QA 问题";
+        onStatusMessage(waived ? `已忽略 ${label}` : `已恢复 ${label}为未解决`);
       } catch (error) {
-        // The issue keeps its current status; nothing is pretended.
+        // The issues keep their current status; nothing is pretended.
         onStatusMessage(
           waived
             ? `忽略失败：${describeError(error)}`
@@ -2096,6 +2186,15 @@ export function WorkbenchView({
 
           {activeDocument ? (
             <>
+              {qaGatePrompt ? (
+                <ExportQaGateConfirm
+                  openErrors={qaGatePrompt.openErrors}
+                  ruleIds={qaGatePrompt.ruleIds}
+                  busy={busy}
+                  onOverride={() => void confirmQaGateExport()}
+                  onCancel={cancelQaGateExport}
+                />
+              ) : null}
               {overwritePrompt ? (
                 <ExportOverwriteConfirm
                   path={overwritePrompt.outputPath}
@@ -2357,9 +2456,29 @@ export function WorkbenchView({
                 issues={issues}
                 onRun={() => void runQa()}
                 onJump={jumpToSegment}
-                onWaive={(issue) => void setIssueWaived(issue, true)}
-                onRestore={(issue) => void setIssueWaived(issue, false)}
-                pendingIssueId={waivePendingId}
+                onWaive={(issue) =>
+                  void waiveIssues({ issueId: issue.id }, true, issue.id)
+                }
+                onWaiveRule={(issue) =>
+                  activeDocumentId
+                    ? void waiveIssues(
+                        { ruleId: issue.ruleId, documentId: activeDocumentId },
+                        true,
+                        `rule:${issue.ruleId}`,
+                      )
+                    : undefined
+                }
+                onWaiveSegment={(issue) =>
+                  void waiveIssues(
+                    { segmentId: issue.segmentId },
+                    true,
+                    `segment:${issue.segmentId}`,
+                  )
+                }
+                onRestore={(issue) =>
+                  void waiveIssues({ issueId: issue.id }, false, issue.id)
+                }
+                pendingKey={waivePendingId}
                 disabled={!activeDocumentId}
               />
             ) : null}
