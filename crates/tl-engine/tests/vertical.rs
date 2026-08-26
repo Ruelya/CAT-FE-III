@@ -1317,6 +1317,93 @@ fn ai_configure_routes_native_gemini_and_anthropic_protocols() {
     );
 }
 
+/// `openaiResponses` speaks the OpenAI Responses API: `POST {base}/responses`
+/// with an `input` item list, streamed `response.output_text.delta` events,
+/// and usage on the terminal `response.completed` envelope. The captured
+/// loopback wire proves the route — the existing `openaiCompatible`
+/// chat-completions path stays untouched.
+#[test]
+fn ai_configure_routes_openai_responses_protocol() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Responses", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(
+        workspace.path(),
+        "responses.txt",
+        "Responses provider sentence.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert!(!listed.segments.is_empty(), "one segment to assist");
+
+    let responses_body = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"应答草稿。\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"应答草稿。\"}]}],\"usage\":{\"input_tokens\":9,\"output_tokens\":4}}}\n\n"
+    );
+    let (responses_url, responses_captured) = spawn_capturing_sse_server(responses_body);
+    let status: AiStatusResult = call(
+        &mut engine,
+        methods::AI_CONFIGURE,
+        json!({
+            "provider": "openaiResponses",
+            "model": "responses-fixture",
+            "baseUrl": format!("{responses_url}/v1"),
+            "apiKey": "fixture-responses-key",
+        }),
+    );
+    assert!(status.configured);
+    assert_eq!(status.provider, Some(AiProviderKind::OpenaiResponses));
+    let done = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": listed.segments[0].id, "action": "translate"}),
+    );
+    assert_eq!(done.status, AiAssistRunStatus::Done);
+    let result = done.result.expect("responses run carries the proposal");
+    assert_eq!(result.draft_target, "应答草稿。");
+    assert_eq!(result.provider, AiProviderKind::OpenaiResponses);
+    assert_eq!(result.model, "responses-fixture");
+    let request = responses_captured
+        .lock()
+        .expect("captured responses request")
+        .clone();
+    assert!(
+        request.contains("POST /v1/responses HTTP"),
+        "openaiResponses speaks the Responses route, got: {request}"
+    );
+    assert!(
+        !request.contains("chat/completions"),
+        "openaiResponses must not fall back to the chat-completions route"
+    );
+    assert!(
+        request
+            .to_ascii_lowercase()
+            .contains("authorization: bearer fixture-responses-key"),
+        "openaiResponses authenticates with the bearer key"
+    );
+    assert!(
+        request.contains("\"input\""),
+        "Responses body carries input items, got: {request}"
+    );
+    assert!(
+        !request.contains("\"messages\""),
+        "Responses body must not reuse the chat-completions messages field"
+    );
+}
+
 #[test]
 fn ready_notification_reports_engine_identity() {
     let workspace = tempfile::tempdir().expect("tempdir");

@@ -22,6 +22,7 @@ export type AgentStepStatus = "done" | "failed" | "skipped";
 export type AiAssistAction = "translate" | "refine";
 export type AiProviderKind =
   | "openai"
+  | "openaiResponses"
   | "anthropic"
   | "gemini"
   | "deepl"

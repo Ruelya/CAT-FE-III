@@ -34,6 +34,7 @@ pub const ALIGNMENT_REFINEMENT_ACTION: &str = "alignment_refinement";
 #[serde(rename_all = "camelCase")]
 pub enum AiProviderKind {
     Openai,
+    OpenaiResponses,
     Anthropic,
     Gemini,
     Deepl,
@@ -49,6 +50,7 @@ pub enum AiProviderKind {
 #[serde(rename_all = "camelCase")]
 pub enum AiProviderProtocol {
     OpenaiChatCompletions,
+    OpenaiResponses,
     AnthropicMessages,
     GeminiGenerateContent,
     DeeplTranslate,
@@ -482,6 +484,7 @@ pub fn validate_endpoint(value: &str) -> Result<Url, AiCoreError> {
 pub fn provider_catalog() -> Vec<AiProviderDescriptor> {
     [
         AiProviderKind::Openai,
+        AiProviderKind::OpenaiResponses,
         AiProviderKind::Anthropic,
         AiProviderKind::Gemini,
         AiProviderKind::Deepl,
@@ -502,6 +505,15 @@ pub fn provider_descriptor(kind: AiProviderKind) -> AiProviderDescriptor {
         AiProviderKind::Openai => (
             "OpenAI",
             AiProviderProtocol::OpenaiChatCompletions,
+            "https://api.openai.com/v1",
+            "gpt-5-mini",
+            true,
+            true,
+            "OpenAI API key",
+        ),
+        AiProviderKind::OpenaiResponses => (
+            "OpenAI Responses",
+            AiProviderProtocol::OpenaiResponses,
             "https://api.openai.com/v1",
             "gpt-5-mini",
             true,
@@ -830,6 +842,9 @@ async fn execute_provider_call(
         AiProviderProtocol::OpenaiChatCompletions => {
             execute_openai(&client, request, credential, cancellation, sink).await?
         }
+        AiProviderProtocol::OpenaiResponses => {
+            execute_openai_responses(&client, request, credential, cancellation, sink).await?
+        }
         AiProviderProtocol::AnthropicMessages => {
             execute_anthropic(&client, request, credential, cancellation, sink).await?
         }
@@ -886,6 +901,52 @@ async fn execute_openai(
         cancellation,
         sink,
         parse_openai_event,
+    )
+    .await
+}
+
+/// OpenAI Responses API (`POST {baseUrl}/responses`, SSE via `stream: true`).
+///
+/// The chat-style messages the engine builds map onto Responses `input`
+/// items: the API accepts `{role, content}` items with plain string content
+/// for the system/user/assistant roles. Text arrives through
+/// `response.output_text.delta` events and usage is only trustworthy on the
+/// terminal `response.completed` envelope.
+async fn execute_openai_responses(
+    client: &Client,
+    request: &ProviderRequest,
+    credential: &SecretString,
+    cancellation: &AtomicBool,
+    sink: &mut dyn AiEventSink,
+) -> Result<(String, AiUsage), AiCoreError> {
+    let endpoint = endpoint(&request.profile.base_url, "responses")?;
+    let input = request
+        .messages
+        .iter()
+        .map(|message| {
+            json!({
+                "role": role_name(message.role),
+                "content": message.text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let response = client
+        .post(endpoint)
+        .bearer_auth(credential.expose())
+        .json(&json!({
+            "model": request.profile.model,
+            "input": input,
+            "stream": true,
+        }))
+        .send()
+        .await
+        .map_err(map_reqwest_error)?;
+    parse_sse_response(
+        response,
+        request.profile.max_response_bytes,
+        cancellation,
+        sink,
+        parse_openai_responses_event,
     )
     .await
 }
@@ -1059,6 +1120,11 @@ type EventParser = fn(&str) -> Result<ParsedProviderEvent, AiCoreError>;
 #[derive(Default)]
 struct ParsedProviderEvent {
     delta: Option<String>,
+    /// Full output text carried by a terminal envelope (Responses API).
+    /// Applied only when no incremental delta arrived first, so a gateway
+    /// that answers `stream: true` with a single terminal event still yields
+    /// text without duplicating streamed deltas.
+    fallback_text: Option<String>,
     usage: AiUsage,
     done: bool,
 }
@@ -1168,6 +1234,12 @@ fn apply_provider_event(
         sink.delta(&delta).map_err(|_| AiCoreError::EventSink)?;
         text.push_str(&delta);
     }
+    if text.is_empty()
+        && let Some(full) = event.fallback_text.filter(|full| !full.is_empty())
+    {
+        sink.delta(&full).map_err(|_| AiCoreError::EventSink)?;
+        text.push_str(&full);
+    }
     usage.merge(event.usage);
     Ok(())
 }
@@ -1185,6 +1257,7 @@ fn parse_openai_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError> {
             .pointer("/choices/0/delta/content")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
+        fallback_text: None,
         usage: AiUsage {
             input_tokens: value
                 .pointer("/usage/prompt_tokens")
@@ -1206,6 +1279,80 @@ fn parse_openai_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError> {
     })
 }
 
+/// One Responses API SSE `data:` payload. Every payload carries a `type`
+/// field mirroring the SSE event name, so the `event:` line the shared SSE
+/// reader skips is not needed. Only `response.output_text.delta` carries
+/// incremental text and only `response.completed` carries real usage; the
+/// terminal envelope's `output[]` text is kept as a fallback for gateways
+/// that never emit deltas. `response.failed` / `response.incomplete` /
+/// `error` end the run as an honest protocol failure instead of returning a
+/// partial draft.
+fn parse_openai_responses_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError> {
+    let value: Value = serde_json::from_str(data).map_err(|_| AiCoreError::Protocol)?;
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    match event_type {
+        "response.output_text.delta" => Ok(ParsedProviderEvent {
+            delta: value
+                .get("delta")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            ..ParsedProviderEvent::default()
+        }),
+        "response.completed" => Ok(ParsedProviderEvent {
+            fallback_text: value.get("response").and_then(responses_output_text),
+            usage: parse_responses_usage(value.get("response")),
+            done: true,
+            ..ParsedProviderEvent::default()
+        }),
+        "response.failed" | "response.incomplete" | "error" => Err(AiCoreError::Protocol),
+        _ => Ok(ParsedProviderEvent::default()),
+    }
+}
+
+/// Assistant text of one complete Responses object: the concatenated
+/// `output_text` parts of every `message` item in `output[]`, or the SDK-style
+/// top-level `output_text` convenience field when a gateway includes it.
+fn responses_output_text(response: &Value) -> Option<String> {
+    if let Some(text) = response
+        .get("output_text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+    {
+        return Some(text.to_string());
+    }
+    let text = response
+        .get("output")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("message"))
+        .filter_map(|item| item.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect::<String>();
+    (!text.is_empty()).then_some(text)
+}
+
+fn parse_responses_usage(response: Option<&Value>) -> AiUsage {
+    let Some(usage) = response.and_then(|response| response.get("usage")) else {
+        return AiUsage::default();
+    };
+    AiUsage {
+        input_tokens: usage.pointer("/input_tokens").and_then(Value::as_u64),
+        cache_read_tokens: usage
+            .pointer("/input_tokens_details/cached_tokens")
+            .and_then(Value::as_u64),
+        reasoning_tokens: usage
+            .pointer("/output_tokens_details/reasoning_tokens")
+            .and_then(Value::as_u64),
+        output_tokens: usage.pointer("/output_tokens").and_then(Value::as_u64),
+        cache_write_tokens: None,
+    }
+}
+
 fn parse_anthropic_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError> {
     let value: Value = serde_json::from_str(data).map_err(|_| AiCoreError::Protocol)?;
     let event_type = value
@@ -1217,6 +1364,7 @@ fn parse_anthropic_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError>
             .pointer("/delta/text")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned),
+        fallback_text: None,
         usage: AiUsage {
             input_tokens: value
                 .pointer("/message/usage/input_tokens")
@@ -1250,6 +1398,7 @@ fn parse_gemini_event(data: &str) -> Result<ParsedProviderEvent, AiCoreError> {
         .filter(|text| !text.is_empty());
     Ok(ParsedProviderEvent {
         delta,
+        fallback_text: None,
         usage: AiUsage {
             input_tokens: value
                 .pointer("/usageMetadata/promptTokenCount")
@@ -1850,7 +1999,7 @@ mod tests {
     #[test]
     fn catalog_and_endpoint_validation_are_explicit() {
         let catalog = provider_catalog();
-        assert_eq!(catalog.len(), 10);
+        assert_eq!(catalog.len(), 11);
         assert!(
             catalog
                 .iter()
@@ -1860,6 +2009,15 @@ mod tests {
             catalog
                 .iter()
                 .any(|item| item.kind == AiProviderKind::Volcengine)
+        );
+        let responses = catalog
+            .iter()
+            .find(|item| item.kind == AiProviderKind::OpenaiResponses)
+            .expect("Responses provider is in the catalog");
+        assert_eq!(responses.protocol, AiProviderProtocol::OpenaiResponses);
+        assert_eq!(
+            serde_json::to_value(AiProviderKind::OpenaiResponses).expect("serialize kind"),
+            serde_json::Value::String("openaiResponses".to_string())
         );
         assert!(validate_endpoint("http://127.0.0.1:11434/v1").is_ok());
         assert!(validate_endpoint("http://example.com/v1").is_err());
@@ -2063,6 +2221,145 @@ mod tests {
                 .contains("authorization: bearer test-secret-value")
         );
         assert_eq!(format!("{credential:?}"), "SecretString([REDACTED])");
+    }
+
+    #[test]
+    fn openai_responses_streams_deltas_and_usage_on_the_responses_route() {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"你\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"好\"}\n\n",
+            "data: {\"type\":\"response.output_text.done\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"text\":\"你好\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"你好\"}]}],\"usage\":{\"input_tokens\":11,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":1},\"total_tokens\":13}}}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let response: &'static str = Box::leak(response.into_boxed_str());
+        let (base_url, captured) = fixture_server(response);
+        let credential = SecretString::new("responses-secret".to_string()).expect("credential");
+        let mut sink = CollectSink::default();
+        let completion = execute_provider(
+            &test_request(AiProviderKind::OpenaiResponses, format!("{base_url}/v1")),
+            &credential,
+            &AtomicBool::new(false),
+            &mut sink,
+        )
+        .expect("Responses fixture completion");
+        // The `output_text.done` echo and the terminal envelope's output[]
+        // must not duplicate the streamed deltas.
+        assert_eq!(completion.text, "你好");
+        assert_eq!(sink.0, ["你", "好"]);
+        assert_eq!(completion.usage.input_tokens, Some(11));
+        assert_eq!(completion.usage.cache_read_tokens, Some(3));
+        assert_eq!(completion.usage.reasoning_tokens, Some(1));
+        assert_eq!(completion.usage.output_tokens, Some(2));
+        let request = captured.lock().expect("captured request").clone();
+        assert!(
+            request.contains("POST /v1/responses HTTP"),
+            "Responses provider must call the /responses route, got: {request}"
+        );
+        assert!(
+            !request.contains("chat/completions"),
+            "Responses provider must not fall back to chat completions"
+        );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer responses-secret"),
+            "Responses provider authenticates with a bearer key"
+        );
+        assert!(
+            request.contains("\"input\""),
+            "Responses body carries the chat messages as input items, got: {request}"
+        );
+        assert!(
+            !request.contains("\"messages\""),
+            "Responses body must not reuse the chat-completions messages field"
+        );
+    }
+
+    #[test]
+    fn openai_responses_terminal_envelope_supplies_text_when_no_deltas_streamed() {
+        // A gateway that ignores `stream: true` and answers with a single
+        // terminal envelope: the text comes from output[] message content,
+        // skipping reasoning items, and the base URL may be a bare origin.
+        let body = concat!(
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",",
+            "\"output\":[",
+            "{\"type\":\"reasoning\",\"summary\":[]},",
+            "{\"type\":\"message\",\"role\":\"assistant\",\"content\":[",
+            "{\"type\":\"output_text\",\"text\":\"完整\"},",
+            "{\"type\":\"output_text\",\"text\":\"回答\"}",
+            "]}],",
+            "\"usage\":{\"input_tokens\":6,\"output_tokens\":4}}}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let response: &'static str = Box::leak(response.into_boxed_str());
+        let (base_url, captured) = fixture_server(response);
+        let credential = SecretString::new("secret".to_string()).expect("credential");
+        let mut sink = CollectSink::default();
+        let completion = execute_provider(
+            &test_request(AiProviderKind::OpenaiResponses, base_url),
+            &credential,
+            &AtomicBool::new(false),
+            &mut sink,
+        )
+        .expect("terminal-envelope completion");
+        assert_eq!(completion.text, "完整回答");
+        assert_eq!(sink.0, ["完整回答"]);
+        assert_eq!(completion.usage.input_tokens, Some(6));
+        assert_eq!(completion.usage.output_tokens, Some(4));
+        let request = captured.lock().expect("captured request").clone();
+        assert!(
+            request.contains("POST /responses HTTP"),
+            "an origin base URL maps to /responses, got: {request}"
+        );
+    }
+
+    #[test]
+    fn openai_responses_failed_stream_and_auth_reject_are_honest_errors() {
+        let body = concat!(
+            "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",",
+            "\"error\":{\"code\":\"server_error\",\"message\":\"boom\"}}}\n\n"
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let response: &'static str = Box::leak(response.into_boxed_str());
+        let (base_url, _) = fixture_server(response);
+        let credential = SecretString::new("secret".to_string()).expect("credential");
+        let error = execute_provider(
+            &test_request(AiProviderKind::OpenaiResponses, base_url),
+            &credential,
+            &AtomicBool::new(false),
+            &mut CollectSink::default(),
+        )
+        .expect_err("a failed response must not produce a draft");
+        assert!(matches!(error, AiCoreError::Protocol), "got {error:?}");
+
+        let (base_url, _) = fixture_server(
+            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let error = execute_provider(
+            &test_request(AiProviderKind::OpenaiResponses, base_url),
+            &credential,
+            &AtomicBool::new(false),
+            &mut CollectSink::default(),
+        )
+        .expect_err("a rejected key must not produce a draft");
+        assert!(
+            matches!(error, AiCoreError::Authentication),
+            "got {error:?}"
+        );
     }
 
     #[test]
