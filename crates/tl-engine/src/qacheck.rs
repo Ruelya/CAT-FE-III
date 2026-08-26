@@ -253,16 +253,21 @@ impl Engine {
         Ok((definition, profile))
     }
 
-    /// `qa.waive`: record a human decision on one issue. Waiving flips an
-    /// open issue to waived (with an optional, never-required note);
-    /// restoring flips a waived issue back to open. It writes exactly one
-    /// QA row — never the segment, never the TM — because the finding is
-    /// still true; the user is only saying they accept it.
+    /// `qa.waive`: record a human decision on findings. Waiving flips open
+    /// issues to waived (with an optional, never-required note); restoring
+    /// flips waived issues back to open. It writes only QA rows — never the
+    /// segment, never the TM — because the findings are still true; the
+    /// user is only saying they accept them.
+    ///
+    /// Three selector granularities, exactly one per call (PRD ③): one
+    /// issue by id, every issue of a rule within one document, or every
+    /// issue of one segment. Granularity is operation semantics, not
+    /// storage semantics: each affected row records its own waiver, all in
+    /// one transaction. The per-issue path keeps its strict conflicts
+    /// (waiving a resolved issue, restoring a non-waived one); the batch
+    /// paths skip rows already in the requested state — a second "ignore
+    /// all of these" is a no-op, not an error.
     pub(crate) fn qa_waive(&mut self, params: QaWaiveParams) -> Result<QaWaiveResult, EngineError> {
-        let mut issue = self
-            .store
-            .qa_issue_by_id(&params.issue_id)?
-            .ok_or_else(|| EngineError::NotFound(format!("QA issue {}", params.issue_id)))?;
         // An empty or whitespace note is a valid "no note", not an error.
         let note = params
             .note
@@ -270,30 +275,95 @@ impl Engine {
             .map(str::trim)
             .filter(|note| !note.is_empty())
             .map(str::to_string);
-        if params.waived {
-            if issue.status == QaIssueStatus::Resolved {
+        let mut selectors = 0;
+        for present in [
+            params.issue_id.is_some(),
+            params.rule_id.is_some(),
+            params.segment_id.is_some(),
+        ] {
+            if present {
+                selectors += 1;
+            }
+        }
+        if selectors != 1 {
+            return Err(EngineError::InvalidParams(
+                "provide exactly one selector: issueId, ruleId + documentId, or segmentId"
+                    .to_string(),
+            ));
+        }
+        if params.document_id.is_some() && params.rule_id.is_none() {
+            return Err(EngineError::InvalidParams(
+                "documentId only scopes ruleId".to_string(),
+            ));
+        }
+
+        let mut issues: Vec<QaIssue> = if let Some(issue_id) = &params.issue_id {
+            let issue = self
+                .store
+                .qa_issue_by_id(issue_id)?
+                .ok_or_else(|| EngineError::NotFound(format!("QA issue {issue_id}")))?;
+            if params.waived && issue.status == QaIssueStatus::Resolved {
                 return Err(EngineError::Conflict(
                     "issue is already resolved; there is nothing left to waive".to_string(),
                 ));
             }
-            // Waiving an already-waived issue just updates the note.
-            issue.status = QaIssueStatus::Waived;
-            issue.waive_note = note;
-        } else {
-            if issue.status != QaIssueStatus::Waived {
+            if !params.waived && issue.status != QaIssueStatus::Waived {
                 return Err(EngineError::Conflict(
                     "issue is not waived; there is nothing to restore".to_string(),
                 ));
             }
-            issue.status = QaIssueStatus::Open;
-            issue.waive_note = None;
-        }
-        issue.updated_at_ms = now_ms();
+            vec![issue]
+        } else if let Some(rule_id) = &params.rule_id {
+            let document_id = params.document_id.as_deref().ok_or_else(|| {
+                EngineError::InvalidParams("ruleId requires documentId".to_string())
+            })?;
+            let record = self.require_document(document_id)?;
+            let mut rows = self
+                .store
+                .document_qa_issues_page(&record.document.id, 0, None)?;
+            rows.retain(|issue| &issue.rule_id == rule_id);
+            rows
+        } else {
+            let segment_id = params.segment_id.as_deref().expect("selector checked");
+            if self.store.segment(segment_id)?.is_none() {
+                return Err(EngineError::NotFound(format!("segment {segment_id}")));
+            }
+            self.store.segment_qa_issues(segment_id)?
+        };
+
+        // Batch semantics: only rows the call actually flips (open → waived
+        // or waived → open) are touched; resolved rows and rows already in
+        // the requested state stay as they are. The per-issue path already
+        // rejected its conflicts above, and waiving an already-waived issue
+        // by id still updates the note.
+        let per_issue = params.issue_id.is_some();
+        let now = now_ms();
+        issues.retain_mut(|issue| {
+            let flip = if params.waived {
+                issue.status == QaIssueStatus::Open
+                    || (per_issue && issue.status == QaIssueStatus::Waived)
+            } else {
+                issue.status == QaIssueStatus::Waived
+            };
+            if !flip {
+                return false;
+            }
+            if params.waived {
+                issue.status = QaIssueStatus::Waived;
+                issue.waive_note = note.clone();
+            } else {
+                issue.status = QaIssueStatus::Open;
+                issue.waive_note = None;
+            }
+            issue.updated_at_ms = now;
+            true
+        });
         self.store.apply(&StateDelta {
-            qa_issues: vec![issue.clone()],
+            qa_issues: issues.clone(),
             ..Default::default()
         })?;
-        Ok(QaWaiveResult { issue })
+        sort_issues(&mut issues);
+        Ok(QaWaiveResult { issues })
     }
 
     /// One page of a document's issues straight from SQL — open first, then

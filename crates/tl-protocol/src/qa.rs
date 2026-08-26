@@ -42,20 +42,44 @@ pub struct QaListResult {
     pub total: u32,
 }
 
-/// `qa.waive` — record a human decision about one issue without pretending
-/// the finding went away.
+/// `qa.waive` — record a human decision about findings without pretending
+/// they went away.
 ///
 /// Waiving never edits the segment, never confirms it, and never writes TM:
-/// the numbers still disagree, and the issue row says so. The waiver sticks
+/// the numbers still disagree, and the issue rows say so. The waiver sticks
 /// exactly as long as later runs reproduce the same fingerprint (rule +
 /// segment + evidence). When the evidence changes, the old row resolves and
 /// the changed finding opens as a brand-new issue — a waiver never carries
 /// over to evidence the user has not seen.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+///
+/// Exactly one selector must be provided:
+///
+/// - `issueId` — one issue. Waiving a resolved issue or restoring a
+///   non-waived issue is a conflict.
+/// - `ruleId` + `documentId` — every issue of that rule in the document.
+/// - `segmentId` — every issue of that segment.
+///
+/// The batch selectors are operation granularity, not storage granularity:
+/// each affected row records its own waiver, so audit and
+/// fingerprint-invalidation semantics are identical to per-issue waiving.
+/// Batches skip rows already in the requested state instead of erroring.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QaWaiveParams {
-    pub issue_id: String,
-    /// `true` waives an open issue; `false` restores a waived issue to open.
+    /// Selector: one issue by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+    /// Selector: every issue of this rule; requires `documentId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+    /// Scope for `ruleId`. Per-rule waivers are document-scoped — never a
+    /// hidden project-wide exemption.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    /// Selector: every issue of this segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<String>,
+    /// `true` waives open issues; `false` restores waived issues to open.
     pub waived: bool,
     /// Optional free-form note. Deliberately not required: an empty or
     /// omitted note is a perfectly valid waiver.
@@ -66,6 +90,7 @@ pub struct QaWaiveParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QaWaiveResult {
-    /// The issue after the status change, straight from the store.
-    pub issue: QaIssue,
+    /// Every issue the call changed, straight from the store. Clients
+    /// replace their copies of these rows wholesale.
+    pub issues: Vec<QaIssue>,
 }

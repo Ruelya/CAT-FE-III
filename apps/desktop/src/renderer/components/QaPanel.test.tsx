@@ -37,13 +37,15 @@ const NOOP = {
   onRun: () => {},
   onJump: () => {},
   onWaive: () => {},
+  onWaiveRule: () => {},
+  onWaiveSegment: () => {},
   onRestore: () => {},
 };
 
 describe("QaPanel", () => {
   it("keeps the honest empty state when no check ever ran", () => {
     render(
-      <QaPanel issues={[]} disabled={false} pendingIssueId={null} {...NOOP} />,
+      <QaPanel issues={[]} disabled={false} pendingKey={null} {...NOOP} />,
     );
     expect(screen.getByText("尚未运行检查")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "忽略" })).toBeNull();
@@ -78,7 +80,7 @@ describe("QaPanel", () => {
           }),
         ]}
         disabled={false}
-        pendingIssueId={null}
+        pendingKey={null}
         {...NOOP}
       />,
     );
@@ -98,7 +100,7 @@ describe("QaPanel", () => {
           issue("open-1", "open"),
         ]}
         disabled={false}
-        pendingIssueId={null}
+        pendingKey={null}
         {...NOOP}
       />,
     );
@@ -125,9 +127,8 @@ describe("QaPanel", () => {
       <QaPanel
         issues={[open, waived]}
         disabled={false}
-        pendingIssueId={null}
-        onRun={() => {}}
-        onJump={() => {}}
+        pendingKey={null}
+        {...NOOP}
         onWaive={onWaive}
         onRestore={onRestore}
       />,
@@ -141,14 +142,117 @@ describe("QaPanel", () => {
   it("locks the button of the issue whose call is in flight", () => {
     render(
       <QaPanel
-        issues={[issue("open-1", "open"), issue("open-2", "open")]}
+        issues={[
+          issue("open-1", "open", { ruleId: "qa.edge-whitespace" }),
+          issue("open-2", "open"),
+        ]}
         disabled={false}
-        pendingIssueId="open-1"
+        pendingKey="open-1"
         {...NOOP}
       />,
     );
     const buttons = screen.getAllByRole("button", { name: "忽略" });
     expect(buttons[0]).toBeDisabled();
     expect(buttons[1]).toBeEnabled();
+  });
+
+  it("offers 忽略同类 only when other open issues share the rule", async () => {
+    const onWaiveRule = vi.fn();
+    const first = issue("open-1", "open");
+    const second = issue("open-2", "open");
+    const lonely = issue("open-3", "open", { ruleId: "qa.edge-whitespace" });
+    render(
+      <QaPanel
+        issues={[first, second, lonely]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+        onWaiveRule={onWaiveRule}
+      />,
+    );
+    // Two rows share qa.number-mismatch → both carry the batch button; the
+    // lonely rule's row does not (its 忽略 already covers everything).
+    const ruleButtons = screen.getAllByRole("button", {
+      name: "忽略本文档全部 qa.number-mismatch 问题",
+    });
+    expect(ruleButtons).toHaveLength(2);
+    await userEvent.click(ruleButtons[0]!);
+    expect(onWaiveRule).toHaveBeenCalledWith(first);
+  });
+
+  it("offers 忽略本句 only when the segment has more than one open issue", async () => {
+    const onWaiveSegment = vi.fn();
+    const first = issue("open-1", "open", { segmentId: "seg-shared" });
+    const second = issue("open-2", "open", {
+      segmentId: "seg-shared",
+      ruleId: "qa.edge-whitespace",
+    });
+    const other = issue("open-3", "open");
+    render(
+      <QaPanel
+        issues={[first, second, other]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+        onWaiveSegment={onWaiveSegment}
+      />,
+    );
+    const segmentButtons = screen.getAllByRole("button", {
+      name: "忽略该句段全部问题",
+    });
+    expect(segmentButtons).toHaveLength(2);
+    await userEvent.click(segmentButtons[0]!);
+    expect(onWaiveSegment).toHaveBeenCalledWith(first);
+    // A batch in flight locks the matching batch buttons.
+  });
+
+  it("locks batch buttons by their pending key", () => {
+    render(
+      <QaPanel
+        issues={[issue("open-1", "open"), issue("open-2", "open")]}
+        disabled={false}
+        pendingKey="rule:qa.number-mismatch"
+        {...NOOP}
+      />,
+    );
+    for (const button of screen.getAllByRole("button", {
+      name: "忽略本文档全部 qa.number-mismatch 问题",
+    })) {
+      expect(button).toBeDisabled();
+    }
+    // The per-issue buttons stay usable; they are a different call.
+    for (const button of screen.getAllByRole("button", { name: "忽略" })) {
+      expect(button).toBeEnabled();
+    }
+  });
+
+  it("localizes behavioral findings from engine params and hides their evidence line", () => {
+    render(
+      <QaPanel
+        issues={[
+          issue("fuzzy-1", "open", {
+            ruleId: "qa.unedited-fuzzy",
+            severity: "warning",
+            message: "Fuzzy TM match was confirmed without edits.",
+            params: { score: "82" },
+            evidence: {
+              sourceNumbers: [],
+              targetNumbers: [],
+              sourceValues: [],
+              targetValues: ["保存文件。"],
+              relatedSegmentIds: [],
+            },
+          }),
+        ]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+      />,
+    );
+    expect(
+      screen.getByText("模糊匹配（82%）未修改即确认"),
+    ).toBeInTheDocument();
+    // The pinned target text is fingerprint evidence, not a 源 ≠ 译 diff.
+    expect(document.querySelectorAll(".issue-card__evidence")).toHaveLength(0);
   });
 });

@@ -1035,25 +1035,35 @@ export function WorkbenchView({
     }
   }, [activeDocumentId, onStatusMessage]);
 
-  // 忽略/恢复 one QA issue. Waiving records a human decision on the exact
-  // finding — it never confirms the segment and never writes TM, and the
-  // issue only stays waived while the same evidence keeps reproducing.
-  const setIssueWaived = useCallback(
-    async (issue: QaIssue, waived: boolean) => {
-      setWaivePendingId(issue.id);
+  // 忽略/恢复 QA issues at any of the three engine granularities: one
+  // issue, one rule across the document, or one segment. Waiving records a
+  // human decision on exact findings — it never confirms segments and never
+  // writes TM, and rows only stay waived while the same evidence keeps
+  // reproducing. The engine returns every row it changed; those replace the
+  // local copies wholesale.
+  const waiveIssues = useCallback(
+    async (
+      selector:
+        | { issueId: string }
+        | { ruleId: string; documentId: string }
+        | { segmentId: string },
+      waived: boolean,
+      pendingId: string,
+    ) => {
+      setWaivePendingId(pendingId);
       try {
-        const result = await callEngine("qa.waive", {
-          issueId: issue.id,
-          waived,
-        });
-        setIssues((current) =>
-          current.map((item) =>
-            item.id === result.issue.id ? result.issue : item,
-          ),
+        const result = await callEngine("qa.waive", { ...selector, waived });
+        const changed = new Map(
+          result.issues.map((issue) => [issue.id, issue]),
         );
-        onStatusMessage(waived ? "已忽略 QA 问题" : "已恢复 QA 问题为未解决");
+        setIssues((current) =>
+          current.map((item) => changed.get(item.id) ?? item),
+        );
+        const label =
+          result.issues.length > 1 ? `${result.issues.length} 个 QA 问题` : "QA 问题";
+        onStatusMessage(waived ? `已忽略 ${label}` : `已恢复 ${label}为未解决`);
       } catch (error) {
-        // The issue keeps its current status; nothing is pretended.
+        // The issues keep their current status; nothing is pretended.
         onStatusMessage(
           waived
             ? `忽略失败：${describeError(error)}`
@@ -2357,9 +2367,29 @@ export function WorkbenchView({
                 issues={issues}
                 onRun={() => void runQa()}
                 onJump={jumpToSegment}
-                onWaive={(issue) => void setIssueWaived(issue, true)}
-                onRestore={(issue) => void setIssueWaived(issue, false)}
-                pendingIssueId={waivePendingId}
+                onWaive={(issue) =>
+                  void waiveIssues({ issueId: issue.id }, true, issue.id)
+                }
+                onWaiveRule={(issue) =>
+                  activeDocumentId
+                    ? void waiveIssues(
+                        { ruleId: issue.ruleId, documentId: activeDocumentId },
+                        true,
+                        `rule:${issue.ruleId}`,
+                      )
+                    : undefined
+                }
+                onWaiveSegment={(issue) =>
+                  void waiveIssues(
+                    { segmentId: issue.segmentId },
+                    true,
+                    `segment:${issue.segmentId}`,
+                  )
+                }
+                onRestore={(issue) =>
+                  void waiveIssues({ issueId: issue.id }, false, issue.id)
+                }
+                pendingKey={waivePendingId}
                 disabled={!activeDocumentId}
               />
             ) : null}

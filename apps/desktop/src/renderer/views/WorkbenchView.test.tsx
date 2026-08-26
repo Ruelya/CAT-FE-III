@@ -2278,7 +2278,7 @@ describe("WorkbenchView QA waive", () => {
     let waiveParams: unknown = null;
     handlers["qa.waive"] = (params) => {
       waiveParams = params;
-      return { issue: { ...QA_ISSUE, status: "waived", updatedAtMs: 2 } };
+      return { issues: [{ ...QA_ISSUE, status: "waived", updatedAtMs: 2 }] };
     };
     const bridge = installBridge(handlers);
     const onStatusMessage = vi.fn();
@@ -2318,7 +2318,7 @@ describe("WorkbenchView QA waive", () => {
     // 恢复 flips the same issue back to open through the same endpoint.
     handlers["qa.waive"] = (params) => {
       waiveParams = params;
-      return { issue: { ...QA_ISSUE, updatedAtMs: 3 } };
+      return { issues: [{ ...QA_ISSUE, updatedAtMs: 3 }] };
     };
     await userEvent.click(screen.getByRole("button", { name: "恢复" }));
     await waitFor(() => {
@@ -2326,6 +2326,55 @@ describe("WorkbenchView QA waive", () => {
     });
     expect(await screen.findByText("质量检查（未解决 1）")).toBeInTheDocument();
     expect(onStatusMessage).toHaveBeenCalledWith("已恢复 QA 问题为未解决");
+  });
+
+  it("忽略同类 waives the whole rule through one engine call", async () => {
+    const second = {
+      ...QA_ISSUE,
+      id: "issue-2",
+      segmentId: "s2",
+      fingerprint: "fp-2",
+    };
+    const handlers = baseHandlers();
+    handlers["qa.list"] = () => ({ issues: [QA_ISSUE, second], total: 2 });
+    let waiveParams: unknown = null;
+    handlers["qa.waive"] = (params) => {
+      waiveParams = params;
+      return {
+        issues: [
+          { ...QA_ISSUE, status: "waived", updatedAtMs: 2 },
+          { ...second, status: "waived", updatedAtMs: 2 },
+        ],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    expect(await screen.findByText("质量检查（未解决 2）")).toBeInTheDocument();
+
+    const [batch] = screen.getAllByRole("button", {
+      name: "忽略本文档全部 qa.number-mismatch 问题",
+    });
+    await userEvent.click(batch!);
+    // One engine call carries the rule selector; both rows flip together.
+    await waitFor(() => {
+      expect(waiveParams).toEqual({
+        ruleId: "qa.number-mismatch",
+        documentId: "d1",
+        waived: true,
+      });
+    });
+    expect(await screen.findByText("质量检查（未解决 0）")).toBeInTheDocument();
+    expect(screen.getAllByText("已忽略")).toHaveLength(2);
+    expect(onStatusMessage).toHaveBeenCalledWith("已忽略 2 个 QA 问题");
   });
 
   it("keeps the issue open and reports honestly when qa.waive fails", async () => {

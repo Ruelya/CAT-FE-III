@@ -811,62 +811,63 @@ export interface MethodContract37 {
   result: QaWaiveResult;
 }
 /**
- * `qa.waive` — record a human decision about one issue without pretending
- * the finding went away.
+ * `qa.waive` — record a human decision about findings without pretending
+ * they went away.
  *
  * Waiving never edits the segment, never confirms it, and never writes TM:
- * the numbers still disagree, and the issue row says so. The waiver sticks
+ * the numbers still disagree, and the issue rows say so. The waiver sticks
  * exactly as long as later runs reproduce the same fingerprint (rule +
  * segment + evidence). When the evidence changes, the old row resolves and
  * the changed finding opens as a brand-new issue — a waiver never carries
  * over to evidence the user has not seen.
+ *
+ * Exactly one selector must be provided:
+ *
+ * - `issueId` — one issue. Waiving a resolved issue or restoring a
+ *   non-waived issue is a conflict.
+ * - `ruleId` + `documentId` — every issue of that rule in the document.
+ * - `segmentId` — every issue of that segment.
+ *
+ * The batch selectors are operation granularity, not storage granularity:
+ * each affected row records its own waiver, so audit and
+ * fingerprint-invalidation semantics are identical to per-issue waiving.
+ * Batches skip rows already in the requested state instead of erroring.
  */
 export interface QaWaiveParams {
-  issueId: string;
+  /**
+   * Scope for `ruleId`. Per-rule waivers are document-scoped — never a
+   * hidden project-wide exemption.
+   */
+  documentId?: string | null;
+  /**
+   * Selector: one issue by id.
+   */
+  issueId?: string | null;
   /**
    * Optional free-form note. Deliberately not required: an empty or
    * omitted note is a perfectly valid waiver.
    */
   note?: string | null;
   /**
-   * `true` waives an open issue; `false` restores a waived issue to open.
+   * Selector: every issue of this rule; requires `documentId`.
+   */
+  ruleId?: string | null;
+  /**
+   * Selector: every issue of this segment.
+   */
+  segmentId?: string | null;
+  /**
+   * `true` waives open issues; `false` restores waived issues to open.
    */
   waived: boolean;
   [k: string]: unknown;
 }
 export interface QaWaiveResult {
-  issue: QaIssue1;
-  [k: string]: unknown;
-}
-/**
- * The issue after the status change, straight from the store.
- */
-export interface QaIssue1 {
-  createdAtMs: number;
-  evidence: NumberEvidence;
-  fingerprint: string;
-  id: string;
-  message: string;
   /**
-   * Structured message parameters (e.g. `{"expected": "30", "found":
-   * "40"}`) so clients can localize the finding; `message` stays the
-   * engine-produced English fallback. Empty for rules with nothing to
-   * parameterize; rows persisted before the field existed parse as empty.
+   * Every issue the call changed, straight from the store. Clients
+   * replace their copies of these rows wholesale.
    */
-  params?: {
-    [k: string]: string;
-  };
-  ruleId: string;
-  segmentId: string;
-  severity: QaSeverity;
-  status: QaIssueStatus;
-  updatedAtMs: number;
-  /**
-   * Free-form note recorded with a waiver. Optional by design — waiving
-   * must not demand a ritual reason. Non-null only while `status` is
-   * [`QaIssueStatus::Waived`].
-   */
-  waiveNote?: string | null;
+  issues: QaIssue[];
   [k: string]: unknown;
 }
 /**

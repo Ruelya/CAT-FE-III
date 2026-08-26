@@ -1896,10 +1896,10 @@ fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": true, "note": "客户确认金额以译文为准" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
-    assert_eq!(waived["issue"]["waiveNote"], "客户确认金额以译文为准");
+    assert_eq!(waived["issues"][0]["status"], "waived");
+    assert_eq!(waived["issues"][0]["waiveNote"], "客户确认金额以译文为准");
     assert_eq!(
-        waived["issue"]["evidence"]["targetNumbers"][0], "40",
+        waived["issues"][0]["evidence"]["targetNumbers"][0], "40",
         "the evidence still shows the mismatch; waiving does not rewrite it"
     );
 
@@ -1940,16 +1940,16 @@ fn qa_waive_sticks_until_evidence_changes_and_never_writes_tm() {
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": false }),
     );
-    assert_eq!(restored["issue"]["status"], "open");
-    assert!(restored["issue"]["waiveNote"].is_null());
+    assert_eq!(restored["issues"][0]["status"], "open");
+    assert!(restored["issues"][0]["waiveNote"].is_null());
 
     // Re-waive without any note: an empty note is a perfectly valid waiver.
     let rewaived = harness.call(
         "qa.waive",
         json!({ "issueId": first_issue_id, "waived": true, "note": "   " }),
     );
-    assert_eq!(rewaived["issue"]["status"], "waived");
-    assert!(rewaived["issue"]["waiveNote"].is_null());
+    assert_eq!(rewaived["issues"][0]["status"], "waived");
+    assert!(rewaived["issues"][0]["waiveNote"].is_null());
 
     // The waiver survives an engine restart: it lives on the SQL row.
     harness.reopen();
@@ -2070,7 +2070,7 @@ fn qa_flags_tag_placeholder_integrity_with_sticky_waivers_and_no_tm_writes() {
         "qa.waive",
         json!({ "issueId": missing_id, "waived": true, "note": "占位符由排版阶段补齐" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
+    assert_eq!(waived["issues"][0]["status"], "waived");
 
     // Human red line: waiving a tag issue confirms nothing and writes no TM.
     let after = harness.segments(&document_id);
@@ -2642,7 +2642,7 @@ fn document_remove_drops_waived_issues_with_the_document() {
         "qa.waive",
         json!({ "issueId": waived_id, "waived": true, "note": "客户已确认" }),
     );
-    assert_eq!(waived["issue"]["status"], "waived");
+    assert_eq!(waived["issues"][0]["status"], "waived");
 
     // The removal counts the waived row alongside the open one.
     let removed = harness.call("document.remove", json!({ "documentId": document_id }));
@@ -3120,6 +3120,156 @@ fn qa_run_excludes_locked_segments_and_keeps_their_issues() {
     let final_run = harness.call("qa.run", json!({ "documentId": document_id }));
     assert_eq!(final_run["checkedSegments"], 2);
     assert_eq!(final_run["openIssues"], 0);
+}
+
+/// Granular waivers (PRD ③): one call can waive per rule (document-scoped)
+/// or per segment; storage stays per-issue, batches skip rows already in
+/// the requested state, and the strict per-issue conflicts are untouched.
+#[test]
+fn qa_waive_supports_rule_and_segment_granularity() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "granular.txt",
+        "The amount is 30.\n\nThe size is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    // Segment 0: number mismatch + edge whitespace; segment 1: mismatch only.
+    harness.set_target(&segments[0], " 金额是 40。");
+    harness.set_target(&segments[1], "大小是 60。");
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(run["openIssues"], 3);
+
+    // Waive by rule: both number mismatches flip; the whitespace issue and
+    // the segment states stay untouched.
+    let by_rule = harness.call(
+        "qa.waive",
+        json!({
+            "ruleId": "qa.number-mismatch",
+            "documentId": document_id,
+            "waived": true,
+            "note": "数字以译文为准",
+        }),
+    );
+    let affected = by_rule["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(affected.iter().all(|issue| issue["status"] == "waived"
+        && issue["ruleId"] == "qa.number-mismatch"
+        && issue["waiveNote"] == "数字以译文为准"));
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    let open_rules: Vec<&str> = listed["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "open")
+        .filter_map(|issue| issue["ruleId"].as_str())
+        .collect();
+    assert_eq!(open_rules, vec!["qa.edge-whitespace"]);
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 0, "batch waiving must never write TM");
+
+    // The batch is idempotent: nothing left to flip, nothing touched.
+    let again = harness.call(
+        "qa.waive",
+        json!({ "ruleId": "qa.number-mismatch", "documentId": document_id, "waived": true }),
+    );
+    assert_eq!(again["issues"].as_array().expect("issues").len(), 0);
+
+    // Restore by rule flips both back and drops the notes.
+    let restored = harness.call(
+        "qa.waive",
+        json!({ "ruleId": "qa.number-mismatch", "documentId": document_id, "waived": false }),
+    );
+    let affected = restored["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(
+        affected
+            .iter()
+            .all(|issue| issue["status"] == "open" && issue["waiveNote"].is_null())
+    );
+
+    // Waive by segment: only segment 0's two issues flip.
+    let by_segment = harness.call(
+        "qa.waive",
+        json!({ "segmentId": segments[0]["id"], "waived": true }),
+    );
+    let affected = by_segment["issues"].as_array().expect("affected issues");
+    assert_eq!(affected.len(), 2);
+    assert!(
+        affected
+            .iter()
+            .all(|issue| issue["segmentId"] == segments[0]["id"])
+    );
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    let open_segments: Vec<&Value> = listed["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "open")
+        .collect();
+    assert_eq!(open_segments.len(), 1);
+    assert_eq!(open_segments[0]["segmentId"], segments[1]["id"]);
+
+    // Batch waivers persist like per-issue ones: they live on the SQL rows.
+    harness.reopen();
+    let reloaded = harness.call("qa.list", json!({ "documentId": document_id }));
+    let waived_count = reloaded["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["status"] == "waived")
+        .count();
+    assert_eq!(waived_count, 2);
+
+    // Selector validation: exactly one of issueId / ruleId+documentId /
+    // segmentId, and honest notFound for unknown scopes.
+    assert_eq!(
+        harness.call_err("qa.waive", json!({ "waived": true })),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({
+                "ruleId": "qa.number-mismatch",
+                "documentId": document_id,
+                "segmentId": segments[0]["id"],
+                "waived": true,
+            })
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "ruleId": "qa.number-mismatch", "waived": true })
+        ),
+        "invalidParams",
+        "per-rule waivers are document-scoped by contract"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "segmentId": segments[0]["id"], "documentId": document_id, "waived": true })
+        ),
+        "invalidParams",
+        "documentId only scopes ruleId"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "ruleId": "qa.number-mismatch", "documentId": "missing", "waived": true })
+        ),
+        "notFound"
+    );
+    assert_eq!(
+        harness.call_err(
+            "qa.waive",
+            json!({ "segmentId": "missing", "waived": true })
+        ),
+        "notFound"
+    );
 }
 
 /// The behavioral check: confirming a fuzzy TM match without editing it
