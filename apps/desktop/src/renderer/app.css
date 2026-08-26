@@ -904,47 +904,68 @@ body {
   box-shadow: var(--tl-focus-ring);
 }
 
-/* View tabs under the grid: the grid is the working view; 预览 opens the
-   real preview (proofread + DOCX layout) built from the export pipeline.
-   Underline tab grammar — shared with dock and preview tabs. */
+/* Docked bottom preview pane (PRD §7.4): a slim always-present bar under
+   the grid; expanding reveals the proofread/layout body, whose height is
+   dragged via the horizontal splitter and persisted per project. */
 
-.view-tabs {
+.preview-pane {
   display: flex;
-  gap: var(--tl-space-1);
-  padding: 0 var(--tl-space-3);
+  flex-direction: column;
+  flex: none;
   border-top: var(--tl-border-hairline);
   background: var(--tl-color-surface);
-  flex: none;
-  min-height: var(--tl-tab-h);
 }
 
-.view-tabs__tab {
-  font: inherit;
+.preview-pane__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  padding: 0 var(--tl-space-3);
+  min-height: var(--tl-tab-h);
+  flex: none;
+}
+
+.preview-pane__title {
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text-muted);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: var(--tl-space-2) var(--tl-space-3);
-  cursor: pointer;
-  transition:
-    color var(--tl-motion-fast) var(--tl-ease-standard),
-    border-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
-.view-tabs__tab:hover {
+.preview-pane[data-open] .preview-pane__title {
   color: var(--tl-color-text);
 }
 
-.view-tabs__tab:focus-visible {
+.preview-pane__spacer {
+  flex: 1;
+}
+
+.preview-pane__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.preview-pane__toggle:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.preview-pane__toggle:focus-visible {
   outline: none;
   box-shadow: var(--tl-focus-ring);
 }
 
-.view-tabs__tab[data-active="true"] {
-  color: var(--tl-color-accent-strong);
-  font-weight: 600;
-  border-bottom-color: var(--tl-color-accent);
+.preview-pane__body {
+  overflow: auto;
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-top: var(--tl-border-hairline);
+  flex: none;
 }
 
 /* Segment grid toolbar: state filter + removable filter chips on the
@@ -1901,13 +1922,13 @@ body {
   word-break: break-word;
 }
 
-/* Preview dialog: underline tab grammar, same as dock and view tabs. */
+/* Preview views: underline tab grammar, same as the dock tabs. Hosted in
+   the preview pane's bar, so no bottom margin or divider of their own. */
 
 .preview__tabs {
   display: flex;
   gap: var(--tl-space-1);
-  margin-bottom: var(--tl-space-4);
-  border-bottom: var(--tl-border-hairline);
+  align-self: stretch;
 }
 
 .preview__tabs button {
@@ -2037,13 +2058,8 @@ body {
   display: flex;
   align-items: center;
   gap: var(--tl-space-3);
-  flex: 1;
+  flex: none;
   font-size: var(--tl-text-xs);
-}
-
-.preview__legend-note {
-  color: var(--tl-color-text-faint);
-  margin-left: auto;
 }
 
 /* Project settings dialog */

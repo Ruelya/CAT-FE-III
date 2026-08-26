@@ -149,9 +149,10 @@ export function buildMenuTemplate(
         true,
       ),
       SEPARATOR,
+      // Toggles the collapsible bottom preview pane (PRD §7.4).
       commandItem(
-        "译文预览…",
-        "open-preview",
+        "预览面板",
+        "toggle-preview",
         context.documentOpen,
         "CmdOrCtrl+P",
       ),

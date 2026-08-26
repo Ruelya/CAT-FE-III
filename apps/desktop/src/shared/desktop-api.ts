@@ -43,7 +43,7 @@ export type MenuCommand =
   | "open-project-settings"
   | "close-project"
   | "open-command-palette"
-  | "open-preview"
+  | "toggle-preview"
   | "open-concordance"
   | "focus-filter"
   | "open-find"

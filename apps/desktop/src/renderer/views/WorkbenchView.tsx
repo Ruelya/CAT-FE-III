@@ -60,7 +60,7 @@ import { QaPanel } from "../components/QaPanel.js";
 import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
 import { ExportOverwriteConfirm } from "../components/ExportOverwriteConfirm.js";
-import { PreviewDialog } from "../components/PreviewDialog.js";
+import { PreviewPane } from "../components/PreviewPane.js";
 import {
   DEFAULT_LAYOUT,
   LAYOUT_LIMITS,
@@ -206,7 +206,6 @@ export function WorkbenchView({
   const [findMode, setFindMode] = useState<"find" | "replace">("find");
   const [findSummon, setFindSummon] = useState(0);
   const [concordanceSeed, setConcordanceSeed] = useState("");
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Rail widths / collapse / preview pane, persisted per project.
   const [layout, updateLayout] = useWorkbenchLayout(project.id);
@@ -1474,9 +1473,9 @@ export function WorkbenchView({
         case "open-command-palette":
           setPaletteOpen(true);
           break;
-        case "open-preview":
+        case "toggle-preview":
           if (activeDocument) {
-            setPreviewOpen(true);
+            updateLayout({ previewOpen: !layout.previewOpen });
           }
           break;
         case "open-concordance":
@@ -1523,6 +1522,8 @@ export function WorkbenchView({
       openFind,
       findMatch,
       confirmActiveSegment,
+      layout.previewOpen,
+      updateLayout,
     ],
   );
 
@@ -1594,7 +1595,7 @@ export function WorkbenchView({
         documentOpen,
         "Ctrl+Alt+Shift+Enter",
       ),
-      command("open-preview", "译文预览…", documentOpen, "Ctrl+P"),
+      command("toggle-preview", "预览面板", documentOpen, "Ctrl+P"),
       command("open-find", "查找…", documentOpen, "Ctrl+F"),
       command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
@@ -2028,28 +2029,22 @@ export function WorkbenchView({
                   onClearTarget={clearTargetText}
                 />
               )}
-              <div className="view-tabs" role="tablist" aria-label="视图">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!previewOpen}
-                  className="view-tabs__tab"
-                  data-active={!previewOpen}
-                >
-                  文本
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewOpen}
-                  className="view-tabs__tab"
-                  data-active={previewOpen}
-                  title="译文预览"
-                  onClick={() => setPreviewOpen(true)}
-                >
-                  预览
-                </button>
-              </div>
+              <PreviewPane
+                open={layout.previewOpen}
+                height={layout.previewHeight}
+                documentId={activeDocument.id}
+                documentFormat={activeDocument.format}
+                segments={segments}
+                activeSegmentId={activeSegmentId}
+                onToggle={() =>
+                  updateLayout({ previewOpen: !layout.previewOpen })
+                }
+                onResize={(next) => updateLayout({ previewHeight: next })}
+                onResetHeight={() =>
+                  updateLayout({ previewHeight: DEFAULT_LAYOUT.previewHeight })
+                }
+                onJump={jumpToSegment}
+              />
             </>
           ) : (
             <div className="workbench__center-empty">
@@ -2204,22 +2199,6 @@ export function WorkbenchView({
           onImported={(result) => void handleImported(result)}
           onProjectUpdated={onProjectUpdated}
         />
-
-        {activeDocument ? (
-          <PreviewDialog
-            open={previewOpen}
-            documentId={activeDocument.id}
-            documentName={activeDocument.name}
-            documentFormat={activeDocument.format}
-            segments={segments}
-            activeSegmentId={activeSegmentId}
-            onClose={() => setPreviewOpen(false)}
-            onJump={(segmentId) => {
-              setPreviewOpen(false);
-              jumpToSegment(segmentId);
-            }}
-          />
-        ) : null}
       </main>
     </AiStatusProvider>
   );

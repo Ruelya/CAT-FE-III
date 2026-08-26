@@ -2155,8 +2155,9 @@ describe("WorkbenchView document tabs", () => {
     await waitFor(() => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
-    // Only the auto-opened first document has a tab.
-    expect(screen.getAllByRole("tab")).toHaveLength(3); // guide + 文本/预览 view tabs
+    // Only the auto-opened first document has a tab (the 文本/预览 view
+    // switch is gone — preview lives in the docked bottom pane).
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
     expect(screen.getByRole("tab", { name: "guide.txt" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -2247,7 +2248,34 @@ describe("WorkbenchView document tabs", () => {
     });
   });
 
-  it("the 预览 view tab opens the real preview dialog", async () => {
+  it("docks a collapsed preview pane that expands from the bar or Ctrl+P", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    // Collapsed by default: the bar is there, the body is not visible.
+    const pane = screen.getByRole("region", { name: "预览面板" });
+    expect(within(pane).queryByText(/共 \d+ 个句段/)).not.toBeVisible();
+
+    await userEvent.click(
+      within(pane).getByRole("button", { name: "展开预览" }),
+    );
+    expect(within(pane).getByText(/共 1 个句段/)).toBeVisible();
+
+    // The menu command (Ctrl+P) toggles the same pane back closed.
+    act(() => {
+      bridge.emitMenuCommand("toggle-preview");
+    });
+    expect(within(pane).queryByText(/共 1 个句段/)).not.toBeVisible();
+  });
+
+  it("jumps from a proofread preview segment back to the grid row", async () => {
     installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -2257,8 +2285,13 @@ describe("WorkbenchView document tabs", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    await userEvent.click(screen.getByRole("tab", { name: "预览" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("译文预览");
+    const pane = screen.getByRole("region", { name: "预览面板" });
+    await userEvent.click(
+      within(pane).getByRole("button", { name: "展开预览" }),
+    );
+    await userEvent.click(within(pane).getByTitle("句段 #1"));
+    // The grid row is activated and its editor mounts.
+    expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
   });
 });
 

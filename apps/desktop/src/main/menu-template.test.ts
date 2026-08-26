@@ -72,8 +72,8 @@ const COMMAND_ITEMS: Array<{
     needs: "project",
   },
   {
-    label: "译文预览…",
-    command: "open-preview",
+    label: "预览面板",
+    command: "toggle-preview",
     accelerator: "CmdOrCtrl+P",
     needs: "document",
   },
