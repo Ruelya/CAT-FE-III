@@ -1,8 +1,9 @@
 // End-to-end smoke of the tl-engine stdio protocol: handshake, project,
 // DOCX import, grid edit/confirm, exact + fuzzy TM, termbases, pretranslate,
 // project update/archive with the pinned-language rule, termbase detach,
-// QA rule library, export, the honest AI degradation path, and the
-// asynchronous agent run against a loopback SSE fixture.
+// QA rule library, export, the honest AI degradation path, the
+// asynchronous agent run against a loopback SSE fixture, and the provider
+// selector switching to the native Gemini protocol against a second mock.
 // Run with: pnpm test:e2e:engine
 import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -423,11 +424,74 @@ try {
   );
   aiServer.close();
 
+  // Provider selector over stdio: reconfigure to native Gemini against a
+  // loopback mock. The captured request path proves the engine switched to
+  // the Generative Language API instead of re-using the OpenAI route.
+  const geminiReply = "双子座冒烟草稿。";
+  let geminiRequestUrl = null;
+  const geminiServer = createServer((request, response) => {
+    geminiRequestUrl = request.url;
+    request.resume();
+    request.on("end", () => {
+      const payload = JSON.stringify({
+        candidates: [{ content: { parts: [{ text: geminiReply }] } }],
+      });
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.end(`data: ${payload}\n\n`);
+    });
+  });
+  await new Promise((resolveListen) =>
+    geminiServer.listen(0, "127.0.0.1", resolveListen),
+  );
+  const geminiStatus = await call("ai.configure", {
+    provider: "gemini",
+    model: "gemini-fixture",
+    baseUrl: `http://127.0.0.1:${geminiServer.address().port}`,
+    apiKey: "fixture-key-gemini",
+  });
+  assert(
+    geminiStatus.configured === true && geminiStatus.provider === "gemini",
+    "provider selector reports gemini",
+  );
+  const geminiStarted = await call("ai.assist.start", {
+    segmentId: untranslated.id,
+    action: "translate",
+  });
+  let geminiView = geminiStarted;
+  const geminiDeadline = Date.now() + 30_000;
+  while (geminiView.status === "running") {
+    assert(Date.now() < geminiDeadline, "gemini assist finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+    geminiView = await call("ai.assist.status", {
+      assistId: geminiStarted.assistId,
+    });
+  }
+  assert(geminiView.status === "done", "gemini assist completes");
+  assert(
+    geminiView.result.draftTarget === geminiReply,
+    "gemini assist streams the fixture reply",
+  );
+  assert(
+    geminiView.result.provider === "gemini",
+    "assist result reports the gemini provider",
+  );
+  assert(
+    typeof geminiRequestUrl === "string" &&
+      geminiRequestUrl.includes("/models/gemini-fixture:streamGenerateContent"),
+    `gemini spoke the native generateContent route, got: ${geminiRequestUrl}`,
+  );
+  assert(geminiRequestUrl.includes("alt=sse"), "gemini asked for SSE framing");
+  assert(
+    !geminiRequestUrl.includes("chat/completions"),
+    "gemini did not fall back to the OpenAI route",
+  );
+  geminiServer.close();
+
   // Clean shutdown.
   await call("engine.shutdown", {});
   await new Promise((resolveExit) => child.once("exit", resolveExit));
   console.log(
-    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async assist, async agent run parked at the human gate",
+    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async assist, async agent run parked at the human gate, native gemini provider selector",
   );
 } catch (error) {
   child.kill();

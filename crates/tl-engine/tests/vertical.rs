@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -13,10 +14,10 @@ use serde_json::{Value, json};
 use tl_engine::{Engine, EngineEvent};
 use tl_protocol::{
     AgentRunStatus, AgentRunView, AgentStartParams, AgentStepKind, AiAssistAction, AiAssistParams,
-    AiAssistRunStatus, AiAssistRunView, AiStatusResult, DocumentExportResult, DocumentImportResult,
-    DocumentRemoveResult, InitializeResult, PROTOCOL_VERSION, QaRunResult, RpcErrorCode,
-    RpcNotification, RpcRequest, SegmentConfirmResult, SegmentListResult, SegmentUpdateResult,
-    TmLookupResult, methods,
+    AiAssistRunStatus, AiAssistRunView, AiProviderKind, AiStatusResult, DocumentExportResult,
+    DocumentImportResult, DocumentRemoveResult, InitializeResult, PROTOCOL_VERSION, QaRunResult,
+    RpcErrorCode, RpcNotification, RpcRequest, SegmentConfirmResult, SegmentListResult,
+    SegmentUpdateResult, TmLookupResult, methods,
 };
 
 fn fixture_docx() -> PathBuf {
@@ -90,6 +91,48 @@ fn spawn_sse_server(reply: &'static str, delay: Duration) -> String {
         }
     });
     format!("http://{address}")
+}
+
+/// Loopback endpoint that answers every request with `body` as an SSE stream
+/// and captures the raw request head + body so tests can assert which wire
+/// protocol the engine actually spoke (path, auth header, JSON shape).
+fn spawn_capturing_sse_server(body: &'static str) -> (String, Arc<Mutex<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind capturing fixture");
+    let address = listener.local_addr().expect("fixture address");
+    let captured = Arc::new(Mutex::new(String::new()));
+    let capture = Arc::clone(&captured);
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let capture = Arc::clone(&capture);
+            thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().expect("clone fixture stream"));
+                let mut request = String::new();
+                let mut content_length = 0usize;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        content_length = value.trim().parse().unwrap_or(0);
+                    }
+                    request.push_str(&line);
+                }
+                let mut payload = vec![0u8; content_length];
+                let _ = reader.read_exact(&mut payload);
+                request.push_str(&String::from_utf8_lossy(&payload));
+                *capture.lock().expect("capture fixture request") = request;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            });
+        }
+    });
+    (format!("http://{address}"), captured)
 }
 
 /// Loopback endpoint that accepts connections, swallows the request, and
@@ -1136,6 +1179,142 @@ fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
         json!({"documentId": imported.document.id}),
     );
     assert_eq!(removed.document.id, imported.document.id);
+}
+
+/// The `ai.configure` provider selector is real: `gemini` speaks the native
+/// Google Generative Language API and `anthropic` speaks the Messages API.
+/// Both run against loopback mocks — no real key or endpoint is involved —
+/// and the captured wire traffic proves the protocol switch, not just the
+/// label in `ai.status`.
+#[test]
+fn ai_configure_routes_native_gemini_and_anthropic_protocols() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Providers", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(
+        workspace.path(),
+        "providers.txt",
+        "First provider sentence.\n\nSecond provider sentence.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert!(listed.segments.len() >= 2, "two segments to assist");
+
+    // Gemini: streamGenerateContent with the key in the query string, and a
+    // candidates/parts SSE payload instead of the OpenAI delta shape.
+    let gemini_body = concat!(
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"双子座草稿。\"}]}}]}\n\n",
+        "data: {\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":3}}\n\n"
+    );
+    let (gemini_url, gemini_captured) = spawn_capturing_sse_server(gemini_body);
+    let status: AiStatusResult = call(
+        &mut engine,
+        methods::AI_CONFIGURE,
+        json!({
+            "provider": "gemini",
+            "model": "gemini-fixture",
+            "baseUrl": gemini_url,
+            "apiKey": "fixture-gemini-key",
+        }),
+    );
+    assert!(status.configured);
+    assert_eq!(status.provider, Some(AiProviderKind::Gemini));
+    let done = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": listed.segments[0].id, "action": "translate"}),
+    );
+    assert_eq!(done.status, AiAssistRunStatus::Done);
+    let result = done.result.expect("gemini run carries the proposal");
+    assert_eq!(result.draft_target, "双子座草稿。");
+    assert_eq!(result.provider, AiProviderKind::Gemini);
+    assert_eq!(result.model, "gemini-fixture");
+    let request = gemini_captured
+        .lock()
+        .expect("captured gemini request")
+        .clone();
+    assert!(
+        request.contains("/models/gemini-fixture:streamGenerateContent"),
+        "gemini speaks the native generateContent route, got: {request}"
+    );
+    assert!(request.contains("alt=sse"), "gemini asks for SSE framing");
+    assert!(
+        request.contains("key=fixture-gemini-key"),
+        "gemini carries the key as a query parameter"
+    );
+    assert!(
+        !request.contains("chat/completions"),
+        "gemini must not fall back to the OpenAI route"
+    );
+    assert!(
+        request.contains("\"contents\""),
+        "gemini body uses contents/parts, got: {request}"
+    );
+
+    // Anthropic: /v1/messages with the x-api-key header and the Messages
+    // API event stream. Reconfiguring swaps the runtime wholesale.
+    let anthropic_body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"人择草稿。\"}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+    let (anthropic_url, anthropic_captured) = spawn_capturing_sse_server(anthropic_body);
+    let status: AiStatusResult = call(
+        &mut engine,
+        methods::AI_CONFIGURE,
+        json!({
+            "provider": "anthropic",
+            "model": "claude-fixture",
+            "baseUrl": anthropic_url,
+            "apiKey": "fixture-anthropic-key",
+        }),
+    );
+    assert!(status.configured);
+    assert_eq!(status.provider, Some(AiProviderKind::Anthropic));
+    let done = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": listed.segments[1].id, "action": "translate"}),
+    );
+    assert_eq!(done.status, AiAssistRunStatus::Done);
+    let result = done.result.expect("anthropic run carries the proposal");
+    assert_eq!(result.draft_target, "人择草稿。");
+    assert_eq!(result.provider, AiProviderKind::Anthropic);
+    let request = anthropic_captured
+        .lock()
+        .expect("captured anthropic request")
+        .clone();
+    assert!(
+        request.contains("POST /v1/messages"),
+        "anthropic speaks the Messages API, got: {request}"
+    );
+    assert!(
+        request
+            .to_ascii_lowercase()
+            .contains("x-api-key: fixture-anthropic-key"),
+        "anthropic authenticates via x-api-key"
+    );
+    assert!(
+        request.to_ascii_lowercase().contains("anthropic-version:"),
+        "anthropic pins its API version header"
+    );
+    assert!(
+        !request.contains("chat/completions"),
+        "anthropic must not fall back to the OpenAI route"
+    );
 }
 
 #[test]
