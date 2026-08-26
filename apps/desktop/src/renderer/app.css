@@ -974,12 +974,6 @@ body {
   box-shadow: var(--tl-focus-ring);
 }
 
-.segment-grid__actions {
-  display: flex;
-  gap: var(--tl-space-2);
-  align-items: center;
-}
-
 .segment-grid__hint {
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-faint);
