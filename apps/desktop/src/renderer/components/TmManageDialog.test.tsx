@@ -439,8 +439,9 @@ describe("TmManageDialog", () => {
         }),
       ),
     };
+    const api: Partial<DesktopApi> = bridge;
     Object.defineProperty(window, "tl", {
-      value: bridge as Partial<DesktopApi>,
+      value: api,
       configurable: true,
       writable: true,
     });
