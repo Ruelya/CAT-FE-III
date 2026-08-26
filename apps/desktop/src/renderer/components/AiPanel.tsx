@@ -20,6 +20,7 @@ import { callEngine, describeError, isAiNotConfigured } from "../lib/engine.js";
 
 const PROVIDERS: Array<{ value: AiProviderKind; label: string }> = [
   { value: "openai", label: "OpenAI" },
+  { value: "openaiResponses", label: "OpenAI Responses" },
   { value: "anthropic", label: "Anthropic" },
   { value: "gemini", label: "Google Gemini" },
   { value: "deepl", label: "DeepL" },

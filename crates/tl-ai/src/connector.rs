@@ -1164,6 +1164,7 @@ fn builtin_profile(
 fn builtin_provider_id(kind: AiProviderKind) -> &'static str {
     match kind {
         AiProviderKind::Openai => "openai",
+        AiProviderKind::OpenaiResponses => "openaiResponses",
         AiProviderKind::Anthropic => "anthropic",
         AiProviderKind::Gemini => "gemini",
         AiProviderKind::Deepl => "deepl",

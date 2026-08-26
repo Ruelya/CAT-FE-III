@@ -457,6 +457,7 @@
       "type": "string",
       "enum": [
         "openai",
+        "openaiResponses",
         "anthropic",
         "gemini",
         "deepl",

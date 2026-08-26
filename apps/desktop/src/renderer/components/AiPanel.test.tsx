@@ -180,6 +180,58 @@ describe("AiPanel", () => {
     });
   });
 
+  it("offers the OpenAI Responses provider and sends it through ai.configure", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> =>
+      Promise.resolve(
+        method === "ai.status"
+          ? {
+              ok: true,
+              result: { configured: false, provider: null, model: null },
+            }
+          : {
+              ok: true,
+              result: {
+                configured: true,
+                provider: "openaiResponses",
+                model: "gpt-5-mini",
+              },
+            },
+      ),
+    );
+    installBridge(invoke);
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("供应商")).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("供应商"),
+      "openaiResponses",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("例如 gpt-5.2"),
+      "gpt-5-mini",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("https://…"),
+      "https://gateway.example/v1",
+    );
+    await userEvent.type(screen.getByPlaceholderText("sk-…"), "test-key");
+    await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("ai.configure", {
+        provider: "openaiResponses",
+        model: "gpt-5-mini",
+        baseUrl: "https://gateway.example/v1",
+        apiKey: "test-key",
+      });
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(/openaiResponses · gpt-5-mini/),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("blocks Apply when the candidate breaks placeholders", async () => {
     const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
       if (method === "ai.status") {
