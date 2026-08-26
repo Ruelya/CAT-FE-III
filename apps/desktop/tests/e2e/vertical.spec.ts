@@ -196,11 +196,14 @@ test("vertical slice through the workbench", async () => {
 
   // Draft a wrong number in segment 2, then run the full QA library.
   // No save button: typing persists the draft automatically after the
-  // pause — the row's state badge flips to 草稿 once the engine acks it.
+  // pause — the row's state badge flips to 草稿 once the engine acks it
+  // (the state cell, specifically: the editor hint also says 草稿).
   await rows.nth(1).click();
   const editor2 = page.getByLabel("句段 2 译文");
   await editor2.fill("表中金额：1,300。");
-  await expect(rows.nth(1)).toContainText("草稿");
+  await expect(rows.nth(1).locator(".segment-grid__state")).toContainText(
+    "草稿",
+  );
   await page.getByRole("button", { name: "QA", exact: true }).click();
   await page.getByRole("button", { name: "运行 QA" }).click();
   // The engine now runs the full rule library, so target the number issue
@@ -217,7 +220,9 @@ test("vertical slice through the workbench", async () => {
   await expect(waivedIssue).toContainText("已忽略");
   await expect(waivedIssue).toContainText("未确认句段、未写入 TM");
   await expect(page.locator(".app-statusbar")).toContainText("已忽略 QA 问题");
-  await expect(rows.nth(1)).toContainText("草稿");
+  await expect(rows.nth(1).locator(".segment-grid__state")).toContainText(
+    "草稿",
+  );
   await shot("04b-qa-issue-waived.png");
 
   // 恢复 brings the same issue back to 未解决 for the rest of the run.
