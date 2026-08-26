@@ -661,7 +661,7 @@ test("persisted origin chips and the engine word count stay honest", async () =>
   // TM hit, so park the selection on the CJK row (no hit) first: with no
   // stored origins and no live match, no chip may appear anywhere.
   await rows.nth(1).click();
-  expect(await rows.locator(".tl-match").count()).toBe(0);
+  await expect(rows.locator(".tl-match")).toHaveCount(0);
 
   // Pretranslate fills row 1 from the TM and stamps the real grade and
   // score as its persisted origin.
@@ -687,7 +687,7 @@ test("persisted origin chips and the engine word count stay honest", async () =>
   await expect(
     rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
   ).toBeVisible();
-  expect(await rows.nth(1).locator(".tl-match").count()).toBe(0);
+  await expect(rows.nth(1).locator(".tl-match")).toHaveCount(0);
 
   // Editing a TM-applied row marks its stamp edited (Studio pollution
   // signal): the tone fill goes, the score stays readable.
