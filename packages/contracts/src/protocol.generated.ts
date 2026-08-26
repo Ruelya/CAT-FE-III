@@ -752,6 +752,15 @@ export interface QaIssue {
   fingerprint: string;
   id: string;
   message: string;
+  /**
+   * Structured message parameters (e.g. `{"expected": "30", "found":
+   * "40"}`) so clients can localize the finding; `message` stays the
+   * engine-produced English fallback. Empty for rules with nothing to
+   * parameterize; rows persisted before the field existed parse as empty.
+   */
+  params?: {
+    [k: string]: string;
+  };
   ruleId: string;
   segmentId: string;
   severity: QaSeverity;
@@ -838,6 +847,15 @@ export interface QaIssue1 {
   fingerprint: string;
   id: string;
   message: string;
+  /**
+   * Structured message parameters (e.g. `{"expected": "30", "found":
+   * "40"}`) so clients can localize the finding; `message` stays the
+   * engine-produced English fallback. Empty for rules with nothing to
+   * parameterize; rows persisted before the field existed parse as empty.
+   */
+  params?: {
+    [k: string]: string;
+  };
   ruleId: string;
   segmentId: string;
   severity: QaSeverity;

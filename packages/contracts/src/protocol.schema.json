@@ -2072,6 +2072,13 @@
         "message": {
           "type": "string"
         },
+        "params": {
+          "description": "Structured message parameters (e.g. `{\"expected\": \"30\", \"found\":\n\"40\"}`) so clients can localize the finding; `message` stays the\nengine-produced English fallback. Empty for rules with nothing to\nparameterize; rows persisted before the field existed parse as empty.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "ruleId": {
           "type": "string"
         },

@@ -3121,3 +3121,94 @@ fn qa_run_excludes_locked_segments_and_keeps_their_issues() {
     assert_eq!(final_run["checkedSegments"], 2);
     assert_eq!(final_run["openIssues"], 0);
 }
+
+/// The behavioral check: confirming a fuzzy TM match without editing it
+/// opens `qa.unedited-fuzzy` at confirm time (warning, score in params),
+/// the confirm and its TM write still go through, a full qa.run reproduces
+/// the same issue instead of duplicating it, and editing the target before
+/// re-confirming resolves it.
+#[test]
+fn confirming_an_unedited_fuzzy_match_opens_a_behavioral_warning() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "fuzzy.txt", "Save the file.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+
+    // Apply a fuzzy TM match: the write stamps tmFuzzy with the real score.
+    let applied = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segment["id"],
+            "targetText": "保存文件。",
+            "baseRevision": segment["revision"],
+            "origin": { "kind": "tmFuzzy", "score": 82 },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(applied["origin"]["edited"], false);
+
+    // Confirm without touching the text: warning opens, confirm not blocked.
+    let confirmed = harness.confirm(&applied);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["tmEntry"]["targetText"], "保存文件。",
+        "the behavioral warning never blocks the confirm or its TM write"
+    );
+    let issues = confirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .expect("unedited-fuzzy issue");
+    assert_eq!(behavioral["status"], "open");
+    assert_eq!(behavioral["severity"], "warning");
+    assert_eq!(behavioral["params"]["score"], "82");
+
+    // A full run reproduces the same fingerprint: no duplicate row.
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    let behavioral_rows: Vec<&Value> = run["issues"]
+        .as_array()
+        .expect("issues")
+        .iter()
+        .filter(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .collect();
+    assert_eq!(behavioral_rows.len(), 1);
+    assert_eq!(behavioral_rows[0]["status"], "open");
+    assert_eq!(behavioral_rows[0]["id"], behavioral["id"]);
+
+    // Editing the target marks the origin edited; re-confirming resolves
+    // the behavioral issue in the same transaction.
+    let current = harness.segments(&document_id)[0].clone();
+    let edited = harness.set_target(&current, "保存该文件。");
+    assert_eq!(edited["origin"]["edited"], true);
+    let reconfirmed = harness.confirm(&edited);
+    let refreshed = reconfirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = refreshed
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-fuzzy")
+        .expect("behavioral row is kept, resolved");
+    assert_eq!(behavioral["status"], "resolved");
+
+    // Exact matches are not fuzzy: confirming an unedited tmExact apply
+    // stays clean.
+    let other_doc = harness.import_txt(&project_id, "exact.txt", "Close the file.\n");
+    let other = harness.segments(&other_doc)[0].clone();
+    let exact = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": other["id"],
+            "targetText": "关闭文件。",
+            "baseRevision": other["revision"],
+            "origin": { "kind": "tmExact", "score": 100 },
+        }),
+    )["segment"]
+        .clone();
+    let confirmed = harness.confirm(&exact);
+    assert!(
+        confirmed["qaIssues"]
+            .as_array()
+            .expect("qa issues")
+            .iter()
+            .all(|issue| issue["ruleId"] != "qa.unedited-fuzzy"),
+        "tmExact confirms never fire the fuzzy behavioral check"
+    );
+}

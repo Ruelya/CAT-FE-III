@@ -30,7 +30,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tl_asset::TermEntry;
-use tl_domain::{NumberEvidence, Project, QaIssue, QaIssueStatus, Segment, new_id};
+use tl_domain::{NumberEvidence, Project, QaIssue, QaIssueStatus, Segment, SegmentState, new_id};
 use tl_protocol::{
     QaListParams, QaListResult, QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
 };
@@ -96,6 +96,8 @@ impl Engine {
                 target_locale: project.target_locale.clone(),
                 tag_findings: Vec::new(),
                 terms,
+                confirmed: segment.state == SegmentState::Confirmed,
+                origin: segment.origin.clone(),
             };
             candidates.extend(profile.evaluate_segment(&input));
             consistency_inputs.push(QaConsistencySegment {
@@ -191,6 +193,8 @@ impl Engine {
                 target_locale: project.target_locale.clone(),
                 tag_findings: Vec::new(),
                 terms,
+                confirmed: segment.state == SegmentState::Confirmed,
+                origin: segment.origin.clone(),
             })
         };
 
@@ -399,6 +403,7 @@ fn fold_candidates(
                 issue.severity = candidate.severity;
                 issue.message = candidate.message;
                 issue.evidence = evidence;
+                issue.params = candidate.params;
                 issue.updated_at_ms = now;
                 changed_ids.insert(id.clone());
             }
@@ -412,6 +417,7 @@ fn fold_candidates(
                     message: candidate.message,
                     fingerprint: candidate.fingerprint,
                     evidence: map_evidence(candidate.evidence),
+                    params: candidate.params,
                     waive_note: None,
                     created_at_ms: now,
                     updated_at_ms: now,

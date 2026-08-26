@@ -585,6 +585,12 @@ pub struct QaIssue {
     pub message: String,
     pub fingerprint: String,
     pub evidence: NumberEvidence,
+    /// Structured message parameters (e.g. `{"expected": "30", "found":
+    /// "40"}`) so clients can localize the finding; `message` stays the
+    /// engine-produced English fallback. Empty for rules with nothing to
+    /// parameterize; rows persisted before the field existed parse as empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
     /// Free-form note recorded with a waiver. Optional by design — waiving
     /// must not demand a ritual reason. Non-null only while `status` is
     /// [`QaIssueStatus::Waived`].
