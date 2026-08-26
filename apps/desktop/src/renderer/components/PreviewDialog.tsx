@@ -271,7 +271,7 @@ export function PreviewDialog({
             </div>
           ) : null}
 
-          <div hidden={mode !== "proofread"}>
+          <div className="preview__pane" hidden={mode !== "proofread"}>
             <p className="preview__summary">
               共 {model.totalSegments} 个句段：{model.translatedSegments}{" "}
               个已有译文
@@ -308,7 +308,10 @@ export function PreviewDialog({
           </div>
 
           {layoutAvailable ? (
-            <div className="preview__layout" hidden={mode !== "layout"}>
+            <div
+              className="preview__layout preview__pane"
+              hidden={mode !== "layout"}
+            >
               {layout.phase === "loading" ? (
                 <p className="preview__summary">
                   正在通过导出管线生成 DOCX 版式预览…

@@ -89,7 +89,7 @@ export type BadgeTone = "neutral" | "accent" | "ok" | "warn" | "danger";
 export interface BadgeProps {
   tone?: BadgeTone;
   children: ReactNode;
-  title?: string;
+  title?: string | undefined;
 }
 
 export function Badge({ tone = "neutral", children, title }: BadgeProps) {
@@ -236,6 +236,83 @@ export function Meter({ ratio, label }: MeterProps) {
       />
     </span>
   );
+}
+
+export interface SegmentProgressProps {
+  /** Total segment count; zero renders an empty track. */
+  total: number;
+  confirmed: number;
+  draft: number;
+  label?: string;
+}
+
+/**
+ * Stacked document progress: confirmed leads, drafts trail as visibly
+ * provisional work, the untranslated remainder stays sunken. Widths are
+ * derived, so a stale prop can never draw more than 100%.
+ */
+export function SegmentProgress({
+  total,
+  confirmed,
+  draft,
+  label,
+}: SegmentProgressProps) {
+  const safeTotal = Math.max(0, total);
+  const confirmedRatio =
+    safeTotal > 0 ? Math.min(1, Math.max(0, confirmed) / safeTotal) : 0;
+  const draftRatio =
+    safeTotal > 0
+      ? Math.min(1 - confirmedRatio, Math.max(0, draft) / safeTotal)
+      : 0;
+  return (
+    <span
+      className="tl-progress"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(confirmedRatio * 100)}
+      aria-label={label}
+      title={label}
+    >
+      <span
+        className="tl-progress__confirmed"
+        style={{ width: `${(confirmedRatio * 100).toFixed(1)}%` }}
+      />
+      <span
+        className="tl-progress__draft"
+        style={{ width: `${(draftRatio * 100).toFixed(1)}%` }}
+      />
+    </span>
+  );
+}
+
+export type MatchGrade = "exact" | "inContext" | "fuzzy";
+
+export interface MatchBadgeProps {
+  /** 0-100 score as reported by the engine; shown verbatim. */
+  score: number;
+  grade: MatchGrade;
+  title?: string;
+}
+
+/**
+ * TM match-quality badge with the tiering translators scan for: exact and
+ * in-context matches read as settled (green), fuzzy matches read as
+ * work-to-verify (blue). The score always accompanies the color so the
+ * information is never color-only.
+ */
+export function MatchBadge({ score, grade, title }: MatchBadgeProps) {
+  const tone: BadgeTone = grade === "fuzzy" ? "accent" : "ok";
+  return (
+    <Badge tone={tone} title={title}>
+      <span className="tl-num">{score}%</span>
+    </Badge>
+  );
+}
+
+/** Inline keyboard-shortcut chip, e.g. Ctrl+Enter in editor hints. */
+export function Kbd({ children }: { children: ReactNode }) {
+  return <kbd className="tl-kbd">{children}</kbd>;
 }
 
 function join(...values: Array<string | undefined>): string {

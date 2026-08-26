@@ -1,9 +1,42 @@
 /* INSTRUMENT base controls. Flat, dense, hairline-bordered. */
 
+/* Shared entrance keyframes: small amplitude, decelerating, causal. */
+@keyframes tl-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tl-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes tl-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .tl-button {
   appearance: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--tl-space-2);
   font-family: var(--tl-font-ui);
   font-size: var(--tl-text-md);
@@ -14,14 +47,23 @@
   border: 1px solid transparent;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
   transition:
-    background-color 80ms linear,
-    border-color 80ms linear;
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard),
+    transform var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .tl-button:focus-visible {
   outline: none;
   box-shadow: var(--tl-focus-ring);
+}
+
+/* Physical press: half-pixel settle, no scale tricks. */
+.tl-button:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 
 .tl-button:disabled {
@@ -37,10 +79,15 @@
 .tl-button[data-variant="primary"] {
   background: var(--tl-color-accent);
   color: var(--tl-color-on-accent);
+  box-shadow: var(--tl-shadow-raised);
 }
 
 .tl-button[data-variant="primary"]:hover:not(:disabled) {
   background: var(--tl-color-accent-strong);
+}
+
+.tl-button[data-variant="primary"]:active:not(:disabled) {
+  box-shadow: none;
 }
 
 .tl-button[data-variant="outline"] {
@@ -52,6 +99,7 @@
 .tl-button[data-variant="outline"]:hover:not(:disabled) {
   border-color: var(--tl-color-accent);
   color: var(--tl-color-accent);
+  background: var(--tl-color-accent-faint);
 }
 
 .tl-button[data-variant="ghost"] {
@@ -97,6 +145,13 @@
   border: 1px solid var(--tl-color-border-strong);
   border-radius: var(--tl-radius-sm);
   padding: 6px 8px;
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.tl-field__control:hover:not(:disabled):not(:focus-visible) {
+  border-color: var(--tl-gray-6);
 }
 
 .tl-field__control:focus-visible {
@@ -164,6 +219,7 @@ textarea.tl-field__control {
   border: 1px solid var(--tl-color-border);
   border-radius: var(--tl-radius-md);
   overflow: hidden;
+  box-shadow: var(--tl-shadow-raised);
 }
 
 .tl-panel__header {
@@ -213,6 +269,19 @@ textarea.tl-field__control {
 
 .tl-status-dot[data-state="busy"] {
   background: var(--tl-status-warn);
+  /* A live "working" signal, not decoration: the pulse ends with the busy
+     state and collapses under prefers-reduced-motion. */
+  animation: tl-pulse 1.4s var(--tl-ease-standard) infinite;
+}
+
+@keyframes tl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .tl-status-dot[data-state="down"] {
@@ -230,6 +299,7 @@ textarea.tl-field__control {
   color: var(--tl-color-text-faint);
   font-family: var(--tl-font-ui);
   font-size: var(--tl-text-md);
+  animation: tl-fade-in var(--tl-motion-slow) var(--tl-ease-out);
 }
 
 .tl-empty__title {
@@ -254,6 +324,7 @@ textarea.tl-field__control {
   justify-content: center;
   padding: var(--tl-space-6);
   background: rgba(27, 32, 43, 0.42);
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
 }
 
 .tl-dialog {
@@ -266,6 +337,7 @@ textarea.tl-field__control {
   border-radius: var(--tl-radius-md);
   box-shadow: var(--tl-shadow-overlay);
   overflow: hidden;
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
 }
 
 .tl-dialog[data-wide="true"] {
@@ -324,5 +396,93 @@ textarea.tl-field__control {
   display: block;
   height: 100%;
   background: var(--tl-color-accent);
-  transition: width 160ms linear;
+  transition: width var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+/*
+ * Stacked segment progress: confirmed (green) + draft (blue) over the
+ * untranslated remainder. The professional read is "how much of this
+ * document is actually done", so confirmed leads and drafts are visibly
+ * provisional. Never color-only: pair with a numeric readout nearby.
+ */
+.tl-progress {
+  display: flex;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--tl-color-sunken);
+  overflow: hidden;
+}
+
+.tl-progress__confirmed {
+  height: 100%;
+  background: var(--tl-status-ok);
+  transition: width var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.tl-progress__draft {
+  height: 100%;
+  background: var(--tl-blue-accent);
+  opacity: 0.55;
+  transition: width var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+/* Keyboard-shortcut chip for inline hints. */
+.tl-kbd {
+  display: inline-block;
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: 1px solid var(--tl-color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+}
+
+/* Numeric readouts align in columns. */
+.tl-num {
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Instrument scrollbars: thin, quiet, hover-darkening. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tl-gray-4);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tl-gray-5);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Accessibility kill switch: every purposeful transition collapses to an
+   instant state change when the OS asks for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

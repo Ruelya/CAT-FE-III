@@ -7,8 +7,15 @@ import type {
   QaIssue,
   Segment,
   SegmentCounts,
+  TmMatchItem,
 } from "@translunar/contracts";
-import { Button, EmptyState, Meter, Panel } from "@translunar/ui";
+import {
+  Button,
+  EmptyState,
+  Meter,
+  Panel,
+  SegmentProgress,
+} from "@translunar/ui";
 
 import type {
   EngineLifecycleState,
@@ -53,6 +60,16 @@ export interface WorkbenchViewProps {
   onDocumentOpenChange?: (open: boolean) => void;
   /** Called with the stored project after the import-defaults auto-save. */
   onProjectUpdated?: (project: Project) => void;
+  /** Live grid stats for the shell status bar; null when no document. */
+  onStatsChange?: (stats: WorkbenchStats | null) => void;
+}
+
+/** What the shell status bar shows about the open document. */
+export interface WorkbenchStats {
+  documentName: string;
+  counts: SegmentCounts;
+  /** Ordinal of the selected segment, or null when nothing is selected. */
+  activeOrdinal: number | null;
 }
 
 type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
@@ -112,6 +129,7 @@ export function WorkbenchView({
   onStatusMessage,
   onDocumentOpenChange,
   onProjectUpdated,
+  onStatsChange,
 }: WorkbenchViewProps) {
   const [documents, setDocuments] = useState<Document[]>([]);
   // Per-document progress counts from document.list; the active document's
@@ -170,6 +188,39 @@ export function WorkbenchView({
   useEffect(() => {
     onDocumentOpenChange?.(activeDocument !== null);
   }, [activeDocument, onDocumentOpenChange]);
+
+  // TM lookup for the active segment lives here (not inside the TM dock) so
+  // the whole workbench reacts to selection: the dock list, the TM tab's
+  // best-score chip, and the active grid row all read the same result. The
+  // dependency is the segment object itself, so a confirm (which bumps the
+  // revision) re-queries and surfaces the entry it just wrote.
+  const [tmMatches, setTmMatches] = useState<TmMatchItem[]>([]);
+  const [tmError, setTmError] = useState<string | null>(null);
+  useEffect(() => {
+    setTmMatches([]);
+    setTmError(null);
+    if (!activeSegment) {
+      return;
+    }
+    let cancelled = false;
+    callEngine("tm.lookup", {
+      projectId: project.id,
+      sourceText: activeSegment.sourceText,
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setTmMatches(result.matches);
+        }
+      })
+      .catch((lookupError: unknown) => {
+        if (!cancelled) {
+          setTmError(describeError(lookupError));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, activeSegment]);
 
   const refreshDocuments = useCallback(async () => {
     const result = await callEngine("document.list", { projectId: project.id });
@@ -580,6 +631,10 @@ export function WorkbenchView({
     [issues],
   );
 
+  // Engine results arrive best-first; the top hit drives the TM tab chip
+  // and the active row's match badge.
+  const bestTmMatch = tmMatches[0] ?? null;
+
   const counts = useMemo<SegmentCounts>(() => {
     let confirmed = 0;
     let draft = 0;
@@ -628,6 +683,28 @@ export function WorkbenchView({
       return { ...current, [activeDocumentId]: counts };
     });
   }, [activeDocumentId, segments, counts]);
+
+  // Feed the shell status bar. Cleared on unmount (project close) so stale
+  // numbers never outlive the workbench that produced them.
+  useEffect(() => {
+    if (!onStatsChange) {
+      return;
+    }
+    if (!activeDocument) {
+      onStatsChange(null);
+      return;
+    }
+    onStatsChange({
+      documentName: activeDocument.name,
+      counts,
+      activeOrdinal: activeSegment?.ordinal ?? null,
+    });
+  }, [onStatsChange, activeDocument, counts, activeSegment]);
+  useEffect(() => {
+    return () => {
+      onStatsChange?.(null);
+    };
+  }, [onStatsChange]);
 
   const openIssueSegmentIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1027,6 +1104,22 @@ export function WorkbenchView({
                               }`
                             : `${document.format} · ${document.segmentCount} 句段`}
                         </span>
+                        {progress && progress.total > 0 ? (
+                          <span className="document-list__progress">
+                            <SegmentProgress
+                              total={progress.total}
+                              confirmed={progress.confirmed}
+                              draft={progress.draft}
+                              label={`已确认 ${progress.confirmed}/${progress.total}`}
+                            />
+                            <span className="tl-num document-list__pct">
+                              {Math.round(
+                                (progress.confirmed / progress.total) * 100,
+                              )}
+                              %
+                            </span>
+                          </span>
+                        ) : null}
                       </button>
                       {pendingRemoveId === document.id ? (
                         <span
@@ -1305,6 +1398,7 @@ export function WorkbenchView({
                     ref={gridRef}
                     segments={filteredSegments}
                     activeSegmentId={activeSegmentId}
+                    activeMatch={bestTmMatch}
                     qaSegmentIds={openIssueSegmentIds}
                     onSelect={setActiveSegmentId}
                     onSaveDraft={(segment, text) =>
@@ -1344,14 +1438,37 @@ export function WorkbenchView({
                 onClick={() => setTab(key)}
               >
                 {label}
+                {/* Live chips react to the active segment/document. They are
+                    aria-hidden so accessible names stay stable ("TM", "QA");
+                    the same numbers live accessibly in the panel titles. */}
+                {key === "tm" && bestTmMatch ? (
+                  <span
+                    className="dock-tabs__chip"
+                    data-tone={bestTmMatch.grade === "fuzzy" ? "accent" : "ok"}
+                    aria-hidden="true"
+                  >
+                    {bestTmMatch.score}%
+                  </span>
+                ) : null}
+                {key === "qa" && openIssueCount > 0 ? (
+                  <span
+                    className="dock-tabs__chip"
+                    data-tone="danger"
+                    aria-hidden="true"
+                  >
+                    {openIssueCount}
+                  </span>
+                ) : null}
               </button>
             ))}
           </nav>
-          <div className="dock-panel">
+          {/* Keyed by tab: switching docks replays a short entrance slide. */}
+          <div className="dock-panel dock-view" key={tab}>
             {tab === "tm" ? (
               <TmPanel
-                projectId={project.id}
                 activeSegment={activeSegment}
+                matches={tmMatches}
+                error={tmError}
                 onApply={applyDraftToActive}
               />
             ) : null}
