@@ -209,7 +209,15 @@ Trados Studio 的主导航是 **ribbon**（功能区），不是传统菜单栏�
 - 两页均警告：改变切分会影响 TM 命中（TM 内切分与文件切分不再一致）。
 - 合并后自动重查 TM 并应用更优匹配（默认开，[Automation 设置](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/file-options-editor-automation-344856)）；跨段落合并后空出的段可隐藏、其状态可指定（同页 Table 3）。
 
-### 2.9 段状态列（Segment Status column）的全部语义
+### 2.9 持久化模型：确认 ≠ 保存文件
+
+Studio 的确认/TM 写入与**文档文件落盘是两回事**：
+
+- 手动保存（**Ctrl+S** / QAT 的 Save）只保存当前活动文件；有未保存修改的文件在导航窗格文件名旁显示**星号 `*`**，保存后消失（[Identifying unsaved files](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/identifying-unsaved-files-353488)）。
+- **AutoSave** 默认每 **10 分钟**保存一次挂起修改，定位是崩溃/断电恢复，"is not a replacement for saving your files manually"；若不恢复自动保存的文件，未保存修改即丢失（[Adjusting AutoSave intervals](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/adjusting-autosave-intervals-353508)）。
+- 即：**打字→Draft 只是状态变化，不是持久化**；Ctrl+Enter 写 TM 但 .sdlxliff 仍需手动保存。Translunar 的"输入即持久化草稿"模型比 Studio 更强，这是**有意的改进**而非偏离（见 §9.3）。
+
+### 2.10 段状态列（Segment Status column）的全部语义
 
 状态列图标承载六类信息："The current status of the translation / The origin of the translation / The translation provider / The translation memory percentage match applied / The segment lock status / If verification found any errors"（[Segment Status column，2024 SR1](https://docs.rws.com/en-US/trados-studio-2024-sr1-1187677/segment-status-column-340490)，2026 文档树已移除该总表页，语义在 2026 界面截图中原样可见）。
 
@@ -450,7 +458,7 @@ Trados Studio 的主导航是 **ribbon**（功能区），不是传统菜单栏�
 
 1. **段生命周期核心闭环**（已采用，官方背书）：打字→Draft；**Ctrl+Enter = 确认 + 写 TM + 跳下一未确认段（跳过锁定段）**；清空→Draft。来源见 §2.2–2.5。
 2. **确认变体**：补 **Ctrl+Alt+Enter**（确认+顺跳）与 **Ctrl+Alt+Shift+Enter**（确认不动）两个低成本变体，键位照抄。
-3. **状态列即信息中枢**：源/译之间一列，图标+徽标（状态、来源 `CM/100%/85%/MT/AI`、锁、QA 错误），悬停出 Status/Origin/Provider/Score tooltip；**编辑后徽标底色消失**这个"已污染"信号非常廉价且高效（§2.9）。
+3. **状态列即信息中枢**：源/译之间一列，图标+徽标（状态、来源 `CM/100%/85%/MT/AI`、锁、QA 错误），悬停出 Status/Origin/Provider/Score tooltip；**编辑后徽标底色消失**这个"已污染"信号非常廉价且高效（§2.10）。
 4. **行激活 = 查询管线**：进段自动查 TM+术语；最佳命中自动填空段；exact 自动确认（做成可关的选项，默认照 Studio：apply best match 开、auto-confirm exact 开）（§2.4）。
 5. **TM 无命中 → MT 自动兜底填入**，来源徽标区分（§2.4、§6.2）。
 6. **自动传播**：确认后把译文传播到文件内相同源文段（默认 100%、只传空段/未确认段、不弹窗），是重复率高的文档的最大提效点（§2.6）。
@@ -483,7 +491,7 @@ Trados Studio 的主导航是 **ribbon**（功能区），不是传统菜单栏�
 
 ### 9.3 与现有 PRD 的对表（供 PRD 精化，不再自造）
 
-- 我们的"type = draft auto-save"：官方一致（§2.3），且官方还规定**清空目标段也归 Draft**——PRD 应补此边界。
+- 我们的"type = draft auto-save"：**状态语义**与官方一致（§2.3），且官方还规定**清空目标段也归 Draft**——PRD 应补此边界。**持久化语义**上我们强于 Studio：Studio 打字后仍需 Ctrl+S 落盘（AutoSave 仅崩溃恢复，§2.9），Translunar 输入即写库，应在 PRD 中明确这是有意改进（并因此**不需要**星号"未保存"标记与手动 Save 按钮）。
 - 我们的"Ctrl+Enter = confirm + TM + next unconfirmed"：官方一致，且官方语义包含**跳过锁定段**与**确认时段级 QA**、**确认时刷新预览**、**（可选）自动传播**四个挂钩——PRD 可按需挂接。
 - 官方"100% 命中自动确认""最佳命中自动填入"是**默认开**的选项而非固定行为；PRD 若做成常开需说明理由，建议保留开关。
 - TM 写入只认确认；**审校批准（Approved）同样写 TM**——若未来加 Reviewed 状态，写库规则照此。
