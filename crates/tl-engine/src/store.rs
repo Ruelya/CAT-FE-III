@@ -2858,6 +2858,93 @@ mod tests {
         );
     }
 
+    /// A database written before migration 7 (implicit 1:1 project TM, no
+    /// memory tables) upgrades in place: the project's implicit memory is
+    /// materialized as a real row named after the project, with one enabled,
+    /// writable, priority-0 mount, and the old `tm_entries` rows stay
+    /// reachable under the same `tm-{project_id}` memory id — zero loss,
+    /// zero re-import. The backfill is once-only: a mount detached on
+    /// purpose is not resurrected by the next open.
+    #[test]
+    fn migrates_legacy_implicit_project_tm_into_first_mount() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut conn =
+            Connection::open(directory.path().join(DB_FILE_NAME)).expect("raw connection");
+        let tx = conn.transaction().expect("tx");
+        for script in [
+            SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+        ] {
+            tx.execute_batch(script).expect("legacy schema");
+        }
+        tx.commit().expect("commit");
+        conn.pragma_update(None, "user_version", 6)
+            .expect("version");
+        // A project and its implicit-memory TM rows exactly as a pre-V7
+        // engine wrote them.
+        conn.execute(
+            "INSERT INTO projects (id, name, source_locale, target_locale, domain, lifecycle,
+               revision, configuration, created_at_ms, updated_at_ms, archived_at_ms)
+             VALUES ('p1', 'Legacy 项目', 'en-US', 'zh-CN', 'general', 'active', 1, '{}',
+               5, 5, NULL)",
+            [],
+        )
+        .expect("legacy project");
+        for (id, hash) in [("tm1", "h1"), ("tm2", "h2")] {
+            conn.execute(
+                "INSERT INTO tm_entries (id, memory_id, source_text, target_text, source_hash,
+                   origin_project_id, origin_document_id, origin_segment_id, confirmed_at_ms)
+                 VALUES (?1, 'tm-p1', 'Hello.', '你好。', ?2, 'p1', 'd1', 's1', 5)",
+                params![id, hash],
+            )
+            .expect("legacy tm entry");
+        }
+        drop(conn);
+
+        let (mut store, state) = Store::open(directory.path()).expect("open migrates to v7");
+        let memory = state
+            .memories
+            .get("tm-p1")
+            .expect("implicit memory materialized");
+        assert_eq!(memory.name, "Legacy 项目");
+        assert_eq!(memory.source_locale, "en-US");
+        assert_eq!(memory.target_locale, "zh-CN");
+        assert_eq!(
+            state.memory_mounts.len(),
+            1,
+            "exactly one mount materialized"
+        );
+        let mount = &state.memory_mounts[0];
+        assert_eq!(mount.project_id, "p1");
+        assert_eq!(mount.memory_id, "tm-p1");
+        assert_eq!(mount.priority, 0);
+        assert!(mount.enabled);
+        assert!(mount.writable);
+        assert_eq!(
+            store.tm_entry_count("tm-p1", None).expect("count"),
+            2,
+            "legacy entries stay reachable under the same memory id"
+        );
+
+        // Detach the mount and reopen: the once-only backfill must not
+        // resurrect what the user removed.
+        store
+            .apply(&StateDelta {
+                deleted_memory_mounts: vec![("p1".to_string(), "tm-p1".to_string())],
+                ..Default::default()
+            })
+            .expect("detach mount");
+        drop(store);
+        let (_, reopened) = Store::open(directory.path()).expect("reopen");
+        assert!(
+            reopened.memory_mounts.is_empty(),
+            "materialization is once-only"
+        );
+        assert!(
+            reopened.memories.contains_key("tm-p1"),
+            "the memory row itself survives"
+        );
+    }
+
     /// Every read path returns the stored origin, and the counts include
     /// the engine-computed source word count (UAX #29 / CJK-per-char 口径).
     #[test]

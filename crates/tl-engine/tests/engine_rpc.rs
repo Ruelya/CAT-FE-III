@@ -3594,3 +3594,279 @@ fn export_gate_blocks_open_errors_until_override_or_waiver() {
     );
     assert!(std::path::Path::new(&waived_path).exists());
 }
+
+// ---- Multi-TM: memories, mounts, and the single writable write path ----
+
+/// Every new project starts with its own memory mounted enabled + writable
+/// at priority 0 — the working memory. The mount model survives a reopen.
+#[test]
+fn project_create_mounts_a_writable_working_memory() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    let listed = harness.call("memory.list", json!({ "projectId": project_id }));
+    let memories = listed["memories"].as_array().expect("memories");
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0]["name"], "Test");
+    assert_eq!(memories[0]["sourceLocale"], "en-US");
+    assert_eq!(memories[0]["targetLocale"], "zh-CN");
+    assert_eq!(mounts.len(), 1);
+    assert_eq!(mounts[0]["memoryId"], memories[0]["id"]);
+    assert_eq!(mounts[0]["priority"], 0);
+    assert_eq!(mounts[0]["enabled"], true);
+    assert_eq!(mounts[0]["writable"], true);
+
+    harness.reopen();
+    let reloaded = harness.call("memory.list", json!({ "projectId": project_id }));
+    assert_eq!(reloaded["memories"].as_array().expect("memories").len(), 1);
+    assert_eq!(reloaded["mounts"].as_array().expect("mounts").len(), 1);
+}
+
+/// Two mounted memories: lookup merges both and annotates every match with
+/// the memory it came from; equal scores rank by mount priority, and a
+/// priority move flips the order.
+#[test]
+fn tm_lookup_merges_mounts_best_first_with_priority_tiebreak() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "seed.txt", "Save your work often.\n");
+    let segments = harness.segments(&document_id);
+    let updated = harness.set_target(&segments[0], "请经常保存工作。");
+    harness.confirm(&updated);
+
+    // A second memory mounted read-only at priority 1 with a colliding
+    // exact entry, imported explicitly into that memory.
+    let extra = harness.call(
+        "memory.create",
+        json!({ "name": "参考库", "sourceLocale": "en-US", "targetLocale": "zh-CN" }),
+    );
+    let extra_id = extra["id"].as_str().expect("memory id").to_string();
+    let mount = harness.call(
+        "memory.attach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    )["mount"]
+        .clone();
+    assert_eq!(mount["priority"], 1);
+    assert_eq!(mount["enabled"], true);
+    assert_eq!(
+        mount["writable"], false,
+        "attach never silently creates a second write target"
+    );
+    let csv_path = harness.write_file(
+        "reference.csv",
+        "source,target\nSave your work often.,请常存档。\n",
+    );
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path, "memoryId": extra_id }),
+    );
+
+    let result = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Save your work often." }),
+    );
+    let matches = result["matches"].as_array().expect("matches");
+    assert_eq!(matches.len(), 2, "both memories contribute");
+    assert_eq!(result["totalMatches"], 2);
+    // Equal 100-scores: the priority-0 working memory wins the tiebreak.
+    assert_eq!(matches[0]["score"], 100);
+    assert_eq!(matches[1]["score"], 100);
+    assert_eq!(matches[0]["entry"]["targetText"], "请经常保存工作。");
+    assert_eq!(matches[0]["memoryName"], "Test");
+    assert_eq!(matches[1]["entry"]["targetText"], "请常存档。");
+    assert_eq!(matches[1]["memoryName"], "参考库");
+    assert_eq!(matches[1]["entry"]["memoryId"], json!(extra_id));
+
+    // Move the reference memory to priority 0: the merged order flips.
+    let moved = harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": extra_id, "priority": 0 }),
+    );
+    let mounts = moved["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts[0]["memoryId"], json!(extra_id));
+    assert_eq!(mounts[0]["priority"], 0);
+    assert_eq!(mounts[1]["priority"], 1);
+    let flipped = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Save your work often." }),
+    );
+    assert_eq!(
+        flipped["matches"][0]["memoryName"], "参考库",
+        "priority decides equal-score order"
+    );
+}
+
+/// `enabled: false` removes a mount from the read path: lookup and
+/// pretranslation no longer see its entries, and re-enabling restores them.
+#[test]
+fn disabled_mounts_are_excluded_from_lookup_and_pretranslate() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let extra = harness.call(
+        "memory.create",
+        json!({ "name": "参考库", "sourceLocale": "en-US", "targetLocale": "zh-CN" }),
+    );
+    let extra_id = extra["id"].as_str().expect("memory id").to_string();
+    harness.call(
+        "memory.attach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+    let csv_path = harness.write_file(
+        "reference.csv",
+        "source,target\nSave your work often.,请常存档。\n",
+    );
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path, "memoryId": extra_id }),
+    );
+
+    let both = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Save your work often." }),
+    );
+    assert_eq!(both["matches"].as_array().expect("matches").len(), 1);
+
+    harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": extra_id, "enabled": false }),
+    );
+    let excluded = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Save your work often." }),
+    );
+    assert_eq!(
+        excluded["matches"].as_array().expect("matches").len(),
+        0,
+        "disabled mounts leave the read path"
+    );
+
+    // Pretranslate sees the same read path: nothing fills while the only
+    // memory holding the match is disabled, and it fills after re-enable.
+    let document_id = harness.import_txt(&project_id, "job.txt", "Save your work often.\n");
+    let dry = harness.call("tm.pretranslate", json!({ "documentId": document_id }));
+    assert_eq!(dry["pretranslated"], 0);
+    harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": extra_id, "enabled": true }),
+    );
+    let filled = harness.call("tm.pretranslate", json!({ "documentId": document_id }));
+    assert_eq!(filled["exact"], 1);
+    let segments = harness.segments(&document_id);
+    assert_eq!(segments[0]["targetText"], "请常存档。");
+}
+
+/// Confirm-time TM writes go to exactly one writable mount. Promoting a
+/// second memory while one is writable is a conflict; after an explicit
+/// demote + promote, confirms write the new working memory only; with no
+/// writable mount at all, confirm fails honestly.
+#[test]
+fn confirm_writes_only_the_writable_mount() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let own = harness.call("memory.list", json!({ "projectId": project_id }));
+    let own_id = own["memories"][0]["id"].as_str().expect("id").to_string();
+    let extra = harness.call(
+        "memory.create",
+        json!({ "name": "参考库", "sourceLocale": "en-US", "targetLocale": "zh-CN" }),
+    );
+    let extra_id = extra["id"].as_str().expect("memory id").to_string();
+    harness.call(
+        "memory.attach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+
+    let document_id = harness.import_txt(
+        &project_id,
+        "job.txt",
+        "Save your work often.\n\nThe retention period is 30 days.\n",
+    );
+    let segments = harness.segments(&document_id);
+    let first = harness.set_target(&segments[0], "请经常保存工作。");
+    let confirmed = harness.confirm(&first);
+    assert_eq!(confirmed["tmEntry"]["memoryId"], json!(own_id));
+    let own_entries = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "memoryId": own_id }),
+    );
+    assert_eq!(own_entries["total"], 1);
+    let extra_entries = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+    assert_eq!(
+        extra_entries["total"], 0,
+        "the read-only mount never receives confirm writes"
+    );
+
+    // Promoting a second writable mount is a conflict, never a silent
+    // demotion of the current working memory.
+    assert_eq!(
+        harness.call_err(
+            "memory.update",
+            json!({ "projectId": project_id, "memoryId": extra_id, "writable": true }),
+        ),
+        "conflict"
+    );
+
+    // Explicit demote + promote moves the write path.
+    harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": own_id, "writable": false }),
+    );
+    harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": extra_id, "writable": true }),
+    );
+    let segments = harness.segments(&document_id);
+    let second = harness.set_target(&segments[1], "保留期为 30 天。");
+    let confirmed = harness.confirm(&second);
+    assert_eq!(confirmed["tmEntry"]["memoryId"], json!(extra_id));
+    let extra_entries = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+    assert_eq!(extra_entries["total"], 1);
+    let own_entries = harness.call(
+        "tm.list",
+        json!({ "projectId": project_id, "memoryId": own_id }),
+    );
+    assert_eq!(own_entries["total"], 1, "the demoted memory keeps its rows");
+
+    // No writable mount anywhere: confirm refuses instead of picking a
+    // memory itself, and the default-memory management calls refuse too.
+    harness.call(
+        "memory.update",
+        json!({ "projectId": project_id, "memoryId": extra_id, "writable": false }),
+    );
+    let segments = harness.segments(&document_id);
+    let third = harness.set_target(&segments[0], "另一个译文。");
+    let response = harness.raw(
+        "segment.confirm",
+        json!({ "segmentId": third["id"], "baseRevision": third["revision"] }),
+    );
+    let error = response.error.expect("confirm refused");
+    assert_eq!(serde_json::to_value(error.code).unwrap(), "conflict");
+    assert!(error.message.contains("no writable memory"));
+    assert_eq!(
+        harness.call_err("tm.list", json!({ "projectId": project_id })),
+        "conflict"
+    );
+
+    // Detach the read-only reference mount: its memory and entries survive,
+    // only the project link goes.
+    harness.call(
+        "memory.detach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "tm.list",
+            json!({ "projectId": project_id, "memoryId": extra_id }),
+        ),
+        "notFound"
+    );
+    let listed = harness.call("memory.list", json!({ "projectId": project_id }));
+    assert_eq!(listed["memories"].as_array().expect("memories").len(), 2);
+    assert_eq!(listed["mounts"].as_array().expect("mounts").len(), 1);
+}
