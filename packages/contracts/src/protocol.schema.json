@@ -730,10 +730,34 @@
           "items": {
             "$ref": "#/$defs/Document"
           }
+        },
+        "progress": {
+          "description": "Per-document segment-state and open-QA counts, aligned with\n`documents` (same order), so the file rail can show honest progress\nwithout materializing any segment rows client-side.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentProgress"
+          }
         }
       },
       "required": [
-        "documents"
+        "documents",
+        "progress"
+      ]
+    },
+    "DocumentProgress": {
+      "description": "Segment progress of one document, counted in SQL at list time.",
+      "type": "object",
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/SegmentCounts"
+        },
+        "documentId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "counts"
       ]
     },
     "DocumentRemoveParams": {
@@ -1012,6 +1036,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/SegmentReplaceParams"
+        },
+        "result": {
+          "$ref": "#/$defs/SegmentReplaceResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract15": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/SegmentConfirmParams"
         },
         "result": {
@@ -1024,7 +1065,7 @@
         "result"
       ]
     },
-    "MethodContract15": {
+    "MethodContract16": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1041,7 +1082,7 @@
         "result"
       ]
     },
-    "MethodContract16": {
+    "MethodContract17": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1058,7 +1099,7 @@
         "result"
       ]
     },
-    "MethodContract17": {
+    "MethodContract18": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1075,7 +1116,7 @@
         "result"
       ]
     },
-    "MethodContract18": {
+    "MethodContract19": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1084,23 +1125,6 @@
         },
         "result": {
           "$ref": "#/$defs/TmDeleteResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract19": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TmImportParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TmImportResult"
         }
       },
       "additionalProperties": false,
@@ -1131,6 +1155,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TmImportParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TmImportResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract21": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TmExportParams"
         },
         "result": {
@@ -1143,7 +1184,7 @@
         "result"
       ]
     },
-    "MethodContract21": {
+    "MethodContract22": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1160,7 +1201,7 @@
         "result"
       ]
     },
-    "MethodContract22": {
+    "MethodContract23": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1177,7 +1218,7 @@
         "result"
       ]
     },
-    "MethodContract23": {
+    "MethodContract24": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1194,7 +1235,7 @@
         "result"
       ]
     },
-    "MethodContract24": {
+    "MethodContract25": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1211,7 +1252,7 @@
         "result"
       ]
     },
-    "MethodContract25": {
+    "MethodContract26": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1228,7 +1269,7 @@
         "result"
       ]
     },
-    "MethodContract26": {
+    "MethodContract27": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1245,7 +1286,7 @@
         "result"
       ]
     },
-    "MethodContract27": {
+    "MethodContract28": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1262,7 +1303,7 @@
         "result"
       ]
     },
-    "MethodContract28": {
+    "MethodContract29": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1271,23 +1312,6 @@
         },
         "result": {
           "$ref": "#/$defs/TermAddResult"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract29": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/TermUpdateParams"
-        },
-        "result": {
-          "$ref": "#/$defs/TermUpdateResult"
         }
       },
       "additionalProperties": false,
@@ -1318,6 +1342,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/TermUpdateParams"
+        },
+        "result": {
+          "$ref": "#/$defs/TermUpdateResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract31": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/TermDeleteParams"
         },
         "result": {
@@ -1330,7 +1371,7 @@
         "result"
       ]
     },
-    "MethodContract31": {
+    "MethodContract32": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1347,7 +1388,7 @@
         "result"
       ]
     },
-    "MethodContract32": {
+    "MethodContract33": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1364,7 +1405,7 @@
         "result"
       ]
     },
-    "MethodContract33": {
+    "MethodContract34": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1381,7 +1422,7 @@
         "result"
       ]
     },
-    "MethodContract34": {
+    "MethodContract35": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1398,7 +1439,7 @@
         "result"
       ]
     },
-    "MethodContract35": {
+    "MethodContract36": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1415,7 +1456,7 @@
         "result"
       ]
     },
-    "MethodContract36": {
+    "MethodContract37": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1432,7 +1473,7 @@
         "result"
       ]
     },
-    "MethodContract37": {
+    "MethodContract38": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1449,29 +1490,12 @@
         "result"
       ]
     },
-    "MethodContract38": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AiAssistParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AiAssistRunView"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
     "MethodContract39": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistStatusParams"
+          "$ref": "#/$defs/AiAssistParams"
         },
         "result": {
           "$ref": "#/$defs/AiAssistRunView"
@@ -1505,7 +1529,7 @@
       "type": "object",
       "properties": {
         "params": {
-          "$ref": "#/$defs/AiAssistCancelParams"
+          "$ref": "#/$defs/AiAssistStatusParams"
         },
         "result": {
           "$ref": "#/$defs/AiAssistRunView"
@@ -1522,6 +1546,23 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiAssistCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiAssistRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract42": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AgentStartParams"
         },
         "result": {
@@ -1534,7 +1575,7 @@
         "result"
       ]
     },
-    "MethodContract42": {
+    "MethodContract43": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -1551,7 +1592,7 @@
         "result"
       ]
     },
-    "MethodContract43": {
+    "MethodContract44": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2232,28 +2273,28 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract43"
+          "$ref": "#/$defs/MethodContract44"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract41"
-        },
-        "ai.agent.status": {
           "$ref": "#/$defs/MethodContract42"
         },
+        "ai.agent.status": {
+          "$ref": "#/$defs/MethodContract43"
+        },
         "ai.assist.cancel": {
-          "$ref": "#/$defs/MethodContract40"
+          "$ref": "#/$defs/MethodContract41"
         },
         "ai.assist.start": {
-          "$ref": "#/$defs/MethodContract38"
-        },
-        "ai.assist.status": {
           "$ref": "#/$defs/MethodContract39"
         },
+        "ai.assist.status": {
+          "$ref": "#/$defs/MethodContract40"
+        },
         "ai.configure": {
-          "$ref": "#/$defs/MethodContract36"
+          "$ref": "#/$defs/MethodContract37"
         },
         "ai.status": {
-          "$ref": "#/$defs/MethodContract37"
+          "$ref": "#/$defs/MethodContract38"
         },
         "document.export": {
           "$ref": "#/$defs/MethodContract11"
@@ -2289,76 +2330,79 @@
           "$ref": "#/$defs/MethodContract6"
         },
         "qa.list": {
-          "$ref": "#/$defs/MethodContract34"
-        },
-        "qa.run": {
-          "$ref": "#/$defs/MethodContract33"
-        },
-        "qa.waive": {
           "$ref": "#/$defs/MethodContract35"
         },
+        "qa.run": {
+          "$ref": "#/$defs/MethodContract34"
+        },
+        "qa.waive": {
+          "$ref": "#/$defs/MethodContract36"
+        },
         "segment.confirm": {
-          "$ref": "#/$defs/MethodContract14"
+          "$ref": "#/$defs/MethodContract15"
         },
         "segment.list": {
           "$ref": "#/$defs/MethodContract12"
+        },
+        "segment.replace": {
+          "$ref": "#/$defs/MethodContract14"
         },
         "segment.update": {
           "$ref": "#/$defs/MethodContract13"
         },
         "term.add": {
-          "$ref": "#/$defs/MethodContract28"
-        },
-        "term.delete": {
-          "$ref": "#/$defs/MethodContract30"
-        },
-        "term.list": {
-          "$ref": "#/$defs/MethodContract31"
-        },
-        "term.lookup": {
-          "$ref": "#/$defs/MethodContract32"
-        },
-        "term.update": {
           "$ref": "#/$defs/MethodContract29"
         },
+        "term.delete": {
+          "$ref": "#/$defs/MethodContract31"
+        },
+        "term.list": {
+          "$ref": "#/$defs/MethodContract32"
+        },
+        "term.lookup": {
+          "$ref": "#/$defs/MethodContract33"
+        },
+        "term.update": {
+          "$ref": "#/$defs/MethodContract30"
+        },
         "termbase.attach": {
-          "$ref": "#/$defs/MethodContract24"
-        },
-        "termbase.create": {
-          "$ref": "#/$defs/MethodContract22"
-        },
-        "termbase.detach": {
           "$ref": "#/$defs/MethodContract25"
         },
-        "termbase.export": {
-          "$ref": "#/$defs/MethodContract27"
-        },
-        "termbase.import": {
-          "$ref": "#/$defs/MethodContract26"
-        },
-        "termbase.list": {
+        "termbase.create": {
           "$ref": "#/$defs/MethodContract23"
         },
+        "termbase.detach": {
+          "$ref": "#/$defs/MethodContract26"
+        },
+        "termbase.export": {
+          "$ref": "#/$defs/MethodContract28"
+        },
+        "termbase.import": {
+          "$ref": "#/$defs/MethodContract27"
+        },
+        "termbase.list": {
+          "$ref": "#/$defs/MethodContract24"
+        },
         "tm.delete": {
-          "$ref": "#/$defs/MethodContract18"
-        },
-        "tm.export": {
-          "$ref": "#/$defs/MethodContract20"
-        },
-        "tm.import": {
           "$ref": "#/$defs/MethodContract19"
         },
-        "tm.list": {
-          "$ref": "#/$defs/MethodContract16"
-        },
-        "tm.lookup": {
-          "$ref": "#/$defs/MethodContract15"
-        },
-        "tm.pretranslate": {
+        "tm.export": {
           "$ref": "#/$defs/MethodContract21"
         },
-        "tm.update": {
+        "tm.import": {
+          "$ref": "#/$defs/MethodContract20"
+        },
+        "tm.list": {
           "$ref": "#/$defs/MethodContract17"
+        },
+        "tm.lookup": {
+          "$ref": "#/$defs/MethodContract16"
+        },
+        "tm.pretranslate": {
+          "$ref": "#/$defs/MethodContract22"
+        },
+        "tm.update": {
+          "$ref": "#/$defs/MethodContract18"
         }
       },
       "additionalProperties": false,
@@ -2376,6 +2420,7 @@
         "document.export",
         "segment.list",
         "segment.update",
+        "segment.replace",
         "segment.confirm",
         "tm.lookup",
         "tm.list",
@@ -2564,6 +2609,43 @@
         "propagated"
       ]
     },
+    "SegmentCounts": {
+      "type": "object",
+      "properties": {
+        "confirmed": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "draft": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "openIssues": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "untranslated": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "untranslated",
+        "draft",
+        "confirmed",
+        "openIssues"
+      ]
+    },
     "SegmentListParams": {
       "type": "object",
       "properties": {
@@ -2614,6 +2696,72 @@
       "required": [
         "segments",
         "totalSegments"
+      ]
+    },
+    "SegmentReplaceParams": {
+      "description": "Parameters for `segment.replace`: one document-wide search-and-replace\nover target text. Matching is case-insensitive with per-character\nUnicode lowercase folding — the same semantics as the grid find box —\nand occurrences never overlap. Source text is never touched.",
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "find": {
+          "description": "Text to find in target text. Must not be empty.",
+          "type": "string"
+        },
+        "includeConfirmed": {
+          "description": "Also rewrite confirmed segments. A rewritten confirmed segment moves\nback to `draft` — the confirmation covered the old text — and its TM\nentry is left as it was (replace drafts, it never confirms). Default\nfalse: confirmed matches are skipped and counted instead.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "replaceWith": {
+          "description": "Replacement text. May be empty, which deletes the found text; a\ntarget emptied this way honestly returns to `untranslated`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "find",
+        "replaceWith"
+      ]
+    },
+    "SegmentReplaceResult": {
+      "type": "object",
+      "properties": {
+        "demotedConfirmed": {
+          "description": "How many of `segments` were confirmed before this replace moved them\nback to draft. Non-zero only with `includeConfirmed`.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "replacedOccurrences": {
+          "description": "Total occurrences replaced across `segments`.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "segments": {
+          "description": "Rewritten segments in grid order, carrying their new revision and\nstate, so clients can apply them without a full reload.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        },
+        "skippedConfirmed": {
+          "description": "Matching confirmed segments left untouched because\n`includeConfirmed` was not set.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "segments",
+        "replacedOccurrences",
+        "demotedConfirmed",
+        "skippedConfirmed"
       ]
     },
     "SegmentState": {

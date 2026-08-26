@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tl_domain::{DegradationFinding, Document};
+use tl_domain::{DegradationFinding, Document, SegmentCounts};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +43,18 @@ pub struct DocumentListParams {
 #[serde(rename_all = "camelCase")]
 pub struct DocumentListResult {
     pub documents: Vec<Document>,
+    /// Per-document segment-state and open-QA counts, aligned with
+    /// `documents` (same order), so the file rail can show honest progress
+    /// without materializing any segment rows client-side.
+    pub progress: Vec<DocumentProgress>,
+}
+
+/// Segment progress of one document, counted in SQL at list time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentProgress {
+    pub document_id: String,
+    pub counts: SegmentCounts,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

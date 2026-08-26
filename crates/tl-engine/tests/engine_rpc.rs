@@ -2526,3 +2526,200 @@ fn document_remove_drops_waived_issues_with_the_document() {
         "notFound"
     );
 }
+
+/// segment.replace rewrites target text case-insensitively across one
+/// document in a single call: drafts are rewritten in place, confirmed
+/// segments are skipped (and counted) unless includeConfirmed demotes them
+/// back to draft, the TM entry written by an earlier confirmation is never
+/// touched, and the rewrites survive a restart.
+#[test]
+fn segment_replace_rewrites_targets_and_respects_confirmations() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "replace.txt",
+        "First line.\n\nSecond line.\n\nThird line.\n\nFourth line.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "Server 已就绪");
+    let confirmed = harness.set_target(&segments[1], "重启 server");
+    harness.confirm(&confirmed);
+    harness.set_target(&segments[2], "server Server SERVER");
+    // segments[3] stays untranslated: an empty target can never match.
+
+    // Empty find and unknown documents fail honestly.
+    assert_eq!(
+        harness.call_err(
+            "segment.replace",
+            json!({ "documentId": document_id, "find": "", "replaceWith": "x" }),
+        ),
+        "invalidParams"
+    );
+    assert_eq!(
+        harness.call_err(
+            "segment.replace",
+            json!({ "documentId": "missing", "find": "a", "replaceWith": "b" }),
+        ),
+        "notFound"
+    );
+
+    // Default run: drafts are rewritten, the confirmed match is skipped.
+    let replaced = harness.call(
+        "segment.replace",
+        json!({ "documentId": document_id, "find": "server", "replaceWith": "服务器" }),
+    );
+    assert_eq!(replaced["replacedOccurrences"], 4);
+    assert_eq!(replaced["skippedConfirmed"], 1);
+    assert_eq!(replaced["demotedConfirmed"], 0);
+    let rows = replaced["segments"].as_array().expect("segments");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["targetText"], "服务器 已就绪");
+    assert_eq!(rows[0]["state"], "draft");
+    assert_eq!(rows[1]["targetText"], "服务器 服务器 服务器");
+
+    let after = harness.segments(&document_id);
+    assert_eq!(
+        after[1]["targetText"], "重启 server",
+        "confirmed segment untouched without includeConfirmed"
+    );
+    assert_eq!(after[1]["state"], "confirmed");
+    assert_eq!(after[3]["targetText"], "", "untranslated row untouched");
+
+    // includeConfirmed rewrites the confirmed row and demotes it to draft;
+    // the TM entry from its confirmation keeps the old translation.
+    let with_confirmed = harness.call(
+        "segment.replace",
+        json!({
+            "documentId": document_id,
+            "find": "server",
+            "replaceWith": "服务器",
+            "includeConfirmed": true,
+        }),
+    );
+    assert_eq!(with_confirmed["replacedOccurrences"], 1);
+    assert_eq!(with_confirmed["demotedConfirmed"], 1);
+    assert_eq!(with_confirmed["skippedConfirmed"], 0);
+    assert_eq!(with_confirmed["segments"][0]["targetText"], "重启 服务器");
+    assert_eq!(with_confirmed["segments"][0]["state"], "draft");
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 1);
+    assert_eq!(
+        tm["entries"][0]["targetText"], "重启 server",
+        "replace drafts, it never rewrites the TM"
+    );
+
+    // A replacement that empties the target honestly reverts the row to
+    // untranslated, mirroring segment.update semantics.
+    let emptied = harness.call(
+        "segment.replace",
+        json!({ "documentId": document_id, "find": "重启 服务器", "replaceWith": "" }),
+    );
+    assert_eq!(emptied["segments"][0]["state"], "untranslated");
+    assert_eq!(emptied["segments"][0]["targetText"], "");
+
+    // The rewrites live in SQLite, not only in engine memory.
+    harness.reopen();
+    let persisted = harness.segments(&document_id);
+    assert_eq!(persisted[0]["targetText"], "服务器 已就绪");
+    assert_eq!(persisted[1]["targetText"], "");
+    assert_eq!(persisted[1]["state"], "untranslated");
+    assert_eq!(persisted[2]["targetText"], "服务器 服务器 服务器");
+}
+
+/// document.list reports honest per-document progress counts (segment
+/// states plus open QA issues) straight from SQL, aligned with the
+/// documents list, and stays correct after edits and a restart.
+#[test]
+fn document_list_reports_per_document_progress() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let first_id = harness.import_txt(
+        &project_id,
+        "progress-a.txt",
+        "The amount is 30.\n\nSecond line.\n\nThird line.\n",
+    );
+    let second_id = harness.import_txt(&project_id, "progress-b.txt", "One.\n\nTwo.\n");
+
+    // Fresh imports: everything untranslated, no issues.
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    let documents = listed["documents"].as_array().expect("documents");
+    let progress = listed["progress"].as_array().expect("progress");
+    assert_eq!(documents.len(), 2);
+    assert_eq!(progress.len(), 2);
+    for (document, entry) in documents.iter().zip(progress) {
+        assert_eq!(document["id"], entry["documentId"], "aligned by order");
+    }
+    assert_eq!(
+        progress[0]["counts"],
+        json!({ "total": 3, "untranslated": 3, "draft": 0, "confirmed": 0, "openIssues": 0 })
+    );
+
+    // One draft with a number mismatch (open QA issues after qa.run), one
+    // confirmation, one row untouched. The progress open count must agree
+    // with what qa.run itself reports.
+    let segments = harness.segments(&first_id);
+    harness.set_target(&segments[0], "金额是 40。");
+    let updated = harness.set_target(&segments[1], "第二行。");
+    harness.confirm(&updated);
+    let run = harness.call("qa.run", json!({ "documentId": first_id }));
+    let open_issues = run["openIssues"].as_u64().expect("open issues");
+    assert!(open_issues >= 1, "the number mismatch must open an issue");
+
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    let progress = listed["progress"].as_array().expect("progress");
+    let first = progress
+        .iter()
+        .find(|entry| entry["documentId"] == json!(first_id))
+        .expect("first document progress");
+    assert_eq!(
+        first["counts"],
+        json!({
+            "total": 3,
+            "untranslated": 1,
+            "draft": 1,
+            "confirmed": 1,
+            "openIssues": open_issues,
+        })
+    );
+    let second = progress
+        .iter()
+        .find(|entry| entry["documentId"] == json!(second_id))
+        .expect("second document progress");
+    assert_eq!(
+        second["counts"],
+        json!({ "total": 2, "untranslated": 2, "draft": 0, "confirmed": 0, "openIssues": 0 })
+    );
+
+    // Waiving one issue removes exactly it from the open count without
+    // touching the segment states.
+    let issues = harness.call("qa.list", json!({ "documentId": first_id }));
+    let issue_id = issues["issues"][0]["id"].as_str().expect("issue id");
+    harness.call("qa.waive", json!({ "issueId": issue_id, "waived": true }));
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    assert_eq!(
+        listed["progress"][0]["counts"]["openIssues"],
+        json!(open_issues - 1)
+    );
+
+    // Counts answer from SQL identically after a restart.
+    harness.reopen();
+    let listed = harness.call("document.list", json!({ "projectId": project_id }));
+    let first = listed["progress"]
+        .as_array()
+        .expect("progress")
+        .iter()
+        .find(|entry| entry["documentId"] == json!(first_id))
+        .cloned()
+        .expect("first document progress");
+    assert_eq!(
+        first["counts"],
+        json!({
+            "total": 3,
+            "untranslated": 1,
+            "draft": 1,
+            "confirmed": 1,
+            "openIssues": open_issues - 1,
+        })
+    );
+}

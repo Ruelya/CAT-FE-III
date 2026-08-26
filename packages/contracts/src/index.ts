@@ -56,6 +56,7 @@ export const ENGINE_METHODS = [
   "document.export",
   "segment.list",
   "segment.update",
+  "segment.replace",
   "segment.confirm",
   "tm.lookup",
   "tm.list",

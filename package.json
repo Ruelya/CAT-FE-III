@@ -19,6 +19,7 @@
     "contracts:generate": "cargo run -p tl-protocol --bin export-schema -- packages/contracts/src/protocol.schema.json && pnpm --filter @translunar/contracts generate",
     "contracts:check": "node scripts/check-contracts.mjs",
     "test:e2e:engine": "cargo build -p tl-engine && node scripts/engine-smoke.mjs",
+    "test:live:ai": "cargo build -p tl-engine && node scripts/engine-ai-live.mjs",
     "test:e2e:desktop": "cargo build -p tl-engine && pnpm --filter @translunar/desktop test:e2e",
     "prelint": "pnpm --filter @translunar/contracts build",
     "lint": "eslint apps packages/contracts/src packages/ui/src && cargo clippy --workspace --all-targets -- -D warnings",
