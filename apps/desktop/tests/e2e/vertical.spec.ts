@@ -915,7 +915,8 @@ test("export gate refuses on QA errors until the user decides", async () => {
   ).toBeVisible();
 
   // The export is refused before anything touches disk; the question
-  // carries the engine's own count and rule ids.
+  // carries the engine's own count and rule ids — the planted number
+  // mismatch plus the untranslated row 3 (completeness error).
   const gateExportPath = join(workDir, "gated.txt");
   await app.evaluate((_electronModule, path) => {
     process.env.TL_FAKE_SAVE_PATH = path;
@@ -924,18 +925,19 @@ test("export gate refuses on QA errors until the user decides", async () => {
   const gatePrompt = page.getByRole("alertdialog", {
     name: "存在 QA 错误，仍要导出吗？",
   });
-  await expect(gatePrompt).toContainText("1 个错误未解决");
+  await expect(gatePrompt).toContainText("2 个错误未解决");
   await expect(gatePrompt).toContainText("qa.number-mismatch");
+  await expect(gatePrompt).toContainText("qa.empty-target");
   await shot("24-gate-refusal.png");
 
   // 取消 writes nothing; the gate's engine-side qa.run already persisted
-  // the finding, so the QA dock shows it without a manual 运行 QA.
+  // the findings, so the QA dock shows them without a manual 运行 QA.
   await page.getByRole("button", { name: "取消" }).click();
   await expect(gatePrompt).toHaveCount(0);
   await expect(page.locator(".app-statusbar")).toContainText("已取消导出");
   expect(existsSync(gateExportPath)).toBe(false);
   await page.getByRole("button", { name: "QA", exact: true }).click();
-  await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
+  await expect(page.getByText("质量检查（未解决 2）")).toBeVisible();
 
   // 仍要导出 is the recorded human decision: the retry passes the gate.
   await page.getByRole("button", { name: "导出译文" }).click();
