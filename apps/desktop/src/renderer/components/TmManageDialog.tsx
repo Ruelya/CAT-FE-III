@@ -41,6 +41,14 @@ const PAGE_SIZE = 50;
  * picked in the entries toolbar. This surface never confirms segments and
  * never exports files — confirmation-time TM writes stay in the workbench,
  * import/export stays in project settings.
+ *
+ * Memories themselves rename through memory.rename (baseRevision guarded)
+ * and delete through memory.delete — deletion is only offered for
+ * unmounted memories, and the engine's two honest conflicts surface as-is:
+ * mounted anywhere refuses, and remaining entries refuse until the user
+ * explicitly picks 连同条目删除 (deleteEntries). A memory whose language
+ * pair differs from the project's carries a short factual badge — the
+ * engine soft-warns and never refuses the attach.
  */
 export function TmManageDialog({
   open,
@@ -68,11 +76,49 @@ export function TmManageDialog({
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
     null,
   );
+  // Inline memory rename: the mount row being renamed and its draft name.
+  const [renamingMemoryId, setRenamingMemoryId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  // memory.delete two-step: the plain confirm, then — only after the engine
+  // refused because entries remain — the explicit cascade offer carrying
+  // the engine's own message.
+  const [confirmingMemoryDeleteId, setConfirmingMemoryDeleteId] = useState<
+    string | null
+  >(null);
+  const [cascadePrompt, setCascadePrompt] = useState<{
+    memoryId: string;
+    message: string;
+  } | null>(null);
 
   const memoryName = useCallback(
     (memoryId: string) =>
       memories.find((memory) => memory.id === memoryId)?.name ?? memoryId,
     [memories],
+  );
+
+  const memoryById = useCallback(
+    (memoryId: string) => memories.find((memory) => memory.id === memoryId),
+    [memories],
+  );
+
+  /**
+   * Short factual pair note when a memory's locales differ from the
+   * project's — the soft warning the multi-TM proposal asks for. Attaching
+   * is never refused over it.
+   */
+  const localeMismatch = useCallback(
+    (memoryId: string): string | null => {
+      const memory = memoryById(memoryId);
+      if (
+        !memory ||
+        (memory.sourceLocale === project.sourceLocale &&
+          memory.targetLocale === project.targetLocale)
+      ) {
+        return null;
+      }
+      return `语言对 ${memory.sourceLocale} → ${memory.targetLocale}（项目 ${project.sourceLocale} → ${project.targetLocale}）`;
+    },
+    [memoryById, project.sourceLocale, project.targetLocale],
   );
 
   const refreshMounts = useCallback(async () => {
@@ -147,6 +193,10 @@ export function TmManageDialog({
       setError(null);
       setEditingId(null);
       setConfirmingDeleteId(null);
+      setRenamingMemoryId(null);
+      setRenameDraft("");
+      setConfirmingMemoryDeleteId(null);
+      setCascadePrompt(null);
       setEntries([]);
       setTotal(null);
     }
@@ -237,16 +287,96 @@ export function TmManageDialog({
     [project.id, memoryName, runMountAction],
   );
 
-  const attachExisting = useCallback(
-    () =>
-      runMountAction(async () => {
+  const attachExisting = useCallback(() => {
+    // The factual pair note rides along on the attach status when the
+    // memory's locales differ from the project's; never a refusal.
+    const mismatch = localeMismatch(attachChoice);
+    return runMountAction(
+      async () => {
         await callEngine("memory.attach", {
           projectId: project.id,
           memoryId: attachChoice,
         });
         setAttachChoice("");
-      }, `已挂载：${memoryName(attachChoice)}（只读）`),
-    [project.id, attachChoice, memoryName, runMountAction],
+        setConfirmingMemoryDeleteId(null);
+        setCascadePrompt(null);
+      },
+      `已挂载：${memoryName(attachChoice)}（只读${mismatch ? `，${mismatch}` : ""}）`,
+    );
+  }, [project.id, attachChoice, memoryName, localeMismatch, runMountAction]);
+
+  const renameMemory = useCallback(async () => {
+    if (!renamingMemoryId) {
+      return;
+    }
+    const memory = memoryById(renamingMemoryId);
+    if (!memory) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await callEngine("memory.rename", {
+        memoryId: memory.id,
+        name: renameDraft.trim(),
+        baseRevision: memory.revision,
+      });
+      setRenamingMemoryId(null);
+      setRenameDraft("");
+      await refreshMounts();
+      setNotice(`已重命名为：${result.memory.name}`);
+    } catch (renameError) {
+      setError(describeError(renameError));
+      // A conflict means the stored revision moved; re-read so the retry
+      // is based on reality.
+      await refreshMounts().catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  }, [renamingMemoryId, renameDraft, memoryById, refreshMounts]);
+
+  /**
+   * memory.delete, honestly staged: the first call never cascades. When
+   * the engine refuses because entries remain, its message is shown and
+   * only an explicit 连同条目删除 retries with deleteEntries.
+   */
+  const deleteMemory = useCallback(
+    async (memoryId: string, deleteEntries: boolean) => {
+      const name = memoryName(memoryId);
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        const result = await callEngine("memory.delete", {
+          memoryId,
+          ...(deleteEntries ? { deleteEntries: true } : {}),
+        });
+        setConfirmingMemoryDeleteId(null);
+        setCascadePrompt(null);
+        setAttachChoice("");
+        await refreshMounts();
+        setNotice(
+          result.deletedEntries > 0
+            ? `已删除记忆库「${name}」（连同 ${result.deletedEntries} 条条目）`
+            : `已删除记忆库「${name}」`,
+        );
+      } catch (deleteError) {
+        const message = describeError(deleteError);
+        setConfirmingMemoryDeleteId(null);
+        if (!deleteEntries && /\d+ TM entr/.test(message)) {
+          // Entries remain: hand the engine's count to the user and let
+          // them decide about the cascade.
+          setCascadePrompt({ memoryId, message });
+        } else {
+          setCascadePrompt(null);
+          setError(message);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [memoryName, refreshMounts],
   );
 
   const createAndAttach = useCallback(
@@ -358,6 +488,39 @@ export function TmManageDialog({
           ) : (
             mounts.map((mount, index) => {
               const name = memoryName(mount.memoryId);
+              const mismatch = localeMismatch(mount.memoryId);
+              if (renamingMemoryId === mount.memoryId) {
+                return (
+                  <div className="tm-manage__mount" key={mount.memoryId}>
+                    <TextField
+                      label={`重命名记忆库 ${name}`}
+                      value={renameDraft}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                    />
+                    <div className="tm-manage__actions">
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || !renameDraft.trim()}
+                        onClick={() => void renameMemory()}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => {
+                          setRenamingMemoryId(null);
+                          setRenameDraft("");
+                        }}
+                      >
+                        取消
+                      </Button>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <div className="tm-manage__mount" key={mount.memoryId}>
                   <span className="tm-manage__mount-name">{name}</span>
@@ -365,6 +528,11 @@ export function TmManageDialog({
                     {mount.writable ? "可写" : "只读"}
                   </Badge>
                   {mount.enabled ? null : <Badge tone="warn">已停用</Badge>}
+                  {mismatch ? (
+                    // Factual pair note — the engine soft-warns, never
+                    // refuses, so the badge just states the pairs.
+                    <Badge tone="warn">{mismatch}</Badge>
+                  ) : null}
                   <div className="tm-manage__actions">
                     <Button
                       size="sm"
@@ -412,6 +580,20 @@ export function TmManageDialog({
                       size="sm"
                       variant="outline"
                       disabled={busy}
+                      aria-label={`重命名记忆库 ${name}`}
+                      onClick={() => {
+                        setRenamingMemoryId(mount.memoryId);
+                        setRenameDraft(name);
+                        setNotice(null);
+                        setError(null);
+                      }}
+                    >
+                      重命名
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
                       aria-label={`卸载记忆库 ${name}`}
                       onClick={() => void detachMount(mount)}
                     >
@@ -444,6 +626,77 @@ export function TmManageDialog({
                   onClick={() => void attachExisting()}
                 >
                   挂载
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || !attachChoice}
+                  aria-label={
+                    attachChoice
+                      ? `删除记忆库 ${memoryName(attachChoice)}`
+                      : "删除记忆库"
+                  }
+                  onClick={() => {
+                    setConfirmingMemoryDeleteId(attachChoice);
+                    setCascadePrompt(null);
+                    setNotice(null);
+                    setError(null);
+                  }}
+                >
+                  删除
+                </Button>
+              </div>
+            ) : null}
+            {confirmingMemoryDeleteId ? (
+              <div className="tm-manage__attach-row">
+                <span className="tm-manage__confirm">
+                  确认删除记忆库「{memoryName(confirmingMemoryDeleteId)}」？
+                </span>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy}
+                  aria-label={`确认删除记忆库 ${memoryName(confirmingMemoryDeleteId)}`}
+                  onClick={() =>
+                    void deleteMemory(confirmingMemoryDeleteId, false)
+                  }
+                >
+                  确认删除
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setConfirmingMemoryDeleteId(null)}
+                >
+                  取消
+                </Button>
+              </div>
+            ) : null}
+            {cascadePrompt ? (
+              // The engine refused because entries remain; its message
+              // (with the real count) is shown verbatim, and only this
+              // explicit choice retries with the cascade.
+              <div className="tm-manage__attach-row">
+                <span className="tm-manage__confirm">
+                  {cascadePrompt.message}
+                </span>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={busy}
+                  aria-label={`连同条目删除记忆库 ${memoryName(cascadePrompt.memoryId)}`}
+                  onClick={() => void deleteMemory(cascadePrompt.memoryId, true)}
+                >
+                  连同条目删除
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => setCascadePrompt(null)}
+                >
+                  取消
                 </Button>
               </div>
             ) : null}

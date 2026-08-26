@@ -59,6 +59,8 @@ pub mod methods {
     pub const MEMORY_ATTACH: &str = "memory.attach";
     pub const MEMORY_DETACH: &str = "memory.detach";
     pub const MEMORY_UPDATE: &str = "memory.update";
+    pub const MEMORY_RENAME: &str = "memory.rename";
+    pub const MEMORY_DELETE: &str = "memory.delete";
     pub const TERMBASE_CREATE: &str = "termbase.create";
     pub const TERMBASE_LIST: &str = "termbase.list";
     pub const TERMBASE_ATTACH: &str = "termbase.attach";
@@ -161,6 +163,10 @@ pub struct RpcMethodCatalog {
     pub memory_detach: MethodContract<MemoryDetachParams, MemoryDetachResult>,
     #[serde(rename = "memory.update")]
     pub memory_update: MethodContract<MemoryUpdateParams, MemoryUpdateResult>,
+    #[serde(rename = "memory.rename")]
+    pub memory_rename: MethodContract<MemoryRenameParams, MemoryRenameResult>,
+    #[serde(rename = "memory.delete")]
+    pub memory_delete: MethodContract<MemoryDeleteParams, MemoryDeleteResult>,
     #[serde(rename = "termbase.create")]
     pub termbase_create: MethodContract<TermbaseCreateParams, tl_asset::Termbase>,
     #[serde(rename = "termbase.list")]
@@ -280,6 +286,8 @@ mod tests {
             methods::MEMORY_ATTACH,
             methods::MEMORY_DETACH,
             methods::MEMORY_UPDATE,
+            methods::MEMORY_RENAME,
+            methods::MEMORY_DELETE,
             methods::TERMBASE_CREATE,
             methods::TERMBASE_LIST,
             methods::TERMBASE_ATTACH,

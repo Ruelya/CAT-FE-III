@@ -357,6 +357,8 @@ impl Engine {
             methods::MEMORY_ATTACH => to_value(self.memory_attach(parse(params)?)?),
             methods::MEMORY_DETACH => to_value(self.memory_detach(parse(params)?)?),
             methods::MEMORY_UPDATE => to_value(self.memory_update(parse(params)?)?),
+            methods::MEMORY_RENAME => to_value(self.memory_rename(parse(params)?)?),
+            methods::MEMORY_DELETE => to_value(self.memory_delete(parse(params)?)?),
             methods::TERMBASE_CREATE => to_value(self.termbase_create(parse(params)?)?),
             methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
             methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),

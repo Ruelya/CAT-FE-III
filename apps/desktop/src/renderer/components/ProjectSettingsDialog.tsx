@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type {
+  Memory,
+  MemoryMount,
   Project,
   QaProfileView,
   Termbase,
@@ -41,7 +43,10 @@ export interface ProjectSettingsDialogProps {
  * section manages real mounts through termbase.list/create/attach/detach,
  * opens a per-termbase entry manager backed by term.list/update/delete, and
  * moves CSV/TSV/TBX files through termbase.import/export. The TM section
- * moves TMX/CSV/TSV files through tm.import/export. All file picks go
+ * moves TMX/CSV/TSV files through tm.import/export against an explicitly
+ * picked mounted memory (memory.list): the picker defaults to the writable
+ * working memory, and the chosen memoryId always rides on the call — the
+ * destination or source library is never implicit. All file picks go
  * through dedicated dialog channels in the main process; a canceled pick
  * does nothing and every result message reports the engine's real counts.
  * An export refused with exportBlocked (destination exists) surfaces an
@@ -87,10 +92,16 @@ export function ProjectSettingsDialog({
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
   // existing file untouched).
   const [overwritePrompt, setOverwritePrompt] = useState<
-    | { kind: "tm"; path: string }
+    | { kind: "tm"; path: string; memoryId: string }
     | { kind: "termbase"; termbase: Termbase; path: string }
     | null
   >(null);
+  // Mounted memories for the TM import/export picker. The choice defaults
+  // to the writable working memory but any mounted memory can be the
+  // import destination or export source.
+  const [tmMemories, setTmMemories] = useState<Memory[]>([]);
+  const [tmMounts, setTmMounts] = useState<MemoryMount[]>([]);
+  const [tmMemoryChoice, setTmMemoryChoice] = useState("");
 
   const beginAction = useCallback((actionId: string) => {
     setPending((previous) => {
@@ -115,6 +126,22 @@ export function ProjectSettingsDialog({
     setTermbases(result);
   }, [project.id]);
 
+  const refreshMemories = useCallback(async () => {
+    const result = await callEngine("memory.list", { projectId: project.id });
+    setTmMemories(result.memories);
+    setTmMounts(result.mounts);
+    setTmMemoryChoice((current) => {
+      if (
+        current &&
+        result.mounts.some((mount) => mount.memoryId === current)
+      ) {
+        return current;
+      }
+      const writable = result.mounts.find((mount) => mount.writable);
+      return writable?.memoryId ?? result.mounts[0]?.memoryId ?? "";
+    });
+  }, [project.id]);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -130,13 +157,16 @@ export function ProjectSettingsDialog({
     refreshTermbases().catch((listError: unknown) => {
       setError(describeError(listError));
     });
+    refreshMemories().catch((listError: unknown) => {
+      setError(describeError(listError));
+    });
     setQaProfile(null);
     callEngine("qa.profile.get", { projectId: project.id })
       .then(setQaProfile)
       .catch((profileError: unknown) => {
         setError(describeError(profileError));
       });
-  }, [open, project, refreshTermbases]);
+  }, [open, project, refreshTermbases, refreshMemories]);
 
   // Toggle the QA export gate through qa.profile.update. The stored view's
   // revision is the optimistic-concurrency base; the result replaces the
@@ -335,7 +365,16 @@ export function ProjectSettingsDialog({
     [project.id, refreshTermbases],
   );
 
+  const tmMemoryName = useCallback(
+    (memoryId: string) =>
+      tmMemories.find((memory) => memory.id === memoryId)?.name ?? memoryId,
+    [tmMemories],
+  );
+
   const importTm = useCallback(async () => {
+    if (!tmMemoryChoice) {
+      return;
+    }
     const path = await window.tl.chooseTmImportFile();
     if (!path) {
       return;
@@ -347,18 +386,22 @@ export function ProjectSettingsDialog({
       const result = await callEngine("tm.import", {
         projectId: project.id,
         path,
+        memoryId: tmMemoryChoice,
       });
       setNotice(
-        `外部 TM 导入完成：读取 ${result.imported} 条，新增 ${result.added}，更新 ${result.updated}`,
+        `外部 TM 导入完成（库「${tmMemoryName(tmMemoryChoice)}」）：读取 ${result.imported} 条，新增 ${result.added}，更新 ${result.updated}`,
       );
     } catch (importError) {
       setError(describeError(importError));
     } finally {
       endAction("tm.import");
     }
-  }, [beginAction, endAction, project.id]);
+  }, [beginAction, endAction, project.id, tmMemoryChoice, tmMemoryName]);
 
   const exportTm = useCallback(async () => {
+    if (!tmMemoryChoice) {
+      return;
+    }
     const path = await window.tl.chooseTmExportPath(`${project.name}-tm.tmx`);
     if (!path) {
       return;
@@ -371,19 +414,30 @@ export function ProjectSettingsDialog({
       const result = await callEngine("tm.export", {
         projectId: project.id,
         path,
+        memoryId: tmMemoryChoice,
       });
-      setNotice(`TM 导出完成：${result.exported} 条 → ${result.outputPath}`);
+      setNotice(
+        `TM 导出完成（库「${tmMemoryName(tmMemoryChoice)}」）：${result.exported} 条 → ${result.outputPath}`,
+      );
     } catch (exportError) {
       if (isExportBlocked(exportError)) {
-        // The engine never clobbers silently; hand the decision to the user.
-        setOverwritePrompt({ kind: "tm", path });
+        // The engine never clobbers silently; hand the decision to the
+        // user. The retry must hit the same memory the refusal did.
+        setOverwritePrompt({ kind: "tm", path, memoryId: tmMemoryChoice });
       } else {
         setError(describeError(exportError));
       }
     } finally {
       endAction("tm.export");
     }
-  }, [beginAction, endAction, project.id, project.name]);
+  }, [
+    beginAction,
+    endAction,
+    project.id,
+    project.name,
+    tmMemoryChoice,
+    tmMemoryName,
+  ]);
 
   const importTermbase = useCallback(
     async (termbase: Termbase) => {
@@ -462,10 +516,11 @@ export function ProjectSettingsDialog({
         const result = await callEngine("tm.export", {
           projectId: project.id,
           path: overwritePrompt.path,
+          memoryId: overwritePrompt.memoryId,
           overwrite: true,
         });
         setNotice(
-          `TM 导出完成（已覆盖）：${result.exported} 条 → ${result.outputPath}`,
+          `TM 导出完成（已覆盖，库「${tmMemoryName(overwritePrompt.memoryId)}」）：${result.exported} 条 → ${result.outputPath}`,
         );
       } else {
         const result = await callEngine("termbase.export", {
@@ -484,7 +539,7 @@ export function ProjectSettingsDialog({
     } finally {
       endAction(actionId);
     }
-  }, [overwritePrompt, beginAction, endAction, project.id]);
+  }, [overwritePrompt, beginAction, endAction, project.id, tmMemoryName]);
 
   // 取消: nothing was written and the existing file stays as it is.
   const cancelOverwriteExport = useCallback(() => {
@@ -677,24 +732,43 @@ export function ProjectSettingsDialog({
 
         <section className="settings__section">
           <h3 className="settings__heading">翻译记忆</h3>
-          <div className="settings__row">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={tmFileBusy}
-              onClick={() => void importTm()}
-            >
-              {tmImportPending ? "导入中…" : "导入外部 TM…"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={tmFileBusy}
-              onClick={() => void exportTm()}
-            >
-              {tmExportPending ? "导出中…" : "导出 TM…"}
-            </Button>
-          </div>
+          {tmMounts.length === 0 ? (
+            <p className="settings__note">
+              未挂载记忆库，无法导入或导出。请先在 TM 管理中挂载。
+            </p>
+          ) : (
+            <div className="settings__row">
+              <SelectField
+                label="记忆库"
+                value={tmMemoryChoice}
+                disabled={tmFileBusy}
+                onChange={(event) => setTmMemoryChoice(event.target.value)}
+              >
+                {tmMounts.map((mount) => (
+                  <option key={mount.memoryId} value={mount.memoryId}>
+                    {tmMemoryName(mount.memoryId)}
+                    {mount.writable ? "（可写）" : ""}
+                  </option>
+                ))}
+              </SelectField>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={tmFileBusy || !tmMemoryChoice}
+                onClick={() => void importTm()}
+              >
+                {tmImportPending ? "导入中…" : "导入外部 TM…"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={tmFileBusy || !tmMemoryChoice}
+                onClick={() => void exportTm()}
+              >
+                {tmExportPending ? "导出中…" : "导出 TM…"}
+              </Button>
+            </div>
+          )}
         </section>
 
         <section className="settings__section">

@@ -169,6 +169,65 @@ function installMemoryBridge(state: BridgeState) {
         state.memories.push(created);
         return Promise.resolve({ ok: true, result: created });
       }
+      case "memory.rename": {
+        const target = state.memories.find((item) => item.id === p.memoryId);
+        if (!target) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "notFound", message: "memory not found" },
+          });
+        }
+        if (target.revision !== p.baseRevision) {
+          return Promise.resolve({
+            ok: false,
+            error: {
+              code: "conflict",
+              message: `memory revision moved to ${target.revision}; refresh before renaming`,
+            },
+          });
+        }
+        target.name = p.name as string;
+        target.revision += 1;
+        return Promise.resolve({ ok: true, result: { memory: { ...target } } });
+      }
+      case "memory.delete": {
+        const target = state.memories.find((item) => item.id === p.memoryId);
+        if (!target) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "notFound", message: "memory not found" },
+          });
+        }
+        if (state.mounts.some((item) => item.memoryId === p.memoryId)) {
+          return Promise.resolve({
+            ok: false,
+            error: {
+              code: "conflict",
+              message: "memory is mounted on 1 project(s); detach it first",
+            },
+          });
+        }
+        const remaining = state.entries.filter(
+          (item) => item.memoryId === p.memoryId,
+        );
+        if (remaining.length > 0 && p.deleteEntries !== true) {
+          return Promise.resolve({
+            ok: false,
+            error: {
+              code: "conflict",
+              message: `memory still holds ${remaining.length} TM entries; pass deleteEntries to remove them with it`,
+            },
+          });
+        }
+        state.memories = state.memories.filter((item) => item !== target);
+        state.entries = state.entries.filter(
+          (item) => item.memoryId !== p.memoryId,
+        );
+        return Promise.resolve({
+          ok: true,
+          result: { memory: target, deletedEntries: remaining.length },
+        });
+      }
       case "tm.list": {
         const query = typeof p.query === "string" ? p.query : "";
         const all = state.entries.filter(
@@ -591,6 +650,113 @@ describe("TmManageDialog", () => {
     // The manage surface must never confirm segments or export files.
     const forbidden = ["segment.confirm", "tm.export", "document.export"];
     expect(calls.filter(([method]) => forbidden.includes(method))).toEqual([]);
+  });
+
+  it("renames a memory through memory.rename with the stored baseRevision", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "重命名记忆库 领域库" }),
+    );
+    const field = screen.getByLabelText("重命名记忆库 领域库");
+    expect(field).toHaveValue("领域库");
+    await userEvent.clear(field);
+    await userEvent.type(field, "  领域库 v2  ");
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已重命名为：领域库 v2",
+      );
+    });
+    // The mount row and the entries picker pick up the new name.
+    expect(
+      screen.getByRole("button", { name: "卸载记忆库 领域库 v2" }),
+    ).toBeInTheDocument();
+    const rename = calls.find(([method]) => method === "memory.rename");
+    expect(rename?.[1]).toEqual({
+      memoryId: "m-b",
+      name: "领域库 v2",
+      baseRevision: 1,
+    });
+  });
+
+  it("deletes an unmounted memory only through the honest two-step cascade", async () => {
+    const state = twoMountState();
+    state.memories.push(memory("m-old", "旧库"));
+    state.entries.push(entry("e9", "m-old", "Legacy.", "遗留。"));
+    const { calls } = installMemoryBridge(state);
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("挂载已有记忆库")).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("挂载已有记忆库"),
+      "m-old",
+    );
+
+    // First press arms the plain confirm; nothing is deleted yet.
+    await userEvent.click(
+      screen.getByRole("button", { name: "删除记忆库 旧库" }),
+    );
+    expect(screen.getByText("确认删除记忆库「旧库」？")).toBeInTheDocument();
+    expect(calls.some(([method]) => method === "memory.delete")).toBe(false);
+
+    // The confirm never cascades: the engine refuses because entries
+    // remain, and its message (with the real count) is shown verbatim.
+    await userEvent.click(
+      screen.getByRole("button", { name: "确认删除记忆库 旧库" }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByText(/memory still holds 1 TM entries/),
+      ).toBeInTheDocument();
+    });
+    const first = calls.find(([method]) => method === "memory.delete");
+    expect(first?.[1]).toEqual({ memoryId: "m-old" });
+
+    // Only the explicit 连同条目删除 retries with the cascade.
+    await userEvent.click(
+      screen.getByRole("button", { name: "连同条目删除记忆库 旧库" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已删除记忆库「旧库」（连同 1 条条目）",
+      );
+    });
+    const cascade = calls.filter(([method]) => method === "memory.delete");
+    expect(cascade[1]?.[1]).toEqual({ memoryId: "m-old", deleteEntries: true });
+    // The memory left the attach choices for good.
+    expect(screen.queryByText("旧库")).not.toBeInTheDocument();
+  });
+
+  it("shows the factual language-pair note for mismatched memories, never a refusal", async () => {
+    const state = twoMountState();
+    const german = memory("m-de", "德语库");
+    german.targetLocale = "de-DE";
+    state.memories.push(german);
+    const { calls } = installMemoryBridge(state);
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("挂载已有记忆库")).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("挂载已有记忆库"),
+      "m-de",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "挂载" }));
+    // The attach succeeded — soft warning only — and the status carries
+    // the factual pair note.
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已挂载：德语库（只读，语言对 en-US → de-DE（项目 en-US → zh-CN））",
+      );
+    });
+    expect(calls.some(([method]) => method === "memory.attach")).toBe(true);
+    // The mounted row keeps a persistent factual badge; matching-pair
+    // mounts carry none.
+    expect(
+      screen.getByText("语言对 en-US → de-DE（项目 en-US → zh-CN）"),
+    ).toBeInTheDocument();
   });
 
   it("renders nothing when closed and closes via the footer button", async () => {

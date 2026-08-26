@@ -4065,3 +4065,108 @@ fn confirm_writes_only_the_writable_mount() {
     assert_eq!(listed["memories"].as_array().expect("memories").len(), 2);
     assert_eq!(listed["mounts"].as_array().expect("mounts").len(), 1);
 }
+
+/// `memory.rename` renames the memory row under optimistic concurrency and
+/// the new name flows into merged-lookup annotations; `memory.delete`
+/// refuses while mounted and while entries remain, and the explicit
+/// cascade removes the rows for good (surviving a reopen).
+#[test]
+fn memory_rename_and_delete_guard_mounts_and_entries() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    let extra = harness.call(
+        "memory.create",
+        json!({ "name": "参考库", "sourceLocale": "en-US", "targetLocale": "zh-CN" }),
+    );
+    let extra_id = extra["id"].as_str().expect("memory id").to_string();
+    harness.call(
+        "memory.attach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+    let csv_path = harness.write_file(
+        "reference.csv",
+        "source,target\nSave your work often.,请常存档。\n",
+    );
+    harness.call(
+        "tm.import",
+        json!({ "projectId": project_id, "path": csv_path, "memoryId": extra_id }),
+    );
+
+    // Rename: a stale baseRevision conflicts; the current one lands, and
+    // lookup annotations pick up the new name immediately.
+    assert_eq!(
+        harness.call_err(
+            "memory.rename",
+            json!({ "memoryId": extra_id, "name": "参考库 v2", "baseRevision": 99 }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "memory.rename",
+            json!({ "memoryId": extra_id, "name": "  ", "baseRevision": extra["revision"] }),
+        ),
+        "invalidParams"
+    );
+    let renamed = harness.call(
+        "memory.rename",
+        json!({
+            "memoryId": extra_id,
+            "name": "参考库 v2",
+            "baseRevision": extra["revision"],
+        }),
+    );
+    assert_eq!(renamed["memory"]["name"], "参考库 v2");
+    assert_eq!(renamed["memory"]["revision"], 2);
+    let lookup = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Save your work often." }),
+    );
+    assert_eq!(lookup["matches"][0]["memoryName"], "参考库 v2");
+
+    // Delete refuses while the memory is mounted anywhere.
+    assert_eq!(
+        harness.call_err("memory.delete", json!({ "memoryId": extra_id })),
+        "conflict"
+    );
+    harness.call(
+        "memory.detach",
+        json!({ "projectId": project_id, "memoryId": extra_id }),
+    );
+
+    // Detached but entries remain: still a conflict without the explicit
+    // cascade, and the message carries the real count.
+    let refused = harness.raw("memory.delete", json!({ "memoryId": extra_id }));
+    let error = refused.error.expect("delete refused");
+    assert_eq!(serde_json::to_value(error.code).unwrap(), "conflict");
+    assert!(error.message.contains("1 TM entries"));
+
+    // The explicit cascade removes the entries and the memory row; the
+    // deletion is durable across a reopen (recall index rebuilt without it).
+    let deleted = harness.call(
+        "memory.delete",
+        json!({ "memoryId": extra_id, "deleteEntries": true }),
+    );
+    assert_eq!(deleted["deletedEntries"], 1);
+    assert_eq!(deleted["memory"]["id"], json!(extra_id));
+    assert_eq!(
+        harness.call_err("memory.delete", json!({ "memoryId": extra_id })),
+        "notFound"
+    );
+
+    harness.reopen();
+    let reloaded = harness.call("memory.list", json!({}));
+    let memories = reloaded["memories"].as_array().expect("memories");
+    assert_eq!(memories.len(), 1, "only the project's own memory remains");
+    assert_eq!(memories[0]["name"], "Test");
+
+    // An empty, unmounted memory deletes without any flag.
+    let scratch = harness.call(
+        "memory.create",
+        json!({ "name": "草稿库", "sourceLocale": "en-US", "targetLocale": "zh-CN" }),
+    );
+    let scratch_id = scratch["id"].as_str().expect("memory id");
+    let removed = harness.call("memory.delete", json!({ "memoryId": scratch_id }));
+    assert_eq!(removed["deletedEntries"], 0);
+}

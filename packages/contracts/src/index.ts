@@ -71,6 +71,8 @@ export const ENGINE_METHODS = [
   "memory.attach",
   "memory.detach",
   "memory.update",
+  "memory.rename",
+  "memory.delete",
   "termbase.create",
   "termbase.list",
   "termbase.attach",
