@@ -7,6 +7,7 @@ import {
   filterSegments,
   findSegmentMatch,
   isFilterActive,
+  replaceSegmentText,
 } from "./segment-filter.js";
 
 function segment(
@@ -114,21 +115,25 @@ describe("findSegmentMatch", () => {
   });
 
   it("finds backwards and wraps past the start", () => {
-    expect(findSegmentMatch(FIND_SEGMENTS, "day", "s3", "prev")).toMatchObject(
-      { segment: { id: "s1" }, wrapped: false },
-    );
-    expect(findSegmentMatch(FIND_SEGMENTS, "day", "s1", "prev")).toMatchObject(
-      { segment: { id: "s3" }, wrapped: true },
-    );
+    expect(findSegmentMatch(FIND_SEGMENTS, "day", "s3", "prev")).toMatchObject({
+      segment: { id: "s1" },
+      wrapped: false,
+    });
+    expect(findSegmentMatch(FIND_SEGMENTS, "day", "s1", "prev")).toMatchObject({
+      segment: { id: "s3" },
+      wrapped: true,
+    });
   });
 
   it("starts from the edges when no segment is active", () => {
-    expect(findSegmentMatch(FIND_SEGMENTS, "day", null, "next")).toMatchObject(
-      { segment: { id: "s1" }, wrapped: false },
-    );
-    expect(findSegmentMatch(FIND_SEGMENTS, "day", null, "prev")).toMatchObject(
-      { segment: { id: "s3" }, wrapped: false },
-    );
+    expect(findSegmentMatch(FIND_SEGMENTS, "day", null, "next")).toMatchObject({
+      segment: { id: "s1" },
+      wrapped: false,
+    });
+    expect(findSegmentMatch(FIND_SEGMENTS, "day", null, "prev")).toMatchObject({
+      segment: { id: "s3" },
+      wrapped: false,
+    });
   });
 
   it("returns the active segment itself (as a wrap) when it is the only match", () => {
@@ -141,5 +146,48 @@ describe("findSegmentMatch", () => {
     expect(findSegmentMatch(FIND_SEGMENTS, "missing", "s1", "next")).toBeNull();
     expect(findSegmentMatch(FIND_SEGMENTS, "   ", "s1", "next")).toBeNull();
     expect(findSegmentMatch([], "day", null, "next")).toBeNull();
+  });
+});
+
+describe("replaceSegmentText", () => {
+  it("replaces every occurrence case-insensitively and counts them", () => {
+    expect(
+      replaceSegmentText("Server error: SERVER down", "server", "服务器"),
+    ).toEqual({ text: "服务器 error: 服务器 down", count: 2 });
+    expect(replaceSegmentText("保留期为 30 天。", "30 天", "60 天")).toEqual({
+      text: "保留期为 60 天。",
+      count: 1,
+    });
+  });
+
+  it("returns null when nothing matches or the query is empty", () => {
+    expect(replaceSegmentText("nothing here", "miss", "x")).toBeNull();
+    expect(replaceSegmentText("text", "", "x")).toBeNull();
+  });
+
+  it("never rematches inside a replacement and allows deletion", () => {
+    // The replacement contains the query; occurrences must not cascade.
+    expect(replaceSegmentText("aba", "a", "aa")).toEqual({
+      text: "aabaa",
+      count: 2,
+    });
+    expect(replaceSegmentText("well, well", "well", "")).toEqual({
+      text: ", ",
+      count: 2,
+    });
+  });
+
+  it("matches the engine's per-character folding for non-ASCII case pairs", () => {
+    expect(replaceSegmentText("СЕРВЕР готов", "сервер", "server")).toEqual({
+      text: "server готов",
+      count: 1,
+    });
+  });
+
+  it("keeps surrogate pairs intact around replacements", () => {
+    expect(replaceSegmentText("🎉 Party 🎉", "party", "聚会")).toEqual({
+      text: "🎉 聚会 🎉",
+      count: 1,
+    });
   });
 });
