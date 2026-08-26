@@ -64,8 +64,7 @@ describe("App engine gate", () => {
     render(<App />);
 
     const gate = await screen.findByRole("alertdialog");
-    expect(gate).toHaveTextContent("正在启动本地翻译引擎");
-    expect(gate).toHaveTextContent("引擎就绪前编辑不可用");
+    expect(gate).toHaveTextContent("正在启动翻译引擎");
     expect(mainSurface()).toHaveAttribute("inert");
     // Starting is not a failure: no relaunch offer yet.
     expect(
@@ -102,9 +101,8 @@ describe("App engine gate", () => {
       lastError: "engine exited (code 101, signal none)",
     });
     const gate = await screen.findByRole("alertdialog");
-    expect(gate).toHaveTextContent("翻译引擎已意外退出，正在自动重启");
+    expect(gate).toHaveTextContent("翻译引擎正在自动重启");
     expect(gate).toHaveTextContent("第 1 次重试");
-    expect(gate).toHaveTextContent("引擎未确认写入的草稿不会保存");
     expect(gate).toHaveTextContent("engine exited (code 101, signal none)");
     expect(mainSurface()).toHaveAttribute("inert");
   });
@@ -126,7 +124,7 @@ describe("App engine gate", () => {
     expect(bridge.relaunchEngine).toHaveBeenCalledTimes(1);
     // The relaunch resolves with "starting": still blocked, still honest.
     const startingGate = await screen.findByRole("alertdialog");
-    expect(startingGate).toHaveTextContent("正在启动本地翻译引擎");
+    expect(startingGate).toHaveTextContent("正在启动翻译引擎");
 
     bridge.emitStatus({
       state: "ready",

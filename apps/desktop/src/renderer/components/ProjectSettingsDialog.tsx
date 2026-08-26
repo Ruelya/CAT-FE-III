@@ -209,11 +209,7 @@ export function ProjectSettingsDialog({
           projectId: project.id,
           archived,
         });
-        setNotice(
-          archived
-            ? "项目已归档：数据全部保留，可随时恢复。"
-            : "项目已恢复为进行中。",
-        );
+        setNotice(archived ? "项目已归档" : "项目已恢复为进行中");
         onProjectUpdated?.(updated);
       } catch (archiveError) {
         setError(describeError(archiveError));
@@ -281,7 +277,7 @@ export function ProjectSettingsDialog({
           projectId: project.id,
           termbaseId: termbase.id,
         });
-        setNotice(`术语库「${termbase.name}」已卸载：数据保留，可重新挂载。`);
+        setNotice(`术语库「${termbase.name}」已卸载`);
         await refreshTermbases();
       } catch (detachError) {
         setError(describeError(detachError));
@@ -446,7 +442,7 @@ export function ProjectSettingsDialog({
   // 取消: nothing was written and the existing file stays as it is.
   const cancelOverwriteExport = useCallback(() => {
     setOverwritePrompt(null);
-    setNotice("已取消导出：保留现有文件，未做任何修改。");
+    setNotice("已取消导出");
   }, []);
 
   const tmImportPending = pending.has("tm.import");
@@ -530,11 +526,6 @@ export function ProjectSettingsDialog({
               </Button>
             </div>
           </form>
-          <p className="settings__note">
-            语言对仅在项目还没有文档、TM 条目或术语库挂载时可以修改；
-            一旦存在这些资产，引擎会拒绝修改，以免旧语言对的 TM
-            与术语被错误复用。项目名称随时可改。
-          </p>
         </section>
 
         <section className="settings__section">
@@ -587,11 +578,6 @@ export function ProjectSettingsDialog({
               保存导入默认
             </Button>
           </div>
-          <p className="settings__note">
-            导入对话框按这里的默认预填；每次导入成功后也会自动把当次选择
-            保存为默认。SRX 仅在句子分段时生效，且只保存路径——
-            文件缺失会在下次导入时报错，而不是在保存时。
-          </p>
         </section>
 
         <section className="settings__section">
@@ -623,21 +609,10 @@ export function ProjectSettingsDialog({
               </Button>
             )}
           </div>
-          <p className="settings__note">
-            归档只标记状态与时间戳，不删除任何文档、TM 或术语数据。
-          </p>
         </section>
 
         <section className="settings__section">
           <h3 className="settings__heading">翻译记忆</h3>
-          <div className="settings__row">
-            <span>项目内置 TM</span>
-            <Badge tone="ok">已启用</Badge>
-          </div>
-          <p className="settings__note">
-            确认句段时自动写入；TM 面板显示精确与模糊匹配，编辑网格的
-            「预翻译」按阈值批量填充草稿。
-          </p>
           <div className="settings__row">
             <Button
               size="sm"
@@ -656,11 +631,6 @@ export function ProjectSettingsDialog({
               {tmExportPending ? "导出中…" : "导出 TM…"}
             </Button>
           </div>
-          <p className="settings__note">
-            支持 TMX/CSV/TSV。导入会合并进项目
-            TM（同源文的旧译文会被覆盖）；导出遇到已存在的文件会先询问，
-            确认后才覆盖。
-          </p>
         </section>
 
         <section className="settings__section">
@@ -758,7 +728,6 @@ export function ProjectSettingsDialog({
             <TextField
               label="新术语库名称"
               value={newTermbaseName}
-              placeholder="例如 产品术语"
               onChange={(event) => setNewTermbaseName(event.target.value)}
             />
             <Button
@@ -770,23 +739,6 @@ export function ProjectSettingsDialog({
               {createPending ? "新建中…" : "新建并挂载"}
             </Button>
           </form>
-          <p className="settings__note">
-            挂载后，术语面板会对当前句段做 term.lookup
-            命中，并支持快速添加术语；「管理术语」可逐条查看、编辑与删除；
-            卸载只解除挂载，不删除术语库本身； CSV/TSV/TBX
-            批量导入与导出走上方按钮，结果以引擎实际计数为准。
-          </p>
-        </section>
-
-        <section className="settings__section">
-          <h3 className="settings__heading">质量检查</h3>
-          <div className="settings__row">
-            <span>tl-qa 规则库（数字、占位符、一致性等）</span>
-            <Badge tone="ok">内置</Badge>
-          </div>
-          <p className="settings__note">
-            在右侧 QA 面板手动运行；Agent 运行结束时也会自动执行。
-          </p>
         </section>
 
         {overwritePrompt ? (

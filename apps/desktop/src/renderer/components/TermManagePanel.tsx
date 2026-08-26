@@ -131,10 +131,7 @@ export function TermManagePanel({ termbase }: TermManagePanelProps) {
         </div>
       ) : null}
       {entries !== null && entries.length === 0 ? (
-        <EmptyState
-          title="术语库为空"
-          hint="在术语面板快速添加术语，或用上方按钮导入 CSV/TSV/TBX 文件。"
-        />
+        <EmptyState title="术语库为空" />
       ) : null}
       {(entries ?? []).map((entry) => (
         <div key={entry.id} className="match-card">

@@ -83,12 +83,12 @@ export function AgentPanel({
       completedRuns.current.add(finished.runId);
       if (finished.status === "awaitingReview") {
         onStatusMessage(
-          `Agent 已完成并停在人工审核门：TM ${finished.tmApplied}，AI 草稿 ${finished.aiDrafted}，失败 ${finished.failedSegments}，QA 未解决 ${finished.openQaIssues}`,
+          `Agent 已完成：TM ${finished.tmApplied}，AI 草稿 ${finished.aiDrafted}，失败 ${finished.failedSegments}，QA 未解决 ${finished.openQaIssues}`,
         );
       } else if (finished.status === "canceled") {
-        onStatusMessage("Agent 运行已取消，已生成的草稿保留在网格中");
+        onStatusMessage("Agent 运行已取消");
       } else {
-        onStatusMessage("Agent 运行失败，请查看步骤详情");
+        onStatusMessage("Agent 运行失败");
       }
       onCompleted();
     },
@@ -177,9 +177,7 @@ export function AgentPanel({
       }
     } catch (startError) {
       if (isAiNotConfigured(startError)) {
-        setError(
-          "Agent 需要已配置的 AI 供应商才会启动——它不会假装完成任务。请先在「AI 辅助」页配置密钥。",
-        );
+        setError("未配置 AI 供应商");
       } else {
         setError(`Agent 启动失败：${describeError(startError)}`);
       }
@@ -216,19 +214,12 @@ export function AgentPanel({
       <div className="dock-stack">
         {!configured ? (
           <div className="honest-note" role="note">
-            Agent 需要已配置的 AI 供应商密钥才能启动——没有密钥时它不会启动，
-            更不会伪造译文。请先在「AI 辅助」页配置。
+            未配置 AI 供应商
           </div>
-        ) : (
-          <div className="honest-note">
-            任务单：TM 预翻 → AI 起草未命中段 → QA。步骤实时回传、可随时
-            取消；运行结束停在人工审核门，Agent 不确认句段、不导出。
-          </div>
-        )}
+        ) : null}
         <TextAreaField
           label="任务指令（可选）"
           value={instruction}
-          placeholder="例如：品牌名保留英文，语气正式。"
           onChange={(event) => setInstruction(event.target.value)}
         />
         <div className="tl-toolbar">
@@ -261,10 +252,6 @@ export function AgentPanel({
         ) : null}
         {run?.status === "awaitingReview" ? (
           <div className="agent-gate" data-testid="agent-human-gate">
-            <p className="agent-gate__text">
-              已停在人工审核门：草稿在编辑网格中等待检查。确认句段与导出由你
-              决定，Agent 不会代做。
-            </p>
             <div className="tl-toolbar">
               <Button size="sm" variant="primary" onClick={onCompleted}>
                 去工作台查看草稿
@@ -275,12 +262,7 @@ export function AgentPanel({
             </div>
           </div>
         ) : null}
-        {!run && !error ? (
-          <EmptyState
-            title="尚未运行"
-            hint="创建任务单后会在此显示 TM 预翻、AI 起草、质检与总结的实时步骤。"
-          />
-        ) : null}
+        {!run && !error ? <EmptyState title="尚未运行" /> : null}
         {run && run.steps.length > 0 ? (
           <div className="dock-stack">
             {run.steps.map((step) => (

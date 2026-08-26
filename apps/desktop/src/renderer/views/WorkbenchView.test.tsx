@@ -573,7 +573,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "day");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "day");
     // The find box navigates only; unlike the filter it hides no rows.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
     expect(screen.getByText("First day of work.")).toBeInTheDocument();
@@ -618,7 +618,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "missing");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "missing");
     fireEvent.keyDown(window, { key: "F4" });
     expect(onStatusMessage).toHaveBeenCalledWith("查找「missing」：没有匹配");
     // The selection did not move anywhere.
@@ -636,7 +636,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "day");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "day");
     act(() => {
       bridge.emitMenuCommand("find-next");
     });
@@ -659,7 +659,7 @@ describe("WorkbenchView find next/prev", () => {
     await screen.findByLabelText("句段 1 译文");
 
     fireEvent.keyDown(window, { key: "F4" });
-    expect(document.activeElement).toBe(screen.getByLabelText("查找跳转"));
+    expect(document.activeElement).toBe(screen.getByLabelText("查找", { selector: "input" }));
   });
 
   it("keeps the F3 chord on concordance, untouched by find next", async () => {
@@ -788,7 +788,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
     await userEvent.click(screen.getByRole("button", { name: "替换" }));
 
@@ -800,7 +800,7 @@ describe("WorkbenchView find & replace", () => {
       });
     });
     expect(onStatusMessage).toHaveBeenCalledWith(
-      "句段 #1 已替换 1 处「30 天」，按 F4 跳到下一个匹配",
+      "句段 #1 已替换 1 处「30 天」",
     );
   });
 
@@ -832,15 +832,13 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
     await userEvent.click(screen.getByRole("button", { name: "替换" }));
 
-    // Nothing was written; the message explains the guard and the way out.
+    // Nothing was written; the guard is reported.
     expect(updateCalls).toHaveLength(0);
-    expect(onStatusMessage).toHaveBeenCalledWith(
-      "句段 #1 已确认，未替换；勾选「含已确认」后重试（替换会使其退回草稿）",
-    );
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认，未替换");
 
     await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
     await userEvent.click(screen.getByRole("button", { name: "替换" }));
@@ -880,7 +878,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "30 天");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "30 天");
     await userEvent.type(screen.getByLabelText("替换为"), "60 天");
     await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
 
@@ -898,7 +896,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 60 天。");
     });
     expect(onStatusMessage).toHaveBeenCalledWith(
-      "全部替换完成：1 个句段、2 处「30 天」→「60 天」；跳过 1 个已确认句段（勾选「含已确认」后可替换）",
+      "全部替换完成：1 个句段、2 处「30 天」→「60 天」；跳过 1 个已确认句段",
     );
   });
 
@@ -925,7 +923,7 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    await userEvent.type(screen.getByLabelText("查找跳转"), "missing");
+    await userEvent.type(screen.getByLabelText("查找", { selector: "input" }), "missing");
     await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
     await userEvent.click(screen.getByRole("button", { name: "全部替换" }));
 
@@ -1195,9 +1193,7 @@ describe("WorkbenchView engine-down honesty", () => {
     );
 
     await waitFor(() => {
-      expect(onStatusMessage).toHaveBeenCalledWith(
-        "引擎已恢复，文档与句段已从引擎重新同步",
-      );
+      expect(onStatusMessage).toHaveBeenCalledWith("引擎已恢复，已重新同步");
     });
     const callsAfter = invoke.mock.calls.filter(
       ([method]) => method === "segment.list",
@@ -1296,7 +1292,7 @@ describe("WorkbenchView document removal", () => {
       expect(nextEditor.value).toBe("第二个文档。");
     });
     expect(onStatusMessage).toHaveBeenCalledWith(
-      "已移除「guide.txt」：删除 1 个句段、0 条 QA 记录；项目 TM、术语库与原始文件保留",
+      "已移除「guide.txt」：删除 1 个句段、0 条 QA 记录",
     );
   });
 
@@ -1443,9 +1439,7 @@ describe("WorkbenchView export overwrite confirm", () => {
     ).not.toBeInTheDocument();
     // Only the refused no-clobber call ever reached the engine.
     expect(exportCalls).toHaveLength(1);
-    expect(onStatusMessage).toHaveBeenCalledWith(
-      "已取消导出：保留现有文件，未做任何修改",
-    );
+    expect(onStatusMessage).toHaveBeenCalledWith("已取消导出");
   });
 });
 
@@ -1495,16 +1489,10 @@ describe("WorkbenchView QA waive", () => {
     await waitFor(() => {
       expect(waiveParams).toEqual({ issueId: "issue-1", waived: true });
     });
-    // The open count drops honestly and the card says what really happened:
-    // parked by a human, not fixed, nothing confirmed, nothing in TM.
+    // The open count drops honestly and the card shows the waived state.
     expect(await screen.findByText("质量检查（未解决 0）")).toBeInTheDocument();
     expect(screen.getByText("已忽略")).toBeInTheDocument();
-    expect(
-      screen.getByText(/已忽略：问题仍存在，未确认句段、未写入 TM/),
-    ).toBeInTheDocument();
-    expect(onStatusMessage).toHaveBeenCalledWith(
-      "已忽略 QA 问题：问题并未修复，未确认句段、未写入 TM",
-    );
+    expect(onStatusMessage).toHaveBeenCalledWith("已忽略 QA 问题");
     // Red line: waiving is not confirming. No confirm and no TM/segment
     // write may ever ride along with a waive.
     const methods = bridge.invoke.mock.calls.map(
@@ -1670,7 +1658,7 @@ describe("WorkbenchView ribbon", () => {
     );
     await screen.findByLabelText("句段 1 译文");
     await userEvent.click(screen.getByRole("button", { name: "查找" }));
-    expect(document.activeElement).toBe(screen.getByLabelText("查找跳转"));
+    expect(document.activeElement).toBe(screen.getByLabelText("查找", { selector: "input" }));
     await userEvent.click(screen.getByRole("button", { name: "替换…" }));
     expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
     await userEvent.click(screen.getByRole("button", { name: "筛选" }));

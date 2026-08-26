@@ -525,7 +525,7 @@ describe("ProjectSettingsDialog", () => {
     );
     await waitFor(() => {
       expect(
-        screen.getByText(/术语库「产品术语」已卸载：数据保留，可重新挂载/),
+        screen.getByText(/术语库「产品术语」已卸载/),
       ).toBeInTheDocument();
     });
     const detachCall = calls.find(([method]) => method === "termbase.detach");
@@ -725,9 +725,7 @@ describe("ProjectSettingsDialog", () => {
     expect(
       screen.queryByRole("alertdialog", { name: "目标已存在，要覆盖吗？" }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/已取消导出：保留现有文件，未做任何修改。/),
-    ).toBeInTheDocument();
+    expect(screen.getByText("已取消导出")).toBeInTheDocument();
     // Only the refused no-clobber call ever reached the engine.
     expect(calls.filter(([method]) => method === "tm.export")).toHaveLength(1);
   });

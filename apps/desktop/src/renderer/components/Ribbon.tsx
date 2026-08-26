@@ -186,7 +186,7 @@ export function Ribbon({
         {onOpenTmManage ? (
           <RibbonButton
             label="TM 管理"
-            title="管理项目翻译记忆（查看 / 导入 / 导出 / 删除条目）"
+            title="TM 管理"
             icon={ICONS.tm}
             onClick={onOpenTmManage}
           />
@@ -203,7 +203,7 @@ export function Ribbon({
         />
         <RibbonButton
           label="导出译文"
-          title="导出当前文档的译文（Ctrl+E）"
+          title="导出译文（Ctrl+E）"
           icon={ICONS.export}
           disabled={!documentOpen || busy}
           onClick={onExport}
@@ -213,14 +213,14 @@ export function Ribbon({
       <div className="ribbon__group" role="group" aria-label="编辑">
         <RibbonButton
           label="确认句段"
-          title="确认当前正在编辑的句段（Ctrl+Enter）"
+          title="确认句段（Ctrl+Enter）"
           icon={ICONS.confirm}
           disabled={!documentOpen}
           onClick={onConfirmSegment}
         />
         <RibbonButton
           label="预翻译"
-          title="用项目 TM 填充未译句段"
+          title="预翻译"
           icon={ICONS.pretranslate}
           disabled={!documentOpen || busy}
           onClick={onPretranslate}
@@ -230,28 +230,28 @@ export function Ribbon({
       <div className="ribbon__group" role="group" aria-label="审校">
         <RibbonButton
           label="查找"
-          title="查找并跳转句段（F4 下一个）"
+          title="查找（F4）"
           icon={ICONS.find}
           disabled={!documentOpen}
           onClick={onFocusFind}
         />
         <RibbonButton
           label="替换…"
-          title="替换译文文本（Ctrl+H）"
+          title="替换（Ctrl+H）"
           icon={ICONS.replace}
           disabled={!documentOpen}
           onClick={onFocusReplace}
         />
         <RibbonButton
           label="筛选"
-          title="按状态或文本筛选句段（Ctrl+F）"
+          title="筛选（Ctrl+F）"
           icon={ICONS.filter}
           disabled={!documentOpen}
           onClick={onFocusFilter}
         />
         <RibbonButton
           label="一致性检索"
-          title="在 TM 与当前文档中检索（F3，取选中文本）"
+          title="一致性检索（F3）"
           icon={ICONS.concordance}
           onClick={onConcordance}
         />
@@ -280,7 +280,7 @@ export function Ribbon({
             ref={filterInputRef}
             className="ribbon__search-input"
             aria-label="按文本筛选"
-            placeholder="搜索句段（Ctrl+F）"
+            placeholder="搜索句段"
             value={filterQuery}
             disabled={!documentOpen}
             onChange={(event) => onFilterQueryChange(event.target.value)}

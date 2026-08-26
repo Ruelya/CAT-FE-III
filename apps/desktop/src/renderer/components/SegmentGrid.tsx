@@ -10,7 +10,7 @@ import {
 import type { Ref } from "react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
-import { Badge, Kbd, MatchBadge } from "@translunar/ui";
+import { Badge, MatchBadge } from "@translunar/ui";
 import type { BadgeTone } from "@translunar/ui";
 
 export interface SegmentGridHandle {
@@ -511,13 +511,6 @@ export function SegmentGrid({
                           }
                         }}
                       />
-                      <span className="segment-grid__hint">
-                        <Kbd>Ctrl+Enter</Kbd> 确认并写入 TM
-                        <span className="segment-grid__hint-sep">·</span>
-                        <Kbd>Alt+↑/↓</Kbd> 切换句段
-                        <span className="segment-grid__hint-sep">·</span>
-                        输入自动保存草稿
-                      </span>
                     </div>
                   ) : segment.targetText ? (
                     segment.targetText

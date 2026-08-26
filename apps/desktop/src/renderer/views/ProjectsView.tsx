@@ -99,7 +99,6 @@ export function ProjectsView({
           <TextField
             label="项目名称"
             value={name}
-            placeholder="例如：产品手册 v3"
             onChange={(event) => setName(event.target.value)}
             required
           />
@@ -144,15 +143,9 @@ export function ProjectsView({
           </label>
         ) : null}
         {projects.length === 0 ? (
-          <EmptyState
-            title="还没有项目"
-            hint="创建第一个项目后即可导入 DOCX 文档并开始翻译。"
-          />
+          <EmptyState title="还没有项目" />
         ) : visibleProjects.length === 0 ? (
-          <EmptyState
-            title="没有进行中的项目"
-            hint="所有项目都已归档。勾选上方开关可查看并重新打开它们。"
-          />
+          <EmptyState title="没有进行中的项目" />
         ) : (
           <div className="project-list">
             {visibleProjects.map((project) => (

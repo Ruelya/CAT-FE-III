@@ -143,18 +143,14 @@ export function ConcordancePanel({
     >
       <div className="dock-stack">
         <TextField
-          label="检索词（F3 取编辑区选中文本）"
+          label="检索词"
           value={query}
-          placeholder="在当前文档与项目 TM 中检索…"
           onChange={(event) => setQuery(event.target.value)}
         />
         {query.trim().length === 0 ? (
-          <EmptyState
-            title="输入检索词"
-            hint="或在句段编辑器中选中文本后按 F3。"
-          />
+          <EmptyState title="输入检索词" />
         ) : hits.length === 0 ? (
-          <EmptyState title="文档内无命中" hint="换一个检索词试试。" />
+          <EmptyState title="文档内无命中" />
         ) : (
           <div className="dock-stack">
             {hits.map((hit) => (

@@ -129,20 +129,11 @@ export function TermPanel({
     >
       <div className="dock-stack">
         {mounts !== null && mountedTermbases.length === 0 ? (
-          <EmptyState
-            title="尚未挂载术语库"
-            hint="在「项目设置」中新建并挂载术语库后，此处会显示当前句段的术语命中。"
-          />
+          <EmptyState title="尚未挂载术语库" />
         ) : !activeSegment ? (
-          <EmptyState
-            title="未选中句段"
-            hint="选中句段后自动查询挂载术语库中的命中。"
-          />
+          <EmptyState title="未选中句段" />
         ) : matches.length === 0 ? (
-          <EmptyState
-            title="当前句段无术语命中"
-            hint="可在下方快速添加术语，之后源文中出现该术语即会命中。"
-          />
+          <EmptyState title="当前句段无术语命中" />
         ) : (
           <div className="dock-stack">
             {matches.map((match) => (
@@ -187,16 +178,14 @@ export function TermPanel({
             }}
           >
             <TextField
-              label={`源术语（写入「${writableTermbase.name}」）`}
+              label="源术语"
               value={sourceTerm}
-              placeholder="例如 retention period"
               onChange={(event) => setSourceTerm(event.target.value)}
               required
             />
             <TextField
               label="目标术语"
               value={targetTerm}
-              placeholder="例如 保留期"
               onChange={(event) => setTargetTerm(event.target.value)}
               required
             />
