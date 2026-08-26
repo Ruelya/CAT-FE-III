@@ -371,6 +371,8 @@ impl Engine {
             methods::QA_RUN => to_value(self.qa_run(parse(params)?)?),
             methods::QA_LIST => to_value(self.qa_list(parse(params)?)?),
             methods::QA_WAIVE => to_value(self.qa_waive(parse(params)?)?),
+            methods::QA_FIX_LIST => to_value(self.qa_fix_list(parse(params)?)?),
+            methods::QA_FIX_APPLY => to_value(self.qa_fix_apply(parse(params)?)?),
             methods::QA_PROFILE_GET => to_value(self.qa_profile_get(parse(params)?)?),
             methods::QA_PROFILE_UPDATE => to_value(self.qa_profile_update(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),

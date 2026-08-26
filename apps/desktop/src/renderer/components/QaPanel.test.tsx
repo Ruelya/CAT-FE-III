@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { QaIssue } from "@translunar/contracts";
+import type { QaFix, QaIssue } from "@translunar/contracts";
 
 import { QaPanel } from "./QaPanel.js";
 
@@ -33,13 +33,28 @@ function issue(
   };
 }
 
+function fixFor(target: QaIssue, overrides: Partial<QaFix> = {}): QaFix {
+  return {
+    issueId: target.id,
+    segmentId: target.segmentId,
+    ruleId: target.ruleId,
+    baseRevision: 3,
+    currentTargetText: "保留期为 40 天。",
+    fixedTargetText: "保留期为 30 天。",
+    description: "Replace 40 with 30.",
+    ...overrides,
+  };
+}
+
 const NOOP = {
+  fixes: [] as QaFix[],
   onRun: () => {},
   onJump: () => {},
   onWaive: () => {},
   onWaiveRule: () => {},
   onWaiveSegment: () => {},
   onRestore: () => {},
+  onApplyFix: () => {},
 };
 
 describe("QaPanel", () => {
@@ -224,6 +239,82 @@ describe("QaPanel", () => {
     for (const button of screen.getAllByRole("button", { name: "忽略" })) {
       expect(button).toBeEnabled();
     }
+  });
+
+  it("groups open findings by rule with a count in the group head", () => {
+    render(
+      <QaPanel
+        issues={[
+          issue("num-1", "open"),
+          issue("num-2", "open"),
+          issue("ws-1", "open", {
+            ruleId: "qa.edge-whitespace",
+            severity: "warning",
+          }),
+        ]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+      />,
+    );
+    expect(
+      screen.getByRole("region", { name: "qa.number-mismatch 未解决 2 项" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "qa.edge-whitespace 未解决 1 项" }),
+    ).toBeInTheDocument();
+    // The error-severity rule group renders before the warning one.
+    const groups = Array.from(document.querySelectorAll(".issue-group"));
+    expect(
+      groups.map((group) => group.getAttribute("aria-label")),
+    ).toEqual([
+      "qa.number-mismatch 未解决 2 项",
+      "qa.edge-whitespace 未解决 1 项",
+    ]);
+  });
+
+  it("offers 应用修复 exactly when the engine proposed a fix, applied verbatim", async () => {
+    const onApplyFix = vi.fn();
+    const fixable = issue("open-1", "open");
+    const unfixable = issue("open-2", "open", {
+      ruleId: "qa.term-missing",
+    });
+    const fix = fixFor(fixable);
+    render(
+      <QaPanel
+        issues={[fixable, unfixable]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+        fixes={[fix]}
+        onApplyFix={onApplyFix}
+      />,
+    );
+    // One button — the finding without an engine correction gets no fake
+    // 一键修复 chrome.
+    const buttons = screen.getAllByRole("button", { name: /应用修复/ });
+    expect(buttons).toHaveLength(1);
+    // The preview is the engine's replacement text, shown verbatim.
+    expect(screen.getByText("修复为：保留期为 30 天。")).toBeInTheDocument();
+    await userEvent.click(buttons[0]!);
+    expect(onApplyFix).toHaveBeenCalledWith(fix);
+  });
+
+  it("locks the apply button while its fix call is in flight", () => {
+    const fixable = issue("open-1", "open");
+    const other = issue("open-2", "open");
+    render(
+      <QaPanel
+        issues={[fixable, other]}
+        disabled={false}
+        pendingKey="fix:open-1"
+        {...NOOP}
+        fixes={[fixFor(fixable), fixFor(other)]}
+      />,
+    );
+    const buttons = screen.getAllByRole("button", { name: /应用修复/ });
+    expect(buttons[0]).toBeDisabled();
+    expect(buttons[1]).toBeEnabled();
   });
 
   it("localizes behavioral findings from engine params and hides their evidence line", () => {

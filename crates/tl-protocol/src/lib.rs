@@ -73,6 +73,8 @@ pub mod methods {
     pub const QA_RUN: &str = "qa.run";
     pub const QA_LIST: &str = "qa.list";
     pub const QA_WAIVE: &str = "qa.waive";
+    pub const QA_FIX_LIST: &str = "qa.fix.list";
+    pub const QA_FIX_APPLY: &str = "qa.fix.apply";
     pub const QA_PROFILE_GET: &str = "qa.profile.get";
     pub const QA_PROFILE_UPDATE: &str = "qa.profile.update";
     pub const AI_CONFIGURE: &str = "ai.configure";
@@ -187,6 +189,10 @@ pub struct RpcMethodCatalog {
     pub qa_list: MethodContract<QaListParams, QaListResult>,
     #[serde(rename = "qa.waive")]
     pub qa_waive: MethodContract<QaWaiveParams, QaWaiveResult>,
+    #[serde(rename = "qa.fix.list")]
+    pub qa_fix_list: MethodContract<QaFixListParams, QaFixListResult>,
+    #[serde(rename = "qa.fix.apply")]
+    pub qa_fix_apply: MethodContract<QaFixApplyParams, QaFixApplyResult>,
     #[serde(rename = "qa.profile.get")]
     pub qa_profile_get: MethodContract<QaProfileGetParams, QaProfileView>,
     #[serde(rename = "qa.profile.update")]
@@ -288,6 +294,8 @@ mod tests {
             methods::QA_RUN,
             methods::QA_LIST,
             methods::QA_WAIVE,
+            methods::QA_FIX_LIST,
+            methods::QA_FIX_APPLY,
             methods::QA_PROFILE_GET,
             methods::QA_PROFILE_UPDATE,
             methods::AI_CONFIGURE,

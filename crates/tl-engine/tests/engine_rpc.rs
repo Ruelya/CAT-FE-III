@@ -3122,6 +3122,201 @@ fn qa_run_excludes_locked_segments_and_keeps_their_issues() {
     assert_eq!(final_run["openIssues"], 0);
 }
 
+/// PRD S3 ④ Correction channel: `qa.fix.list` proposes deterministic
+/// corrections for mechanically fixable open findings only, and
+/// `qa.fix.apply` rewrites the segment through the exact `segment.update`
+/// guards with a same-transaction segment QA refresh. Applying never
+/// confirms and never writes TM.
+#[test]
+fn qa_fix_lists_and_applies_engine_corrections() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "fix.txt",
+        "The retention period is 30 days.\n\nHello world.\n\nSave the file.\n",
+    );
+    let segments = harness.segments(&document_id);
+    // Fixable: wrong number (unambiguous single-number shape).
+    harness.set_target(&segments[0], "保留期为 60 天。");
+    // Fixable: edge whitespace.
+    harness.set_target(&segments[1], " 你好世界。 ");
+    // segments[2] stays empty: qa.empty-target has no mechanical fix.
+    harness.call("qa.run", json!({ "documentId": document_id }));
+
+    let listed = harness.call("qa.fix.list", json!({ "documentId": document_id }));
+    let fixes = listed["fixes"].as_array().expect("fixes");
+    let fix_for = |rule_id: &str| {
+        fixes
+            .iter()
+            .find(|fix| fix["ruleId"] == rule_id)
+            .unwrap_or_else(|| panic!("no fix for {rule_id} in {fixes:?}"))
+    };
+    let number_fix = fix_for("qa.number-mismatch");
+    assert_eq!(number_fix["currentTargetText"], "保留期为 60 天。");
+    assert_eq!(number_fix["fixedTargetText"], "保留期为 30 天。");
+    assert_eq!(number_fix["segmentId"], segments[0]["id"]);
+    let whitespace_fix = fix_for("qa.edge-whitespace");
+    assert_eq!(whitespace_fix["fixedTargetText"], "你好世界。");
+    // The empty target's finding offers no fake 一键修复.
+    assert!(
+        fixes.iter().all(|fix| fix["ruleId"] != "qa.empty-target"),
+        "unfixable rules must not appear: {fixes:?}"
+    );
+
+    // Stale baseRevision conflicts before anything is written.
+    assert_eq!(
+        harness.call_err(
+            "qa.fix.apply",
+            json!({
+                "issueId": number_fix["issueId"],
+                "baseRevision": number_fix["baseRevision"].as_u64().expect("revision") + 7,
+            }),
+        ),
+        "conflict"
+    );
+
+    // Apply the number fix: the segment carries the engine's text verbatim
+    // and its QA refreshes in the same transaction.
+    let applied = harness.call(
+        "qa.fix.apply",
+        json!({
+            "issueId": number_fix["issueId"],
+            "baseRevision": number_fix["baseRevision"],
+        }),
+    );
+    assert_eq!(applied["segment"]["targetText"], "保留期为 30 天。");
+    assert_eq!(applied["segment"]["state"], "draft");
+    let refreshed = applied["qaIssues"].as_array().expect("refreshed issues");
+    let number_issue = refreshed
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.number-mismatch")
+        .expect("number issue after refresh");
+    assert_eq!(number_issue["status"], "resolved");
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["total"], 0, "applying a fix must never write TM");
+
+    // The issue resolved, so a second apply has nothing left to fix; the
+    // fix list stops offering it too.
+    assert_eq!(
+        harness.call_err(
+            "qa.fix.apply",
+            json!({
+                "issueId": number_fix["issueId"],
+                "baseRevision": applied["segment"]["revision"],
+            }),
+        ),
+        "conflict"
+    );
+    let relisted = harness.call("qa.fix.list", json!({ "documentId": document_id }));
+    assert!(
+        relisted["fixes"]
+            .as_array()
+            .expect("fixes")
+            .iter()
+            .all(|fix| fix["ruleId"] != "qa.number-mismatch"),
+        "a resolved finding must not keep offering its fix"
+    );
+}
+
+/// Corrections respect the same shields as editing: locked segments offer
+/// no fix and refuse to apply one; a confirmed segment honestly returns to
+/// draft when its text is rewritten.
+#[test]
+fn qa_fix_apply_shields_locked_rows_and_demotes_confirmed() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "fix-guard.txt",
+        "The amount is 30.\n\nThe size is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "金额是 40。");
+    // Confirm the second row with a fixable whitespace problem: confirm-time
+    // QA records the issue and the confirm writes TM.
+    let drafted = harness.set_target(&segments[1], " 大小是 50。 ");
+    harness.confirm(&drafted);
+    harness.call("qa.run", json!({ "documentId": document_id }));
+
+    // Lock the first row: its finding disappears from the fix list and an
+    // apply against it conflicts.
+    let listed = harness.call("qa.fix.list", json!({ "documentId": document_id }));
+    let number_fix = listed["fixes"]
+        .as_array()
+        .expect("fixes")
+        .iter()
+        .find(|fix| fix["ruleId"] == "qa.number-mismatch")
+        .expect("number fix before locking")
+        .clone();
+    let first = harness.segments(&document_id)[0].clone();
+    harness.lock(&first, true);
+    let relisted = harness.call("qa.fix.list", json!({ "documentId": document_id }));
+    assert!(
+        relisted["fixes"]
+            .as_array()
+            .expect("fixes")
+            .iter()
+            .all(|fix| fix["segmentId"] != segments[0]["id"]),
+        "locked rows must not offer fixes"
+    );
+    let locked_revision = harness.segments(&document_id)[0]["revision"].clone();
+    assert_eq!(
+        harness.call_err(
+            "qa.fix.apply",
+            json!({ "issueId": number_fix["issueId"], "baseRevision": locked_revision }),
+        ),
+        "conflict"
+    );
+
+    // Apply the whitespace fix on the confirmed row: the rewrite demotes it
+    // to draft — the confirmation covered the old text — and the issue
+    // resolves in the same transaction.
+    let whitespace_fix = relisted["fixes"]
+        .as_array()
+        .expect("fixes")
+        .iter()
+        .find(|fix| fix["ruleId"] == "qa.edge-whitespace")
+        .expect("whitespace fix")
+        .clone();
+    let applied = harness.call(
+        "qa.fix.apply",
+        json!({
+            "issueId": whitespace_fix["issueId"],
+            "baseRevision": whitespace_fix["baseRevision"],
+        }),
+    );
+    assert_eq!(applied["segment"]["targetText"], "大小是 50。");
+    assert_eq!(
+        applied["segment"]["state"], "draft",
+        "a fixed confirmed segment returns to draft"
+    );
+    assert!(
+        applied["qaIssues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .filter(|issue| issue["ruleId"] == "qa.edge-whitespace")
+            .all(|issue| issue["status"] == "resolved"),
+    );
+
+    // Waived findings are a recorded human decision, not a fix queue.
+    let waived = harness.call(
+        "qa.waive",
+        json!({ "issueId": number_fix["issueId"], "waived": true }),
+    );
+    assert_eq!(waived["issues"][0]["status"], "waived");
+    let after_waive = harness.call("qa.fix.list", json!({ "documentId": document_id }));
+    assert!(
+        after_waive["fixes"]
+            .as_array()
+            .expect("fixes")
+            .iter()
+            .all(|fix| fix["issueId"] != number_fix["issueId"]),
+        "waived findings must not offer fixes"
+    );
+}
+
 /// Granular waivers (PRD ③): one call can waive per rule (document-scoped)
 /// or per segment; storage stays per-issue, batches skip rows already in
 /// the requested state, and the strict per-issue conflicts are untouched.

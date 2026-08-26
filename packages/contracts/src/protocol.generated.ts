@@ -100,14 +100,14 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract52;
-  "ai.agent.start": MethodContract50;
-  "ai.agent.status": MethodContract51;
-  "ai.assist.cancel": MethodContract49;
-  "ai.assist.start": MethodContract47;
-  "ai.assist.status": MethodContract48;
-  "ai.configure": MethodContract45;
-  "ai.status": MethodContract46;
+  "ai.agent.cancel": MethodContract54;
+  "ai.agent.start": MethodContract52;
+  "ai.agent.status": MethodContract53;
+  "ai.assist.cancel": MethodContract51;
+  "ai.assist.start": MethodContract49;
+  "ai.assist.status": MethodContract50;
+  "ai.configure": MethodContract47;
+  "ai.status": MethodContract48;
   "document.export": MethodContract11;
   "document.import": MethodContract8;
   "document.list": MethodContract9;
@@ -124,9 +124,11 @@ export interface RpcMethodCatalog {
   "project.get": MethodContract5;
   "project.list": MethodContract4;
   "project.update": MethodContract6;
+  "qa.fix.apply": MethodContract44;
+  "qa.fix.list": MethodContract43;
   "qa.list": MethodContract41;
-  "qa.profile.get": MethodContract43;
-  "qa.profile.update": MethodContract44;
+  "qa.profile.get": MethodContract45;
+  "qa.profile.update": MethodContract46;
   "qa.run": MethodContract40;
   "qa.waive": MethodContract42;
   "segment.confirm": MethodContract15;
@@ -156,7 +158,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract52 {
+export interface MethodContract54 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -196,7 +198,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract50 {
+export interface MethodContract52 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -212,7 +214,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract51 {
+export interface MethodContract53 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -223,7 +225,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract49 {
+export interface MethodContract51 {
   params: AiAssistCancelParams;
   result: AiAssistRunView;
 }
@@ -272,7 +274,7 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract47 {
+export interface MethodContract49 {
   params: AiAssistParams;
   result: AiAssistRunView;
 }
@@ -285,7 +287,7 @@ export interface AiAssistParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract48 {
+export interface MethodContract50 {
   params: AiAssistStatusParams;
   result: AiAssistRunView;
 }
@@ -296,7 +298,7 @@ export interface AiAssistStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract45 {
+export interface MethodContract47 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -323,7 +325,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract46 {
+export interface MethodContract48 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -927,34 +929,32 @@ export interface ProjectUpdateParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract41 {
-  params: QaListParams;
-  result: QaListResult;
+export interface MethodContract44 {
+  params: QaFixApplyParams;
+  result: QaFixApplyResult;
 }
-export interface QaListParams {
-  documentId: string;
+/**
+ * `qa.fix.apply` — apply one correction through the exact `segment.update`
+ * guards: a stale `baseRevision` conflicts, a locked segment conflicts,
+ * and a confirmed segment honestly returns to draft. The engine recomputes
+ * the correction from the current text (a finding without one conflicts);
+ * the segment's QA refreshes in the same transaction. Applying never
+ * confirms and never writes TM.
+ */
+export interface QaFixApplyParams {
   /**
-   * Page size. When omitted every issue from `offset` on is returned,
-   * which is the pre-paging behavior existing clients rely on.
+   * Optimistic concurrency: must match the segment's current revision.
    */
-  limit?: number | null;
-  /**
-   * Issues to skip in list order (open first, then oldest); defaults to 0.
-   */
-  offset?: number | null;
+  baseRevision: number;
+  issueId: string;
   [k: string]: unknown;
 }
-export interface QaListResult {
+export interface QaFixApplyResult {
   /**
-   * One window of the document's issues: open first, then waived, then
-   * resolved.
+   * The segment's full issue list after the same-transaction refresh.
    */
-  issues: QaIssue[];
-  /**
-   * Issues for the document before the page window was applied, so
-   * clients can page honestly.
-   */
-  total: number;
+  qaIssues: QaIssue[];
+  segment: Segment;
   [k: string]: unknown;
 }
 export interface QaIssue {
@@ -997,10 +997,151 @@ export interface NumberEvidence {
   targetValues?: string[];
   [k: string]: unknown;
 }
+export interface Segment {
+  contextHash: string;
+  documentId: string;
+  id: string;
+  /**
+   * Locked rows are read-only: update/confirm conflict, replace,
+   * pretranslate, propagation, and AI skip them, and QA leaves their
+   * issues untouched. Toggled only by `segment.lock`. Defaults false so
+   * rows serialized before the field existed still parse.
+   */
+  locked?: boolean;
+  ordinal: number;
+  /**
+   * Where the current target text came from. Absent for rows written
+   * before origins existed and for plain human typing.
+   */
+  origin?: SegmentOrigin | null;
+  revision: number;
+  sourceHash: string;
+  sourceText: string;
+  state: SegmentState;
+  structuralPath: string;
+  targetText: string;
+  updatedAtMs: number;
+  [k: string]: unknown;
+}
+/**
+ * Where the current target text came from, stamped by the write that put
+ * it there. Only writes that carry an origin stamp one — rows written
+ * before this field existed stay origin-less forever (no backfill), and an
+ * update that empties the target clears the origin (an empty target has no
+ * origin). Confirming never changes the origin.
+ */
+export interface SegmentOrigin {
+  /**
+   * Pollution signal: true once the target was edited after the origin
+   * write (Studio-style "edited fuzzy"). Engine-owned — the value sent
+   * by a client is ignored; a stamping write always resets it to false.
+   */
+  edited?: boolean;
+  kind: SegmentOriginKind;
+  /**
+   * Provider model that produced an `aiDraft`; absent otherwise.
+   */
+  model?: string | null;
+  /**
+   * Real TM match score (0-100) as reported at apply time. Present only
+   * for TM origins; never fabricated for AI or human writes.
+   */
+  score?: number | null;
+  [k: string]: unknown;
+}
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
 export interface MethodContract43 {
+  params: QaFixListParams;
+  result: QaFixListResult;
+}
+/**
+ * `qa.fix.list` — the engine-proposed corrections for a document's open
+ * findings (PRD S3 ④).
+ *
+ * Corrections are recomputed from each segment's *current* target text at
+ * call time, never persisted: a stale issue whose text was already edited
+ * simply stops producing one. Only mechanically fixable rules propose
+ * anything (edge whitespace, CJK half-width punctuation and the ASCII
+ * ellipsis, adjacent repeated words, the unambiguous single-number
+ * mismatch); a finding without a correction is honestly absent from the
+ * list. Locked segments are shielded — their findings never offer a fix.
+ */
+export interface QaFixListParams {
+  documentId: string;
+  [k: string]: unknown;
+}
+export interface QaFixListResult {
+  fixes: QaFix[];
+  [k: string]: unknown;
+}
+/**
+ * One engine-proposed correction. The client previews `fixedTargetText`
+ * verbatim and applies it through `qa.fix.apply` — it never invents or
+ * edits replacement text.
+ */
+export interface QaFix {
+  /**
+   * Segment revision the fix was computed against; pass it as
+   * `baseRevision` to `qa.fix.apply`.
+   */
+  baseRevision: number;
+  /**
+   * The target text the fix replaces (the segment's current text).
+   */
+  currentTargetText: string;
+  /**
+   * Short English description of the mechanical change; clients
+   * localize by `ruleId`, like issue messages.
+   */
+  description: string;
+  /**
+   * The full replacement target text, applied verbatim.
+   */
+  fixedTargetText: string;
+  issueId: string;
+  ruleId: string;
+  segmentId: string;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract41 {
+  params: QaListParams;
+  result: QaListResult;
+}
+export interface QaListParams {
+  documentId: string;
+  /**
+   * Page size. When omitted every issue from `offset` on is returned,
+   * which is the pre-paging behavior existing clients rely on.
+   */
+  limit?: number | null;
+  /**
+   * Issues to skip in list order (open first, then oldest); defaults to 0.
+   */
+  offset?: number | null;
+  [k: string]: unknown;
+}
+export interface QaListResult {
+  /**
+   * One window of the document's issues: open first, then waived, then
+   * resolved.
+   */
+  issues: QaIssue[];
+  /**
+   * Issues for the document before the page window was applied, so
+   * clients can page honestly.
+   */
+  total: number;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract45 {
   params: QaProfileGetParams;
   result: QaProfileView;
 }
@@ -1059,7 +1200,7 @@ export interface QaRuleSettings1 {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract44 {
+export interface MethodContract46 {
   params: QaProfileUpdateParams;
   result: QaProfileView;
 }
@@ -1213,58 +1354,6 @@ export interface SegmentConfirmResult {
   qaIssues?: QaIssue[];
   segment: Segment;
   tmEntry: TmEntry;
-  [k: string]: unknown;
-}
-export interface Segment {
-  contextHash: string;
-  documentId: string;
-  id: string;
-  /**
-   * Locked rows are read-only: update/confirm conflict, replace,
-   * pretranslate, propagation, and AI skip them, and QA leaves their
-   * issues untouched. Toggled only by `segment.lock`. Defaults false so
-   * rows serialized before the field existed still parse.
-   */
-  locked?: boolean;
-  ordinal: number;
-  /**
-   * Where the current target text came from. Absent for rows written
-   * before origins existed and for plain human typing.
-   */
-  origin?: SegmentOrigin | null;
-  revision: number;
-  sourceHash: string;
-  sourceText: string;
-  state: SegmentState;
-  structuralPath: string;
-  targetText: string;
-  updatedAtMs: number;
-  [k: string]: unknown;
-}
-/**
- * Where the current target text came from, stamped by the write that put
- * it there. Only writes that carry an origin stamp one — rows written
- * before this field existed stay origin-less forever (no backfill), and an
- * update that empties the target clears the origin (an empty target has no
- * origin). Confirming never changes the origin.
- */
-export interface SegmentOrigin {
-  /**
-   * Pollution signal: true once the target was edited after the origin
-   * write (Studio-style "edited fuzzy"). Engine-owned — the value sent
-   * by a client is ignored; a stamping write always resets it to false.
-   */
-  edited?: boolean;
-  kind: SegmentOriginKind;
-  /**
-   * Provider model that produced an `aiDraft`; absent otherwise.
-   */
-  model?: string | null;
-  /**
-   * Real TM match score (0-100) as reported at apply time. Present only
-   * for TM origins; never fabricated for AI or human writes.
-   */
-  score?: number | null;
   [k: string]: unknown;
 }
 /**

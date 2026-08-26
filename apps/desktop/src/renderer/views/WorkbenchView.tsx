@@ -13,6 +13,7 @@ import type {
   Document,
   DocumentImportResult,
   Project,
+  QaFix,
   QaIssue,
   Segment,
   SegmentCounts,
@@ -204,6 +205,10 @@ export function WorkbenchView({
   const [openDocumentIds, setOpenDocumentIds] = useState<string[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<QaIssue[]>([]);
+  // Engine-proposed corrections for the open findings (PRD S3 ④). Always
+  // fetched, never computed locally — a 应用修复 button exists exactly when
+  // the engine proposed a fix.
+  const [fixes, setFixes] = useState<QaFix[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [tab, setTab] = useState<DockTab>("memory");
   const [busy, setBusy] = useState(false);
@@ -1159,6 +1164,63 @@ export function WorkbenchView({
   const openIssueCount = useMemo(
     () => issues.filter((issue) => issue.status === "open").length,
     [issues],
+  );
+
+  // Corrections are recomputed engine-side from the current target text, so
+  // the list follows every issue or segment change; segments moving under a
+  // stale fix would otherwise leave a button whose apply can only conflict.
+  useEffect(() => {
+    if (!activeDocumentId || openIssueCount === 0) {
+      setFixes([]);
+      return;
+    }
+    let cancelled = false;
+    callEngine("qa.fix.list", { documentId: activeDocumentId })
+      .then((result) => {
+        if (!cancelled) {
+          setFixes(result.fixes);
+        }
+      })
+      .catch(() => {
+        // No fix list only means no 应用修复 buttons; findings, waiving,
+        // and jumping stay fully usable.
+        if (!cancelled) {
+          setFixes([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocumentId, openIssueCount, issues, segments]);
+
+  // 应用修复: apply one engine-proposed correction. The replacement text is
+  // the engine's own — recomputed and applied server-side through the same
+  // guards as editing (baseRevision conflict, lock shield, confirmed rows
+  // return to draft). The segment's QA refreshed in the same transaction,
+  // so its issue rows are replaced wholesale, like a confirm.
+  const applyFix = useCallback(
+    async (fix: QaFix) => {
+      setWaivePendingId(`fix:${fix.issueId}`);
+      try {
+        const result = await callEngine("qa.fix.apply", {
+          issueId: fix.issueId,
+          baseRevision: fix.baseRevision,
+        });
+        applySegments([result.segment]);
+        setIssues((currentIssues) => [
+          ...currentIssues.filter(
+            (issue) => issue.segmentId !== result.segment.id,
+          ),
+          ...result.qaIssues,
+        ]);
+        onStatusMessage(`句段 #${result.segment.ordinal + 1} 已应用修复`);
+      } catch (error) {
+        onStatusMessage(`应用修复失败：${describeError(error)}`);
+      } finally {
+        setWaivePendingId(null);
+      }
+    },
+    [applySegments, onStatusMessage],
   );
 
   // Engine results arrive best-first; the top hit drives the TM tab chip
@@ -2454,8 +2516,10 @@ export function WorkbenchView({
             {tab === "qa" ? (
               <QaPanel
                 issues={issues}
+                fixes={fixes}
                 onRun={() => void runQa()}
                 onJump={jumpToSegment}
+                onApplyFix={(fix) => void applyFix(fix)}
                 onWaive={(issue) =>
                   void waiveIssues({ issueId: issue.id }, true, issue.id)
                 }
