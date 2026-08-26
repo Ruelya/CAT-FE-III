@@ -133,6 +133,15 @@ export function buildMenuTemplate(
         "CmdOrCtrl+Alt+Shift+Enter",
         true,
       ),
+      SEPARATOR,
+      // Studio's Ctrl+L. Menu-owned: no renderer keydown handler exists for
+      // it, and it must fire even while the target editor has focus.
+      commandItem(
+        "锁定/解锁句段",
+        "toggle-lock-segment",
+        context.documentOpen,
+        "CmdOrCtrl+L",
+      ),
     ],
   };
 

@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, Ref } from "react";
 
-import { IconDots } from "@tabler/icons-react";
+import { IconDots, IconLock, IconLockOpen } from "@tabler/icons-react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
 import { MatchBadge } from "@translunar/ui";
@@ -64,6 +64,13 @@ export interface SegmentGridHandle {
    * Returns false when there is nothing to focus.
    */
   focusActive: () => boolean;
+  /**
+   * Persist any pending (debounced) draft text right now. Callers about to
+   * issue a write that would invalidate the editor — locking the segment —
+   * run this first so the typed text lands as a draft at the revision it
+   * belongs to instead of conflicting after the lock.
+   */
+  flushDraft: () => void;
 }
 
 export interface SegmentGridProps {
@@ -101,6 +108,12 @@ export interface SegmentGridProps {
   onCopySource?: (segment: Segment) => void;
   /** Row menu 清空译文 — segment.update with an empty string. */
   onClearTarget?: (segment: Segment) => void;
+  /**
+   * Row menu 锁定/解锁 — segment.lock with the opposite of the stored
+   * state. The engine owns the flag; the grid only reflects Segment.locked
+   * (glyph in the status column, editor never mounts on a locked row).
+   */
+  onToggleLock?: (segment: Segment) => void;
   /**
    * Status-bar caret readout: reports the caret's line/column inside the
    * mounted target editor, and null whenever no editor is mounted. Editor
@@ -225,6 +238,7 @@ export function SegmentGrid({
   onConfirm,
   onCopySource,
   onClearTarget,
+  onToggleLock,
   onCaretChange,
   autoSaveDelayMs = AUTO_SAVE_DELAY_MS,
   ref,
@@ -487,6 +501,7 @@ export function SegmentGrid({
         }
         return false;
       },
+      flushDraft: () => commitDraftSave(),
     }),
     [
       spliceIntoEditor,
@@ -495,6 +510,7 @@ export function SegmentGrid({
       draft,
       onConfirm,
       handOffToConfirm,
+      commitDraftSave,
     ],
   );
 
@@ -547,7 +563,11 @@ export function SegmentGrid({
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        setEditing(true);
+        // A locked row never mounts its editor; Enter stays a no-op until
+        // the segment is unlocked.
+        if (!segment.locked) {
+          setEditing(true);
+        }
         return;
       }
       if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
@@ -757,7 +777,11 @@ export function SegmentGrid({
           ) : null}
           {visible.map((segment) => {
             const isActive = segment.id === activeSegmentId;
-            const isEditing = isActive && editing;
+            const locked = segment.locked === true;
+            // A locked row is selectable (query pivot, read-only) but never
+            // mounts the target editor — Segment.locked is the engine's
+            // flag, and every write path would conflict anyway.
+            const isEditing = isActive && editing && !locked;
             const { glyph, label } = STATE_CHIP[segment.state];
             const hasQa = qaSegmentIds.has(segment.id);
             const qaCount = qaCounts?.get(segment.id) ?? 0;
@@ -773,6 +797,7 @@ export function SegmentGrid({
                 data-editing={isEditing || undefined}
                 data-state={segment.state}
                 data-qa={qaSegmentIds.has(segment.id) || undefined}
+                data-locked={locked || undefined}
                 data-segment-id={segment.id}
                 tabIndex={isActive ? 0 : -1}
                 aria-selected={isActive}
@@ -861,6 +886,18 @@ export function SegmentGrid({
                 </td>
                 <td className="segment-grid__state">
                   <span className="segment-grid__status">
+                    {locked ? (
+                      // Its own glyph, never a color change: locked is
+                      // orthogonal to the translation state chip beside it.
+                      <span
+                        className="segment-grid__lock"
+                        role="img"
+                        aria-label={`句段 ${segment.ordinal + 1} 已锁定`}
+                        title="已锁定"
+                      >
+                        <IconLock size={12} stroke={1.75} aria-hidden />
+                      </span>
+                    ) : null}
                     <span
                       className="segment-grid__chip"
                       data-state={segment.state}
@@ -895,7 +932,7 @@ export function SegmentGrid({
                         title={`TM 最佳匹配 ${activeMatch.score}%`}
                       />
                     ) : null}
-                    {onCopySource || onClearTarget ? (
+                    {onCopySource || onClearTarget || onToggleLock ? (
                       <span className="segment-grid__menu-wrap">
                         <button
                           type="button"
@@ -919,6 +956,7 @@ export function SegmentGrid({
                                 type="button"
                                 role="menuitem"
                                 className="segment-grid__menu-item"
+                                disabled={locked}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setMenuSegmentId(null);
@@ -933,7 +971,7 @@ export function SegmentGrid({
                                 type="button"
                                 role="menuitem"
                                 className="segment-grid__menu-item"
-                                disabled={segment.targetText.length === 0}
+                                disabled={locked || segment.targetText.length === 0}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setMenuSegmentId(null);
@@ -941,6 +979,30 @@ export function SegmentGrid({
                                 }}
                               >
                                 清空译文
+                              </button>
+                            ) : null}
+                            {onToggleLock ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="segment-grid__menu-item"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setMenuSegmentId(null);
+                                  onToggleLock(segment);
+                                }}
+                              >
+                                <span
+                                  className="segment-grid__menu-icon"
+                                  aria-hidden="true"
+                                >
+                                  {locked ? (
+                                    <IconLockOpen size={13} stroke={1.75} />
+                                  ) : (
+                                    <IconLock size={13} stroke={1.75} />
+                                  )}
+                                </span>
+                                {locked ? "解锁" : "锁定"}
                               </button>
                             ) : null}
                           </span>

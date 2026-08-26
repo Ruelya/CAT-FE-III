@@ -48,8 +48,9 @@ use tl_protocol::{
     PROTOCOL_VERSION, ProjectArchiveParams, ProjectCreateParams, ProjectGetParams,
     ProjectListResult, ProjectUpdateParams, QaRunParams, RpcError, RpcErrorCode, RpcNotification,
     RpcRequest, RpcResponse, SegmentConfirmParams, SegmentConfirmResult, SegmentListParams,
-    SegmentListResult, SegmentReplaceParams, SegmentReplaceResult, SegmentUpdateParams,
-    SegmentUpdateResult, ShutdownResult, methods, notifications,
+    SegmentListResult, SegmentLockParams, SegmentLockResult, SegmentReplaceParams,
+    SegmentReplaceResult, SegmentUpdateParams, SegmentUpdateResult, ShutdownResult, methods,
+    notifications,
 };
 use tl_segmentation::{SegmentationMode, SrxRules};
 
@@ -330,6 +331,7 @@ impl Engine {
             methods::SEGMENT_UPDATE => to_value(self.segment_update(parse(params)?)?),
             methods::SEGMENT_REPLACE => to_value(self.segment_replace(parse(params)?)?),
             methods::SEGMENT_CONFIRM => to_value(self.segment_confirm(parse(params)?)?),
+            methods::SEGMENT_LOCK => to_value(self.segment_lock(parse(params)?)?),
             methods::TM_LOOKUP => to_value(self.tm_lookup(parse(params)?)?),
             methods::TM_LIST => to_value(self.tm_list(parse(params)?)?),
             methods::TM_UPDATE => to_value(self.tm_update(parse(params)?)?),
@@ -973,6 +975,11 @@ impl Engine {
                 segment.revision
             )));
         }
+        if segment.locked {
+            return Err(EngineError::Conflict(
+                "segment is locked; unlock it before editing".to_string(),
+            ));
+        }
         let target_changed = segment.target_text != params.target_text;
         segment.target_text = params.target_text;
         segment.state = if segment.target_text.trim().is_empty() {
@@ -1000,8 +1007,9 @@ impl Engine {
     /// confirmation covered the old text — and the TM is never written
     /// (replace drafts, it never confirms). Without `includeConfirmed`,
     /// matching confirmed segments are skipped and reported instead of
-    /// silently rewritten. A target emptied by the replacement honestly
-    /// returns to `untranslated`, mirroring `segment.update`.
+    /// silently rewritten. Locked segments are always skipped and counted,
+    /// even with `includeConfirmed`. A target emptied by the replacement
+    /// honestly returns to `untranslated`, mirroring `segment.update`.
     fn segment_replace(
         &mut self,
         params: SegmentReplaceParams,
@@ -1021,12 +1029,17 @@ impl Engine {
         let mut replaced_occurrences = 0u32;
         let mut demoted_confirmed = 0u32;
         let mut skipped_confirmed = 0u32;
+        let mut skipped_locked = 0u32;
         for mut segment in rows {
             let Some((target, count)) =
                 replace_case_insensitive(&segment.target_text, &params.find, &params.replace_with)
             else {
                 continue;
             };
+            if segment.locked {
+                skipped_locked += 1;
+                continue;
+            }
             if segment.state == SegmentState::Confirmed {
                 if !include_confirmed {
                     skipped_confirmed += 1;
@@ -1059,6 +1072,7 @@ impl Engine {
             replaced_occurrences,
             demoted_confirmed,
             skipped_confirmed,
+            skipped_locked,
         })
     }
 
@@ -1076,6 +1090,11 @@ impl Engine {
                 "segment revision moved to {}; refresh before confirming",
                 segment.revision
             )));
+        }
+        if segment.locked {
+            return Err(EngineError::Conflict(
+                "segment is locked; unlock it before confirming".to_string(),
+            ));
         }
         if segment.target_text.trim().is_empty() {
             return Err(EngineError::InvalidParams(
@@ -1095,6 +1114,7 @@ impl Engine {
             .ok_or_else(|| {
                 EngineError::Internal("confirmed segment has no document".to_string())
             })?;
+        let project = self.require_project(&project_id)?.clone();
 
         // Upsert the project TM entry for this normalized source.
         let memory_id = Self::project_memory_id(&project_id);
@@ -1134,9 +1154,16 @@ impl Engine {
             sibling.revision += 1;
             sibling.updated_at_ms = now;
         }
+        // Confirm-time QA: re-run the segment-scoped rules against the
+        // confirmed text. The changed issue rows join the same transaction
+        // as the segment, the TM write, and the propagation — one atomic
+        // commit. QA never blocks the confirm: findings become issues, not
+        // errors (an Err here is an internal profile bug, not a finding).
+        let (changed_issues, qa_issues) = self.refresh_segment_qa(&project, &confirmed)?;
         let mut delta = StateDelta {
             segments: vec![confirmed.clone()],
             tm_entries: vec![tm_entry.clone()],
+            qa_issues: changed_issues,
             ..Default::default()
         };
         delta.segments.extend(propagated.iter().cloned());
@@ -1145,7 +1172,39 @@ impl Engine {
             segment: confirmed,
             tm_entry,
             propagated,
+            qa_issues,
         })
+    }
+
+    /// `segment.lock`: set or clear the read-only flag. Lock state is
+    /// engine-owned and orthogonal to translation state — any state can be
+    /// locked. While locked: update and confirm return Conflict; replace,
+    /// pretranslate, propagation, and agent drafting skip the row; QA
+    /// leaves its issues untouched. The write is idempotent but still bumps
+    /// the revision, like every mutation.
+    fn segment_lock(
+        &mut self,
+        params: SegmentLockParams,
+    ) -> Result<SegmentLockResult, EngineError> {
+        let now = now_ms();
+        let mut segment = self
+            .store
+            .segment(&params.segment_id)?
+            .ok_or_else(|| EngineError::NotFound(format!("segment {}", params.segment_id)))?;
+        if segment.revision != params.base_revision {
+            return Err(EngineError::Conflict(format!(
+                "segment revision moved to {}; refresh before changing the lock",
+                segment.revision
+            )));
+        }
+        segment.locked = params.locked;
+        segment.revision += 1;
+        segment.updated_at_ms = now;
+        self.store.apply(&StateDelta {
+            segments: vec![segment.clone()],
+            ..Default::default()
+        })?;
+        Ok(SegmentLockResult { segment })
     }
 
     fn ai_configure(&mut self, params: AiConfigureParams) -> Result<AiStatusResult, EngineError> {
@@ -1184,6 +1243,11 @@ impl Engine {
         if segment.state == SegmentState::Confirmed {
             return Err(EngineError::Conflict(
                 "segment is confirmed; AI assist never overwrites confirmed work".to_string(),
+            ));
+        }
+        if segment.locked {
+            return Err(EngineError::Conflict(
+                "segment is locked; a proposal could never be applied".to_string(),
             ));
         }
         if params.action == AiAssistAction::Refine && segment.target_text.trim().is_empty() {
@@ -1341,12 +1405,13 @@ impl Engine {
             .unwrap_or(AGENT_DEFAULT_MAX_SEGMENTS)
             .max(1) as usize;
         // Only the document's untranslated rows leave SQL, and only up to
-        // the planning cap after the whitespace-target filter.
+        // the planning cap after the whitespace-target filter. Locked rows
+        // are never planned: the agent must not claim read-only work.
         let pending: Vec<Segment> = self
             .store
             .untranslated_document_segments(&document_id)?
             .into_iter()
-            .filter(|segment| segment.target_text.trim().is_empty())
+            .filter(|segment| segment.target_text.trim().is_empty() && !segment.locked)
             .take(max_segments)
             .collect();
 
@@ -1513,12 +1578,13 @@ impl Engine {
                 }
                 match outcome {
                     Ok(draft) if !draft.target.trim().is_empty() => {
-                        // Fetch the live row: a human may have edited it
-                        // while the provider call was in flight.
+                        // Fetch the live row: a human may have edited or
+                        // locked it while the provider call was in flight.
                         let stored = self.store.segment(&segment_id)?;
                         let still_pending = stored.as_ref().is_some_and(|segment| {
                             segment.state == SegmentState::Untranslated
                                 && segment.target_text.trim().is_empty()
+                                && !segment.locked
                         });
                         let Some(mut stored) = stored.filter(|_| still_pending) else {
                             push_agent_step(
@@ -1527,7 +1593,7 @@ impl Engine {
                                 AgentStepKind::Translate,
                                 AgentStepStatus::Skipped,
                                 Some(segment_id),
-                                "句段在运行期间被人工修改，保留人工内容".to_string(),
+                                "句段在运行期间被人工修改或锁定，保留人工状态".to_string(),
                             );
                             return Ok(());
                         };

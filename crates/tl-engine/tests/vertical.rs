@@ -1413,3 +1413,77 @@ fn ready_notification_reports_engine_identity() {
     assert_eq!(params["engineName"], "tl-engine");
     assert_eq!(params["protocolVersion"], PROTOCOL_VERSION);
 }
+
+/// Locked segments are invisible to the AI surfaces: the agent never plans
+/// or drafts them, and assist on a locked row is an honest conflict.
+#[test]
+fn agent_and_assist_leave_locked_segments_alone() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Locked", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(
+        workspace.path(),
+        "locked.txt",
+        "Locked alpha sentence.\n\nFree bravo sentence.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    let segments: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    let locked_row = segments.segments[0].clone();
+    let _: Value = call(
+        &mut engine,
+        methods::SEGMENT_LOCK,
+        json!({"segmentId": locked_row.id, "locked": true, "baseRevision": locked_row.revision}),
+    );
+
+    let base_url = spawn_sse_server("机器草稿译文。", Duration::ZERO);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    // Assist on the locked row: conflict before any provider call.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_ASSIST_START,
+            json!({"segmentId": locked_row.id, "action": "translate"}),
+        ),
+        RpcErrorCode::Conflict
+    );
+
+    // The agent plans only the unlocked row and drafts exactly it.
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(run.planned_segments, 1, "locked row is never planned");
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.status, AgentRunStatus::AwaitingReview);
+    assert_eq!(finished.ai_drafted, 1);
+
+    let after: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert!(after.segments[0].locked);
+    assert_eq!(after.segments[0].target_text, "", "locked row stays empty");
+    assert_eq!(
+        after.segments[0].state,
+        tl_domain::SegmentState::Untranslated
+    );
+    assert_eq!(after.segments[1].target_text, "机器草稿译文。");
+    assert_eq!(after.segments[1].state, tl_domain::SegmentState::Draft);
+}

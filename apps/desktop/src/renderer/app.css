@@ -1536,6 +1536,26 @@ button.app-statusbar__jump:hover {
   cursor: default;
 }
 
+.segment-grid__menu-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--tl-space-1);
+  vertical-align: -2px;
+}
+
+/* Locked rows: the glyph is the signal (its own icon before the state
+   chip, never a recolor of it); the faint target text is only the second
+   channel on top of the disabled editor. */
+.segment-grid__lock {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tl-color-text-faint);
+}
+
+.segment-grid tbody tr[data-locked] .segment-grid__target {
+  color: var(--tl-color-text-faint);
+}
+
 /* Right resource rail */
 
 .workbench__dock {

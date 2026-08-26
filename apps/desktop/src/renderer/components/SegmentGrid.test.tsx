@@ -940,6 +940,110 @@ describe("SegmentGrid", () => {
     expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 
+  it("locked rows show the lock glyph and never mount the editor", () => {
+    const { container } = render(
+      <SegmentGrid
+        segments={[
+          { ...segment("s1", 0, "Hello.", "你好。"), locked: true },
+          segment("s2", 1, "World."),
+        ]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // The lock is its own glyph with an accessible name — never a recolor
+    // of the state chip — and the row carries data-locked for styling.
+    expect(
+      screen.getByRole("img", { name: "句段 1 已锁定" }),
+    ).toBeInTheDocument();
+    const row = container.querySelector('tr[data-segment-id="s1"]')!;
+    expect(row).toHaveAttribute("data-locked", "true");
+    // Selection is allowed (read-only pivot) but the editor never mounts:
+    // the saved target renders as plain text and Enter stays a no-op.
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    expect(screen.getByText("你好。")).toBeInTheDocument();
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    // The unlocked row is unaffected by its sibling's lock.
+    expect(
+      container.querySelector('tr[data-segment-id="s2"]'),
+    ).not.toHaveAttribute("data-locked");
+  });
+
+  it("row menu on a locked row offers 解锁 and disables the write actions", async () => {
+    const onToggleLock = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[{ ...segment("s1", 0, "Hello.", "你好。"), locked: true }]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCopySource={vi.fn()}
+        onClearTarget={vi.fn()}
+        onToggleLock={onToggleLock}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
+    // Both write actions would conflict against the engine's lock guard,
+    // so they disable instead of pretending.
+    expect(screen.getByRole("menuitem", { name: "复制源文" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "清空译文" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("menuitem", { name: "解锁" }));
+    expect(onToggleLock).toHaveBeenCalledTimes(1);
+    expect((onToggleLock.mock.calls[0]?.[0] as Segment).id).toBe("s1");
+  });
+
+  it("row menu on an unlocked row offers 锁定", async () => {
+    const onToggleLock = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onToggleLock={onToggleLock}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "锁定" }));
+    expect(onToggleLock).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushDraft persists pending typing without waiting for the debounce", async () => {
+    const onSaveDraft = vi.fn();
+    const ref = createRef<SegmentGridHandle>();
+    render(
+      <SegmentGrid
+        ref={ref}
+        segments={[segment("s1", 0, "Hello.", "旧文。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "新文。");
+    // The debounce is armed far in the future; the imperative flush is the
+    // pre-lock hand-off, so the typed text lands as a draft right now.
+    expect(onSaveDraft).not.toHaveBeenCalled();
+    act(() => {
+      ref.current!.flushDraft();
+    });
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    expect(onSaveDraft.mock.calls[0]?.[1]).toBe("新文。");
+  });
+
   it("windows large documents instead of rendering every row", () => {
     const segments = Array.from({ length: 500 }, (_, i) =>
       segment(`s${i}`, i, `Sentence ${i}.`),

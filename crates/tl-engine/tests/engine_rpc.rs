@@ -116,6 +116,18 @@ impl Harness {
             json!({ "segmentId": segment["id"], "baseRevision": segment["revision"] }),
         )
     }
+
+    fn lock(&mut self, segment: &Value, locked: bool) -> Value {
+        self.call(
+            "segment.lock",
+            json!({
+                "segmentId": segment["id"],
+                "locked": locked,
+                "baseRevision": segment["revision"],
+            }),
+        )["segment"]
+            .clone()
+    }
 }
 
 #[test]
@@ -2864,4 +2876,248 @@ fn document_list_reports_per_document_progress() {
             "sourceWords": 8,
         })
     );
+}
+
+/// segment.lock toggles the engine-owned flag with optimistic concurrency,
+/// survives a restart, and guards the direct write paths: update and
+/// confirm on a locked row are honest conflicts until it is unlocked.
+#[test]
+fn segment_lock_toggles_and_guards_update_and_confirm() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "lock.txt", "First line.\n\nSecond line.\n");
+    let segments = harness.segments(&document_id);
+    let drafted = harness.set_target(&segments[0], "第一行。");
+
+    // Stale baseRevision and unknown ids fail honestly.
+    assert_eq!(
+        harness.call_err(
+            "segment.lock",
+            json!({ "segmentId": drafted["id"], "locked": true, "baseRevision": 1 }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "segment.lock",
+            json!({ "segmentId": "missing", "locked": true, "baseRevision": 1 }),
+        ),
+        "notFound"
+    );
+
+    let locked = harness.lock(&drafted, true);
+    assert_eq!(locked["locked"], true);
+    assert_eq!(locked["state"], "draft", "lock is orthogonal to state");
+    assert_eq!(
+        locked["revision"].as_u64(),
+        drafted["revision"].as_u64().map(|revision| revision + 1)
+    );
+
+    // Locked: editing and confirming conflict instead of writing.
+    assert_eq!(
+        harness.call_err(
+            "segment.update",
+            json!({
+                "segmentId": locked["id"],
+                "targetText": "改写。",
+                "baseRevision": locked["revision"],
+            }),
+        ),
+        "conflict"
+    );
+    assert_eq!(
+        harness.call_err(
+            "segment.confirm",
+            json!({ "segmentId": locked["id"], "baseRevision": locked["revision"] }),
+        ),
+        "conflict"
+    );
+
+    // The flag lives in SQLite, not in engine memory.
+    harness.reopen();
+    let persisted = harness.segments(&document_id);
+    assert_eq!(persisted[0]["locked"], true);
+    assert_eq!(persisted[0]["targetText"], "第一行。");
+    assert_eq!(persisted[1]["locked"], false);
+
+    // Unlock restores the normal write path.
+    let unlocked = harness.lock(&persisted[0], false);
+    assert_eq!(unlocked["locked"], false);
+    let edited = harness.set_target(&unlocked, "第一行（改）。");
+    let confirmed = harness.confirm(&edited);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+}
+
+/// Locked rows are read-only for every bulk write: replace skips and counts
+/// them (even with includeConfirmed), pretranslate sets them aside, and
+/// confirm-time propagation never fills them.
+#[test]
+fn locked_segments_skip_replace_pretranslate_and_propagation() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+
+    // Replace: two matching drafts, one locked.
+    let replace_doc = harness.import_txt(
+        &project_id,
+        "lock-replace.txt",
+        "First line.\n\nSecond line.\n",
+    );
+    let segments = harness.segments(&replace_doc);
+    harness.set_target(&segments[0], "server 就绪");
+    let second = harness.set_target(&segments[1], "重启 server");
+    harness.lock(&second, true);
+    let replaced = harness.call(
+        "segment.replace",
+        json!({
+            "documentId": replace_doc,
+            "find": "server",
+            "replaceWith": "服务器",
+            "includeConfirmed": true,
+        }),
+    );
+    assert_eq!(replaced["replacedOccurrences"], 1);
+    assert_eq!(replaced["skippedLocked"], 1);
+    assert_eq!(replaced["segments"].as_array().expect("rows").len(), 1);
+    let after = harness.segments(&replace_doc);
+    assert_eq!(after[0]["targetText"], "服务器 就绪");
+    assert_eq!(
+        after[1]["targetText"], "重启 server",
+        "locked row untouched"
+    );
+
+    // Propagation: confirming a duplicate source skips the locked sibling.
+    let source_doc = harness.import_txt(
+        &project_id,
+        "lock-propagate-a.txt",
+        "Shared sentence here.\n",
+    );
+    let sibling_doc = harness.import_txt(
+        &project_id,
+        "lock-propagate-b.txt",
+        "Shared sentence here.\n\nShared sentence here.\n",
+    );
+    let siblings = harness.segments(&sibling_doc);
+    harness.lock(&siblings[0], true);
+    let origin = harness.segments(&source_doc)[0].clone();
+    let drafted = harness.set_target(&origin, "这里是共享句子。");
+    let confirmed = harness.confirm(&drafted);
+    let propagated = confirmed["propagated"].as_array().expect("propagated");
+    assert_eq!(propagated.len(), 1, "locked sibling is not propagated");
+    assert_eq!(propagated[0]["id"], siblings[1]["id"]);
+    let siblings_after = harness.segments(&sibling_doc);
+    assert_eq!(siblings_after[0]["targetText"], "");
+    assert_eq!(siblings_after[0]["state"], "untranslated");
+    assert_eq!(siblings_after[1]["targetText"], "这里是共享句子。");
+
+    // Pretranslate: the locked untranslated row is reported, never filled.
+    let pretranslated = harness.call(
+        "tm.pretranslate",
+        json!({ "documentId": sibling_doc, "minScore": 75 }),
+    );
+    assert_eq!(pretranslated["checked"], 0, "only the locked row was left");
+    assert_eq!(pretranslated["skippedLocked"], 1);
+    assert_eq!(pretranslated["pretranslated"], 0);
+    let final_rows = harness.segments(&sibling_doc);
+    assert_eq!(final_rows[0]["targetText"], "");
+    assert_eq!(final_rows[0]["locked"], true);
+}
+
+/// segment.confirm refreshes the confirmed segment's QA in the same
+/// transaction: findings open as issues in the result and the dock list,
+/// the confirm itself never blocks, the TM write still happens, and a
+/// later confirm of the fixed text resolves the issue.
+#[test]
+fn segment_confirm_refreshes_segment_qa_without_blocking() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "confirm-qa.txt", "The amount is 30.\n");
+    let segments = harness.segments(&document_id);
+
+    // Confirm a number mismatch: the confirm succeeds and reports the issue.
+    let drafted = harness.set_target(&segments[0], "金额是 40。");
+    let confirmed = harness.confirm(&drafted);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["tmEntry"]["targetText"], "金额是 40。",
+        "QA findings never block the confirm or its TM write"
+    );
+    let issues = confirmed["qaIssues"].as_array().expect("qa issues");
+    let open: Vec<&Value> = issues
+        .iter()
+        .filter(|issue| issue["status"] == "open")
+        .collect();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0]["ruleId"], "qa.number-mismatch");
+
+    // The issue is already in the dock list without a manual qa.run.
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["issues"][0]["status"], "open");
+
+    // Fix the number and confirm again: the same transaction resolves it.
+    let refreshed = harness.segments(&document_id)[0].clone();
+    let fixed = harness.set_target(&refreshed, "金额是 30。");
+    let reconfirmed = harness.confirm(&fixed);
+    let issues = reconfirmed["qaIssues"].as_array().expect("qa issues");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0]["status"], "resolved");
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    assert_eq!(listed["issues"][0]["status"], "resolved");
+
+    // The refresh is persisted with the confirm, not recomputed on read.
+    harness.reopen();
+    let listed = harness.call("qa.list", json!({ "documentId": document_id }));
+    assert_eq!(listed["total"], 1);
+    assert_eq!(listed["issues"][0]["status"], "resolved");
+    let tm = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm["entries"][0]["targetText"], "金额是 30。");
+}
+
+/// qa.run leaves locked rows out entirely: they are not checked, produce no
+/// candidates, and their existing issues stay open instead of being
+/// dishonestly resolved by a run that never looked at them.
+#[test]
+fn qa_run_excludes_locked_segments_and_keeps_their_issues() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "lock-qa.txt",
+        "The amount is 30.\n\nThe total is 50.\n",
+    );
+    let segments = harness.segments(&document_id);
+    harness.set_target(&segments[0], "金额是 40。");
+    let second = harness.set_target(&segments[1], "总额是 60。");
+
+    let run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(run["checkedSegments"], 2);
+    assert_eq!(run["openIssues"], 2);
+
+    // Lock the second row, fix the first, and re-run.
+    harness.lock(&second, true);
+    let first = harness.segments(&document_id)[0].clone();
+    harness.set_target(&first, "金额是 30。");
+    let rerun = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(rerun["checkedSegments"], 1, "locked row is not checked");
+    assert_eq!(
+        rerun["openIssues"], 1,
+        "the locked row's issue stays open; the fixed row's resolves"
+    );
+    let issues = rerun["issues"].as_array().expect("issues");
+    let by_segment = |segment_id: &Value| {
+        issues
+            .iter()
+            .find(|issue| &issue["segmentId"] == segment_id)
+            .expect("issue for segment")
+    };
+    assert_eq!(by_segment(&segments[0]["id"])["status"], "resolved");
+    assert_eq!(by_segment(&segments[1]["id"])["status"], "open");
+
+    // Unlock and fix: the next run resolves the remaining issue honestly.
+    let locked_row = harness.segments(&document_id)[1].clone();
+    let unlocked = harness.lock(&locked_row, false);
+    harness.set_target(&unlocked, "总额是 50。");
+    let final_run = harness.call("qa.run", json!({ "documentId": document_id }));
+    assert_eq!(final_run["checkedSegments"], 2);
+    assert_eq!(final_run["openIssues"], 0);
 }

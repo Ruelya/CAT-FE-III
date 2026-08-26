@@ -183,6 +183,10 @@ pub struct TmPretranslateResult {
     pub pretranslated: u32,
     pub exact: u32,
     pub fuzzy: u32,
+    /// Untranslated segments left alone because they are locked. Not part
+    /// of `checked`.
+    #[serde(default)]
+    pub skipped_locked: u32,
     /// The segments that changed, at their new revisions.
     pub segments: Vec<Segment>,
 }

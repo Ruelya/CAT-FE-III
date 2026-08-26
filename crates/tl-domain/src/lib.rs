@@ -355,6 +355,12 @@ pub struct Segment {
     /// before origins existed and for plain human typing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<SegmentOrigin>,
+    /// Locked rows are read-only: update/confirm conflict, replace,
+    /// pretranslate, propagation, and AI skip them, and QA leaves their
+    /// issues untouched. Toggled only by `segment.lock`. Defaults false so
+    /// rows serialized before the field existed still parse.
+    #[serde(default)]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

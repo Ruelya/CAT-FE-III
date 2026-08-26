@@ -707,6 +707,105 @@ test("persisted origin chips and the engine word count stay honest", async () =>
   await expect(wordStat).toContainText("字数 12");
 });
 
+// S3a: confirm-time QA and segment lock, against the real engine. Runs on
+// the words.txt document from the S2 test: row 1 draft (TM origin, edited),
+// row 2 draft, row 3 untranslated.
+test("confirm refreshes QA and locked segments stay read-only", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // Confirm row 2 with a wrong number (source 30, target 40). The confirm
+  // succeeds (never gated) and writes TM; the engine re-runs the
+  // segment-scoped QA rules in the same transaction and the finding lands
+  // in the dock and on the row's chip — nobody pressed 运行 QA.
+  await rows.nth(1).click();
+  const editor2 = page.getByLabel("句段 2 译文");
+  await editor2.fill("Retention is 40 days.");
+  await editor2.press("Control+Alt+Shift+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #2 已确认并写入 TM，QA 1 个问题",
+  );
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="confirmed"]'),
+  ).toContainText("⚠1");
+  await page.getByRole("button", { name: "QA", exact: true }).click();
+  await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
+  const numberIssue = page.locator(".issue-card", {
+    hasText: "qa.number-mismatch",
+  });
+  await expect(numberIssue).toContainText("未解决");
+  await shot("19-confirm-time-qa.png");
+
+  // Fix the number and confirm again: the same record comes back resolved
+  // in the confirm result — the chip clears without a manual run.
+  await editor2.fill("Retention is 30 days.");
+  await editor2.press("Control+Alt+Shift+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #2 已确认并写入 TM",
+  );
+  await expect(page.getByText("质量检查（未解决 0）")).toBeVisible();
+  await expect(numberIssue).toContainText("已解决");
+  await expect(
+    rows.nth(1).locator(".segment-grid__chip-qa"),
+  ).toHaveCount(0);
+
+  // Lock the untranslated row 3 from the ribbon. The engine owns the flag:
+  // the glyph appears, the editor refuses to mount, and the ribbon button
+  // flips to 解锁.
+  await rows.nth(2).click();
+  await expect(page.getByLabel("句段 3 译文")).toBeVisible();
+  await page.getByRole("button", { name: "锁定句段" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText("句段 #3 已锁定");
+  await expect(page.getByRole("img", { name: "句段 3 已锁定" })).toBeVisible();
+  await expect(rows.nth(2)).toHaveAttribute("data-locked", "true");
+  await expect(page.getByLabel("句段 3 译文")).toHaveCount(0);
+  await rows.nth(2).click();
+  await expect(page.getByLabel("句段 3 译文")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "解锁句段" })).toBeVisible();
+
+  // The row menu disables the write actions and offers 解锁 instead.
+  await page.getByRole("button", { name: "句段 3 菜单" }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "复制源文" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("menuitem", { name: "清空译文" }),
+  ).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "解锁" })).toBeEnabled();
+  await shot("20-locked-row-menu.png");
+  await page.keyboard.press("Escape");
+
+  // Confirm row 1: rows 2 (confirmed) and 3 (locked) are both skipped, so
+  // the selection stays put instead of stranding on a read-only row.
+  await rows.first().click();
+  const editor1 = page.getByLabel("句段 1 译文");
+  await expect(editor1).toBeVisible();
+  await editor1.press("Control+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #1 已确认并写入 TM",
+  );
+  await expect(
+    page.locator(".segment-grid tr[data-active='true']"),
+  ).toContainText("Billing is monthly.");
+  await expect(page.getByLabel("句段 3 译文")).toHaveCount(0);
+
+  // Pretranslate leaves the locked untranslated row alone and says so.
+  await page.getByRole("button", { name: "预翻译" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "跳过 1 个已锁定句段",
+  );
+  await expect(rows.nth(2).locator(".segment-grid__target")).toHaveText("");
+  await shot("21-lock-skips-pretranslate.png");
+
+  // 解锁 through the row menu: the glyph goes and the editor mounts again.
+  await page.getByRole("button", { name: "句段 3 菜单" }).click();
+  await page.getByRole("menuitem", { name: "解锁" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText("句段 #3 已解锁");
+  await expect(page.getByRole("img", { name: "句段 3 已锁定" })).toHaveCount(0);
+  await rows.nth(2).click();
+  await expect(page.getByLabel("句段 3 译文")).toBeVisible();
+  await shot("22-unlocked-again.png");
+});
+
 // Runs with the state left by the previous tests: project open, document
 // open. Menu assertions stay in the main process (template snapshot +
 // programmatic clicks) — Playwright never touches the native menu bar.
@@ -720,6 +819,7 @@ test("application menu mirrors workbench state and shortcuts", async () => {
     "确认当前句段",
     "确认并到下一句段",
     "确认并停留",
+    "锁定/解锁句段",
     "预览面板",
     "记忆面板",
     "QA 面板",
@@ -745,6 +845,9 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   expect(byLabel.get("命令面板")?.registerAccelerator).toBe(false);
   expect(byLabel.get("导入文档…")?.accelerator).toBe("CmdOrCtrl+O");
   expect(byLabel.get("导入文档…")?.registerAccelerator).toBe(true);
+  // 锁定/解锁句段 has no prior renderer binding, so the menu owns Ctrl+L.
+  expect(byLabel.get("锁定/解锁句段")?.accelerator).toBe("CmdOrCtrl+L");
+  expect(byLabel.get("锁定/解锁句段")?.registerAccelerator).toBe(true);
 
   // Menu clicks reach the renderer over IPC and drive the same commands as
   // the workbench buttons: dock switch, then the preview pane toggle.

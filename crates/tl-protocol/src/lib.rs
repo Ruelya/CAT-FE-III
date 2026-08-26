@@ -44,6 +44,7 @@ pub mod methods {
     pub const SEGMENT_UPDATE: &str = "segment.update";
     pub const SEGMENT_REPLACE: &str = "segment.replace";
     pub const SEGMENT_CONFIRM: &str = "segment.confirm";
+    pub const SEGMENT_LOCK: &str = "segment.lock";
     pub const TM_LOOKUP: &str = "tm.lookup";
     pub const TM_LIST: &str = "tm.list";
     pub const TM_UPDATE: &str = "tm.update";
@@ -123,6 +124,8 @@ pub struct RpcMethodCatalog {
     pub segment_replace: MethodContract<SegmentReplaceParams, SegmentReplaceResult>,
     #[serde(rename = "segment.confirm")]
     pub segment_confirm: MethodContract<SegmentConfirmParams, SegmentConfirmResult>,
+    #[serde(rename = "segment.lock")]
+    pub segment_lock: MethodContract<SegmentLockParams, SegmentLockResult>,
     #[serde(rename = "tm.lookup")]
     pub tm_lookup: MethodContract<TmLookupParams, TmLookupResult>,
     #[serde(rename = "tm.list")]
@@ -235,6 +238,7 @@ mod tests {
             methods::SEGMENT_UPDATE,
             methods::SEGMENT_REPLACE,
             methods::SEGMENT_CONFIRM,
+            methods::SEGMENT_LOCK,
             methods::TM_LOOKUP,
             methods::TM_LIST,
             methods::TM_UPDATE,

@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tl_domain::{Segment, SegmentOrigin, TmEntry};
+use tl_domain::{QaIssue, Segment, SegmentOrigin, TmEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +86,28 @@ pub struct SegmentReplaceResult {
     /// Matching confirmed segments left untouched because
     /// `includeConfirmed` was not set.
     pub skipped_confirmed: u32,
+    /// Matching locked segments left untouched. Locked rows are never
+    /// rewritten, even with `includeConfirmed`.
+    #[serde(default)]
+    pub skipped_locked: u32,
+}
+
+/// Parameters for `segment.lock`: set or clear a segment's lock. Locking is
+/// idempotent — locking an already-locked row (or unlocking an unlocked one)
+/// still bumps the revision and succeeds. `baseRevision` follows the same
+/// optimistic-concurrency rule as `segment.update`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentLockParams {
+    pub segment_id: String,
+    pub locked: bool,
+    pub base_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentLockResult {
+    pub segment: Segment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -103,4 +125,12 @@ pub struct SegmentConfirmResult {
     pub tm_entry: TmEntry,
     /// Sibling segments auto-filled from the confirmed translation.
     pub propagated: Vec<Segment>,
+    /// Confirm-time QA: every persisted issue of the confirmed segment
+    /// after the engine re-ran the segment-scoped rules against the
+    /// confirmed text, committed in the same transaction as the confirm.
+    /// All statuses are included so clients can replace their records for
+    /// this segment wholesale. Cross-segment consistency rules are not
+    /// re-evaluated here — those refresh on the next `qa.run`.
+    #[serde(default)]
+    pub qa_issues: Vec<QaIssue>,
 }
