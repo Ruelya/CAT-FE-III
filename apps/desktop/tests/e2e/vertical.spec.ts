@@ -675,8 +675,16 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   const palette = page.getByRole("dialog", { name: "命令面板" });
   await expect(palette).toBeVisible();
   await page.getByLabel("搜索命令").fill("术语面板");
+  // Let the ~200ms rise-in settle so the screenshot shows the palette.
+  await page.waitForTimeout(300);
   await shot("15-command-palette.png");
   await page.keyboard.press("Enter");
   await expect(palette).toHaveCount(0);
   await expect(page.getByRole("button", { name: "添加术语" })).toBeVisible();
+
+  // 返回项目列表 lands on the full-bleed projects list, with the project
+  // created earlier as a hairline row at workbench density.
+  expect(await clickMenuItem("返回项目列表")).toBe(true);
+  await expect(page.getByRole("button", { name: /演示项目/ })).toBeVisible();
+  await shot("16-projects-list.png");
 });
