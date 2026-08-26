@@ -1,17 +1,16 @@
 # S3 提案：memoQ 式 QA 升级包（契约先行，部分已落地）
 
-状态：**S3b 已落地 ⑤③②①**。已交付：`qa.unedited-fuzzy` 行为型检查（确认时
-钩子 + `qa.run` 复现，warning，score 存 `params`）；`QaIssue.params` 参数化
-文案（存储 V6，渲染端据此本地化长度/行为类规则）；`qa.waive` 三粒度
-（issueId / ruleId+documentId / segmentId，结果统一 `{ issues }`）；
-`qa.profile.get/update`（项目级 severity 重映射 + settings 覆写 +
-`blockExportOnError`，baseRevision 乐观并发）；`document.export` 导出闸门
-（缺省关闭，拒绝时 `exportBlocked` 带结构化 `data`，`overrideQaGate` 显式
-放行，渲染端「仍要导出/取消」对话）。severity 重映射的引擎通道与 RPC 已
-全部落地，但设置界面暂只暴露导出闸门开关（重映射 UI 需按规则枚举，留给
-⑥ Resolve 面板一并设计）。**未落地：④ Correction 自动修复通道与
-⑥ Resolve 式批处理面板**——按本文顺序为后续立项，届时 chrome 与引擎能力
-同日出现（PRD §8.4 底线）。
+状态：**S3d 已落地 ④⑥（含此前 S3b 的 ⑤③②①）**。S3d 交付：
+④ Correction 确定性修复通道——`qa.fix.list` 按当前译文即时重算（不落
+库、改过文本的过期 finding 自然不再给出修复），仅机械可修规则给建议
+（首尾空白、CJK 半角标点与 ASCII 省略号、相邻重复词、唯一数字不一致），
+锁定句段屏蔽；`qa.fix.apply` 走与 `segment.update` 完全相同的守卫
+（baseRevision 过期 conflict、锁定 conflict、已确认句段诚实回草稿），
+服务端重算修复文本、同事务刷新句段 QA，应用永不确认、永不写 TM。
+⑥ Resolve 式面板——纯 UI 叠在既有契约上：未解决 finding 按 ruleId 分组
+带计数，修复预览逐字来自引擎（`修复为：…`），`应用修复` 按钮仅在引擎
+给出 Correction 时出现（无假「一键修复」），忽略/恢复/定位/批量忽略
+保持原契约。severity 重映射 UI 仍未做（引擎通道已在 S3b 落地）。
 
 以下为原提案全文，契约边界不变。
 

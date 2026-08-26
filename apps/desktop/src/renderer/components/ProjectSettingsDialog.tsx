@@ -130,16 +130,10 @@ export function ProjectSettingsDialog({
     const result = await callEngine("memory.list", { projectId: project.id });
     setTmMemories(result.memories);
     setTmMounts(result.mounts);
-    setTmMemoryChoice((current) => {
-      if (
-        current &&
-        result.mounts.some((mount) => mount.memoryId === current)
-      ) {
-        return current;
-      }
-      const writable = result.mounts.find((mount) => mount.writable);
-      return writable?.memoryId ?? result.mounts[0]?.memoryId ?? "";
-    });
+    // Runs on every open: the pick re-defaults to the current writable
+    // working memory, so a promotion between visits is always reflected.
+    const writable = result.mounts.find((mount) => mount.writable);
+    setTmMemoryChoice(writable?.memoryId ?? result.mounts[0]?.memoryId ?? "");
   }, [project.id]);
 
   useEffect(() => {

@@ -1,21 +1,26 @@
-# S3 提案：多 TM 挂载（契约先行，S3c 已落地 MVP）
+# S3 提案：多 TM 挂载（契约先行，S3d 已补齐管理面）
 
-状态：**S3c 已落地**。已交付：`Memory`/`MemoryMount` 实体 +
-`memory.create/list/attach/detach/update` RPC 族（与 termbase 族同形）；
-存储 V7 + 一次性物化（既有项目的隐式库变成真实 `Memory` 行 + 一条
-`writable, priority 0` 挂载，`tm_entries.memory_id` 零迁移零丢失）；
-`tm.lookup`/`tm.pretranslate`/检索合并全部 `enabled` 挂载、分数第一
-priority 决胜，`TmMatchItem.memoryName` 标注来源库；写路径唯一工作库
+状态：**S3d 已落地**（在 S3c MVP 之上补齐）。S3c 交付：
+`Memory`/`MemoryMount` 实体 + `memory.create/list/attach/detach/update`
+RPC 族（与 termbase 族同形）；存储 V7 + 一次性物化（既有项目的隐式库
+变成真实 `Memory` 行 + 一条 `writable, priority 0` 挂载，
+`tm_entries.memory_id` 零迁移零丢失）；`tm.lookup`/`tm.pretranslate`/
+检索合并全部 `enabled` 挂载、分数第一 priority 决胜，
+`TmMatchItem.memoryName` 标注来源库；写路径唯一工作库
 （`segment.confirm` 只写 `writable` 挂载，第二个 writable 回 conflict，
 attach 永不 writable，无工作库时确认诚实报错）；`tm.list/import/export`
 可选 `memoryId` 缺省指向工作库；`project.create` 自动建库并挂 writable；
 TM 管理对话框升级为挂载列表（挂载/新建/启停/排序/设为可写/卸载 +
 按库浏览条目），记忆 dock 匹配卡标注来源库名。
-`project_memory_id` 保留为 id 铸造约定（`tm-{projectId}`，物化与
-project.create 汇合到同一行），不再是读路径派生。
-**未落地（后续立项）**：attach 时 locale 软校验警告（开放问题 1）；
-多库模糊召回基准（开放问题 2）；库改名/删库 RPC；设置页导入/导出的
-目标库选择器（今天缺省进工作库）。
+S3d 新增：`memory.rename`（改库本身的名字，baseRevision 乐观并发，
+挂载与条目不动）；`memory.delete`（诚实冲突：还挂在任何项目上拒绝、
+尚有条目拒绝，仅显式 `deleteEntries` 才同事务级联删条目 + 库行 + 模糊
+索引，绝不静默孤儿化）；设置页导入/导出目标库选择器（缺省工作库、
+`memoryId` 显式随调用、覆盖重试同库、结果提示点名库）；TM 管理对话框
+的改名/删库 UI（删库两段式：普通确认 → 引擎按真实条目数拒绝 →
+显式「连同条目删除」）与 attach 语言对软提示（挂载行事实徽标 +
+挂载提示附注，只提示不拒绝，开放问题 1 收口）。
+**仍未立项**：多库模糊召回基准（开放问题 2，性能研究非产品项）。
 
 以下为原提案全文，契约边界不变。
 
