@@ -32,7 +32,7 @@ use tl_ai::check_tag_integrity;
 use tl_asset::TmIndex;
 use tl_domain::{
     Document, DocumentStatus, Project, ProjectLifecycle, ProjectSegmentation, Segment,
-    SegmentState, new_id, sha256_hex,
+    SegmentOrigin, SegmentOriginKind, SegmentState, new_id, sha256_hex,
 };
 use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
@@ -973,12 +973,14 @@ impl Engine {
                 segment.revision
             )));
         }
+        let target_changed = segment.target_text != params.target_text;
         segment.target_text = params.target_text;
         segment.state = if segment.target_text.trim().is_empty() {
             SegmentState::Untranslated
         } else {
             SegmentState::Draft
         };
+        apply_origin_rules(&mut segment, params.origin, target_changed);
         segment.revision += 1;
         segment.updated_at_ms = now;
         self.store.apply(&StateDelta {
@@ -1038,6 +1040,9 @@ impl Engine {
             } else {
                 SegmentState::Draft
             };
+            // A replace rewrote the text without applying stored material:
+            // plain-edit origin semantics, same as typing.
+            apply_origin_rules(&mut segment, None, true);
             segment.revision += 1;
             segment.updated_at_ms = now;
             replaced_occurrences = replaced_occurrences.saturating_add(count);
@@ -1117,6 +1122,15 @@ impl Engine {
         for sibling in &mut propagated {
             sibling.target_text = confirmed.target_text.clone();
             sibling.state = SegmentState::Draft;
+            // Propagation reuses an exact-source translation: an honest
+            // tmExact/100 origin. The confirmed row itself keeps whatever
+            // origin it had — confirming never restamps.
+            sibling.origin = Some(SegmentOrigin {
+                kind: SegmentOriginKind::TmExact,
+                score: Some(100),
+                model: None,
+                edited: false,
+            });
             sibling.revision += 1;
             sibling.updated_at_ms = now;
         }
@@ -1377,6 +1391,14 @@ impl Engine {
                     let segment_id = segment.id.clone();
                     segment.target_text = target;
                     segment.state = SegmentState::Draft;
+                    // Point query on the unique (memory, hash) index: an
+                    // exact reuse by construction.
+                    segment.origin = Some(SegmentOrigin {
+                        kind: SegmentOriginKind::TmExact,
+                        score: Some(100),
+                        model: None,
+                        edited: false,
+                    });
                     segment.revision += 1;
                     segment.updated_at_ms = now;
                     tm_applied_segments.push(segment);
@@ -1529,6 +1551,12 @@ impl Engine {
                         let now = now_ms();
                         stored.target_text = draft.target;
                         stored.state = SegmentState::Draft;
+                        stored.origin = Some(SegmentOrigin {
+                            kind: SegmentOriginKind::AiDraft,
+                            score: None,
+                            model: Some(draft.model.clone()),
+                            edited: false,
+                        });
                         stored.revision += 1;
                         stored.updated_at_ms = now;
                         run.view.ai_drafted += 1;
@@ -1683,6 +1711,34 @@ impl Engine {
                 Ok(())
             }
         }
+    }
+}
+
+/// Origin rules shared by every target-text write (`segment.update`,
+/// `segment.replace`). Call after the new target and state are set:
+///
+/// - an empty target (untranslated) has no origin — clear it;
+/// - a write carrying a stamp records it with `edited: false` (`edited` is
+///   engine-owned; whatever a client sent is ignored);
+/// - a plain write that changes the target of a stamped row marks the
+///   stamp `edited` — the Studio-style pollution signal — keeping the
+///   kind, score, and model;
+/// - a plain write on an origin-less row leaves it origin-less (human
+///   authorship is the absent default, never fabricated).
+fn apply_origin_rules(segment: &mut Segment, stamp: Option<SegmentOrigin>, target_changed: bool) {
+    if segment.state == SegmentState::Untranslated {
+        segment.origin = None;
+        return;
+    }
+    if let Some(stamp) = stamp {
+        segment.origin = Some(SegmentOrigin {
+            edited: false,
+            ..stamp
+        });
+        return;
+    }
+    if target_changed && let Some(origin) = segment.origin.as_mut() {
+        origin.edited = true;
     }
 }
 

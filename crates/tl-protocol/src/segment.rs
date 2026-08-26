@@ -2,7 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tl_domain::{Segment, TmEntry};
+use tl_domain::{Segment, SegmentOrigin, TmEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +33,16 @@ pub struct SegmentUpdateParams {
     pub target_text: String,
     /// Optimistic concurrency: must match the segment's current revision.
     pub base_revision: u64,
+    /// Where `targetText` came from, for writes that apply stored material
+    /// (TM match apply → `tmExact`/`tmFuzzy` with the real lookup score, AI
+    /// draft apply → `aiDraft` with the provider model). The kinds are the
+    /// closed [`SegmentOrigin`] enum — nothing free-form. Omit for human
+    /// typing: the engine then keeps any existing origin and marks it
+    /// `edited` when the target changed, and clears the origin entirely
+    /// when the update empties the target. `origin.edited` is engine-owned
+    /// and ignored on input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SegmentOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
