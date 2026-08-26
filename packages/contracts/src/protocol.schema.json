@@ -2530,6 +2530,17 @@
           "format": "uint32",
           "minimum": 0
         },
+        "origin": {
+          "description": "Where the current target text came from. Absent for rows written\nbefore origins existed and for plain human typing.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "revision": {
           "type": "integer",
           "format": "uint64",
@@ -2628,6 +2639,13 @@
           "format": "uint32",
           "minimum": 0
         },
+        "sourceWords": {
+          "description": "Total source word count of the counted segments, computed by the\nengine with [`source_word_count`]. 口径：UAX #29 词边界；CJK 统一\n表意文字与假名逐字计 1；数字串计 1；URL/email 计 1（对齐 Crowdin\nWord Counter）。Absent from older engines — clients must render\nnothing rather than count locally.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
         "total": {
           "type": "integer",
           "format": "uint32",
@@ -2697,6 +2715,65 @@
       "required": [
         "segments",
         "totalSegments"
+      ]
+    },
+    "SegmentOrigin": {
+      "description": "Where the current target text came from, stamped by the write that put\nit there. Only writes that carry an origin stamp one — rows written\nbefore this field existed stay origin-less forever (no backfill), and an\nupdate that empties the target clears the origin (an empty target has no\norigin). Confirming never changes the origin.",
+      "type": "object",
+      "properties": {
+        "edited": {
+          "description": "Pollution signal: true once the target was edited after the origin\nwrite (Studio-style \"edited fuzzy\"). Engine-owned — the value sent\nby a client is ignored; a stamping write always resets it to false.",
+          "type": "boolean",
+          "default": false
+        },
+        "kind": {
+          "$ref": "#/$defs/SegmentOriginKind"
+        },
+        "model": {
+          "description": "Provider model that produced an `aiDraft`; absent otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "score": {
+          "description": "Real TM match score (0-100) as reported at apply time. Present only\nfor TM origins; never fabricated for AI or human writes.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "SegmentOriginKind": {
+      "description": "Closed set of places a segment's target text can honestly come from.\n`human` exists for completeness; plain human typing normally leaves the\norigin absent instead of stamping it.",
+      "oneOf": [
+        {
+          "description": "Exact TM reuse (apply, pretranslate, confirm-time propagation).",
+          "type": "string",
+          "const": "tmExact"
+        },
+        {
+          "description": "Fuzzy TM reuse; `score` carries the real match score.",
+          "type": "string",
+          "const": "tmFuzzy"
+        },
+        {
+          "description": "AI-proposed draft applied by a human; `model` names the provider model.",
+          "type": "string",
+          "const": "aiDraft"
+        },
+        {
+          "description": "Explicit human authorship. No engine path stamps this today; absent\nmeans the same thing.",
+          "type": "string",
+          "const": "human"
+        }
       ]
     },
     "SegmentReplaceParams": {
@@ -2781,6 +2858,17 @@
           "type": "integer",
           "format": "uint64",
           "minimum": 0
+        },
+        "origin": {
+          "description": "Where `targetText` came from, for writes that apply stored material\n(TM match apply → `tmExact`/`tmFuzzy` with the real lookup score, AI\ndraft apply → `aiDraft` with the provider model). The kinds are the\nclosed [`SegmentOrigin`] enum — nothing free-form. Omit for human\ntyping: the engine then keeps any existing origin and marks it\n`edited` when the target changed, and clears the origin entirely\nwhen the update empties the target. `origin.edited` is engine-owned\nand ignored on input.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SegmentOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "segmentId": {
           "type": "string"
