@@ -728,7 +728,6 @@ export function ProjectSettingsDialog({
             <TextField
               label="新术语库名称"
               value={newTermbaseName}
-              placeholder="例如 产品术语"
               onChange={(event) => setNewTermbaseName(event.target.value)}
             />
             <Button
