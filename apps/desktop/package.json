@@ -20,6 +20,7 @@
     "package:check": "node ../../scripts/desktop-check-package.mjs"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.46.0",
     "@translunar/contracts": "workspace:*",
     "@translunar/ui": "workspace:*",
     "docx-preview": "^0.4.0",

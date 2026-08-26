@@ -44,13 +44,14 @@ function broadcast(channel: string, payload: unknown): void {
 }
 
 function createWindow(): void {
+  // No static title: the window follows the renderer's document.title,
+  // which reports the live project/document (Translunar when none).
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1080,
     minHeight: 640,
     backgroundColor: "#eef0f4",
-    title: "Translunar CAT",
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,

@@ -105,11 +105,22 @@ export interface PanelProps {
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Floating-card look (border + radius); panels are flat by default. */
+  raised?: boolean;
 }
 
-export function Panel({ title, actions, children, className }: PanelProps) {
+export function Panel({
+  title,
+  actions,
+  children,
+  className,
+  raised,
+}: PanelProps) {
   return (
-    <section className={join("tl-panel", className)}>
+    <section
+      className={join("tl-panel", className)}
+      data-raised={raised ? "true" : undefined}
+    >
       <header className="tl-panel__header">
         <h2 className="tl-panel__title">{title}</h2>
         {actions ? <div className="tl-toolbar">{actions}</div> : null}
@@ -296,17 +307,18 @@ export interface MatchBadgeProps {
 }
 
 /**
- * TM match-quality badge with the tiering translators scan for: exact and
- * in-context matches read as settled (green), fuzzy matches read as
- * work-to-verify (blue). The score always accompanies the color so the
- * information is never color-only.
+ * TM match chip: score segment + origin abbreviation segment ("95 TM").
+ * Exact matches read as settled (green), fuzzy matches as work-to-verify
+ * (blue); the numeric score always accompanies the tone so the information
+ * is never color-only.
  */
 export function MatchBadge({ score, grade, title }: MatchBadgeProps) {
   const tone: BadgeTone = grade === "fuzzy" ? "accent" : "ok";
   return (
-    <Badge tone={tone} title={title}>
-      <span className="tl-num">{score}%</span>
-    </Badge>
+    <span className="tl-match" data-tone={tone} title={title}>
+      <span className="tl-match__score tl-num">{score}</span>
+      <span className="tl-match__origin">TM</span>
+    </span>
   );
 }
 

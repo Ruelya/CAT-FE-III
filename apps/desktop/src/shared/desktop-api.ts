@@ -42,6 +42,7 @@ export type MenuCommand =
   | "export-document"
   | "open-project-settings"
   | "close-project"
+  | "open-command-palette"
   | "open-preview"
   | "open-concordance"
   | "focus-filter"

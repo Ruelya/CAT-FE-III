@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
-import { Badge, Button, EmptyState, Panel, TextField } from "@translunar/ui";
+import { Badge, Button, EmptyState, TextField } from "@translunar/ui";
 
 import type { EngineLifecycleState } from "../../shared/desktop-api.js";
 import { callEngine, describeError } from "../lib/engine.js";
@@ -87,51 +87,55 @@ export function ProjectsView({
   const archivedCount = projects.length - activeProjects.length;
   const visibleProjects = showArchived ? projects : activeProjects;
 
+  // Full-bleed working surface at workbench density: a create-project
+  // toolbar over a flat hairline-separated list — no centered card form.
   return (
     <main className="projects-view">
-      <Panel title="新建项目">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void create();
-          }}
-        >
-          <TextField
-            label="项目名称"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-          <div className="form-row">
-            <TextField
-              label="源语言"
-              value={sourceLocale}
-              onChange={(event) => setSourceLocale(event.target.value)}
-              required
-            />
-            <TextField
-              label="目标语言"
-              value={targetLocale}
-              onChange={(event) => setTargetLocale(event.target.value)}
-              required
-            />
-          </div>
-          {error ? (
-            <div className="honest-note" data-tone="danger" role="alert">
-              {error}
-            </div>
-          ) : null}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={busy || !name.trim()}
-          >
-            {busy ? "创建中…" : "创建项目"}
-          </Button>
-        </form>
-      </Panel>
+      <form
+        className="projects-view__toolbar"
+        aria-label="新建项目"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
+        }}
+      >
+        <TextField
+          label="项目名称"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          required
+        />
+        <TextField
+          label="源语言"
+          value={sourceLocale}
+          onChange={(event) => setSourceLocale(event.target.value)}
+          required
+        />
+        <TextField
+          label="目标语言"
+          value={targetLocale}
+          onChange={(event) => setTargetLocale(event.target.value)}
+          required
+        />
+        <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
+          {busy ? "创建中…" : "创建项目"}
+        </Button>
+      </form>
 
-      <Panel title={`项目列表（${activeProjects.length}）`}>
+      {error ? (
+        <div
+          className="honest-note projects-view__error"
+          data-tone="danger"
+          role="alert"
+        >
+          {error}
+        </div>
+      ) : null}
+
+      <div className="projects-view__head">
+        <h2 className="projects-view__caption">
+          项目（{activeProjects.length}）
+        </h2>
         {archivedCount > 0 ? (
           <label className="project-list__archived-toggle">
             <input
@@ -142,33 +146,34 @@ export function ProjectsView({
             显示已归档项目（{archivedCount}）
           </label>
         ) : null}
-        {projects.length === 0 ? (
-          <EmptyState title="还没有项目" />
-        ) : visibleProjects.length === 0 ? (
-          <EmptyState title="没有进行中的项目" />
-        ) : (
-          <div className="project-list">
-            {visibleProjects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                className="project-list__item"
-                onClick={() => onOpenProject(project)}
-              >
-                <span className="project-list__name">
-                  {project.name}
-                  {project.lifecycle === "archived" ? (
-                    <Badge tone="neutral">已归档</Badge>
-                  ) : null}
-                </span>
-                <span className="project-list__locales">
-                  {project.sourceLocale} → {project.targetLocale}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </Panel>
+      </div>
+
+      {projects.length === 0 ? (
+        <EmptyState title="还没有项目" />
+      ) : visibleProjects.length === 0 ? (
+        <EmptyState title="没有进行中的项目" />
+      ) : (
+        <div className="project-list">
+          {visibleProjects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              className="project-list__item"
+              onClick={() => onOpenProject(project)}
+            >
+              <span className="project-list__name">
+                {project.name}
+                {project.lifecycle === "archived" ? (
+                  <Badge tone="neutral">已归档</Badge>
+                ) : null}
+              </span>
+              <span className="project-list__locales">
+                {project.sourceLocale} → {project.targetLocale}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </main>
   );
 }

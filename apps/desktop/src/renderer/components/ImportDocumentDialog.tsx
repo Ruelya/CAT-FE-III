@@ -42,8 +42,8 @@ export function defaultSrxPath(project: Project): string | null {
  * The form pre-fills from the project's stored defaults
  * (`configuration.segmentation` / `configuration.srxPath`), and after a
  * successful import the chosen options are auto-saved back through
- * project.update so the next import starts from them — the dialog note
- * says so. The source and SRX files come from dedicated main-process
+ * project.update so the next import starts from them.
+ * The source and SRX files come from dedicated main-process
  * dialog channels; without a chosen source file the submit stays
  * disabled, and a failed import surfaces the engine error instead of
  * pretending.
@@ -126,9 +126,9 @@ export function ImportDocumentDialog({
     }
     try {
       // Remember the successful choice as the project default so the next
-      // import starts from it (the dialog note documents this). Paragraph
-      // mode leaves the stored SRX default untouched — the engine keeps it
-      // for a later switch back to sentence mode.
+      // import starts from it. Paragraph mode leaves the stored SRX default
+      // untouched — the engine keeps it for a later switch back to
+      // sentence mode.
       const updated = await callEngine(
         "project.update",
         segmentation === "paragraph"
