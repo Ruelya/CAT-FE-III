@@ -580,6 +580,83 @@ describe("WorkbenchView find next/prev", () => {
   });
 });
 
+describe("WorkbenchView segment navigation", () => {
+  const NAV_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0, targetText: "第一句。" },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Already done.",
+      targetText: "已完成。",
+      state: "confirmed",
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Still open.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  it("advances past confirmed rows to the next open segment after a confirm", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+
+    // s2 is already confirmed, so the selection skips it and the editor
+    // opens on the untranslated s3 — the classic confirm-and-move-on loop.
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+
+  it("steps the selection with Alt+↑/↓ and never wraps", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+
+    // At the bottom the selection stays put instead of wrapping around.
+    fireEvent.keyDown(window, { key: "ArrowDown", altKey: true });
+    expect(screen.getByLabelText("句段 3 译文")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+
+    // Plain arrows (no Alt) stay inside the editor for caret movement.
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(screen.getByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+});
+
 describe("WorkbenchView find & replace", () => {
   it("replaces inside the active segment's target through segment.update", async () => {
     const handlers = baseHandlers();

@@ -661,6 +661,21 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--tl-space-1);
+  white-space: nowrap;
+}
+
+.segment-grid__hint-sep {
+  color: var(--tl-color-border-strong);
+}
+
+/* Language tags in the column headers: lowercase BCP-47, deliberately
+   quieter than the uppercase column titles. */
+.segment-grid__locale {
+  margin-left: var(--tl-space-2);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--tl-color-text-faint);
 }
 
 .segment-grid__state {
@@ -1010,6 +1025,9 @@ body {
 
 .form-row > * {
   flex: 1;
+  /* Text inputs have a large intrinsic min-width; without this the row
+     overflows its column and grows a horizontal scrollbar. */
+  min-width: 0;
 }
 
 /* Concordance */

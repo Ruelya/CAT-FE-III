@@ -37,6 +37,9 @@ export interface SegmentGridProps {
   activeSegmentId: string | null;
   /** Best TM match for the active segment (live lookup, never stored). */
   activeMatch?: TmMatchItem | null;
+  /** Language pair shown in the column headers (e.g. "en-US"). */
+  sourceLocale?: string;
+  targetLocale?: string;
   /** Segment ids with open QA issues. */
   qaSegmentIds: ReadonlySet<string>;
   onSelect: (segmentId: string) => void;
@@ -62,6 +65,8 @@ export function SegmentGrid({
   segments,
   activeSegmentId,
   activeMatch = null,
+  sourceLocale,
+  targetLocale,
   qaSegmentIds,
   onSelect,
   onSaveDraft,
@@ -291,8 +296,18 @@ export function SegmentGrid({
         <thead>
           <tr>
             <th className="segment-grid__ordinal">#</th>
-            <th className="segment-grid__source">源文</th>
-            <th className="segment-grid__target">译文</th>
+            <th className="segment-grid__source">
+              源文
+              {sourceLocale ? (
+                <span className="segment-grid__locale">{sourceLocale}</span>
+              ) : null}
+            </th>
+            <th className="segment-grid__target">
+              译文
+              {targetLocale ? (
+                <span className="segment-grid__locale">{targetLocale}</span>
+              ) : null}
+            </th>
             <th className="segment-grid__state">状态</th>
           </tr>
         </thead>
@@ -375,7 +390,9 @@ export function SegmentGrid({
                           确认
                         </Button>
                         <span className="segment-grid__hint">
-                          <Kbd>Ctrl+Enter</Kbd> 确认
+                          <Kbd>Ctrl+Enter</Kbd> 确认并下一句
+                          <span className="segment-grid__hint-sep">·</span>
+                          <Kbd>Alt+↑/↓</Kbd> 切换句段
                         </span>
                       </div>
                     </div>

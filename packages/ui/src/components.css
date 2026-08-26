@@ -145,6 +145,8 @@
   border: 1px solid var(--tl-color-border-strong);
   border-radius: var(--tl-radius-sm);
   padding: 6px 8px;
+  width: 100%;
+  min-width: 0;
   transition:
     border-color var(--tl-motion-fast) var(--tl-ease-standard),
     box-shadow var(--tl-motion-fast) var(--tl-ease-standard);

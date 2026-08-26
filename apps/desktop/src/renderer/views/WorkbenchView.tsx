@@ -429,6 +429,71 @@ export function WorkbenchView({
     );
   }, []);
 
+  const openIssueSegmentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const issue of issues) {
+      if (issue.status === "open") {
+        ids.add(issue.segmentId);
+      }
+    }
+    return ids;
+  }, [issues]);
+
+  const filteredSegments = useMemo(
+    () => filterSegments(segments, filter, openIssueSegmentIds),
+    [segments, filter, openIssueSegmentIds],
+  );
+
+  // Trados-style flow: after a confirm, the selection steps down to the next
+  // visible segment that still needs work, so the keyboard loop stays
+  // type → Ctrl+Enter → type. `written` carries the freshly confirmed and
+  // propagated rows (state updates land asynchronously). Nothing wraps: at
+  // the bottom of the document the selection stays put.
+  const advanceAfterConfirm = useCallback(
+    (confirmedId: string, written: Segment[]) => {
+      const writtenById = new Map(written.map((item) => [item.id, item]));
+      const index = filteredSegments.findIndex(
+        (item) => item.id === confirmedId,
+      );
+      if (index < 0) {
+        return;
+      }
+      for (let i = index + 1; i < filteredSegments.length; i += 1) {
+        const candidate = filteredSegments[i]!;
+        const state = writtenById.get(candidate.id)?.state ?? candidate.state;
+        if (state !== "confirmed") {
+          setActiveSegmentId(candidate.id);
+          return;
+        }
+      }
+    },
+    [filteredSegments],
+  );
+
+  // Alt+↑/↓ step the selection through the visible rows without leaving the
+  // keyboard — the grid editor follows the selection.
+  const moveSelection = useCallback(
+    (delta: 1 | -1) => {
+      if (filteredSegments.length === 0) {
+        return;
+      }
+      const index = filteredSegments.findIndex(
+        (segment) => segment.id === activeSegmentId,
+      );
+      const next =
+        index < 0
+          ? delta === 1
+            ? 0
+            : filteredSegments.length - 1
+          : Math.min(filteredSegments.length - 1, Math.max(0, index + delta));
+      const target = filteredSegments[next];
+      if (target && target.id !== activeSegmentId) {
+        setActiveSegmentId(target.id);
+      }
+    },
+    [filteredSegments, activeSegmentId],
+  );
+
   const reloadSegments = useCallback(async () => {
     if (!activeDocumentId) {
       return;
@@ -507,6 +572,7 @@ export function WorkbenchView({
         onStatusMessage(
           `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
         );
+        advanceAfterConfirm(segment.id, [result.segment, ...result.propagated]);
       } catch (error) {
         if (isEngineUnavailable(error)) {
           setUnackedWrite({
@@ -524,7 +590,7 @@ export function WorkbenchView({
         await reloadSegments();
       }
     },
-    [applySegments, onStatusMessage, reloadSegments],
+    [applySegments, advanceAfterConfirm, onStatusMessage, reloadSegments],
   );
 
   const applyDraftToActive = useCallback(
@@ -705,21 +771,6 @@ export function WorkbenchView({
       onStatsChange?.(null);
     };
   }, [onStatsChange]);
-
-  const openIssueSegmentIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const issue of issues) {
-      if (issue.status === "open") {
-        ids.add(issue.segmentId);
-      }
-    }
-    return ids;
-  }, [issues]);
-
-  const filteredSegments = useMemo(
-    () => filterSegments(segments, filter, openIssueSegmentIds),
-    [segments, filter, openIssueSegmentIds],
-  );
 
   // Jump target may be hidden by the active filter; clear it so the jump
   // always lands (QA "定位句段", concordance hits, preview clicks).
@@ -931,12 +982,24 @@ export function WorkbenchView({
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
   // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter, Ctrl/Cmd+H focus the replace box.
+  // segment filter, Ctrl/Cmd+H focus the replace box, Alt+↑/↓ step the
+  // segment selection (works while typing in the target editor).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      if (
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown")
+      ) {
+        event.preventDefault();
+        moveSelection(event.key === "ArrowDown" ? 1 : -1);
         return;
       }
       // Plain F4 / Shift+F4 only — never Alt+F4 (OS window close) or
@@ -975,7 +1038,7 @@ export function WorkbenchView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter, focusReplace, findMatch]);
+  }, [openConcordance, focusFilter, focusReplace, findMatch, moveSelection]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding button/shortcut already calls; state guards keep the
@@ -1399,6 +1462,8 @@ export function WorkbenchView({
                     segments={filteredSegments}
                     activeSegmentId={activeSegmentId}
                     activeMatch={bestTmMatch}
+                    sourceLocale={project.sourceLocale}
+                    targetLocale={project.targetLocale}
                     qaSegmentIds={openIssueSegmentIds}
                     onSelect={setActiveSegmentId}
                     onSaveDraft={(segment, text) =>
