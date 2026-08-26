@@ -66,7 +66,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tl_asset::{TermEntry, Termbase, TermbaseMount};
+use tl_asset::{Memory, MemoryMount, TermEntry, Termbase, TermbaseMount};
 use tl_domain::{
     Document, Project, QaIssue, QaIssueStatus, Segment, SegmentCounts, SegmentOrigin, SegmentState,
     TmEntry, source_word_count,
@@ -76,11 +76,12 @@ pub const DB_FILE_NAME: &str = "engine.sqlite";
 const LEGACY_STATE_FILE: &str = "state.json";
 const LEGACY_BACKUP_FILE: &str = "state.json.imported-backup";
 const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
+const META_MEMORY_MATERIALIZE: &str = "memory_materialize";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
 const MIGRATIONS: &[&str] = &[
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
 ];
 
 /// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
@@ -116,6 +117,36 @@ ALTER TABLE segments ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
 /// old findings simply have nothing to parameterize.
 const SCHEMA_V6: &str = "
 ALTER TABLE qa_issues ADD COLUMN params TEXT;
+";
+
+/// Multi-TM: memories become real rows and projects reach them through
+/// mounts, the same family shape as `termbase_mounts`. Existing
+/// `tm_entries.memory_id` values keep pointing at the implicit per-project
+/// memory ids; [`materialize_project_memories`] backfills those rows once
+/// after the migration (it cannot live in this script because a legacy
+/// `state.json` import inserts projects *after* migrations run).
+const SCHEMA_V7: &str = "
+CREATE TABLE memories (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  source_locale TEXT NOT NULL,
+  target_locale TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE memory_mounts (
+  project_id TEXT NOT NULL,
+  memory_id TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  enabled INTEGER NOT NULL,
+  writable INTEGER NOT NULL,
+  revision INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (project_id, memory_id)
+) STRICT;
 ";
 
 const SCHEMA_V1: &str = "
@@ -250,6 +281,8 @@ CREATE TABLE termbase_mounts (
 pub struct EngineState {
     pub projects: BTreeMap<String, Project>,
     pub documents: BTreeMap<String, DocumentRecord>,
+    pub memories: BTreeMap<String, Memory>,
+    pub memory_mounts: Vec<MemoryMount>,
     pub termbases: BTreeMap<String, Termbase>,
     pub termbase_mounts: Vec<TermbaseMount>,
 }
@@ -311,6 +344,8 @@ pub struct StateDelta {
     pub segment_leading: BTreeMap<String, String>,
     pub tm_entries: Vec<TmEntry>,
     pub qa_issues: Vec<QaIssue>,
+    pub memories: Vec<Memory>,
+    pub memory_mounts: Vec<MemoryMount>,
     pub termbases: Vec<Termbase>,
     pub term_entries: Vec<TermEntry>,
     pub termbase_mounts: Vec<TermbaseMount>,
@@ -318,6 +353,8 @@ pub struct StateDelta {
     /// transaction (tm.delete / term.delete remove-then-never-reuse ids).
     pub deleted_tm_entries: Vec<String>,
     pub deleted_term_entries: Vec<String>,
+    /// `(project_id, memory_id)` mount rows removed by memory.detach.
+    pub deleted_memory_mounts: Vec<(String, String)>,
     /// `(project_id, termbase_id)` mount rows removed by termbase.detach.
     pub deleted_termbase_mounts: Vec<(String, String)>,
     /// Document ids removed by document.remove. Each id cascades inside the
@@ -335,11 +372,14 @@ impl StateDelta {
             && self.segments.is_empty()
             && self.tm_entries.is_empty()
             && self.qa_issues.is_empty()
+            && self.memories.is_empty()
+            && self.memory_mounts.is_empty()
             && self.termbases.is_empty()
             && self.term_entries.is_empty()
             && self.termbase_mounts.is_empty()
             && self.deleted_tm_entries.is_empty()
             && self.deleted_term_entries.is_empty()
+            && self.deleted_memory_mounts.is_empty()
             && self.deleted_termbase_mounts.is_empty()
             && self.deleted_documents.is_empty()
     }
@@ -371,6 +411,7 @@ impl Store {
             .map_err(db_err)?;
         migrate(&mut conn)?;
         import_legacy_state(&mut conn, data_dir)?;
+        materialize_project_memories(&mut conn)?;
         let state = load_state(&conn)?;
         Ok((Self { conn }, state))
     }
@@ -1074,6 +1115,45 @@ fn dedupe_legacy_tm_entries(state: &mut LegacyState) {
     state.tm_entries.retain(|id, _| kept.contains(id));
 }
 
+/// One-time backfill after [`SCHEMA_V7`]: turn every project's implicit
+/// per-project memory (`tm-{project_id}`, the id `tm_entries.memory_id`
+/// already carries) into a real `memories` row plus one enabled, writable,
+/// priority-0 mount. Zero data movement: the entry rows are untouched.
+///
+/// Runs after the legacy `state.json` import so projects imported from JSON
+/// on a first open are covered too. The meta flag makes it once-only: after
+/// it, `project.create` writes these rows itself, and a user who detaches
+/// every mount on purpose must not find them re-materialized on restart.
+/// Projects that somehow already have a mount are left alone.
+fn materialize_project_memories(conn: &mut Connection) -> io::Result<()> {
+    if meta_get(conn, META_MEMORY_MATERIALIZE)?.is_some() {
+        return Ok(());
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    let tx = conn.transaction().map_err(db_err)?;
+    tx.execute(
+        "INSERT INTO memories (id, name, source_locale, target_locale, revision,
+           created_at_ms, updated_at_ms)
+         SELECT 'tm-' || p.id, p.name, p.source_locale, p.target_locale, 1, ?1, ?1
+         FROM projects p
+         WHERE NOT EXISTS (SELECT 1 FROM memory_mounts m WHERE m.project_id = p.id)
+           AND NOT EXISTS (SELECT 1 FROM memories mem WHERE mem.id = 'tm-' || p.id)",
+        params![now],
+    )
+    .map_err(db_err)?;
+    tx.execute(
+        "INSERT INTO memory_mounts (project_id, memory_id, priority, enabled, writable,
+           revision, created_at_ms, updated_at_ms)
+         SELECT p.id, 'tm-' || p.id, 0, 1, 1, 1, ?1, ?1
+         FROM projects p
+         WHERE NOT EXISTS (SELECT 1 FROM memory_mounts m WHERE m.project_id = p.id)",
+        params![now],
+    )
+    .map_err(db_err)?;
+    meta_set(&tx, META_MEMORY_MATERIALIZE, "done")?;
+    tx.commit().map_err(db_err)
+}
+
 fn legacy_state_delta(state: &LegacyState) -> StateDelta {
     let mut delta = StateDelta {
         projects: state.projects.values().cloned().collect(),
@@ -1130,6 +1210,14 @@ fn write_delta(conn: &Connection, delta: &StateDelta) -> io::Result<()> {
     for entry_id in &delta.deleted_term_entries {
         delete_row(conn, "DELETE FROM term_entries WHERE id = ?1", entry_id)?;
     }
+    for (project_id, memory_id) in &delta.deleted_memory_mounts {
+        let mut statement = conn
+            .prepare_cached("DELETE FROM memory_mounts WHERE project_id = ?1 AND memory_id = ?2")
+            .map_err(db_err)?;
+        statement
+            .execute(params![project_id, memory_id])
+            .map_err(db_err)?;
+    }
     for (project_id, termbase_id) in &delta.deleted_termbase_mounts {
         let mut statement = conn
             .prepare_cached(
@@ -1159,6 +1247,12 @@ fn write_delta(conn: &Connection, delta: &StateDelta) -> io::Result<()> {
     }
     for issue in &delta.qa_issues {
         upsert_qa_issue(conn, issue)?;
+    }
+    for memory in &delta.memories {
+        upsert_memory(conn, memory)?;
+    }
+    for mount in &delta.memory_mounts {
+        upsert_memory_mount(conn, mount)?;
     }
     for termbase in &delta.termbases {
         upsert_termbase(conn, termbase)?;
@@ -1383,6 +1477,63 @@ fn upsert_qa_issue(conn: &Connection, issue: &QaIssue) -> io::Result<()> {
     Ok(())
 }
 
+fn upsert_memory(conn: &Connection, memory: &Memory) -> io::Result<()> {
+    let mut statement = conn
+        .prepare_cached(
+            "INSERT INTO memories (id, name, source_locale, target_locale, revision,
+               created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name,
+               source_locale = excluded.source_locale,
+               target_locale = excluded.target_locale,
+               revision = excluded.revision,
+               updated_at_ms = excluded.updated_at_ms",
+        )
+        .map_err(db_err)?;
+    statement
+        .execute(params![
+            memory.id,
+            memory.name,
+            memory.source_locale,
+            memory.target_locale,
+            revision_param(memory.revision)?,
+            memory.created_at_ms,
+            memory.updated_at_ms,
+        ])
+        .map_err(db_err)?;
+    Ok(())
+}
+
+fn upsert_memory_mount(conn: &Connection, mount: &MemoryMount) -> io::Result<()> {
+    let mut statement = conn
+        .prepare_cached(
+            "INSERT INTO memory_mounts (project_id, memory_id, priority, enabled, writable,
+               revision, created_at_ms, updated_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(project_id, memory_id) DO UPDATE SET
+               priority = excluded.priority,
+               enabled = excluded.enabled,
+               writable = excluded.writable,
+               revision = excluded.revision,
+               updated_at_ms = excluded.updated_at_ms",
+        )
+        .map_err(db_err)?;
+    statement
+        .execute(params![
+            mount.project_id,
+            mount.memory_id,
+            mount.priority,
+            mount.enabled,
+            mount.writable,
+            revision_param(mount.revision)?,
+            mount.created_at_ms,
+            mount.updated_at_ms,
+        ])
+        .map_err(db_err)?;
+    Ok(())
+}
+
 fn upsert_termbase(conn: &Connection, termbase: &Termbase) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
@@ -1553,6 +1704,56 @@ fn load_state(conn: &Connection) -> io::Result<EngineState> {
     for record in documents {
         let record = record.map_err(db_err)?;
         state.documents.insert(record.document.id.clone(), record);
+    }
+
+    let mut statement = conn
+        .prepare(
+            "SELECT id, name, source_locale, target_locale, revision, created_at_ms,
+               updated_at_ms
+             FROM memories",
+        )
+        .map_err(db_err)?;
+    let memories = statement
+        .query_map([], |row| {
+            Ok(Memory {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                source_locale: row.get(2)?,
+                target_locale: row.get(3)?,
+                revision: revision_column(row, 4)?,
+                created_at_ms: row.get(5)?,
+                updated_at_ms: row.get(6)?,
+            })
+        })
+        .map_err(db_err)?;
+    for memory in memories {
+        let memory = memory.map_err(db_err)?;
+        state.memories.insert(memory.id.clone(), memory);
+    }
+
+    let mut statement = conn
+        .prepare(
+            "SELECT project_id, memory_id, priority, enabled, writable, revision,
+               created_at_ms, updated_at_ms
+             FROM memory_mounts ORDER BY project_id, priority, memory_id",
+        )
+        .map_err(db_err)?;
+    let memory_mounts = statement
+        .query_map([], |row| {
+            Ok(MemoryMount {
+                project_id: row.get(0)?,
+                memory_id: row.get(1)?,
+                priority: row.get(2)?,
+                enabled: row.get(3)?,
+                writable: row.get(4)?,
+                revision: revision_column(row, 5)?,
+                created_at_ms: row.get(6)?,
+                updated_at_ms: row.get(7)?,
+            })
+        })
+        .map_err(db_err)?;
+    for mount in memory_mounts {
+        state.memory_mounts.push(mount.map_err(db_err)?);
     }
 
     let mut statement = conn

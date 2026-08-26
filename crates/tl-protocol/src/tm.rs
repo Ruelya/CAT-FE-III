@@ -35,6 +35,10 @@ pub struct TmMatchItem {
     /// 0..=100.
     pub score: u8,
     pub grade: TmMatchGrade,
+    /// Name of the memory the entry lives in (`entry.memoryId` carries the
+    /// id). `None` only when the memory row is unknown to the engine.
+    #[serde(default)]
+    pub memory_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -64,6 +68,12 @@ pub struct TmLookupResult {
 #[serde(rename_all = "camelCase")]
 pub struct TmListParams {
     pub project_id: String,
+    /// Memory to page. Must be mounted on the project (enabled or not —
+    /// managing a disabled mount's entries is legitimate). Defaults to the
+    /// project's writable mount; fails with `conflict` when the project has
+    /// no writable mount and no explicit id was given.
+    #[serde(default)]
+    pub memory_id: Option<String>,
     /// Case-insensitive substring filter over source and target text.
     #[serde(default)]
     pub query: Option<String>,
@@ -126,6 +136,11 @@ pub enum TmExchangeFormat {
 pub struct TmImportParams {
     pub project_id: String,
     pub path: String,
+    /// Destination memory. Must be mounted on the project. Defaults to the
+    /// project's writable mount; fails with `conflict` when the project has
+    /// no writable mount and no explicit id was given.
+    #[serde(default)]
+    pub memory_id: Option<String>,
     /// Explicit exchange format. When omitted, inferred from the extension.
     #[serde(default)]
     pub format: Option<TmExchangeFormat>,
@@ -147,6 +162,11 @@ pub struct TmImportResult {
 pub struct TmExportParams {
     pub project_id: String,
     pub path: String,
+    /// Memory to export. Must be mounted on the project. Defaults to the
+    /// project's writable mount; fails with `conflict` when the project has
+    /// no writable mount and no explicit id was given.
+    #[serde(default)]
+    pub memory_id: Option<String>,
     #[serde(default)]
     pub format: Option<TmExchangeFormat>,
     /// Replace an existing destination file (staged sibling temp + atomic

@@ -33,6 +33,11 @@ use crate::store::StateDelta;
 use crate::{Engine, EngineError, now_ms};
 
 impl Engine {
+    /// Id of the dedicated memory a project starts with. Kept as a derived
+    /// shape (rather than a random id) so the once-only materialization in
+    /// the store and `project.create` mint the same row for the same
+    /// project, and pre-multi-TM `tm_entries.memory_id` values keep
+    /// resolving without any data movement.
     pub(crate) fn project_memory_id(project_id: &str) -> String {
         format!("tm-{project_id}")
     }
@@ -106,6 +111,11 @@ impl Engine {
         min_score: u8,
         limit: usize,
     ) -> Result<(Vec<TmMatchItem>, u32), EngineError> {
+        let memory_name = self
+            .state
+            .memories
+            .get(memory_id)
+            .map(|memory| memory.name.clone());
         let hash = sha256_hex(normalize_text(source_text).as_bytes());
         let mut matches: Vec<TmMatchItem> = Vec::new();
         if let Some(entry) = self.store.tm_entry_by_source(memory_id, &hash)? {
@@ -113,6 +123,7 @@ impl Engine {
                 entry,
                 score: 100,
                 grade: TmMatchGrade::Exact,
+                memory_name: memory_name.clone(),
             });
         }
         if let Some(index) = self.tm_indexes.get(memory_id) {
@@ -129,6 +140,7 @@ impl Engine {
                         entry,
                         score,
                         grade: TmMatchGrade::Fuzzy,
+                        memory_name: memory_name.clone(),
                     });
                 }
             }
@@ -145,6 +157,37 @@ impl Engine {
         Ok((matches, total))
     }
 
+    /// Merged best-first matches across a project's enabled mounts: every
+    /// enabled memory is queried up to `limit`, and the merged list sorts by
+    /// score, then mount priority, then recency, then id. `total` sums the
+    /// per-memory pre-limit candidate counts.
+    pub(crate) fn tm_matches_mounted(
+        &self,
+        project_id: &str,
+        source_text: &str,
+        min_score: u8,
+        limit: usize,
+    ) -> Result<(Vec<TmMatchItem>, u32), EngineError> {
+        let mut merged: Vec<(u32, TmMatchItem)> = Vec::new();
+        let mut total = 0_u32;
+        for mount in self.enabled_memory_mounts(project_id) {
+            let (matches, memory_total) =
+                self.tm_matches(&mount.memory_id, source_text, min_score, limit)?;
+            total = total.saturating_add(memory_total);
+            merged.extend(matches.into_iter().map(|item| (mount.priority, item)));
+        }
+        merged.sort_by(|(left_priority, left), (right_priority, right)| {
+            right
+                .score
+                .cmp(&left.score)
+                .then(left_priority.cmp(right_priority))
+                .then(right.entry.confirmed_at_ms.cmp(&left.entry.confirmed_at_ms))
+                .then(left.entry.id.cmp(&right.entry.id))
+        });
+        merged.truncate(limit);
+        Ok((merged.into_iter().map(|(_, item)| item).collect(), total))
+    }
+
     pub(crate) fn tm_lookup(&self, params: TmLookupParams) -> Result<TmLookupResult, EngineError> {
         self.require_project(&params.project_id)?;
         let min_score = validate_min_score(params.min_score, TM_LOOKUP_DEFAULT_MIN_SCORE)?;
@@ -157,9 +200,12 @@ impl Engine {
             }
             Some(value) => value.min(TM_LOOKUP_MAX_LIMIT),
         };
-        let memory_id = Self::project_memory_id(&params.project_id);
-        let (matches, total_matches) =
-            self.tm_matches(&memory_id, &params.source_text, min_score, limit as usize)?;
+        let (matches, total_matches) = self.tm_matches_mounted(
+            &params.project_id,
+            &params.source_text,
+            min_score,
+            limit as usize,
+        )?;
         Ok(TmLookupResult {
             matches,
             total_matches,
@@ -186,7 +232,8 @@ impl Engine {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let memory_id = Self::project_memory_id(&params.project_id);
+        let memory_id =
+            self.resolve_project_memory(&params.project_id, params.memory_id.as_deref())?;
         let entries =
             self.store
                 .tm_entries_page(&memory_id, query, params.offset.unwrap_or(0), limit)?;
@@ -272,6 +319,11 @@ impl Engine {
         params: TmImportParams,
     ) -> Result<TmImportResult, EngineError> {
         let project = self.require_project(&params.project_id)?.clone();
+        let memory_id =
+            self.resolve_project_memory(&params.project_id, params.memory_id.as_deref())?;
+        // Parse against the destination memory's declared pair, not the
+        // project's — they usually agree, but the memory owns its entries.
+        let memory = self.require_memory(&memory_id)?.clone();
         let path = Path::new(&params.path);
         if !path.is_file() {
             return Err(EngineError::NotFound(format!("TM file {}", path.display())));
@@ -280,18 +332,17 @@ impl Engine {
         let file = std::fs::File::open(path)?;
         let units = match format {
             TmExchangeFormat::Tmx => {
-                tl_asset::parse_tmx(file, &project.source_locale, &project.target_locale)
+                tl_asset::parse_tmx(file, &memory.source_locale, &memory.target_locale)
             }
             TmExchangeFormat::Csv => {
-                tl_asset::parse_tm_csv(file, &project.source_locale, &project.target_locale)
+                tl_asset::parse_tm_csv(file, &memory.source_locale, &memory.target_locale)
             }
             TmExchangeFormat::Tsv => {
-                tl_asset::parse_tm_tsv(file, &project.source_locale, &project.target_locale)
+                tl_asset::parse_tm_tsv(file, &memory.source_locale, &memory.target_locale)
             }
         }
         .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
 
-        let memory_id = Self::project_memory_id(&project.id);
         let now = now_ms();
         let mut added = 0_u32;
         let mut updated = 0_u32;
@@ -331,7 +382,10 @@ impl Engine {
     }
 
     pub(crate) fn tm_export(&self, params: TmExportParams) -> Result<TmExportResult, EngineError> {
-        let project = self.require_project(&params.project_id)?.clone();
+        self.require_project(&params.project_id)?;
+        let memory_id =
+            self.resolve_project_memory(&params.project_id, params.memory_id.as_deref())?;
+        let memory = self.require_memory(&memory_id)?.clone();
         let path = Path::new(&params.path);
         let overwrite = params.overwrite.unwrap_or(false);
         if path.exists() {
@@ -344,15 +398,14 @@ impl Engine {
             self.refuse_managed_overwrite(path)?;
         }
         let format = resolve_tm_format(params.format, path)?;
-        let memory_id = Self::project_memory_id(&project.id);
         // Export inherently materializes the memory for the outgoing file,
         // but only this memory and only for the duration of the call.
         let entries = self.store.tm_entries_for_export(&memory_id)?;
         let units: Vec<TmExchangeUnit> = entries
             .iter()
             .map(|entry| TmExchangeUnit {
-                source_locale: project.source_locale.clone(),
-                target_locale: project.target_locale.clone(),
+                source_locale: memory.source_locale.clone(),
+                target_locale: memory.target_locale.clone(),
                 source_text: entry.source_text.clone(),
                 target_text: entry.target_text.clone(),
                 domain: None,
@@ -383,7 +436,6 @@ impl Engine {
         let project_id = record.document.project_id.clone();
         let document_id = record.document.id.clone();
         let min_score = validate_min_score(params.min_score, TM_PRETRANSLATE_DEFAULT_MIN_SCORE)?;
-        let memory_id = Self::project_memory_id(&project_id);
         let now = now_ms();
         // Only the document's untranslated rows leave SQL; pretranslation
         // inherently walks all of them once. Locked rows are set aside and
@@ -401,7 +453,10 @@ impl Engine {
         let mut changed = Vec::new();
         for mut segment in pending {
             checked += 1;
-            let (matches, _) = self.tm_matches(&memory_id, &segment.source_text, min_score, 1)?;
+            // The read path honors mounts: the best match across the
+            // enabled mounts wins (score first, mount priority tiebreak).
+            let (matches, _) =
+                self.tm_matches_mounted(&project_id, &segment.source_text, min_score, 1)?;
             let Some(best) = matches.first() else {
                 continue;
             };

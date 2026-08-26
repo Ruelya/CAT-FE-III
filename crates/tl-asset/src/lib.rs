@@ -124,6 +124,39 @@ pub struct ConcordanceHit {
     pub matched_side: ConcordanceSide,
 }
 
+/// One translation memory: a named store of confirmed segment pairs.
+/// `tm_entries.memory_id` points here. Projects reach a memory through a
+/// [`MemoryMount`]; the memory itself carries no project binding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Memory {
+    pub id: String,
+    pub name: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+/// A project's mount of one memory — the same family shape as
+/// [`TermbaseMount`]. `enabled` gates the read path (lookup, pretranslate);
+/// `writable` marks the working memory, the single mount confirmation-time
+/// TM writes go to. The engine enforces at most one writable mount per
+/// project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryMount {
+    pub project_id: String,
+    pub memory_id: String,
+    pub priority: u32,
+    pub enabled: bool,
+    pub writable: bool,
+    pub revision: u64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Termbase {
