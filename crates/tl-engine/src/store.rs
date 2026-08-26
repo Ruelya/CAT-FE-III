@@ -67,7 +67,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tl_asset::{TermEntry, Termbase, TermbaseMount};
-use tl_domain::{Document, Project, QaIssue, QaIssueStatus, Segment, SegmentState, TmEntry};
+use tl_domain::{
+    Document, Project, QaIssue, QaIssueStatus, Segment, SegmentCounts, SegmentState, TmEntry,
+};
 
 pub const DB_FILE_NAME: &str = "engine.sqlite";
 const LEGACY_STATE_FILE: &str = "state.json";
@@ -408,6 +410,61 @@ impl Store {
             .query_row([document_id], |row| row.get(0))
             .map_err(db_err)?;
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// One document's per-state segment counts plus its open QA issue
+    /// count — the file-rail progress numbers. Two indexed aggregate
+    /// queries; no segment or issue rows leave SQL.
+    pub fn document_segment_counts(&self, document_id: &str) -> io::Result<SegmentCounts> {
+        let mut statement = self
+            .conn
+            .prepare_cached(
+                "SELECT state, COUNT(*) FROM segments WHERE document_id = ?1 GROUP BY state",
+            )
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map([document_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(db_err)?;
+        let mut counts = SegmentCounts {
+            total: 0,
+            untranslated: 0,
+            draft: 0,
+            confirmed: 0,
+            open_issues: 0,
+        };
+        let untranslated = enum_text(&SegmentState::Untranslated)?;
+        let draft = enum_text(&SegmentState::Draft)?;
+        let confirmed = enum_text(&SegmentState::Confirmed)?;
+        for row in rows {
+            let (state, count) = row.map_err(db_err)?;
+            let count = u32::try_from(count).unwrap_or(u32::MAX);
+            counts.total = counts.total.saturating_add(count);
+            if state == untranslated {
+                counts.untranslated = count;
+            } else if state == draft {
+                counts.draft = count;
+            } else if state == confirmed {
+                counts.confirmed = count;
+            }
+        }
+        let mut open_statement = self
+            .conn
+            .prepare_cached(
+                "SELECT COUNT(*) FROM qa_issues q
+                 JOIN segments s ON s.id = q.segment_id
+                 WHERE s.document_id = ?1 AND q.status = ?2",
+            )
+            .map_err(db_err)?;
+        let open: i64 = open_statement
+            .query_row(
+                params![document_id, enum_text(&QaIssueStatus::Open)?],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?;
+        counts.open_issues = u32::try_from(open).unwrap_or(u32::MAX);
+        Ok(counts)
     }
 
     /// A document's segments plus their non-empty leading text, for export
