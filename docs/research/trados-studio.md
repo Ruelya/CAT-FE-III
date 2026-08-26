@@ -84,6 +84,8 @@ Trados Studio 的主导航是 **ribbon**（功能区），不是传统菜单栏�
 
 默认布局（同上 340578 页）："By default, the Translation Results, Concordance Search, Comments, TQAs and Messages windows appear grouped together at the top of the Editor view. However, **if you open a file for review, they appear at the bottom of the view as tabs**. The Preview window appears in the bottom right-hand corner of the view."——即翻译模式资源区在上、审校模式资源区在下，这是 Studio 按打开模式切换布局的明确证据。
 
+**按打开模式切换的三套配置**：文件可以 **Open for Translation / Open for Review / Open for Sign-Off** 三种方式打开；审校/签发模式使用官方所称 **"Review configuration" / "Sign-off configuration"**——布局切换（Comments 窗口自动出现在底部）、**Track Changes 自动开启**、Home tab 的 **File Actions / Segment Actions 组只显示该阶段可用的状态命令**（[Reviewing translated files](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/reviewing-translated-files-353610)）。
+
 **窗口系统**：Projects/Files/Editor/Translation Memories 四个视图的窗口均可重排；每个窗口右上角三个按钮 **Menu（Floating / Auto Hide）**、**Auto Hide**（图钉）、**Close**；关闭后从 **View** tab 恢复（[Windows and window navigation](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/windows-and-window-navigation-338273)）。
 
 ---
@@ -432,7 +434,7 @@ Trados Studio 的主导航是 **ribbon**（功能区），不是传统菜单栏�
 2. **没有"保存到 TM"按钮**。TM 写入是确认动作的自动副作用（Options 可改为手动），不是显式操作（[344856](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/file-options-editor-automation-344856)）。
 3. **网格下方没有常驻编辑辅助区**。所有辅助（TM 结果、术语、QA、评论、预览）都是**可停靠/可关闭的独立窗口**，默认在网格上方或右缘标签内，绝不占据行与行之间的空间（[The Editor view windows，2022](https://docs.rws.com/en-US/trados-studio-2022-980998/the-editor-view-windows-340578)）。2026 新增的 AI Assistant 也只是右缘一个折叠标签（官方截图）。
 4. **行内不显示元数据文本**。状态、来源、匹配分、锁、QA 结果全部压缩为**状态列里的图标/徽标**，详情藏在悬停 tooltip（Status/Origin/Provider/Score）里（[Segment Status column，2024 SR1](https://docs.rws.com/en-US/trados-studio-2024-sr1-1187677/segment-status-column-340490)）。
-5. **源文默认不可编辑**。源文编辑是需要显式启用的例外能力（[Editing target segments 关联主题 "Editing source segments"](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/editing-target-segments-354004)）。
+5. **源文默认不可编辑**。源文编辑是**项目设置里显式启用**的例外能力（"You can only edit source segments if source editing is enabled in your project settings."），定位是修正源文小错以保证 TU 质量，且改动可经 **File > Advanced Save > Save Source As** 回写原文档（[Editing source segments](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/editing-source-segments-354182)）。
 6. **没有行级 MT 按钮**。MT 结果与 TM 结果统一走 Translation Results 窗口和自动插入管道（[354763](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/translating-with-machine-translation-mt--354763)）。
 7. **没有"完成度仪表盘"占据编辑区**。进度只存在于状态栏百分比和 Confirmation Statistics 窗口（[The Editor view](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/the-editor-view-347941)、[Viewing file confirmation statistics](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/viewing-file-confirmation-statistics-331928)）。
 8. **过滤是"隐藏行"而非"高亮行"**："Only segments that match the conditions of the filter are displayed in the Editor window."（[Editing target segments 关联主题 "Filtering segments"](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/editing-target-segments-354004)）高亮是 ADF 2.0 的可选叠加，不是默认。
