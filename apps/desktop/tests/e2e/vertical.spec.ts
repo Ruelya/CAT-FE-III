@@ -127,9 +127,9 @@ async function clickMenuItem(label: string): Promise<boolean> {
   }, label);
 }
 
-test("vertical slice through the INSTRUMENT workbench", async () => {
-  // Engine handshake surfaces in the header.
-  await expect(page.locator(".app-header__engine")).toContainText("pid", {
+test("vertical slice through the workbench", async () => {
+  // Engine handshake surfaces in the bottom status bar.
+  await expect(page.locator(".app-statusbar__engine")).toContainText("pid", {
     timeout: 30_000,
   });
   await shot("01-projects-empty.png");
@@ -145,11 +145,15 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   expect((await findMenuItem("导出译文…"))?.enabled).toBe(false);
   expect(await clickMenuItem("导出译文…")).toBe(false);
 
-  // Create a project.
+  // Create a project. The workbench opens with the reference pane map:
+  // ribbon toolbar on top, project explorer on the left (title, language
+  // pair), resource rail on the right.
   await page.getByPlaceholder("例如：产品手册 v3").fill("演示项目");
   await page.getByRole("button", { name: "创建项目" }).click();
-  await expect(page.locator(".app-header__context strong")).toHaveText(
-    "演示项目",
+  await expect(page.locator(".project-explorer__name")).toHaveText("演示项目");
+  await expect(page.getByRole("toolbar", { name: "工具栏" })).toBeVisible();
+  await expect(page.locator(".explorer__langs")).toContainText(
+    "en-US → zh-CN",
   );
 
   // Import the DOCX fixture through the import dialog: pick the file via
@@ -166,6 +170,14 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
   );
   const rows = page.locator(".segment-grid tbody tr");
   await expect(rows).toHaveCount(3);
+  // The imported document opens as a real editor tab, and the explorer's
+  // project details carry the honest counts from document.list.
+  await expect(
+    page.getByRole("tab", { name: "m0-source.docx" }),
+  ).toHaveAttribute("aria-selected", "true");
+  const details = page.getByRole("region", { name: "项目详情" });
+  await expect(details).toContainText("文件数");
+  await expect(details).toContainText("总句段");
   await shot("02-imported-grid.png");
 
   // Edit and confirm segment 1 (writes the exact TM). The confirm advances
@@ -250,14 +262,14 @@ test("vertical slice through the INSTRUMENT workbench", async () => {
 test("workbench intel: filter, concordance, preview, and settings", async () => {
   const rows = page.locator(".segment-grid tbody tr");
 
-  // State filter narrows the grid; the count chip stays honest.
+  // State filter narrows the grid; the ribbon count chip stays honest.
   await page.getByLabel("按状态筛选").selectOption("untranslated");
   await expect(rows).toHaveCount(1);
-  await expect(page.locator(".grid-toolbar__count")).toHaveText("1/3");
+  await expect(page.locator(".ribbon__filter-count")).toHaveText("1/3");
   await page.getByRole("button", { name: "清除" }).click();
   await expect(rows).toHaveCount(3);
 
-  // Text filter matches source and target text.
+  // The ribbon's far-right search filters source and target text.
   await page.getByLabel("按文本筛选").fill("retention");
   await expect(rows).toHaveCount(1);
   await shot("08-grid-filter.png");
@@ -280,8 +292,9 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
 
   // Preview backfills confirmed/draft targets and flags untranslated
   // segments instead of pretending the document is done. The proofread
-  // view follows the segment that is active in the grid.
-  await page.getByRole("button", { name: "预览", exact: true }).click();
+  // view follows the segment that is active in the grid. It opens from
+  // the 预览 view tab under the grid.
+  await page.getByRole("tab", { name: "预览", exact: true }).click();
   await expect(page.locator(".tl-dialog")).toContainText("译文预览");
   await expect(page.locator(".tl-dialog")).toContainText("保留期为 30 天。");
   await expect(

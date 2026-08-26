@@ -68,7 +68,7 @@ test("a missing engine parks the app behind a blocking gate with a relaunch offe
 test("a mid-session engine kill shows the restart gate and recovers with a fresh pid", async () => {
   const { app, page } = await launch(engineBinary);
   try {
-    const engineLabel = page.locator(".app-header__engine");
+    const engineLabel = page.locator(".app-statusbar__engine");
     await expect(engineLabel).toContainText("pid", { timeout: 30_000 });
     const before = await engineLabel.innerText();
     const pid = Number(/pid (\d+)/.exec(before)?.[1]);

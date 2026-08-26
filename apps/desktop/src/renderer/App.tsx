@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
-import { Button, SegmentProgress, StatusDot } from "@translunar/ui";
+import { SegmentProgress, StatusDot } from "@translunar/ui";
 
 import type {
   EngineLifecycleState,
@@ -56,7 +56,7 @@ export function App() {
   const [documentOpen, setDocumentOpen] = useState(false);
   const [tmManageOpen, setTmManageOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>(
-    "INSTRUMENT · Translunar CAT 绿场骨架",
+    "Translunar CAT 就绪",
   );
   // Live document stats reported by the workbench; the status bar shows
   // them as first-class chrome so progress never hides inside a panel.
@@ -91,7 +91,7 @@ export function App() {
   }, [project, documentOpen]);
 
   // Shell-level menu commands; workbench-level ones are handled inside
-  // WorkbenchView. Both go through the same actions as the header buttons.
+  // WorkbenchView. Both go through the same actions as the ribbon buttons.
   // The menu disables these without a project, but guard anyway so a stray
   // command can never queue a settings dialog for a future project.
   useEffect(() => {
@@ -121,6 +121,14 @@ export function App() {
     }
   }, []);
 
+  const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleOpenTmManage = useCallback(() => setTmManageOpen(true), []);
+  const handleCloseProject = useCallback(() => {
+    setSettingsOpen(false);
+    setTmManageOpen(false);
+    setProject(null);
+  }, []);
+
   // Before the first status fetch resolves, assume the engine is still
   // starting rather than pretending it is ready.
   const engineState: EngineLifecycleState = engineStatus?.state ?? "starting";
@@ -128,51 +136,6 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <span className="app-header__brand">
-          TRANSLUNAR <em>CAT</em>
-        </span>
-        <span className="app-header__divider" />
-        <div className="app-header__context">
-          {project ? (
-            <>
-              <strong>{project.name}</strong>
-              <span>
-                {project.sourceLocale} → {project.targetLocale}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSettingsOpen(true)}
-              >
-                项目设置
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setTmManageOpen(true)}
-              >
-                TM 管理
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setProject(null)}
-              >
-                返回项目列表
-              </Button>
-            </>
-          ) : (
-            <span>项目</span>
-          )}
-        </div>
-        <span className="app-header__spacer" />
-        <span className="app-header__engine">
-          <StatusDot state={dotState(engineStatus)} />
-          {engineLabel(engineStatus)}
-        </span>
-      </header>
-
       {/* display:contents wrapper: keeps the grid layout intact while
           `inert` blocks focus and input in the whole surface whenever the
           engine cannot acknowledge writes. */}
@@ -185,6 +148,9 @@ export function App() {
             onDocumentOpenChange={setDocumentOpen}
             onProjectUpdated={setProject}
             onStatsChange={setWorkbenchStats}
+            onOpenSettings={handleOpenSettings}
+            onOpenTmManage={handleOpenTmManage}
+            onCloseProject={handleCloseProject}
           />
         ) : (
           <ProjectsView
@@ -217,57 +183,71 @@ export function App() {
         <span className="app-statusbar__message" key={statusMessage}>
           {statusMessage}
         </span>
-        {workbenchStats ? (
-          <span className="app-statusbar__stats">
-            <span className="app-statusbar__stat" title="当前句段 / 总句段">
-              句段{" "}
-              <span className="tl-num">
-                {workbenchStats.activeOrdinal !== null
-                  ? `${workbenchStats.activeOrdinal + 1}/${workbenchStats.counts.total}`
-                  : workbenchStats.counts.total}
-              </span>
-            </span>
-            <span className="app-statusbar__stat" title="已确认句段">
-              确认{" "}
-              <span className="tl-num">{workbenchStats.counts.confirmed}</span>
-            </span>
-            {workbenchStats.counts.draft > 0 ? (
-              <span className="app-statusbar__stat" title="草稿句段">
-                草稿{" "}
-                <span className="tl-num">{workbenchStats.counts.draft}</span>
-              </span>
-            ) : null}
-            {workbenchStats.counts.openIssues > 0 ? (
-              <span
-                className="app-statusbar__stat"
-                data-tone="danger"
-                title="未解决 QA 问题"
-              >
-                QA{" "}
+        <span className="app-statusbar__stats">
+          {workbenchStats ? (
+            <>
+              <span className="app-statusbar__stat" title="当前句段 / 总句段">
+                句段{" "}
                 <span className="tl-num">
-                  {workbenchStats.counts.openIssues}
+                  {workbenchStats.activeOrdinal !== null
+                    ? `${workbenchStats.activeOrdinal + 1}/${workbenchStats.counts.total}`
+                    : workbenchStats.counts.total}
                 </span>
               </span>
-            ) : null}
-            <span className="app-statusbar__progress">
-              <SegmentProgress
-                total={workbenchStats.counts.total}
-                confirmed={workbenchStats.counts.confirmed}
-                draft={workbenchStats.counts.draft}
-                label={`已确认 ${workbenchStats.counts.confirmed}/${workbenchStats.counts.total}`}
-              />
-              <span className="tl-num">
-                {workbenchStats.counts.total > 0
-                  ? `${Math.round(
-                      (workbenchStats.counts.confirmed /
-                        workbenchStats.counts.total) *
-                        100,
-                    )}%`
-                  : "—"}
+              <span className="app-statusbar__stat" title="已确认句段">
+                已确认{" "}
+                <span className="tl-num">
+                  {workbenchStats.counts.confirmed}
+                </span>
               </span>
-            </span>
+              {workbenchStats.counts.draft > 0 ? (
+                <span className="app-statusbar__stat" title="草稿句段">
+                  草稿{" "}
+                  <span className="tl-num">{workbenchStats.counts.draft}</span>
+                </span>
+              ) : null}
+              <span className="app-statusbar__stat" title="未译句段">
+                剩余{" "}
+                <span className="tl-num">
+                  {workbenchStats.counts.untranslated}
+                </span>
+              </span>
+              {workbenchStats.counts.openIssues > 0 ? (
+                <span
+                  className="app-statusbar__stat"
+                  data-tone="danger"
+                  title="未解决 QA 问题"
+                >
+                  QA{" "}
+                  <span className="tl-num">
+                    {workbenchStats.counts.openIssues}
+                  </span>
+                </span>
+              ) : null}
+              <span className="app-statusbar__progress">
+                <SegmentProgress
+                  total={workbenchStats.counts.total}
+                  confirmed={workbenchStats.counts.confirmed}
+                  draft={workbenchStats.counts.draft}
+                  label={`已确认 ${workbenchStats.counts.confirmed}/${workbenchStats.counts.total}`}
+                />
+                <span className="tl-num">
+                  {workbenchStats.counts.total > 0
+                    ? `${Math.round(
+                        (workbenchStats.counts.confirmed /
+                          workbenchStats.counts.total) *
+                          100,
+                      )}%`
+                    : "—"}
+                </span>
+              </span>
+            </>
+          ) : null}
+          <span className="app-statusbar__engine">
+            <StatusDot state={dotState(engineStatus)} />
+            {engineLabel(engineStatus)}
           </span>
-        ) : null}
+        </span>
       </footer>
 
       {engineReady ? null : (
