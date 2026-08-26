@@ -136,6 +136,33 @@ describe("SegmentGrid", () => {
     expect(screen.getByRole("img", { name: "草稿" })).toBeInTheDocument();
   });
 
+  it("reports the caret line/column while editing and clears it on exit", () => {
+    const onCaretChange = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "第一行\n第二行")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCaretChange={onCaretChange}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    // Mount report: the caret starts at the top of the editor.
+    expect(onCaretChange).toHaveBeenCalledWith({ line: 1, column: 1 });
+
+    // Moving the caret past the newline reports the real line/column.
+    editor.setSelectionRange(5, 5);
+    fireEvent.select(editor);
+    expect(onCaretChange).toHaveBeenLastCalledWith({ line: 2, column: 2 });
+
+    // Esc leaves editing: the readout clears instead of freezing stale.
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(onCaretChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("renders every row for small documents (no virtualization)", () => {
     const segments = Array.from({ length: 20 }, (_, i) =>
       segment(`s${i}`, i, `Sentence ${i}.`),
@@ -539,6 +566,269 @@ describe("SegmentGrid", () => {
     );
     expect(onSaveDraft).toHaveBeenCalledTimes(2);
     expect(onSaveDraft.mock.calls[1]?.[1]).toBe("你好。");
+  });
+
+  it("maps the Studio chord family onto confirm modes", () => {
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, altKey: true });
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true,
+    });
+    expect(
+      onConfirm.mock.calls.map((call) => (call as unknown[])[2]),
+    ).toEqual(["nextUnconfirmed", "nextAny", "stay"]);
+  });
+
+  it("leaves Ctrl+Shift+Enter vacant (reserved for confirm-without-TM)", () => {
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText("句段 1 译文"), {
+      key: "Enter",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("confirms with an explicit mode through the imperative handle", () => {
+    const gridRef = createRef<SegmentGridHandle>();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        ref={gridRef}
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    act(() => {
+      gridRef.current!.confirmActive("stay");
+    });
+    expect(onConfirm.mock.calls[0]?.[2]).toBe("stay");
+  });
+
+  it("highlights placeholder tokens in source and non-editing target", () => {
+    const { container } = render(
+      <SegmentGrid
+        segments={[
+          segment("s1", 0, "Hi {name}, see <b>docs</b>.", "见 <b>文档</b>。"),
+        ]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const tokens = [...container.querySelectorAll(".tl-token")].map(
+      (node) => node.textContent,
+    );
+    // Source: {name}, <b>, </b>; target: <b>, </b> — same lexer both sides.
+    expect(tokens).toEqual(["{name}", "<b>", "</b>", "<b>", "</b>"]);
+  });
+
+  it("marks QA-flagged tokens with the danger outline, driven by evidence", () => {
+    const { container } = render(
+      <SegmentGrid
+        segments={[
+          segment("s1", 0, "Hi {name} and {other}.", "你好 {nmae}。"),
+        ]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set(["s1"])}
+        placeholderAlerts={
+          new Map([
+            [
+              "s1",
+              {
+                missing: new Set(["{name}", "{other}"]),
+                extra: new Set(["{nmae}"]),
+              },
+            ],
+          ])
+        }
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const danger = [...container.querySelectorAll(".tl-token[data-danger]")]
+      .map((node) => node.textContent)
+      .sort();
+    expect(danger).toEqual(["{name}", "{nmae}", "{other}"]);
+  });
+
+  it("exits editing on Esc (keeping the draft) and re-enters on Enter", () => {
+    const onSaveDraft = vi.fn();
+    const { container } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.change(editor, { target: { value: "草稿文字" } });
+    fireEvent.keyDown(editor, { key: "Escape" });
+    // Esc never confirms and never drops typing: the text flushed as a
+    // draft, the editor unmounted, and focus moved to the row.
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    expect(onSaveDraft.mock.calls[0]?.[1]).toBe("草稿文字");
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    const row = container.querySelector('tr[data-segment-id="s1"]');
+    expect(document.activeElement).toBe(row);
+    // Enter re-enters editing on the selected row.
+    fireEvent.keyDown(row!, { key: "Enter" });
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("ignores Esc inside the editor during IME composition", () => {
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.keyDown(editor, { key: "Escape", isComposing: true });
+    // Cancelling the IME composition must not tear down the editor.
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("moves the selection with arrow keys in row-navigation mode", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello."), segment("s2", 1, "World.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={onSelect}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // Leave editing so the rows own the arrow keys.
+    fireEvent.keyDown(screen.getByLabelText("句段 1 译文"), { key: "Escape" });
+    const row = container.querySelector('tr[data-segment-id="s1"]')!;
+    fireEvent.keyDown(row, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("s2");
+  });
+
+  it("gives only the active row a tab stop (roving tabIndex)", () => {
+    const { container } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello."), segment("s2", 1, "World.")]}
+        activeSegmentId="s2"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector('tr[data-segment-id="s2"]'),
+    ).toHaveAttribute("tabindex", "0");
+    expect(
+      container.querySelector('tr[data-segment-id="s1"]'),
+    ).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("offers 复制源文 and 清空译文 in the row menu", async () => {
+    const onCopySource = vi.fn();
+    const onClearTarget = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCopySource={onCopySource}
+        onClearTarget={onClearTarget}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "复制源文" }));
+    expect(onCopySource).toHaveBeenCalledTimes(1);
+    expect((onCopySource.mock.calls[0]?.[0] as Segment).id).toBe("s1");
+    // The menu offers no confirm action — confirming is a keyboard act.
+    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
+    expect(
+      screen.queryByRole("menuitem", { name: /确认/ }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "清空译文" }));
+    expect(onClearTarget).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables 清空译文 when the target is already empty", async () => {
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCopySource={vi.fn()}
+        onClearTarget={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
+    expect(screen.getByRole("menuitem", { name: "清空译文" })).toBeDisabled();
+  });
+
+  it("opens the row menu from a right-click and selects the row", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello."), segment("s2", 1, "World.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={onSelect}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCopySource={vi.fn()}
+        onClearTarget={vi.fn()}
+      />,
+    );
+    fireEvent.contextMenu(container.querySelector('tr[data-segment-id="s2"]')!);
+    expect(onSelect).toHaveBeenCalledWith("s2");
+    expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 
   it("windows large documents instead of rendering every row", () => {

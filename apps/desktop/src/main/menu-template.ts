@@ -8,7 +8,7 @@
  * main must not swallow them):
  * - Chords the renderer already listens for (F3 concordance, F4/Shift+F4
  *   find next/prev, Ctrl+Enter confirm) and workbench-interaction chords
- *   (Ctrl+F filter) are displayed
+ *   (Ctrl+F/Ctrl+H find widget, Ctrl+Shift+F filter) are displayed
  *   in the menu but NOT registered as global accelerators on Windows/Linux
  *   (`registerAccelerator: false`), so the raw key events keep reaching the
  *   renderer keymap. Clicking the item dispatches the same command over IPC.
@@ -34,9 +34,18 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "F4",
   "Shift+F4",
   "CmdOrCtrl+Enter",
+  "CmdOrCtrl+Alt+Enter",
+  "CmdOrCtrl+Alt+Shift+Enter",
   "CmdOrCtrl+F",
   "CmdOrCtrl+H",
+  "CmdOrCtrl+Shift+F",
   "CmdOrCtrl+Shift+P",
+  // Ctrl+数字: dock switch normally, numbered-TM-match apply while the
+  // grid editor has focus — only the renderer can tell the two apart.
+  "CmdOrCtrl+1",
+  "CmdOrCtrl+2",
+  "CmdOrCtrl+3",
+  "CmdOrCtrl+4",
 ];
 
 const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
@@ -99,13 +108,29 @@ export function buildMenuTemplate(
       { role: "paste", label: "粘贴" },
       { role: "selectAll", label: "全选" },
       SEPARATOR,
-      // Same command as the grid editor's Ctrl+Enter; display-only
-      // accelerator so the textarea handler stays the owner.
+      // Studio confirm chord family. Same commands as the grid editor's
+      // chords; display-only accelerators so the textarea handler stays
+      // the owner. All three run the same segment.confirm — only the
+      // navigation afterwards differs.
       commandItem(
         "确认当前句段",
         "confirm-segment",
         context.documentOpen,
         "CmdOrCtrl+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并到下一句段",
+        "confirm-segment-any",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并停留",
+        "confirm-segment-stay",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Shift+Enter",
         true,
       ),
     ],
@@ -124,48 +149,44 @@ export function buildMenuTemplate(
         true,
       ),
       SEPARATOR,
+      // Toggles the collapsible bottom preview pane (PRD §7.4).
       commandItem(
-        "译文预览…",
-        "open-preview",
+        "预览面板",
+        "toggle-preview",
         context.documentOpen,
         "CmdOrCtrl+P",
       ),
       SEPARATOR,
+      // Four dock groups (记忆/术语/QA/AI). Renderer-owned chords: while
+      // the grid editor has focus, Ctrl+数字 applies the numbered TM match
+      // instead (memoQ semantics), so the renderer must see the raw keys.
       commandItem(
-        "翻译记忆面板",
-        "show-dock-tm",
+        "记忆面板",
+        "show-dock-memory",
         context.projectOpen,
         "CmdOrCtrl+1",
+        true,
       ),
       commandItem(
         "术语面板",
         "show-dock-term",
         context.projectOpen,
         "CmdOrCtrl+2",
-      ),
-      commandItem(
-        "检索面板",
-        "show-dock-concordance",
-        context.projectOpen,
-        "CmdOrCtrl+3",
+        true,
       ),
       commandItem(
         "QA 面板",
         "show-dock-qa",
         context.projectOpen,
-        "CmdOrCtrl+4",
+        "CmdOrCtrl+3",
+        true,
       ),
       commandItem(
-        "AI 辅助面板",
+        "AI 面板",
         "show-dock-ai",
         context.projectOpen,
-        "CmdOrCtrl+5",
-      ),
-      commandItem(
-        "Agent 面板",
-        "show-dock-agent",
-        context.projectOpen,
-        "CmdOrCtrl+6",
+        "CmdOrCtrl+4",
+        true,
       ),
       SEPARATOR,
       { role: "resetZoom", label: "实际大小" },
@@ -179,16 +200,25 @@ export function buildMenuTemplate(
   const navigationMenu: MenuItemConstructorOptions = {
     label: "导航",
     submenu: [
-      // Renderer-owned Ctrl+F focuses the grid filter input.
+      // Renderer-owned Ctrl+F summons the floating find widget (find row);
+      // Ctrl+H summons it with the replace row revealed. Find jumps the
+      // selection and never hides rows — hiding is the filter channel.
       commandItem(
-        "筛选句段",
-        "focus-filter",
+        "查找…",
+        "open-find",
         context.documentOpen,
         "CmdOrCtrl+F",
         true,
       ),
+      commandItem(
+        "替换…",
+        "open-replace",
+        context.documentOpen,
+        "CmdOrCtrl+H",
+        true,
+      ),
       // Renderer-owned F4 / Shift+F4 jump the selection through segments
-      // matching the find box query without hiding any rows.
+      // matching the find query without hiding any rows.
       commandItem("查找下一个", "find-next", context.documentOpen, "F4", true),
       commandItem(
         "查找上一个",
@@ -197,13 +227,13 @@ export function buildMenuTemplate(
         "Shift+F4",
         true,
       ),
-      // Renderer-owned Ctrl+H focuses the replace box in the find/replace
-      // toolbar; the actual replace stays a button/Enter action there.
+      // Renderer-owned Ctrl+Shift+F focuses the grid filter input (display
+      // filter: hides rows, chips on the grid toolbar).
       commandItem(
-        "替换…",
-        "focus-replace",
+        "筛选句段",
+        "focus-filter",
         context.documentOpen,
-        "CmdOrCtrl+H",
+        "CmdOrCtrl+Shift+F",
         true,
       ),
       // Renderer-owned F3 seeds concordance from the current selection.

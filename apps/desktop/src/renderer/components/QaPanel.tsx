@@ -26,6 +26,32 @@ const STATUS_TONE = {
   resolved: "ok",
 } as const;
 
+/** Severity glyphs (never color-only): error before warning before info. */
+const SEVERITY_GLYPH: Record<QaIssue["severity"], string> = {
+  error: "⛔",
+  warning: "⚠",
+  info: "ⓘ",
+};
+
+const SEVERITY_LABEL: Record<QaIssue["severity"], string> = {
+  error: "错误",
+  warning: "警告",
+  info: "提示",
+};
+
+const SEVERITY_RANK: Record<QaIssue["severity"], number> = {
+  error: 0,
+  warning: 1,
+  info: 2,
+};
+
+/** Errors surface before warnings within each status group. */
+function bySeverity(list: QaIssue[]): QaIssue[] {
+  return [...list].sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  );
+}
+
 export function QaPanel({
   issues,
   disabled,
@@ -35,9 +61,13 @@ export function QaPanel({
   onWaive,
   onRestore,
 }: QaPanelProps) {
-  const open = issues.filter((issue) => issue.status === "open");
-  const waived = issues.filter((issue) => issue.status === "waived");
-  const resolved = issues.filter((issue) => issue.status === "resolved");
+  const open = bySeverity(issues.filter((issue) => issue.status === "open"));
+  const waived = bySeverity(
+    issues.filter((issue) => issue.status === "waived"),
+  );
+  const resolved = bySeverity(
+    issues.filter((issue) => issue.status === "resolved"),
+  );
   return (
     <Panel
       title={`质量检查（未解决 ${open.length}）`}
@@ -72,9 +102,21 @@ export function QaPanel({
                 data-resolved={issue.status === "resolved"}
               >
                 <div className="match-card__row">
-                  <Badge tone={STATUS_TONE[issue.status]}>
-                    {STATUS_LABEL[issue.status]}
-                  </Badge>
+                  <span className="issue-card__head">
+                    <span
+                      className="issue-card__severity"
+                      data-severity={issue.severity}
+                      role="img"
+                      aria-label={SEVERITY_LABEL[issue.severity]}
+                      title={SEVERITY_LABEL[issue.severity]}
+                    >
+                      {SEVERITY_GLYPH[issue.severity]}
+                    </span>
+                    <Badge tone={STATUS_TONE[issue.status]}>
+                      {STATUS_LABEL[issue.status]}
+                    </Badge>
+                    <span className="issue-card__rule">{issue.ruleId}</span>
+                  </span>
                   <span className="issue-card__actions">
                     {issue.status === "open" ? (
                       <Button

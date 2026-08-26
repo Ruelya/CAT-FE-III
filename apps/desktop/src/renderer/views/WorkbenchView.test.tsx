@@ -170,6 +170,9 @@ function installBridge(
         menuListener = null;
       };
     },
+    // The AI dock's Agent section subscribes to step notifications on
+    // mount; the tests never emit any.
+    onNotification: () => () => {},
     setMenuContext: vi.fn(),
   };
   Object.defineProperty(window, "tl", {
@@ -301,6 +304,105 @@ describe("WorkbenchView application menu commands", () => {
     expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
   });
 
+  it("merges TM lookup and 检索 into the 记忆 dock, 辅助 and Agent into AI", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // Four dock tabs, no separate 检索/Agent tabs (6→4, PRD §3.7).
+    for (const label of ["记忆", "术语", "QA", "AI"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    // Default 记忆 tab shows both the TM lookup panel and the 检索 area.
+    expect(screen.getByText("翻译记忆")).toBeInTheDocument();
+    expect(screen.getByLabelText(/检索词/)).toBeInTheDocument();
+    // AI tab stacks 辅助 and Agent sections.
+    await userEvent.click(screen.getByRole("button", { name: "AI" }));
+    expect(screen.getByText("AI 辅助")).toBeInTheDocument();
+    expect(screen.getByText(/Agent/)).toBeInTheDocument();
+  });
+
+  it("switches docks with Ctrl+1..4 outside the editor", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "3", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+    expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true });
+    expect(screen.getByText("翻译记忆")).toBeInTheDocument();
+  });
+
+  it("applies the numbered TM match as a draft on Ctrl+数字 in the editor", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.lookup"] = () => ({
+      matches: [
+        {
+          entry: {
+            id: "tm-1",
+            memoryId: "m1",
+            sourceHash: "hash",
+            sourceText: "The retention period is 30 days.",
+            targetText: "保留期为 30 天。",
+            originProjectId: "p1",
+            originDocumentId: "d1",
+            originSegmentId: "s1",
+            confirmedAtMs: 1,
+          },
+          score: 100,
+          grade: "exact",
+        },
+      ],
+      totalMatches: 1,
+    });
+    let updateParams: unknown = null;
+    handlers["segment.update"] = (params) => {
+      updateParams = params;
+      return {
+        segment: { ...SEGMENT, targetText: "保留期为 30 天。", revision: 2 },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(screen.getByText("应用为草稿")).toBeInTheDocument();
+    });
+    fireEvent.keyDown(editor, { key: "1", ctrlKey: true });
+    await waitFor(() => {
+      expect(updateParams).toMatchObject({
+        segmentId: "s1",
+        targetText: "保留期为 30 天。",
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已应用第 1 条记忆匹配（100%）为草稿",
+    );
+    // A number with no matching hit reports honestly and writes nothing.
+    fireEvent.keyDown(editor, { key: "5", ctrlKey: true });
+    expect(onStatusMessage).toHaveBeenCalledWith("没有第 5 条记忆匹配");
+  });
+
   it("opens the import dialog from the menu like the 导入 button", async () => {
     const bridge = installBridge(baseHandlers());
     render(
@@ -410,7 +512,7 @@ describe("WorkbenchView application menu commands", () => {
     );
   });
 
-  it("focuses the segment filter via the menu command and the Ctrl+F chord", async () => {
+  it("focuses the segment filter via the menu command and the Ctrl+Shift+F chord", async () => {
     const bridge = installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -427,7 +529,7 @@ describe("WorkbenchView application menu commands", () => {
     expect(document.activeElement).toBe(filter);
     // The chord itself is renderer-owned: the menu only displays it.
     (document.activeElement as HTMLElement).blur();
-    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true });
     expect(document.activeElement).toBe(filter);
   });
 });
@@ -630,11 +732,13 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    // Ctrl+F summons the floating find widget over the grid.
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "day",
     );
-    // The find box navigates only; unlike the filter it hides no rows.
+    // The find widget navigates only; unlike the filter it hides no rows.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
     expect(screen.getByText("First day of work.")).toBeInTheDocument();
 
@@ -678,6 +782,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "missing",
@@ -699,6 +804,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "day",
@@ -713,7 +819,7 @@ describe("WorkbenchView find next/prev", () => {
     expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
   });
 
-  it("focuses the find box when F4 is pressed with an empty query", async () => {
+  it("summons the find widget when F4 is pressed with an empty query", async () => {
     installFindBridge();
     render(
       <WorkbenchView
@@ -723,8 +829,12 @@ describe("WorkbenchView find next/prev", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
+    expect(
+      screen.queryByRole("dialog", { name: "查找" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "F4" });
+    expect(screen.getByRole("dialog", { name: "查找" })).toBeInTheDocument();
     expect(document.activeElement).toBe(
       screen.getByLabelText("查找", { selector: "input" }),
     );
@@ -795,6 +905,108 @@ describe("WorkbenchView segment navigation", () => {
     expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
   });
 
+  it("Ctrl+Alt+Enter advances to the immediate next segment even if confirmed", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, altKey: true });
+
+    // s2 is confirmed but Ctrl+Alt+Enter lands on it anyway — the review
+    // pass walks every row regardless of state.
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+
+  it("Ctrl+Alt+Shift+Enter confirms and stays on the same segment", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    let confirmed = 0;
+    handlers["segment.confirm"] = () => {
+      confirmed += 1;
+      return {
+        segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true,
+    });
+
+    await waitFor(() => {
+      expect(confirmed).toBe(1);
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "句段 #1 已确认并写入 TM",
+      );
+    });
+    // The selection did not move: segment 1's editor is still mounted.
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+    expect(screen.queryByLabelText("句段 2 译文")).not.toBeInTheDocument();
+  });
+
+  it("dispatches the confirm variants from the menu commands", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    act(() => {
+      bridge.emitMenuCommand("confirm-segment-any");
+    });
+    // Menu command follows the same path as the chord: next row, any state.
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+
   it("steps the selection with Alt+↑/↓ and never wraps", async () => {
     const handlers = baseHandlers();
     handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
@@ -856,17 +1068,13 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    // The ribbon also has a 替换 button (focuses the box); the replace
-    // action itself lives in the find/replace toolbar.
-    const toolbar = within(
-      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
-    );
-    await userEvent.type(
-      screen.getByLabelText("查找", { selector: "input" }),
-      "30 天",
-    );
-    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    // Ctrl+H summons the find widget with the replace row revealed; the
+    // replace action lives there (no permanent toolbar chrome).
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
+    const widget = within(screen.getByRole("dialog", { name: "查找替换" }));
+    await userEvent.type(widget.getByLabelText("查找"), "30 天");
+    await userEvent.type(widget.getByLabelText("替换为"), "60 天");
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
 
     await waitFor(() => {
       expect(updateParams).toMatchObject({
@@ -908,22 +1116,18 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    const toolbar = within(
-      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
-    );
-    await userEvent.type(
-      screen.getByLabelText("查找", { selector: "input" }),
-      "30 天",
-    );
-    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
+    const widget = within(screen.getByRole("dialog", { name: "查找替换" }));
+    await userEvent.type(widget.getByLabelText("查找"), "30 天");
+    await userEvent.type(widget.getByLabelText("替换为"), "60 天");
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
 
     // Nothing was written; the guard is reported.
     expect(updateCalls).toHaveLength(0);
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认，未替换");
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    await userEvent.click(widget.getByRole("checkbox", { name: /含已确认/ }));
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
     await waitFor(() => {
       expect(updateCalls).toHaveLength(1);
     });
@@ -960,6 +1164,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "30 天",
@@ -1008,6 +1213,7 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "missing",
@@ -1024,7 +1230,7 @@ describe("WorkbenchView find & replace", () => {
     );
   });
 
-  it("focuses the replace box via Ctrl+H and the menu 替换… command", async () => {
+  it("opens the widget on the replace row via Ctrl+H and the menu 替换… command", async () => {
     const bridge = installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -1034,16 +1240,163 @@ describe("WorkbenchView find & replace", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    const replaceInput = screen.getByLabelText("替换为");
+    // No permanent replace chrome before the summon.
+    expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "h", ctrlKey: true });
-    expect(document.activeElement).toBe(replaceInput);
+    expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
 
     (document.activeElement as HTMLElement).blur();
     act(() => {
-      bridge.emitMenuCommand("focus-replace");
+      bridge.emitMenuCommand("open-replace");
     });
-    expect(document.activeElement).toBe(replaceInput);
+    expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
+  });
+});
+
+describe("WorkbenchView find widget & filter chips", () => {
+  const CHIP_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0, targetText: "第一天。" },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Second line.",
+      targetText: "第二行。",
+      state: "confirmed",
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Third line.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  function installChipBridge() {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: CHIP_SEGMENTS });
+    return installBridge(handlers);
+  }
+
+  it("Ctrl+F opens find-only, the toggle reveals replace, Esc returns focus to the grid", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor = await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    const widget = screen.getByRole("dialog", { name: "查找" });
+    expect(widget).toBeInTheDocument();
+    // Find mode keeps the replace row collapsed.
+    expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
+
+    // The chevron toggle expands the replace row in place.
+    await userEvent.click(screen.getByRole("button", { name: "展开替换" }));
+    expect(screen.getByLabelText("替换为")).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "查找替换" }),
+    ).toBeInTheDocument();
+
+    // Esc dismisses the widget and hands focus back to the grid editor.
+    fireEvent.keyDown(screen.getByLabelText("查找", { selector: "input" }), {
+      key: "Escape",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "查找" }),
+    ).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("shows the honest matching-segment count next to the find box", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "line",
+    );
+    // s2 and s3 contain "line" (case-insensitive); s1 does not.
+    expect(screen.getByLabelText("匹配句段数")).toHaveTextContent("2 段");
+  });
+
+  it("shows removable filter chips and the resident visible/total count", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The count is resident even with no filter active.
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+    expect(screen.queryByRole("button", { name: /清除状态筛选/ })).toBeNull();
+
+    // A state filter raises its chip and shrinks the visible count.
+    await userEvent.selectOptions(
+      screen.getByLabelText("按状态筛选"),
+      "confirmed",
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+    // A text filter raises a second, independently removable chip.
+    await userEvent.type(screen.getByLabelText("按文本筛选"), "line");
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+    expect(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    ).toBeInTheDocument();
+
+    // × on the state chip clears only the state channel.
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除状态筛选：已确认" }),
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("2/3");
+    expect(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+  });
+
+  it("Esc on the grid clears the active filter as the last resort", async () => {
+    installChipBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.selectOptions(
+      screen.getByLabelText("按状态筛选"),
+      "confirmed",
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+
+    // Esc fired outside any text control clears the filter and says so.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+    expect(onStatusMessage).toHaveBeenCalledWith("已清除筛选");
   });
 });
 
@@ -1735,7 +2088,7 @@ describe("WorkbenchView ribbon", () => {
     expect(onCloseProject).toHaveBeenCalledTimes(1);
   });
 
-  it("focuses the workbench inputs from the review group buttons", async () => {
+  it("summons the find widget and focuses the filter from the review group buttons", async () => {
     installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -1745,7 +2098,7 @@ describe("WorkbenchView ribbon", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    // Ribbon buttons share accessible names with grid-toolbar controls
+    // Ribbon buttons share accessible names with find-widget controls
     // (替换), so scope the clicks to the toolbar.
     const ribbon = within(screen.getByRole("toolbar", { name: "工具栏" }));
     await userEvent.click(ribbon.getByRole("button", { name: "查找" }));
@@ -1802,8 +2155,9 @@ describe("WorkbenchView document tabs", () => {
     await waitFor(() => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
-    // Only the auto-opened first document has a tab.
-    expect(screen.getAllByRole("tab")).toHaveLength(3); // guide + 文本/预览 view tabs
+    // Only the auto-opened first document has a tab (the 文本/预览 view
+    // switch is gone — preview lives in the docked bottom pane).
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
     expect(screen.getByRole("tab", { name: "guide.txt" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -1894,7 +2248,34 @@ describe("WorkbenchView document tabs", () => {
     });
   });
 
-  it("the 预览 view tab opens the real preview dialog", async () => {
+  it("docks a collapsed preview pane that expands from the bar or Ctrl+P", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    // Collapsed by default: the bar is there, the body content is not.
+    const pane = screen.getByRole("region", { name: "预览面板" });
+    expect(within(pane).queryByText(/共 \d+ 个句段/)).toBeNull();
+
+    await userEvent.click(
+      within(pane).getByRole("button", { name: "展开预览" }),
+    );
+    expect(within(pane).getByText(/共 1 个句段/)).toBeVisible();
+
+    // The menu command (Ctrl+P) toggles the same pane back closed.
+    act(() => {
+      bridge.emitMenuCommand("toggle-preview");
+    });
+    expect(within(pane).queryByText(/共 1 个句段/)).toBeNull();
+  });
+
+  it("jumps from a proofread preview segment back to the grid row", async () => {
     installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -1904,8 +2285,13 @@ describe("WorkbenchView document tabs", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    await userEvent.click(screen.getByRole("tab", { name: "预览" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("译文预览");
+    const pane = screen.getByRole("region", { name: "预览面板" });
+    await userEvent.click(
+      within(pane).getByRole("button", { name: "展开预览" }),
+    );
+    await userEvent.click(within(pane).getByTitle("句段 #1"));
+    // The grid row is activated and its editor mounts.
+    expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
   });
 });
 
@@ -1987,6 +2373,44 @@ describe("WorkbenchView project explorer", () => {
     expect(details).not.toHaveTextContent("已确认句段");
     expect(screen.queryByText(/^进度：/)).not.toBeInTheDocument();
   });
+
+  it("filters the file list locally through the 搜索文件 box", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT, { ...DOCUMENT, id: "d2", name: "second.txt" }],
+    });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    expect(files.getByText("guide.txt")).toBeInTheDocument();
+    expect(files.getByText("second.txt")).toBeInTheDocument();
+
+    const listCallsBefore = bridge.invoke.mock.calls.filter(
+      ([method]) => method === "document.list",
+    ).length;
+    // Substring, case-insensitive, in-memory: no RPC leaves the renderer.
+    await userEvent.type(files.getByLabelText("搜索文件"), "SECOND");
+    expect(files.queryByText("guide.txt")).not.toBeInTheDocument();
+    expect(files.getByText("second.txt")).toBeInTheDocument();
+
+    // A miss shows the honest empty state, and clearing restores the list.
+    await userEvent.clear(files.getByLabelText("搜索文件"));
+    await userEvent.type(files.getByLabelText("搜索文件"), "無此文件");
+    expect(files.getByText("无匹配文件")).toBeInTheDocument();
+    await userEvent.clear(files.getByLabelText("搜索文件"));
+    expect(files.getByText("guide.txt")).toBeInTheDocument();
+    const listCallsAfter = bridge.invoke.mock.calls.filter(
+      ([method]) => method === "document.list",
+    ).length;
+    expect(listCallsAfter).toBe(listCallsBefore);
+  });
 });
 
 describe("WorkbenchView segment intel", () => {
@@ -2019,8 +2443,8 @@ describe("WorkbenchView segment intel", () => {
     );
     await screen.findByLabelText("句段 1 译文");
     // The tab chip carries the live score but stays out of the accessible
-    // name, so the tab is still reachable as plain "TM".
-    const tmTab = screen.getByRole("button", { name: "TM" });
+    // name, so the tab is still reachable as plain "记忆".
+    const tmTab = screen.getByRole("button", { name: "记忆" });
     await waitFor(() => {
       expect(tmTab).toHaveTextContent("100%");
     });
@@ -2056,11 +2480,52 @@ describe("WorkbenchView segment intel", () => {
           openIssues: 0,
         },
         activeOrdinal: 0,
+        // The target editor is mounted, so the caret readout is live.
+        caret: { line: 1, column: 1 },
       });
     });
     // Unmounting (project close) clears the stats instead of leaving the
     // status bar pointing at a document that is no longer open.
     view.unmount();
     expect(onStatsChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("registers a status-bar jump that applies the 草稿/QA grid filters", async () => {
+    installBridge(baseHandlers());
+    let jump: ((target: "draft" | "qa") => void) | null = null;
+    const view = render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onRegisterStatJump={(next) => {
+          jump = next;
+        }}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    expect(jump).not.toBeNull();
+
+    // 草稿 readout → draft filter: the chip appears and the draft row stays.
+    act(() => {
+      jump?.("draft");
+    });
+    expect(
+      screen.getByRole("button", { name: "清除状态筛选：草稿" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+
+    // QA readout → QA filter: no open issues, so the grid empties honestly.
+    act(() => {
+      jump?.("qa");
+    });
+    expect(
+      screen.getByRole("button", { name: "清除状态筛选：QA 问题" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("没有符合筛选条件的句段")).toBeInTheDocument();
+
+    // Unmount deregisters: the shell never keeps a jump into a closed view.
+    view.unmount();
+    expect(jump).toBeNull();
   });
 });

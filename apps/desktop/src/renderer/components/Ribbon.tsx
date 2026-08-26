@@ -34,22 +34,19 @@ export interface RibbonProps {
   documentOpen: boolean;
   /** A long-running engine call is in flight; mutating commands lock. */
   busy: boolean;
-  /** Live segment filter (the far-right search box, Ctrl+F). */
+  /** Live segment filter (the far-right search box, Ctrl+Shift+F). */
   filterQuery: string;
-  filterActive: boolean;
-  filteredCount: number;
-  totalCount: number;
   filterInputRef: Ref<HTMLInputElement>;
   onFilterQueryChange: (value: string) => void;
-  onClearFilter: () => void;
   onCloseProject?: (() => void) | undefined;
   onOpenTmManage?: (() => void) | undefined;
   onImport: () => void;
   onExport: () => void;
   onConfirmSegment: () => void;
   onPretranslate: () => void;
-  onFocusFind: () => void;
-  onFocusReplace: () => void;
+  /** Summons the floating find widget (find row / replace row). */
+  onOpenFind: () => void;
+  onOpenReplace: () => void;
   onFocusFilter: () => void;
   onConcordance: () => void;
 }
@@ -70,20 +67,16 @@ export function Ribbon({
   documentOpen,
   busy,
   filterQuery,
-  filterActive,
-  filteredCount,
-  totalCount,
   filterInputRef,
   onFilterQueryChange,
-  onClearFilter,
   onCloseProject,
   onOpenTmManage,
   onImport,
   onExport,
   onConfirmSegment,
   onPretranslate,
-  onFocusFind,
-  onFocusReplace,
+  onOpenFind,
+  onOpenReplace,
   onFocusFilter,
   onConcordance,
 }: RibbonProps) {
@@ -152,10 +145,10 @@ export function Ribbon({
       id: "find",
       group: "审校",
       label: "查找",
-      title: "查找（F4）",
+      title: "查找（Ctrl+F）",
       icon: <IconSearch {...ICON_PROPS} />,
       disabled: !documentOpen,
-      onClick: onFocusFind,
+      onClick: onOpenFind,
     },
     {
       id: "replace",
@@ -164,13 +157,13 @@ export function Ribbon({
       title: "替换（Ctrl+H）",
       icon: <IconReplace {...ICON_PROPS} />,
       disabled: !documentOpen,
-      onClick: onFocusReplace,
+      onClick: onOpenReplace,
     },
     {
       id: "filter",
       group: "审校",
       label: "筛选",
-      title: "筛选（Ctrl+F）",
+      title: "筛选（Ctrl+Shift+F）",
       icon: <IconFilter {...ICON_PROPS} />,
       disabled: !documentOpen,
       onClick: onFocusFilter,
@@ -350,20 +343,6 @@ export function Ribbon({
       </div>
       <span className="ribbon__spacer" />
       <div className="ribbon__search" ref={tailRef}>
-        {filterActive ? (
-          <>
-            <span className="ribbon__filter-count tl-num">
-              {filteredCount}/{totalCount}
-            </span>
-            <button
-              type="button"
-              className="ribbon__filter-clear"
-              onClick={onClearFilter}
-            >
-              清除
-            </button>
-          </>
-        ) : null}
         <span className="ribbon__search-box">
           <span className="ribbon__search-icon" aria-hidden="true">
             <IconSearch size={13} stroke={1.75} aria-hidden />

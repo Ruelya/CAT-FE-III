@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
-import { IconSettings } from "@tabler/icons-react";
+import {
+  IconClipboardCheck,
+  IconDatabase,
+  IconSettings,
+  IconSparkles,
+  IconVocabulary,
+} from "@tabler/icons-react";
 
 import type {
   Document,
@@ -38,10 +45,15 @@ import type {
 } from "../lib/segment-filter.js";
 import { CommandPalette } from "../components/CommandPalette.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
+import { FindWidget } from "../components/FindWidget.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
 import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
-import type { SegmentGridHandle } from "../components/SegmentGrid.js";
+import type {
+  ConfirmMode,
+  EditorCaret,
+  SegmentGridHandle,
+} from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
 import { TermPanel } from "../components/TermPanel.js";
 import { ConcordancePanel } from "../components/ConcordancePanel.js";
@@ -49,7 +61,13 @@ import { QaPanel } from "../components/QaPanel.js";
 import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
 import { ExportOverwriteConfirm } from "../components/ExportOverwriteConfirm.js";
-import { PreviewDialog } from "../components/PreviewDialog.js";
+import { PreviewPane } from "../components/PreviewPane.js";
+import {
+  DEFAULT_LAYOUT,
+  LAYOUT_LIMITS,
+  Splitter,
+  useWorkbenchLayout,
+} from "../components/Splitter.js";
 
 export interface WorkbenchViewProps {
   project: Project;
@@ -61,6 +79,12 @@ export interface WorkbenchViewProps {
   onProjectUpdated?: (project: Project) => void;
   /** Live grid stats for the shell status bar; null when no document. */
   onStatsChange?: (stats: WorkbenchStats | null) => void;
+  /**
+   * Registers the status-bar readout jump (clicking 草稿/QA filters the
+   * grid to that state); called with null on unmount so the shell never
+   * holds a jump into a closed workbench.
+   */
+  onRegisterStatJump?: (jump: ((target: StatJumpTarget) => void) | null) => void;
   /** Opens the project settings dialog (owned by the shell). */
   onOpenSettings?: () => void;
   /** Opens the TM manage dialog (owned by the shell). */
@@ -69,25 +93,37 @@ export interface WorkbenchViewProps {
   onCloseProject?: () => void;
 }
 
+/** Status-bar readouts that jump to a grid filter (PRD §3.8). */
+export type StatJumpTarget = "draft" | "qa";
+
 /** What the shell status bar shows about the open document. */
 export interface WorkbenchStats {
   documentName: string;
   counts: SegmentCounts;
   /** Ordinal of the selected segment, or null when nothing is selected. */
   activeOrdinal: number | null;
+  /** Caret line/column in the target editor; null with no editor mounted. */
+  caret: EditorCaret | null;
 }
 
-type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
+/**
+ * Four dock groups (PRD §3.7): 记忆 (TM lookup + 检索), 术语, QA, and
+ * AI (辅助 + Agent as two sections of one honest AI surface).
+ */
+type DockTab = "memory" | "term" | "qa" | "ai";
 
 /** Menu dock commands map onto the same tabs the dock buttons switch. */
 const DOCK_COMMANDS: Partial<Record<MenuCommand, DockTab>> = {
-  "show-dock-tm": "tm",
+  "show-dock-memory": "memory",
   "show-dock-term": "term",
-  "show-dock-concordance": "concordance",
   "show-dock-qa": "qa",
   "show-dock-ai": "ai",
-  "show-dock-agent": "agent",
 };
+
+/** Ctrl+1..4 ↔ dock order, kept identical to the menu accelerators. */
+const DOCK_ORDER: DockTab[] = ["memory", "term", "qa", "ai"];
+
+const DOCK_ICON = { size: 14, stroke: 1.75, "aria-hidden": true } as const;
 
 /**
  * A write (draft save or confirm) the engine never acknowledged. Kept as a
@@ -109,6 +145,11 @@ const STATE_FILTER_OPTIONS: Array<[SegmentStateFilter, string]> = [
   ["confirmed", "已确认"],
   ["qa", "QA 问题"],
 ];
+
+/** Chip labels for active state filters (never shows 全部状态). */
+const STATE_FILTER_LABEL = new Map<SegmentStateFilter, string>(
+  STATE_FILTER_OPTIONS,
+);
 
 function readTextSelection(): string {
   const active = document.activeElement;
@@ -135,6 +176,7 @@ export function WorkbenchView({
   onDocumentOpenChange,
   onProjectUpdated,
   onStatsChange,
+  onRegisterStatJump,
   onOpenSettings,
   onOpenTmManage,
   onCloseProject,
@@ -154,9 +196,18 @@ export function WorkbenchView({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<QaIssue[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
-  const [tab, setTab] = useState<DockTab>("tm");
+  const [tab, setTab] = useState<DockTab>("memory");
   const [busy, setBusy] = useState(false);
+  // Caret line/column reported by the grid's target editor (status bar).
+  const [caret, setCaret] = useState<EditorCaret | null>(null);
+  // Explorer file search (PRD §3.5): local filter over the in-memory
+  // document list, no RPC.
+  const [fileQuery, setFileQuery] = useState("");
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
+  // Mirror for the global keydown handler (Esc clears the filter) so the
+  // listener never resubscribes on every filter keystroke.
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
   // Find next/prev query (F4 / Shift+F4). Unlike `filter`, it never hides
   // rows: it only moves the selection through matching segments.
   const [findQuery, setFindQuery] = useState("");
@@ -166,13 +217,18 @@ export function WorkbenchView({
   // Whether replace may rewrite confirmed segments (demoting them back to
   // draft). Off by default: confirmed work is skipped and reported.
   const [includeConfirmed, setIncludeConfirmed] = useState(false);
+  // The floating find widget (Ctrl+F find row, Ctrl+H adds the replace
+  // row). `findSummon` bumps on every summon chord so an already-open
+  // widget still re-focuses its input.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findMode, setFindMode] = useState<"find" | "replace">("find");
+  const [findSummon, setFindSummon] = useState(0);
   const [concordanceSeed, setConcordanceSeed] = useState("");
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Rail widths / collapse / preview pane, persisted per project.
+  const [layout, updateLayout] = useWorkbenchLayout(project.id);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
-  const findInputRef = useRef<HTMLInputElement | null>(null);
-  const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // Two-step remove: the first 移除 click only arms this id; the row then
   // shows 确认移除/取消 and nothing is deleted until the explicit confirm.
@@ -556,18 +612,51 @@ export function WorkbenchView({
     return counts;
   }, [issues]);
 
+  // Open placeholder-QA evidence per segment: the exact tokens the engine
+  // flagged (missing → source side, extra → target side) drive the danger
+  // outline on the grid's token highlighting. Straight from qa.list — the
+  // renderer never re-diffs placeholders on its own.
+  const placeholderAlerts = useMemo(() => {
+    const alerts = new Map<string, { missing: Set<string>; extra: Set<string> }>();
+    for (const issue of issues) {
+      if (issue.status !== "open") {
+        continue;
+      }
+      const isMissing = issue.ruleId === "qa.tag-placeholder_missing";
+      const isExtra = issue.ruleId === "qa.tag-placeholder_extra";
+      if (!isMissing && !isExtra) {
+        continue;
+      }
+      let alert = alerts.get(issue.segmentId);
+      if (!alert) {
+        alert = { missing: new Set(), extra: new Set() };
+        alerts.set(issue.segmentId, alert);
+      }
+      for (const value of issue.evidence.sourceValues ?? []) {
+        alert.missing.add(value);
+      }
+      for (const value of issue.evidence.targetValues ?? []) {
+        alert.extra.add(value);
+      }
+    }
+    return alerts;
+  }, [issues]);
+
   const filteredSegments = useMemo(
     () => filterSegments(segments, filter, openIssueSegmentIds),
     [segments, filter, openIssueSegmentIds],
   );
 
-  // Trados-style flow: after a confirm, the selection steps down to the next
-  // visible segment that still needs work, so the keyboard loop stays
-  // type → Ctrl+Enter → type. `written` carries the freshly confirmed and
-  // propagated rows (state updates land asynchronously). Nothing wraps: at
-  // the bottom of the document the selection stays put.
+  // Trados-style flow: after a confirm, the selection steps to the next
+  // visible segment per the chord's navigation policy, so the keyboard
+  // loop stays type → Ctrl+Enter → type. `written` carries the freshly
+  // confirmed and propagated rows (state updates land asynchronously).
+  // Nothing wraps: at the bottom of the document the selection stays put.
   const advanceAfterConfirm = useCallback(
-    (confirmedId: string, written: Segment[]) => {
+    (confirmedId: string, written: Segment[], mode: ConfirmMode) => {
+      if (mode === "stay") {
+        return;
+      }
       const writtenById = new Map(written.map((item) => [item.id, item]));
       const index = filteredSegments.findIndex(
         (item) => item.id === confirmedId,
@@ -578,7 +667,7 @@ export function WorkbenchView({
       for (let i = index + 1; i < filteredSegments.length; i += 1) {
         const candidate = filteredSegments[i]!;
         const state = writtenById.get(candidate.id)?.state ?? candidate.state;
-        if (state !== "confirmed") {
+        if (mode === "nextAny" || state !== "confirmed") {
           setActiveSegmentId(candidate.id);
           return;
         }
@@ -684,7 +773,11 @@ export function WorkbenchView({
   );
 
   const confirmSegment = useCallback(
-    (segment: Segment, targetText: string): Promise<void> => {
+    (
+      segment: Segment,
+      targetText: string,
+      mode: ConfirmMode,
+    ): Promise<void> => {
       if (targetText.trim().length === 0) {
         // Same rule the engine enforces; report it without a doomed RPC.
         onStatusMessage(`句段 #${segment.ordinal + 1} 译文为空，无法确认`);
@@ -719,10 +812,11 @@ export function WorkbenchView({
           onStatusMessage(
             `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
           );
-          advanceAfterConfirm(segment.id, [
-            result.segment,
-            ...result.propagated,
-          ]);
+          advanceAfterConfirm(
+            segment.id,
+            [result.segment, ...result.propagated],
+            mode,
+          );
         } catch (error) {
           if (isEngineUnavailable(error)) {
             setUnackedWrite({
@@ -759,6 +853,34 @@ export function WorkbenchView({
       void saveDraft(activeSegment, text);
     },
     [activeSegment, saveDraft],
+  );
+
+  // Row menu 复制源文: the source text becomes the draft via the same
+  // segment.update path as typing (quiet save + a purpose-named message).
+  const copySourceToTarget = useCallback(
+    (segment: Segment) => {
+      void saveDraft(segment, segment.sourceText, { quiet: true }).then(
+        (acked) => {
+          if (acked) {
+            onStatusMessage(`句段 #${segment.ordinal + 1} 已复制源文为草稿`);
+          }
+        },
+      );
+    },
+    [saveDraft, onStatusMessage],
+  );
+
+  // Row menu 清空译文: an empty segment.update — the engine honestly
+  // returns the segment to 未译 (an empty target has no draft meaning).
+  const clearTargetText = useCallback(
+    (segment: Segment) => {
+      void saveDraft(segment, "", { quiet: true }).then((acked) => {
+        if (acked) {
+          onStatusMessage(`句段 #${segment.ordinal + 1} 已清空译文`);
+        }
+      });
+    },
+    [saveDraft, onStatusMessage],
   );
 
   // Terms land at the caret of the live grid editor (unsaved draft) without
@@ -937,6 +1059,17 @@ export function WorkbenchView({
       ? Math.round((projectTotals.confirmed / projectTotals.total) * 100)
       : null;
 
+  // Explorer file list under the local search box; name substring only.
+  const visibleDocuments = useMemo(() => {
+    const query = fileQuery.trim().toLowerCase();
+    if (query.length === 0) {
+      return documents;
+    }
+    return documents.filter((document) =>
+      document.name.toLowerCase().includes(query),
+    );
+  }, [documents, fileQuery]);
+
   // Feed the shell status bar. Cleared on unmount (project close) so stale
   // numbers never outlive the workbench that produced them.
   useEffect(() => {
@@ -951,13 +1084,26 @@ export function WorkbenchView({
       documentName: activeDocument.name,
       counts,
       activeOrdinal: activeSegment?.ordinal ?? null,
+      caret,
     });
-  }, [onStatsChange, activeDocument, counts, activeSegment]);
+  }, [onStatsChange, activeDocument, counts, activeSegment, caret]);
   useEffect(() => {
     return () => {
       onStatsChange?.(null);
     };
   }, [onStatsChange]);
+
+  // Status-bar 草稿/QA readouts jump straight into the matching grid
+  // filter (PRD §3.8). Registration mirrors onStatsChange's lifetime.
+  useEffect(() => {
+    if (!onRegisterStatJump) {
+      return;
+    }
+    onRegisterStatJump((target) => {
+      setFilter((current) => ({ ...current, state: target }));
+    });
+    return () => onRegisterStatJump(null);
+  }, [onRegisterStatJump]);
 
   // Jump target may be hidden by the active filter; clear it so the jump
   // always lands (QA "定位句段", concordance hits, preview clicks).
@@ -974,15 +1120,15 @@ export function WorkbenchView({
     [filteredSegments],
   );
 
-  // Opens concordance seeded with the current text selection, in line with
-  // the classic CAT shortcut. Shared by the F3 chord, the menu command,
-  // and the ribbon button so all take the exact same path.
+  // Opens the 检索 area (in the 记忆 dock) seeded with the current text
+  // selection, in line with the classic CAT shortcut. Shared by the F3
+  // chord, the menu command, and the ribbon button — same path for all.
   const openConcordance = useCallback(() => {
     const selection = readTextSelection();
     if (selection.length > 0) {
       setConcordanceSeed(selection);
     }
-    setTab("concordance");
+    setTab("memory");
   }, []);
 
   const focusFilter = useCallback(() => {
@@ -997,14 +1143,20 @@ export function WorkbenchView({
     return true;
   }, []);
 
-  const focusFind = useCallback(() => {
-    const input = findInputRef.current;
-    if (!input) {
-      return false;
-    }
-    input.focus();
-    input.select();
-    return true;
+  // Summon the floating find widget. Ctrl+F opens the find row, Ctrl+H
+  // opens with the replace row revealed; either chord re-focuses the
+  // matching input when the widget is already up.
+  const openFind = useCallback((mode: "find" | "replace") => {
+    setFindOpen(true);
+    setFindMode(mode);
+    setFindSummon((count) => count + 1);
+  }, []);
+
+  // Esc (or the × button) dismisses the widget and hands focus back to
+  // the grid so the keyboard loop continues where it left off.
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    gridRef.current?.focusActive();
   }, []);
 
   // Find next/prev (F4 / Shift+F4, menu 查找下一个/查找上一个): moves the
@@ -1020,7 +1172,7 @@ export function WorkbenchView({
       const query = findQuery.trim();
       if (query.length === 0) {
         // No query yet: land the user in the find box instead of guessing.
-        focusFind();
+        openFind("find");
         return;
       }
       const result = findSegmentMatch(
@@ -1047,20 +1199,25 @@ export function WorkbenchView({
       findQuery,
       filteredSegments,
       activeSegmentId,
-      focusFind,
+      openFind,
       onStatusMessage,
     ],
   );
 
-  const focusReplace = useCallback(() => {
-    const input = replaceInputRef.current;
-    if (!input) {
-      return false;
+  // Visible segments matching the find query — the widget's honest count
+  // (whole segments, not occurrences). Same matching semantics as the
+  // filter's text channel, applied to the already-filtered rows.
+  const findMatchCount = useMemo(() => {
+    const query = findQuery.trim();
+    if (query.length === 0) {
+      return 0;
     }
-    input.focus();
-    input.select();
-    return true;
-  }, []);
+    return filterSegments(
+      filteredSegments,
+      { state: "all", query },
+      openIssueSegmentIds,
+    ).length;
+  }, [filteredSegments, findQuery, openIssueSegmentIds]);
 
   // 替换: replace every occurrence of the find query inside the active
   // segment's saved target (case-insensitive, like find). A confirmed
@@ -1074,7 +1231,7 @@ export function WorkbenchView({
     }
     const query = findQuery.trim();
     if (query.length === 0) {
-      focusFind();
+      openFind("replace");
       return;
     }
     if (!activeSegment) {
@@ -1114,7 +1271,7 @@ export function WorkbenchView({
     findQuery,
     replaceWith,
     includeConfirmed,
-    focusFind,
+    openFind,
     findMatch,
     applySegments,
     onStatusMessage,
@@ -1131,7 +1288,7 @@ export function WorkbenchView({
     }
     const query = findQuery.trim();
     if (query.length === 0) {
-      focusFind();
+      openFind("replace");
       return;
     }
     setBusy(true);
@@ -1168,31 +1325,73 @@ export function WorkbenchView({
     findQuery,
     replaceWith,
     includeConfirmed,
-    focusFind,
+    openFind,
     applySegments,
     onStatusMessage,
   ]);
 
   // Confirms the live editor draft — the exact command the grid editor's
-  // Ctrl+Enter fires. Shared by the ribbon button and the menu item; both
-  // report honestly when no editor is mounted instead of guessing.
-  const confirmActiveSegment = useCallback(() => {
-    if (!gridRef.current?.confirmActive()) {
-      onStatusMessage("没有正在编辑的句段，无法确认");
-    }
-  }, [onStatusMessage]);
+  // confirm chords fire. Shared by the ribbon button, the menu items, and
+  // the palette; all report honestly when no editor is mounted instead of
+  // guessing.
+  const confirmActiveSegment = useCallback(
+    (mode: ConfirmMode = "nextUnconfirmed") => {
+      if (!gridRef.current?.confirmActive(mode)) {
+        onStatusMessage("没有正在编辑的句段，无法确认");
+      }
+    },
+    [onStatusMessage],
+  );
 
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
-  // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter, Ctrl/Cmd+H focus the replace box, Ctrl/Cmd+K and
-  // Ctrl/Cmd+Shift+P summon the command palette, Alt+↑/↓ step the
-  // segment selection (works while typing in the target editor).
+  // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F and Ctrl/Cmd+H
+  // summon the find widget (find / replace rows), Ctrl/Cmd+Shift+F focuses
+  // the segment filter, Ctrl/Cmd+K and Ctrl/Cmd+Shift+P summon the command
+  // palette, Alt+↑/↓ step the segment selection (works while typing in
+  // the target editor), Ctrl/Cmd+数字 applies a TM match (editor focused)
+  // or switches docks, and Esc (when nothing closer consumed it) clears
+  // the active display filter.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key >= "1" &&
+        event.key <= "9"
+      ) {
+        const index = Number(event.key) - 1;
+        const target = event.target;
+        // While the grid target editor has focus, Ctrl+数字 applies the
+        // numbered 记忆 match as a draft (memoQ semantics) — the same
+        // segment.update the dock's 应用为草稿 button runs.
+        if (
+          target instanceof HTMLTextAreaElement &&
+          target.closest(".segment-grid") !== null
+        ) {
+          event.preventDefault();
+          const match = tmMatches[index];
+          if (match) {
+            applyDraftToActive(match.entry.targetText);
+            onStatusMessage(
+              `已应用第 ${index + 1} 条记忆匹配（${match.score}%）为草稿`,
+            );
+          } else {
+            onStatusMessage(`没有第 ${index + 1} 条记忆匹配`);
+          }
+          return;
+        }
+        const dock = DOCK_ORDER[index];
+        if (dock) {
+          event.preventDefault();
+          setTab(dock);
+        }
         return;
       }
       if (
@@ -1231,7 +1430,7 @@ export function WorkbenchView({
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
-        !event.shiftKey &&
+        event.shiftKey &&
         (event.key === "f" || event.key === "F")
       ) {
         if (focusFilter()) {
@@ -1243,16 +1442,54 @@ export function WorkbenchView({
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
         !event.shiftKey &&
+        (event.key === "f" || event.key === "F")
+      ) {
+        event.preventDefault();
+        openFind("find");
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
         (event.key === "h" || event.key === "H")
       ) {
-        if (focusReplace()) {
+        event.preventDefault();
+        openFind("replace");
+        return;
+      }
+      // Esc clears the display filter — but only as the last resort:
+      // surfaces closer to the key (find widget, row menu, editing exit,
+      // dialogs) preventDefault first, and text inputs keep their own Esc.
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !event.isComposing
+      ) {
+        const target = event.target;
+        const inTextControl =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement;
+        if (!inTextControl && isFilterActive(filterRef.current)) {
           event.preventDefault();
+          setFilter(EMPTY_FILTER);
+          onStatusMessage("已清除筛选");
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter, focusReplace, findMatch, moveSelection]);
+  }, [
+    openConcordance,
+    focusFilter,
+    openFind,
+    findMatch,
+    moveSelection,
+    tmMatches,
+    applyDraftToActive,
+    onStatusMessage,
+  ]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding ribbon button/shortcut already calls; state guards keep
@@ -1278,9 +1515,9 @@ export function WorkbenchView({
         case "open-command-palette":
           setPaletteOpen(true);
           break;
-        case "open-preview":
+        case "toggle-preview":
           if (activeDocument) {
-            setPreviewOpen(true);
+            updateLayout({ previewOpen: !layout.previewOpen });
           }
           break;
         case "open-concordance":
@@ -1289,8 +1526,15 @@ export function WorkbenchView({
         case "focus-filter":
           focusFilter();
           break;
-        case "focus-replace":
-          focusReplace();
+        case "open-find":
+          if (activeDocument) {
+            openFind("find");
+          }
+          break;
+        case "open-replace":
+          if (activeDocument) {
+            openFind("replace");
+          }
           break;
         case "find-next":
           findMatch("next");
@@ -1299,7 +1543,13 @@ export function WorkbenchView({
           findMatch("prev");
           break;
         case "confirm-segment":
-          confirmActiveSegment();
+          confirmActiveSegment("nextUnconfirmed");
+          break;
+        case "confirm-segment-any":
+          confirmActiveSegment("nextAny");
+          break;
+        case "confirm-segment-stay":
+          confirmActiveSegment("stay");
           break;
         default:
           break;
@@ -1311,9 +1561,11 @@ export function WorkbenchView({
       activeDocument,
       openConcordance,
       focusFilter,
-      focusReplace,
+      openFind,
       findMatch,
       confirmActiveSegment,
+      layout.previewOpen,
+      updateLayout,
     ],
   );
 
@@ -1373,18 +1625,29 @@ export function WorkbenchView({
           ]
         : []),
       command("confirm-segment", "确认当前句段", documentOpen, "Ctrl+Enter"),
-      command("open-preview", "译文预览…", documentOpen, "Ctrl+P"),
-      command("focus-filter", "筛选句段", documentOpen, "Ctrl+F"),
+      command(
+        "confirm-segment-any",
+        "确认并到下一句段",
+        documentOpen,
+        "Ctrl+Alt+Enter",
+      ),
+      command(
+        "confirm-segment-stay",
+        "确认并停留",
+        documentOpen,
+        "Ctrl+Alt+Shift+Enter",
+      ),
+      command("toggle-preview", "预览面板", documentOpen, "Ctrl+P"),
+      command("open-find", "查找…", documentOpen, "Ctrl+F"),
+      command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
       command("find-prev", "查找上一个", documentOpen, "Shift+F4"),
-      command("focus-replace", "替换…", documentOpen, "Ctrl+H"),
+      command("focus-filter", "筛选句段", documentOpen, "Ctrl+Shift+F"),
       command("open-concordance", "检索（取选中文本）", true, "F3"),
-      command("show-dock-tm", "翻译记忆面板", true, "Ctrl+1"),
+      command("show-dock-memory", "记忆面板", true, "Ctrl+1"),
       command("show-dock-term", "术语面板", true, "Ctrl+2"),
-      command("show-dock-concordance", "检索面板", true, "Ctrl+3"),
-      command("show-dock-qa", "QA 面板", true, "Ctrl+4"),
-      command("show-dock-ai", "AI 辅助面板", true, "Ctrl+5"),
-      command("show-dock-agent", "Agent 面板", true, "Ctrl+6"),
+      command("show-dock-qa", "QA 面板", true, "Ctrl+3"),
+      command("show-dock-ai", "AI 面板", true, "Ctrl+4"),
       ...documents.map((document): PaletteEntry => ({
         id: `open-document:${document.id}`,
         label: `打开文档：${document.name}`,
@@ -1407,34 +1670,38 @@ export function WorkbenchView({
     onStatusMessage,
   ]);
 
+  const railVars = {
+    "--tl-rail-left": layout.leftCollapsed ? "0px" : `${layout.left}px`,
+    "--tl-rail-right": layout.rightCollapsed ? "0px" : `${layout.right}px`,
+  } as CSSProperties;
+
   return (
     <AiStatusProvider>
-      <main className="workbench">
+      <main className="workbench" style={railVars}>
         <Ribbon
           documentOpen={activeDocument !== null}
           busy={busy}
           filterQuery={filter.query}
-          filterActive={isFilterActive(filter)}
-          filteredCount={filteredSegments.length}
-          totalCount={counts.total}
           filterInputRef={filterInputRef}
           onFilterQueryChange={(value) =>
             setFilter((current) => ({ ...current, query: value }))
           }
-          onClearFilter={() => setFilter(EMPTY_FILTER)}
           onCloseProject={onCloseProject}
           onOpenTmManage={onOpenTmManage}
           onImport={() => setImportOpen(true)}
           onExport={() => void exportDocument()}
-          onConfirmSegment={confirmActiveSegment}
+          onConfirmSegment={() => confirmActiveSegment()}
           onPretranslate={() => void pretranslate()}
-          onFocusFind={() => focusFind()}
-          onFocusReplace={() => focusReplace()}
+          onOpenFind={() => openFind("find")}
+          onOpenReplace={() => openFind("replace")}
           onFocusFilter={() => focusFilter()}
           onConcordance={openConcordance}
         />
 
-        <aside className="workbench__explorer">
+        <aside
+          className="workbench__explorer"
+          data-collapsed={layout.leftCollapsed || undefined}
+        >
           <section
             className="explorer__section explorer__section--project"
             aria-label="项目"
@@ -1482,11 +1749,23 @@ export function WorkbenchView({
             <header className="explorer__heading">
               <h2 className="explorer__caption">文件</h2>
             </header>
+            {documents.length > 0 ? (
+              <input
+                className="explorer__search"
+                type="search"
+                aria-label="搜索文件"
+                placeholder="搜索文件"
+                value={fileQuery}
+                onChange={(event) => setFileQuery(event.target.value)}
+              />
+            ) : null}
             {documents.length === 0 ? (
               <EmptyState title="暂无文档" />
+            ) : visibleDocuments.length === 0 ? (
+              <EmptyState title="无匹配文件" />
             ) : (
               <div className="document-list">
-                {documents.map((document) => {
+                {visibleDocuments.map((document) => {
                   const progress = documentProgress[document.id];
                   return (
                     <div
@@ -1621,6 +1900,24 @@ export function WorkbenchView({
           </section>
         </aside>
 
+        <Splitter
+          orientation="vertical"
+          className="splitter--left"
+          label="左栏"
+          value={layout.left}
+          min={LAYOUT_LIMITS.left.min}
+          max={LAYOUT_LIMITS.left.max}
+          sign={1}
+          collapsed={layout.leftCollapsed}
+          onResize={(next) => updateLayout({ left: next })}
+          onReset={() =>
+            updateLayout({ left: DEFAULT_LAYOUT.left, leftCollapsed: false })
+          }
+          onToggleCollapse={() =>
+            updateLayout({ leftCollapsed: !layout.leftCollapsed })
+          }
+        />
+
         <section className="workbench__center">
           {openDocuments.length > 0 ? (
             <div className="doc-tabs" role="tablist" aria-label="打开的文档">
@@ -1683,11 +1980,7 @@ export function WorkbenchView({
                   </Button>
                 </div>
               ) : null}
-              <div
-                className="grid-toolbar"
-                role="toolbar"
-                aria-label="筛选与查找替换"
-              >
+              <div className="grid-toolbar" role="toolbar" aria-label="筛选">
                 <select
                   className="grid-toolbar__select"
                   aria-label="按状态筛选"
@@ -1705,93 +1998,65 @@ export function WorkbenchView({
                     </option>
                   ))}
                 </select>
-                <span className="grid-toolbar__sep" />
-                <input
-                  ref={findInputRef}
-                  className="grid-toolbar__search grid-toolbar__find"
-                  aria-label="查找"
-                  placeholder="查找"
-                  value={findQuery}
-                  onChange={(event) => setFindQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) {
-                      // Enter mid-IME commits the composed text, not a jump.
-                      return;
+                {/* Active filters as removable chips (PRD §3.6): one per
+                    channel, × clears just that channel; Esc clears all. */}
+                {filter.state !== "all" ? (
+                  <button
+                    type="button"
+                    className="filter-chip"
+                    aria-label={`清除状态筛选：${STATE_FILTER_LABEL.get(filter.state) ?? filter.state}`}
+                    onClick={() =>
+                      setFilter((current) => ({ ...current, state: "all" }))
                     }
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      findMatch(event.shiftKey ? "prev" : "next");
+                  >
+                    {STATE_FILTER_LABEL.get(filter.state) ?? filter.state}
+                    <span className="filter-chip__x" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                ) : null}
+                {filter.query.trim().length > 0 ? (
+                  <button
+                    type="button"
+                    className="filter-chip"
+                    aria-label={`清除文本筛选：${filter.query.trim()}`}
+                    onClick={() =>
+                      setFilter((current) => ({ ...current, query: "" }))
                     }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="查找上一个"
-                  title="查找上一个（Shift+F4）"
-                  disabled={findQuery.trim().length === 0}
-                  onClick={() => findMatch("prev")}
+                  >
+                    “{filter.query.trim()}”
+                    <span className="filter-chip__x" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                ) : null}
+                <span className="grid-toolbar__spacer" />
+                <span
+                  className="grid-toolbar__count tl-num"
+                  aria-label="可见句段/总句段"
                 >
-                  上一个
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="查找下一个"
-                  title="查找下一个（F4）"
-                  disabled={findQuery.trim().length === 0}
-                  onClick={() => findMatch("next")}
-                >
-                  下一个
-                </Button>
-                <input
-                  ref={replaceInputRef}
-                  className="grid-toolbar__search grid-toolbar__find"
-                  aria-label="替换为"
-                  placeholder="替换为"
-                  value={replaceWith}
-                  onChange={(event) => setReplaceWith(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) {
-                      return;
-                    }
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void replaceInActive();
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="替换"
-                  title="替换（Ctrl+H）"
-                  disabled={findQuery.trim().length === 0 || busy}
-                  onClick={() => void replaceInActive()}
-                >
-                  替换
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="全部替换"
-                  title="全部替换"
-                  disabled={findQuery.trim().length === 0 || busy}
-                  onClick={() => void replaceAllInDocument()}
-                >
-                  全部替换
-                </Button>
-                <label className="grid-toolbar__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={includeConfirmed}
-                    onChange={(event) =>
-                      setIncludeConfirmed(event.target.checked)
-                    }
-                  />
-                  含已确认
-                </label>
+                  {filteredSegments.length}/{counts.total}
+                </span>
               </div>
+              <FindWidget
+                open={findOpen}
+                mode={findMode}
+                query={findQuery}
+                replaceWith={replaceWith}
+                includeConfirmed={includeConfirmed}
+                matchCount={findMatchCount}
+                busy={busy}
+                summon={findSummon}
+                onQueryChange={setFindQuery}
+                onReplaceWithChange={setReplaceWith}
+                onIncludeConfirmedChange={setIncludeConfirmed}
+                onModeChange={setFindMode}
+                onFindNext={() => findMatch("next")}
+                onFindPrev={() => findMatch("prev")}
+                onReplace={() => void replaceInActive()}
+                onReplaceAll={() => void replaceAllInDocument()}
+                onClose={closeFind}
+              />
               {segments.length === 0 ? (
                 <EmptyState title="该文档没有句段" />
               ) : filteredSegments.length === 0 ? (
@@ -1806,37 +2071,35 @@ export function WorkbenchView({
                   targetLocale={project.targetLocale}
                   qaSegmentIds={openIssueSegmentIds}
                   qaCounts={openIssueCounts}
+                  placeholderAlerts={placeholderAlerts}
                   onSelect={setActiveSegmentId}
                   onSaveDraft={(segment, text) =>
                     saveDraft(segment, text, { quiet: true })
                   }
-                  onConfirm={(segment, text) =>
-                    void confirmSegment(segment, text)
+                  onConfirm={(segment, text, mode) =>
+                    void confirmSegment(segment, text, mode)
                   }
+                  onCopySource={copySourceToTarget}
+                  onClearTarget={clearTargetText}
+                  onCaretChange={setCaret}
                 />
               )}
-              <div className="view-tabs" role="tablist" aria-label="视图">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={!previewOpen}
-                  className="view-tabs__tab"
-                  data-active={!previewOpen}
-                >
-                  文本
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewOpen}
-                  className="view-tabs__tab"
-                  data-active={previewOpen}
-                  title="译文预览"
-                  onClick={() => setPreviewOpen(true)}
-                >
-                  预览
-                </button>
-              </div>
+              <PreviewPane
+                open={layout.previewOpen}
+                height={layout.previewHeight}
+                documentId={activeDocument.id}
+                documentFormat={activeDocument.format}
+                segments={segments}
+                activeSegmentId={activeSegmentId}
+                onToggle={() =>
+                  updateLayout({ previewOpen: !layout.previewOpen })
+                }
+                onResize={(next) => updateLayout({ previewHeight: next })}
+                onResetHeight={() =>
+                  updateLayout({ previewHeight: DEFAULT_LAYOUT.previewHeight })
+                }
+                onJump={jumpToSegment}
+              />
             </>
           ) : (
             <div className="workbench__center-empty">
@@ -1849,29 +2112,54 @@ export function WorkbenchView({
           )}
         </section>
 
-        <aside className="workbench__dock">
+        <Splitter
+          orientation="vertical"
+          className="splitter--right"
+          label="右栏"
+          value={layout.right}
+          min={LAYOUT_LIMITS.right.min}
+          max={LAYOUT_LIMITS.right.max}
+          sign={-1}
+          collapsed={layout.rightCollapsed}
+          onResize={(next) => updateLayout({ right: next })}
+          onReset={() =>
+            updateLayout({
+              right: DEFAULT_LAYOUT.right,
+              rightCollapsed: false,
+            })
+          }
+          onToggleCollapse={() =>
+            updateLayout({ rightCollapsed: !layout.rightCollapsed })
+          }
+        />
+
+        <aside
+          className="workbench__dock"
+          data-collapsed={layout.rightCollapsed || undefined}
+        >
           <nav className="dock-tabs">
             {(
               [
-                ["tm", "TM"],
-                ["term", "术语"],
-                ["concordance", "检索"],
-                ["qa", "QA"],
-                ["ai", "AI 辅助"],
-                ["agent", "Agent"],
-              ] as Array<[DockTab, string]>
-            ).map(([key, label]) => (
+                ["memory", "记忆", <IconDatabase key="i" {...DOCK_ICON} />],
+                ["term", "术语", <IconVocabulary key="i" {...DOCK_ICON} />],
+                ["qa", "QA", <IconClipboardCheck key="i" {...DOCK_ICON} />],
+                ["ai", "AI", <IconSparkles key="i" {...DOCK_ICON} />],
+              ] as Array<[DockTab, string, React.ReactNode]>
+            ).map(([key, label, icon]) => (
               <button
                 key={key}
                 type="button"
                 data-active={tab === key}
                 onClick={() => setTab(key)}
               >
+                <span className="dock-tabs__icon" aria-hidden="true">
+                  {icon}
+                </span>
                 {label}
                 {/* Live chips react to the active segment/document. They are
-                    aria-hidden so accessible names stay stable ("TM", "QA");
-                    the same numbers live accessibly in the panel titles. */}
-                {key === "tm" && bestTmMatch ? (
+                    aria-hidden so accessible names stay stable ("记忆",
+                    "QA"); the same numbers live accessibly in the panels. */}
+                {key === "memory" && bestTmMatch ? (
                   <span
                     className="dock-tabs__chip"
                     data-tone={bestTmMatch.grade === "fuzzy" ? "accent" : "ok"}
@@ -1893,13 +2181,23 @@ export function WorkbenchView({
             ))}
           </nav>
           <div className="dock-panel dock-view">
-            {tab === "tm" ? (
-              <TmPanel
-                activeSegment={activeSegment}
-                matches={tmMatches}
-                error={tmError}
-                onApply={applyDraftToActive}
-              />
+            {tab === "memory" ? (
+              // 记忆 dock: active-segment TM lookup on top, the 检索 area
+              // below — one memory surface, two honest query paths.
+              <>
+                <TmPanel
+                  activeSegment={activeSegment}
+                  matches={tmMatches}
+                  error={tmError}
+                  onApply={applyDraftToActive}
+                />
+                <ConcordancePanel
+                  projectId={project.id}
+                  segments={segments}
+                  initialQuery={concordanceSeed}
+                  onJump={jumpToSegment}
+                />
+              </>
             ) : null}
             {tab === "term" ? (
               <TermPanel
@@ -1907,14 +2205,6 @@ export function WorkbenchView({
                 targetLocale={project.targetLocale}
                 activeSegment={activeSegment}
                 onInsert={insertTermToActive}
-              />
-            ) : null}
-            {tab === "concordance" ? (
-              <ConcordancePanel
-                projectId={project.id}
-                segments={segments}
-                initialQuery={concordanceSeed}
-                onJump={jumpToSegment}
               />
             ) : null}
             {tab === "qa" ? (
@@ -1929,22 +2219,24 @@ export function WorkbenchView({
               />
             ) : null}
             {tab === "ai" ? (
-              <AiPanel
-                activeSegment={activeSegment}
-                onApplyDraft={applyDraftToActive}
-                onStatusMessage={onStatusMessage}
-              />
-            ) : null}
-            {tab === "agent" ? (
-              <AgentPanel
-                documentId={activeDocumentId}
-                onCompleted={() => {
-                  void reloadSegments();
-                  void runQa();
-                }}
-                onStatusMessage={onStatusMessage}
-                onGoExport={() => void exportDocument()}
-              />
+              // AI dock: 辅助 (assist lifecycle) above, Agent below —
+              // both keep their full honest lifecycles.
+              <>
+                <AiPanel
+                  activeSegment={activeSegment}
+                  onApplyDraft={applyDraftToActive}
+                  onStatusMessage={onStatusMessage}
+                />
+                <AgentPanel
+                  documentId={activeDocumentId}
+                  onCompleted={() => {
+                    void reloadSegments();
+                    void runQa();
+                  }}
+                  onStatusMessage={onStatusMessage}
+                  onGoExport={() => void exportDocument()}
+                />
+              </>
             ) : null}
           </div>
         </aside>
@@ -1962,22 +2254,6 @@ export function WorkbenchView({
           onImported={(result) => void handleImported(result)}
           onProjectUpdated={onProjectUpdated}
         />
-
-        {activeDocument ? (
-          <PreviewDialog
-            open={previewOpen}
-            documentId={activeDocument.id}
-            documentName={activeDocument.name}
-            documentFormat={activeDocument.format}
-            segments={segments}
-            activeSegmentId={activeSegmentId}
-            onClose={() => setPreviewOpen(false)}
-            onJump={(segmentId) => {
-              setPreviewOpen(false);
-              jumpToSegment(segmentId);
-            }}
-          />
-        ) : null}
       </main>
     </AiStatusProvider>
   );

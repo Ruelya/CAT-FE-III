@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
 import { SegmentProgress, StatusDot } from "@translunar/ui";
@@ -12,7 +12,10 @@ import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { TmManageDialog } from "./components/TmManageDialog.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
-import type { WorkbenchStats } from "./views/WorkbenchView.js";
+import type {
+  StatJumpTarget,
+  WorkbenchStats,
+} from "./views/WorkbenchView.js";
 
 type EngineDotState = "ok" | "busy" | "down";
 
@@ -62,6 +65,15 @@ export function App() {
   // them as first-class chrome so progress never hides inside a panel.
   const [workbenchStats, setWorkbenchStats] = useState<WorkbenchStats | null>(
     null,
+  );
+  // The workbench registers this jump so the 草稿/QA readouts can apply
+  // the matching grid filter; cleared (null) when the workbench unmounts.
+  const statJumpRef = useRef<((target: StatJumpTarget) => void) | null>(null);
+  const registerStatJump = useCallback(
+    (jump: ((target: StatJumpTarget) => void) | null) => {
+      statJumpRef.current = jump;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -163,6 +175,7 @@ export function App() {
             onDocumentOpenChange={setDocumentOpen}
             onProjectUpdated={setProject}
             onStatsChange={setWorkbenchStats}
+            onRegisterStatJump={registerStatJump}
             onOpenSettings={handleOpenSettings}
             onOpenTmManage={handleOpenTmManage}
             onCloseProject={handleCloseProject}
@@ -213,10 +226,17 @@ export function App() {
                 </span>
               </span>
               {workbenchStats.counts.draft > 0 ? (
-                <span className="app-statusbar__stat" title="草稿句段">
+                // Readouts double as filters (PRD §3.8): clicking 草稿
+                // jumps the grid to the draft filter.
+                <button
+                  type="button"
+                  className="app-statusbar__stat app-statusbar__jump"
+                  title="筛选草稿句段"
+                  onClick={() => statJumpRef.current?.("draft")}
+                >
                   草稿{" "}
                   <span className="tl-num">{workbenchStats.counts.draft}</span>
-                </span>
+                </button>
               ) : null}
               <span className="app-statusbar__stat" title="未译句段">
                 剩余{" "}
@@ -225,16 +245,18 @@ export function App() {
                 </span>
               </span>
               {workbenchStats.counts.openIssues > 0 ? (
-                <span
-                  className="app-statusbar__stat"
+                <button
+                  type="button"
+                  className="app-statusbar__stat app-statusbar__jump"
                   data-tone="danger"
-                  title="未解决 QA 问题"
+                  title="筛选 QA 问题句段"
+                  onClick={() => statJumpRef.current?.("qa")}
                 >
                   QA{" "}
                   <span className="tl-num">
                     {workbenchStats.counts.openIssues}
                   </span>
-                </span>
+                </button>
               ) : null}
               <span className="app-statusbar__progress">
                 <SegmentProgress
@@ -255,6 +277,22 @@ export function App() {
                   </span>
                 ) : null}
               </span>
+              {workbenchStats.caret ? (
+                // Editor local facts (PRD §3.8): caret line:column and the
+                // input mode. The editor only has insert mode, so INS is
+                // the truthful readout — no fake OVR toggle.
+                <>
+                  <span className="app-statusbar__stat" title="行:列">
+                    行列{" "}
+                    <span className="tl-num">
+                      {workbenchStats.caret.line}:{workbenchStats.caret.column}
+                    </span>
+                  </span>
+                  <span className="app-statusbar__stat" title="插入模式">
+                    INS
+                  </span>
+                </>
+              ) : null}
             </>
           ) : null}
           <span className="app-statusbar__engine">

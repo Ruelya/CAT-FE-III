@@ -43,19 +43,20 @@ export type MenuCommand =
   | "open-project-settings"
   | "close-project"
   | "open-command-palette"
-  | "open-preview"
+  | "toggle-preview"
   | "open-concordance"
   | "focus-filter"
-  | "focus-replace"
+  | "open-find"
+  | "open-replace"
   | "find-next"
   | "find-prev"
   | "confirm-segment"
-  | "show-dock-tm"
+  | "confirm-segment-any"
+  | "confirm-segment-stay"
+  | "show-dock-memory"
   | "show-dock-term"
-  | "show-dock-concordance"
   | "show-dock-qa"
-  | "show-dock-ai"
-  | "show-dock-agent";
+  | "show-dock-ai";
 
 /**
  * Renderer-reported state that drives menu item enablement, so the menu

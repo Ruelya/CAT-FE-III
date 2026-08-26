@@ -235,18 +235,18 @@ test("vertical slice through the workbench", async () => {
     page.locator(".issue-card", { hasText: "1300" }).first(),
   ).toContainText("未解决");
 
-  // AI assist degrades honestly without credentials: the badge reads 未配置
-  // and only the provider config form is offered.
-  await page.getByRole("button", { name: "AI 辅助" }).click();
-  await expect(page.locator(".tl-panel__header .tl-badge")).toContainText(
-    "未配置",
-  );
+  // The AI dock stacks 辅助 and Agent. Assist degrades honestly without
+  // credentials: the badge reads 未配置 and only the provider config form
+  // is offered.
+  await page.getByRole("button", { name: "AI", exact: true }).click();
+  await expect(
+    page.locator(".tl-panel__header .tl-badge").first(),
+  ).toContainText("未配置");
   await expect(page.getByLabel("API Key")).toBeVisible();
   await shot("05-ai-honest-unconfigured.png");
 
-  // The agent cannot start without a provider: the start button stays
-  // disabled.
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  // The agent (below in the same dock) cannot start without a provider:
+  // the start button stays disabled and the note says why.
   await expect(
     page.getByRole("button", { name: "创建任务单并运行" }),
   ).toBeDisabled();
@@ -270,73 +270,76 @@ test("vertical slice through the workbench", async () => {
 test("workbench intel: filter, concordance, preview, and settings", async () => {
   const rows = page.locator(".segment-grid tbody tr");
 
-  // State filter narrows the grid; the ribbon count chip stays honest.
+  // State filter narrows the grid; an active filter shows as a removable
+  // chip and the resident n/total count on the grid toolbar stays honest.
   await page.getByLabel("按状态筛选").selectOption("untranslated");
   await expect(rows).toHaveCount(1);
-  await expect(page.locator(".ribbon__filter-count")).toHaveText("1/3");
-  await page.getByRole("button", { name: "清除" }).click();
+  await expect(page.locator(".grid-toolbar__count")).toHaveText("1/3");
+  await page.getByRole("button", { name: "清除状态筛选：未译" }).click();
   await expect(rows).toHaveCount(3);
 
-  // The ribbon's far-right search filters source and target text.
+  // The ribbon's far-right search filters source and target text; its
+  // chip clears just that channel.
   await page.getByLabel("按文本筛选").fill("retention");
   await expect(rows).toHaveCount(1);
   await shot("08-grid-filter.png");
-  await page.getByRole("button", { name: "清除" }).click();
+  await page.getByRole("button", { name: "清除文本筛选：retention" }).click();
+  await expect(rows).toHaveCount(3);
 
-  // F3 opens the concordance dock; hits jump back to the grid.
+  // F3 opens the 检索 area (inside the 记忆 dock, below the TM lookup);
+  // hits jump back to the grid.
   await page.keyboard.press("F3");
   await expect(page.getByLabel(/检索词/)).toBeVisible();
   await page.getByLabel(/检索词/).fill("30");
   await expect(page.locator(".concordance__hit").first()).toBeVisible();
-  await page
-    .locator(".match-card")
-    .first()
-    .getByRole("button", { name: "定位句段" })
-    .click();
+  await page.getByRole("button", { name: "定位句段" }).first().click();
   await expect(
     page.locator(".segment-grid tr[data-active='true']"),
   ).toBeVisible();
   await shot("09-concordance.png");
 
-  // Preview backfills confirmed/draft targets and flags untranslated
-  // segments instead of pretending the document is done. The proofread
-  // view follows the segment that is active in the grid. It opens from
-  // the 预览 view tab under the grid.
-  await page.getByRole("tab", { name: "预览", exact: true }).click();
-  await expect(page.locator(".tl-dialog")).toContainText("译文预览");
-  await expect(page.locator(".tl-dialog")).toContainText("保留期为 30 天。");
+  // The docked bottom preview pane starts collapsed; expanding it shows
+  // the proofread view, which backfills confirmed/draft targets and flags
+  // untranslated segments instead of pretending the document is done. The
+  // proofread view follows the segment that is active in the grid.
+  const previewPane = page.locator(".preview-pane");
+  await previewPane.getByRole("button", { name: "展开预览" }).click();
+  await expect(previewPane).toContainText("保留期为 30 天。");
   await expect(
-    page.locator(".preview__segment[data-fallback='true']").first(),
+    previewPane.locator(".preview__segment[data-fallback='true']").first(),
   ).toBeVisible();
   await expect(
-    page.locator(".preview__segment[data-active='true']"),
+    previewPane.locator(".preview__segment[data-active='true']"),
   ).toBeVisible();
   await shot("10-preview.png");
 
   // Layout view: the engine's export pipeline produces the DOCX bytes and
   // docx-preview renders them — same artifact as「导出译文」.
-  await page.getByRole("tab", { name: "版式视图（DOCX）" }).click();
-  await expect(page.locator(".preview__docx .docx-wrapper")).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.locator(".preview__docx")).toContainText(
+  await previewPane.getByRole("tab", { name: "版式视图（DOCX）" }).click();
+  await expect(previewPane.locator(".preview__docx .docx-wrapper")).toBeVisible(
+    { timeout: 30_000 },
+  );
+  await expect(previewPane.locator(".preview__docx")).toContainText(
     "保留期为 30 天。",
   );
-  await expect(page.locator(".tl-dialog")).toContainText("已回填 2 个已译单元");
+  await expect(previewPane).toContainText("已回填 2 个已译单元");
   await shot("10b-preview-docx.png");
 
   // Click-to-segment: the preview export embeds per-paragraph segment
   // anchors, so clicking the draft table paragraph jumps the grid to its
-  // segment through the same onJump path the proofread view uses (which
-  // also closes the dialog).
-  await page
+  // segment through the same onJump path the proofread view uses. The
+  // pane stays docked open.
+  await previewPane
     .locator(".preview__docx p", { hasText: "表中金额" })
     .first()
     .click();
-  await expect(page.locator(".tl-dialog")).toHaveCount(0);
   await expect(
     page.locator(".segment-grid tr[data-active='true']"),
   ).toContainText("表中金额");
+
+  // Collapse the pane back so the rest of the run keeps the full grid.
+  await previewPane.getByRole("button", { name: "折叠预览" }).click();
+  await expect(previewPane.locator(".preview-pane__body")).toBeHidden();
 
   // Project settings: the project info form edits name and language pair
   // through project.update, and TM and termbase files move through the
@@ -635,9 +638,13 @@ test("application menu mirrors workbench state and shortcuts", async () => {
     "项目设置…",
     "返回项目列表",
     "确认当前句段",
-    "译文预览…",
-    "翻译记忆面板",
+    "确认并到下一句段",
+    "确认并停留",
+    "预览面板",
+    "记忆面板",
     "QA 面板",
+    "查找…",
+    "替换…",
     "筛选句段",
     "命令面板",
     "检索（取选中文本）",
@@ -660,14 +667,14 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   expect(byLabel.get("导入文档…")?.registerAccelerator).toBe(true);
 
   // Menu clicks reach the renderer over IPC and drive the same commands as
-  // the workbench buttons: dock switch, then the preview dialog.
+  // the workbench buttons: dock switch, then the preview pane toggle.
   expect(await clickMenuItem("QA 面板")).toBe(true);
   await expect(page.getByRole("button", { name: "运行 QA" })).toBeVisible();
 
-  expect(await clickMenuItem("译文预览…")).toBe(true);
-  await expect(page.locator(".tl-dialog")).toContainText("译文预览");
-  await page.getByRole("button", { name: "关闭对话框" }).click();
-  await expect(page.locator(".tl-dialog")).toHaveCount(0);
+  expect(await clickMenuItem("预览面板")).toBe(true);
+  await expect(page.locator(".preview-pane[data-open]")).toBeVisible();
+  expect(await clickMenuItem("预览面板")).toBe(true);
+  await expect(page.locator(".preview-pane[data-open]")).toHaveCount(0);
 
   // Command palette: summon → filter → execute, keyboard only, landing on
   // the same dispatch as the menu (the term dock opens).

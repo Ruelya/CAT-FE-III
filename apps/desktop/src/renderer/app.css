@@ -66,6 +66,21 @@ body {
   color: var(--tl-status-danger);
 }
 
+/* 草稿/QA readouts double as buttons: clicking applies the grid filter. */
+button.app-statusbar__jump {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.app-statusbar__jump:hover {
+  text-decoration: underline;
+}
+
 .app-statusbar__progress {
   display: flex;
   align-items: center;
@@ -288,11 +303,110 @@ body {
    Panes are flat surfaces split by hairline borders — no floating cards. */
 
 .workbench {
+  /* Rail widths are splitter-driven per project (useWorkbenchLayout);
+     the inline style on .workbench sets these two variables. */
+  --tl-rail-left: 260px;
+  --tl-rail-right: 336px;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 336px;
+  grid-template-columns:
+    var(--tl-rail-left) 4px minmax(0, 1fr) 4px var(--tl-rail-right);
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   background: var(--tl-color-surface-raised);
+}
+
+/* Pane splitters: 4px hit area, hover/drag accent, keyboard-resizable
+   (arrows), double-click resets, chevron collapses. */
+.splitter {
+  position: relative;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color 120ms var(--tl-ease-standard);
+}
+
+.splitter[data-orientation="horizontal"] {
+  cursor: row-resize;
+  height: 4px;
+  flex: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--tl-color-accent);
+  outline: none;
+}
+
+.splitter[data-collapsed] {
+  cursor: default;
+}
+
+.splitter__chevron {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 28px;
+  padding: 0;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+}
+
+.splitter[data-orientation="horizontal"] .splitter__chevron {
+  width: 28px;
+  height: 14px;
+}
+
+.splitter:hover .splitter__chevron,
+.splitter:focus-visible .splitter__chevron,
+.splitter[data-collapsed] .splitter__chevron {
+  display: inline-flex;
+}
+
+.splitter__chevron:hover {
+  color: var(--tl-color-accent-strong);
+  border-color: var(--tl-color-accent);
+}
+
+/* Explicit grid placement: a collapsed rail is display:none, so the
+   remaining children must not shift into its column. */
+.workbench > .workbench__explorer {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.workbench > .splitter--left {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.workbench > .workbench__center {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.workbench > .splitter--right {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.workbench > .workbench__dock {
+  grid-column: 5;
+  grid-row: 2;
+}
+
+/* A collapsed rail renders nothing: the splitter chevron is the way back. */
+.workbench__explorer[data-collapsed],
+.workbench__dock[data-collapsed] {
+  display: none;
 }
 
 /* Ribbon toolbar: labeled icon groups, hairline group dividers,
@@ -437,28 +551,6 @@ body {
   flex: none;
 }
 
-.ribbon__filter-count {
-  font-family: var(--tl-font-mono);
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-text-muted);
-  white-space: nowrap;
-}
-
-.ribbon__filter-clear {
-  font: inherit;
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-accent-strong);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: var(--tl-space-1) var(--tl-space-2);
-  border-radius: var(--tl-radius-sm);
-}
-
-.ribbon__filter-clear:hover {
-  background: var(--tl-color-accent-faint);
-}
-
 .ribbon__search-box {
   display: flex;
   align-items: center;
@@ -545,6 +637,31 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tl-color-text-faint);
+}
+
+/* Local file search (PRD §3.5): filters the in-memory document list. */
+.explorer__search {
+  display: block;
+  width: calc(100% - 2 * var(--tl-space-4));
+  margin: 0 var(--tl-space-4) var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+}
+
+.explorer__search::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.explorer__search:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
 }
 
 .explorer__gear {
@@ -827,51 +944,73 @@ body {
   box-shadow: var(--tl-focus-ring);
 }
 
-/* View tabs under the grid: the grid is the working view; 预览 opens the
-   real preview (proofread + DOCX layout) built from the export pipeline.
-   Underline tab grammar — shared with dock and preview tabs. */
+/* Docked bottom preview pane (PRD §7.4): a slim always-present bar under
+   the grid; expanding reveals the proofread/layout body, whose height is
+   dragged via the horizontal splitter and persisted per project. */
 
-.view-tabs {
+.preview-pane {
   display: flex;
-  gap: var(--tl-space-1);
-  padding: 0 var(--tl-space-3);
+  flex-direction: column;
+  flex: none;
   border-top: var(--tl-border-hairline);
   background: var(--tl-color-surface);
-  flex: none;
-  min-height: var(--tl-tab-h);
 }
 
-.view-tabs__tab {
-  font: inherit;
+.preview-pane__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  padding: 0 var(--tl-space-3);
+  min-height: var(--tl-tab-h);
+  flex: none;
+}
+
+.preview-pane__title {
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text-muted);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: var(--tl-space-2) var(--tl-space-3);
-  cursor: pointer;
-  transition:
-    color var(--tl-motion-fast) var(--tl-ease-standard),
-    border-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
-.view-tabs__tab:hover {
+.preview-pane[data-open] .preview-pane__title {
   color: var(--tl-color-text);
 }
 
-.view-tabs__tab:focus-visible {
+.preview-pane__spacer {
+  flex: 1;
+}
+
+.preview-pane__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.preview-pane__toggle:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.preview-pane__toggle:focus-visible {
   outline: none;
   box-shadow: var(--tl-focus-ring);
 }
 
-.view-tabs__tab[data-active="true"] {
-  color: var(--tl-color-accent-strong);
-  font-weight: 600;
-  border-bottom-color: var(--tl-color-accent);
+.preview-pane__body {
+  overflow: auto;
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-top: var(--tl-border-hairline);
+  flex: none;
 }
 
-/* Segment grid toolbar (state filter + find/replace). One row, no wrap:
-   inputs shrink before anything folds or clips. */
+/* Segment grid toolbar: state filter + removable filter chips on the
+   left, the resident visible/total count on the right. Find/replace has
+   no permanent chrome here — it lives in the summonable find widget. */
 
 .grid-toolbar {
   display: flex;
@@ -884,15 +1023,7 @@ body {
   min-width: 0;
 }
 
-.grid-toolbar__sep {
-  width: 1px;
-  height: 18px;
-  background: var(--tl-color-border);
-  flex: none;
-}
-
-.grid-toolbar__select,
-.grid-toolbar__search {
+.grid-toolbar__select {
   font-family: var(--tl-font-ui);
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text);
@@ -903,29 +1034,202 @@ body {
   padding: 0 8px;
 }
 
-.grid-toolbar__select:focus-visible,
-.grid-toolbar__search:focus-visible {
+.grid-toolbar__select:focus-visible {
   outline: none;
   border-color: var(--tl-color-accent);
   box-shadow: var(--tl-focus-ring);
 }
 
-.grid-toolbar__search {
-  width: 180px;
-  flex: 0 1 auto;
-  min-width: 60px;
+.grid-toolbar__spacer {
+  flex: 1;
 }
 
-.grid-toolbar__search::placeholder {
+/* Resident visible/total readout — always on, even with no filter. */
+.grid-toolbar__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+}
+
+/* Removable filter chips: one per active filter channel; × clears it. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent-strong);
+  background: var(--tl-color-accent-faint);
+  border: 1px solid var(--tl-color-accent);
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--tl-motion-fast) var(--tl-ease-out);
+}
+
+.filter-chip:hover {
+  background: var(--tl-color-surface-raised);
+}
+
+.filter-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.filter-chip__x {
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+}
+
+/* Floating find/replace widget (Ctrl+F / Ctrl+H, VS Code form). The
+   zero-height anchor keeps it overlaying the grid's top-right corner
+   without magic offsets; entry uses the shared overlay rise-in. */
+
+.find-widget-anchor {
+  position: relative;
+  height: 0;
+  z-index: 30;
+  flex: none;
+}
+
+.find-widget {
+  position: absolute;
+  top: var(--tl-space-2);
+  right: 20px;
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+  padding: var(--tl-space-2);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  box-shadow: var(--tl-shadow-pop);
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.find-widget__toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__toggle:hover {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__input {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+  width: 200px;
+}
+
+.find-widget__input:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__input::placeholder {
   color: var(--tl-color-text-faint);
 }
 
-/* Find next/prev box: navigates the selection without hiding rows. */
-.grid-toolbar__find {
-  width: 140px;
+.find-widget__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  min-width: 34px;
+  text-align: right;
+  white-space: nowrap;
 }
 
-.grid-toolbar__checkbox {
+.find-widget__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__button:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.find-widget__button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__action {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: 22px;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.find-widget__action:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__action:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__checkbox {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -994,9 +1298,22 @@ body {
 
 .segment-grid tbody tr[data-active="true"] {
   background: var(--tl-color-surface-active);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+/* The 1px accent perimeter belongs to the editing state only; a row
+   selected in navigation mode (Esc) keeps just the spine + surface. */
+.segment-grid tbody tr[data-editing="true"] {
   box-shadow:
     inset 2px 0 0 var(--tl-color-accent),
     inset 0 0 0 1px var(--tl-color-accent);
+}
+
+/* Keyboard navigation mode: the focused row is the selection; the focus
+   ring is drawn inside the row so it never collides with neighbors. */
+.segment-grid tbody tr:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: -2px;
 }
 
 .segment-grid td {
@@ -1132,6 +1449,93 @@ body {
   white-space: nowrap;
 }
 
+/* Placeholder tokens ({name}, {{var}}, %s, <b>, &amp;) render as mono
+   glyph chips in both text columns — same token grammar as the engine's
+   qa.tag-placeholder_* rules. A QA-flagged token turns its border danger. */
+.tl-token {
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 0 3px;
+  border: var(--tl-border-hairline);
+  border-radius: 2px;
+  background: var(--tl-color-sunken);
+  white-space: pre;
+}
+
+.tl-token[data-danger] {
+  border-color: var(--tl-status-danger);
+  color: var(--tl-status-danger);
+}
+
+/* Row ⋯ menu (right-click / status-cell dots): copy source, clear target.
+   No confirm in the menu — confirming stays a keyboard/editor act. */
+.segment-grid__menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.segment-grid__menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text-faint);
+  cursor: pointer;
+}
+
+.segment-grid__menu-button:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.segment-grid__menu-button:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: 1px;
+}
+
+.segment-grid__menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: var(--tl-space-1);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-color-surface-raised);
+  box-shadow: var(--tl-shadow-pop);
+}
+
+.segment-grid__menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px var(--tl-space-2);
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text);
+  font-size: var(--tl-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.segment-grid__menu-item:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.segment-grid__menu-item:disabled {
+  color: var(--tl-color-text-faint);
+  cursor: default;
+}
+
 /* Right resource rail */
 
 .workbench__dock {
@@ -1151,8 +1555,9 @@ body {
   overflow-x: auto;
 }
 
+/* Icon + label, width from content — never flex:1 equal splits (§3.7). */
 .dock-tabs button {
-  flex: 1;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1164,7 +1569,7 @@ body {
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: var(--tl-space-3) var(--tl-space-1);
+  padding: var(--tl-space-3) var(--tl-space-3);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -1226,10 +1631,21 @@ body {
   flex-direction: column;
 }
 
-/* Rail panels sit flush inside the rail: the rail border is the frame. */
+/* Rail panels sit flush inside the rail: the rail border is the frame.
+   A dock group may stack two panels (记忆 = TM + 检索, AI = 辅助 +
+   Agent); they split the rail and scroll independently. */
 .dock-view > .tl-panel {
   flex: 1;
   min-height: 0;
+}
+
+.dock-view > .tl-panel + .tl-panel {
+  border-top: 1px solid var(--tl-color-border-strong);
+}
+
+.dock-tabs__icon {
+  display: inline-flex;
+  color: inherit;
 }
 
 .dock-stack {
@@ -1301,6 +1717,36 @@ body {
   display: flex;
   align-items: center;
   gap: var(--tl-space-1);
+}
+
+.issue-card__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  min-width: 0;
+}
+
+/* Severity is glyph + accessible label, color as the second channel. */
+.issue-card__severity {
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+}
+
+.issue-card__severity[data-severity="error"] {
+  color: var(--tl-status-danger);
+}
+
+.issue-card__severity[data-severity="warning"] {
+  color: var(--tl-status-warn);
+}
+
+.issue-card__rule {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .issue-card__message {
@@ -1516,13 +1962,13 @@ body {
   word-break: break-word;
 }
 
-/* Preview dialog: underline tab grammar, same as dock and view tabs. */
+/* Preview views: underline tab grammar, same as the dock tabs. Hosted in
+   the preview pane's bar, so no bottom margin or divider of their own. */
 
 .preview__tabs {
   display: flex;
   gap: var(--tl-space-1);
-  margin-bottom: var(--tl-space-4);
-  border-bottom: var(--tl-border-hairline);
+  align-self: stretch;
 }
 
 .preview__tabs button {
@@ -1652,13 +2098,8 @@ body {
   display: flex;
   align-items: center;
   gap: var(--tl-space-3);
-  flex: 1;
+  flex: none;
   font-size: var(--tl-text-xs);
-}
-
-.preview__legend-note {
-  color: var(--tl-color-text-faint);
-  margin-left: auto;
 }
 
 /* Project settings dialog */
