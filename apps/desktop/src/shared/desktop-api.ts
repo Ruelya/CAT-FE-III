@@ -45,6 +45,7 @@ export type MenuCommand =
   | "open-preview"
   | "open-concordance"
   | "focus-filter"
+  | "focus-replace"
   | "find-next"
   | "find-prev"
   | "confirm-segment"

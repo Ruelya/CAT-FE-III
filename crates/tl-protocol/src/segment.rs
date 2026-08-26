@@ -41,6 +41,43 @@ pub struct SegmentUpdateResult {
     pub segment: Segment,
 }
 
+/// Parameters for `segment.replace`: one document-wide search-and-replace
+/// over target text. Matching is case-insensitive with per-character
+/// Unicode lowercase folding — the same semantics as the grid find box —
+/// and occurrences never overlap. Source text is never touched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentReplaceParams {
+    pub document_id: String,
+    /// Text to find in target text. Must not be empty.
+    pub find: String,
+    /// Replacement text. May be empty, which deletes the found text; a
+    /// target emptied this way honestly returns to `untranslated`.
+    pub replace_with: String,
+    /// Also rewrite confirmed segments. A rewritten confirmed segment moves
+    /// back to `draft` — the confirmation covered the old text — and its TM
+    /// entry is left as it was (replace drafts, it never confirms). Default
+    /// false: confirmed matches are skipped and counted instead.
+    #[serde(default)]
+    pub include_confirmed: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentReplaceResult {
+    /// Rewritten segments in grid order, carrying their new revision and
+    /// state, so clients can apply them without a full reload.
+    pub segments: Vec<Segment>,
+    /// Total occurrences replaced across `segments`.
+    pub replaced_occurrences: u32,
+    /// How many of `segments` were confirmed before this replace moved them
+    /// back to draft. Non-zero only with `includeConfirmed`.
+    pub demoted_confirmed: u32,
+    /// Matching confirmed segments left untouched because
+    /// `includeConfirmed` was not set.
+    pub skipped_confirmed: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentConfirmParams {

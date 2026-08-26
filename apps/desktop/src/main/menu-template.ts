@@ -35,6 +35,7 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "Shift+F4",
   "CmdOrCtrl+Enter",
   "CmdOrCtrl+F",
+  "CmdOrCtrl+H",
 ];
 
 const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
@@ -177,18 +178,21 @@ export function buildMenuTemplate(
       ),
       // Renderer-owned F4 / Shift+F4 jump the selection through segments
       // matching the find box query without hiding any rows.
-      commandItem(
-        "查找下一个",
-        "find-next",
-        context.documentOpen,
-        "F4",
-        true,
-      ),
+      commandItem("查找下一个", "find-next", context.documentOpen, "F4", true),
       commandItem(
         "查找上一个",
         "find-prev",
         context.documentOpen,
         "Shift+F4",
+        true,
+      ),
+      // Renderer-owned Ctrl+H focuses the replace box in the find/replace
+      // toolbar; the actual replace stays a button/Enter action there.
+      commandItem(
+        "替换…",
+        "focus-replace",
+        context.documentOpen,
+        "CmdOrCtrl+H",
         true,
       ),
       // Renderer-owned F3 seeds concordance from the current selection.

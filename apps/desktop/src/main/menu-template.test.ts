@@ -114,6 +114,13 @@ const COMMAND_ITEMS: Array<{
     needs: "document",
   },
   {
+    label: "替换…",
+    command: "focus-replace",
+    accelerator: "CmdOrCtrl+H",
+    rendererOwned: true,
+    needs: "document",
+  },
+  {
     label: "一致性检索（取选中文本）",
     command: "open-concordance",
     accelerator: "F3",
