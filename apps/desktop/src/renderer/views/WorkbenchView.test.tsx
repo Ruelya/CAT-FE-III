@@ -9,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Project, Segment } from "@translunar/contracts";
+import type { Project, QaIssue, Segment } from "@translunar/contracts";
 import type {
   DesktopApi,
   EngineInvokeResponse,
@@ -1090,6 +1090,321 @@ describe("WorkbenchView segment navigation", () => {
   });
 });
 
+describe("WorkbenchView segment lock", () => {
+  const LOCK_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0, targetText: "第一句。" },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Locked row.",
+      targetText: "已锁行。",
+      locked: true,
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Still open.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  it("locks through segment.lock after flushing the pending draft", async () => {
+    const handlers = baseHandlers();
+    const calls: Array<[string, unknown]> = [];
+    handlers["segment.update"] = (params) => {
+      calls.push(["segment.update", params]);
+      return {
+        segment: { ...SEGMENT, targetText: "改过的句子。", revision: 2 },
+      };
+    };
+    handlers["segment.lock"] = (params) => {
+      calls.push(["segment.lock", params]);
+      return {
+        segment: {
+          ...SEGMENT,
+          targetText: "改过的句子。",
+          revision: 3,
+          locked: true,
+        },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    const { container } = render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    // Unsaved typing (the debounce is still armed)…
+    fireEvent.change(editor, { target: { value: "改过的句子。" } });
+    // …clicking 锁定句段 flushes it as a draft first, then locks at the
+    // fresh revision — the text lands instead of conflicting.
+    await userEvent.click(screen.getByRole("button", { name: "锁定句段" }));
+
+    await waitFor(() => {
+      expect(calls.map(([method]) => method)).toEqual([
+        "segment.update",
+        "segment.lock",
+      ]);
+    });
+    expect(calls[0]?.[1]).toMatchObject({
+      segmentId: "s1",
+      targetText: "改过的句子。",
+      baseRevision: 1,
+    });
+    expect(calls[1]?.[1]).toEqual({
+      segmentId: "s1",
+      locked: true,
+      baseRevision: 2,
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已锁定");
+    // The engine's flag drives everything the user sees: glyph, read-only
+    // row, and the ribbon button flipping to 解锁.
+    expect(
+      screen.getByRole("img", { name: "句段 1 已锁定" }),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('tr[data-segment-id="s1"]'),
+    ).toHaveAttribute("data-locked", "true");
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "解锁句段" }),
+    ).toBeInTheDocument();
+  });
+
+  it("unlocks from the menu command through the same segment.lock RPC", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [{ ...SEGMENT, locked: true }],
+    });
+    let lockParams: unknown = null;
+    handlers["segment.lock"] = (params) => {
+      lockParams = params;
+      return { segment: { ...SEGMENT, revision: 2, locked: false } };
+    };
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    // Locked active row: no editor, the lock glyph instead.
+    await screen.findByRole("img", { name: "句段 1 已锁定" });
+    expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+
+    act(() => {
+      bridge.emitMenuCommand("toggle-lock-segment");
+    });
+
+    await waitFor(() => {
+      expect(lockParams).toEqual({
+        segmentId: "s1",
+        locked: false,
+        baseRevision: 1,
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已解锁");
+    // Unlocked: the editor mounts again and the glyph is gone.
+    expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "句段 1 已锁定" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("confirm-and-advance skips locked rows to the next open segment", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: LOCK_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...LOCK_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+
+    // s2 is a draft — normally the next stop for Ctrl+Enter — but locked,
+    // so the selection lands on s3.
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+
+  it("Ctrl+Alt+Enter also steps past locked rows", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: LOCK_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...LOCK_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, altKey: true });
+
+    // nextAny walks every row regardless of state — except locked ones,
+    // which refuse their editor and would strand the loop.
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+
+  it("pretranslate reports the locked rows it skipped", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.pretranslate"] = () => ({
+      documentId: "d1",
+      checked: 1,
+      pretranslated: 0,
+      exact: 0,
+      fuzzy: 0,
+      skippedLocked: 2,
+      segments: [],
+    });
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    await userEvent.click(screen.getByRole("button", { name: "预翻译" }));
+
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "预翻译完成：检查 1 个未译句段，填充 0 个（精确 0 / 模糊 0），跳过 2 个已锁定句段",
+      );
+    });
+  });
+});
+
+describe("WorkbenchView confirm-time QA", () => {
+  const CONFIRM_ISSUE: QaIssue = {
+    id: "q1",
+    segmentId: "s1",
+    ruleId: "qa.number-mismatch",
+    severity: "error",
+    status: "open",
+    message: "数字不一致：源 30，译 60",
+    fingerprint: "fp1",
+    evidence: { sourceNumbers: ["30"], targetNumbers: [] },
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+
+  it("merges the confirm's QA findings into the dock without a manual run", async () => {
+    const handlers = baseHandlers();
+    let confirms = 0;
+    handlers["segment.confirm"] = () => {
+      confirms += 1;
+      // First confirm surfaces an open issue; the second (after the fix)
+      // returns the same record resolved — records replaced wholesale.
+      return {
+        segment: {
+          ...SEGMENT,
+          state: "confirmed",
+          revision: confirms + 1,
+        },
+        propagated: [],
+        qaIssues: [
+          confirms === 1
+            ? CONFIRM_ISSUE
+            : { ...CONFIRM_ISSUE, status: "resolved" },
+        ],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    // Confirm-and-stay: the confirm succeeds (Studio-like, never gated)
+    // and the engine's segment-scoped QA findings ride back on the result.
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true,
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "句段 #1 已确认并写入 TM，QA 1 个问题",
+      );
+    });
+    // The row's status chip and the QA dock tab pick the issue up without
+    // anyone pressing 运行 QA.
+    expect(
+      screen.getByRole("img", { name: "已确认，1 个未解决 QA 问题" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "QA" }));
+    expect(await screen.findByText("数字不一致：源 30，译 60")).toBeVisible();
+
+    // Second confirm returns the issue resolved: the stale record is
+    // replaced, the chip clears, and the message carries no QA note.
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true,
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "句段 #1 已确认并写入 TM",
+      );
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("img", { name: "已确认，1 个未解决 QA 问题" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+});
+
 describe("WorkbenchView find & replace", () => {
   it("replaces inside the active segment's target through segment.update", async () => {
     const handlers = baseHandlers();
@@ -1198,6 +1513,7 @@ describe("WorkbenchView find & replace", () => {
         replacedOccurrences: 2,
         demotedConfirmed: 0,
         skippedConfirmed: 1,
+        skippedLocked: 1,
       };
     };
     installBridge(handlers);
@@ -1237,7 +1553,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 60 天。");
     });
     expect(onStatusMessage).toHaveBeenCalledWith(
-      "全部替换完成：1 个句段、2 处「30 天」→「60 天」；跳过 1 个已确认句段",
+      "全部替换完成：1 个句段、2 处「30 天」→「60 天」；跳过 1 个已确认句段；跳过 1 个已锁定句段",
     );
   });
 

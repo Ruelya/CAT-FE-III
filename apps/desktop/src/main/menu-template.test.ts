@@ -65,6 +65,12 @@ const COMMAND_ITEMS: Array<{
     needs: "document",
   },
   {
+    label: "锁定/解锁句段",
+    command: "toggle-lock-segment",
+    accelerator: "CmdOrCtrl+L",
+    needs: "document",
+  },
+  {
     label: "命令面板",
     command: "open-command-palette",
     accelerator: "CmdOrCtrl+Shift+P",
