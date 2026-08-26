@@ -53,6 +53,7 @@ export type MenuCommand =
   | "confirm-segment"
   | "confirm-segment-any"
   | "confirm-segment-stay"
+  | "toggle-lock-segment"
   | "show-dock-memory"
   | "show-dock-term"
   | "show-dock-qa"

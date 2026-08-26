@@ -673,7 +673,14 @@ export function WorkbenchView({
       }
       for (let i = index + 1; i < filteredSegments.length; i += 1) {
         const candidate = filteredSegments[i]!;
-        const state = writtenById.get(candidate.id)?.state ?? candidate.state;
+        const fresh = writtenById.get(candidate.id);
+        // Locked rows are read-only, so both chords step past them
+        // (Studio behavior) — landing there would strand the keyboard
+        // loop on a row that refuses its editor.
+        if (fresh?.locked ?? candidate.locked) {
+          continue;
+        }
+        const state = fresh?.state ?? candidate.state;
         if (mode === "nextAny" || state !== "confirmed") {
           setActiveSegmentId(candidate.id);
           return;
@@ -815,12 +822,30 @@ export function WorkbenchView({
           setUnackedWrite((currentAlert) =>
             currentAlert?.segmentId === segment.id ? null : currentAlert,
           );
+          // Confirm-time QA: the engine re-ran the segment-scoped rules in
+          // the same transaction and returned every persisted issue of this
+          // segment, so its records are replaced wholesale — the dock and
+          // the row's ⚠ badge update without a manual qa.run. Absent field
+          // (older engine) leaves the list untouched.
+          const refreshedQa = result.qaIssues;
+          if (refreshedQa) {
+            setIssues((currentIssues) => [
+              ...currentIssues.filter(
+                (issue) => issue.segmentId !== segment.id,
+              ),
+              ...refreshedQa,
+            ]);
+          }
+          const openQaCount =
+            refreshedQa?.filter((issue) => issue.status === "open").length ??
+            0;
           const propagated =
             result.propagated.length > 0
               ? `，TM 传播 ${result.propagated.length} 个重复句段`
               : "";
+          const qaNote = openQaCount > 0 ? `，QA ${openQaCount} 个问题` : "";
           onStatusMessage(
-            `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
+            `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}${qaNote}`,
           );
           advanceAfterConfirm(
             segment.id,
@@ -915,6 +940,43 @@ export function WorkbenchView({
     [saveDraft, onStatusMessage],
   );
 
+  // Ribbon/menu/palette/row-menu 锁定/解锁: flips Segment.locked through
+  // segment.lock. The engine owns the flag — the renderer only reads it
+  // back from the returned segment. Pending editor typing is flushed as a
+  // draft first, so the text lands at the revision it belongs to instead
+  // of conflicting against the freshly locked row; the queue then orders
+  // the lock write after that save with the fresh revision.
+  const toggleLockSegment = useCallback(
+    (segment: Segment): Promise<void> => {
+      gridRef.current?.flushDraft();
+      return enqueueSegmentWrite(async () => {
+        const latest = latestSegmentsRef.current.get(segment.id) ?? segment;
+        const locked = latest.locked !== true;
+        try {
+          const result = await callEngine("segment.lock", {
+            segmentId: segment.id,
+            locked,
+            baseRevision: latest.revision,
+          });
+          applySegments([result.segment]);
+          onStatusMessage(
+            locked
+              ? `句段 #${segment.ordinal + 1} 已锁定`
+              : `句段 #${segment.ordinal + 1} 已解锁`,
+          );
+        } catch (error) {
+          onStatusMessage(
+            locked
+              ? `锁定失败：${describeError(error)}`
+              : `解锁失败：${describeError(error)}`,
+          );
+          await reloadSegments();
+        }
+      });
+    },
+    [enqueueSegmentWrite, applySegments, onStatusMessage, reloadSegments],
+  );
+
   // Terms land at the caret of the live grid editor (unsaved draft) without
   // triggering a save. Only when no editor is mounted — e.g. the active row
   // is filtered out — fall back to appending to the saved draft.
@@ -942,8 +1004,12 @@ export function WorkbenchView({
         documentId: activeDocumentId,
       });
       applySegments(result.segments);
+      const lockedNote =
+        (result.skippedLocked ?? 0) > 0
+          ? `，跳过 ${result.skippedLocked} 个已锁定句段`
+          : "";
       onStatusMessage(
-        `预翻译完成：检查 ${result.checked} 个未译句段，填充 ${result.pretranslated} 个（精确 ${result.exact} / 模糊 ${result.fuzzy}）`,
+        `预翻译完成：检查 ${result.checked} 个未译句段，填充 ${result.pretranslated} 个（精确 ${result.exact} / 模糊 ${result.fuzzy}）${lockedNote}`,
       );
     } catch (error) {
       onStatusMessage(`预翻译失败：${describeError(error)}`);
@@ -1349,10 +1415,14 @@ export function WorkbenchView({
         includeConfirmed,
       });
       applySegments(result.segments);
-      const skippedNote =
-        result.skippedConfirmed > 0
-          ? `；跳过 ${result.skippedConfirmed} 个已确认句段`
+      const skippedLockedNote =
+        (result.skippedLocked ?? 0) > 0
+          ? `；跳过 ${result.skippedLocked} 个已锁定句段`
           : "";
+      const skippedNote =
+        (result.skippedConfirmed > 0
+          ? `；跳过 ${result.skippedConfirmed} 个已确认句段`
+          : "") + skippedLockedNote;
       if (result.segments.length === 0) {
         onStatusMessage(`全部替换：译文中没有「${query}」${skippedNote}`);
         return;
@@ -1600,6 +1670,13 @@ export function WorkbenchView({
         case "confirm-segment-stay":
           confirmActiveSegment("stay");
           break;
+        case "toggle-lock-segment":
+          if (activeSegment) {
+            void toggleLockSegment(activeSegment);
+          } else {
+            onStatusMessage("没有选中的句段，无法锁定");
+          }
+          break;
         default:
           break;
       }
@@ -1608,6 +1685,8 @@ export function WorkbenchView({
       busy,
       exportDocument,
       activeDocument,
+      activeSegment,
+      toggleLockSegment,
       openConcordance,
       focusFilter,
       openFind,
@@ -1615,6 +1694,7 @@ export function WorkbenchView({
       confirmActiveSegment,
       layout.previewOpen,
       updateLayout,
+      onStatusMessage,
     ],
   );
 
@@ -1686,6 +1766,12 @@ export function WorkbenchView({
         documentOpen,
         "Ctrl+Alt+Shift+Enter",
       ),
+      command(
+        "toggle-lock-segment",
+        activeSegment?.locked ? "解锁当前句段" : "锁定当前句段",
+        documentOpen && activeSegment !== null,
+        "Ctrl+L",
+      ),
       command("toggle-preview", "预览面板", documentOpen, "Ctrl+P"),
       command("open-find", "查找…", documentOpen, "Ctrl+F"),
       command("open-replace", "替换…", documentOpen, "Ctrl+H"),
@@ -1710,6 +1796,7 @@ export function WorkbenchView({
     ];
   }, [
     activeDocument,
+    activeSegment,
     busy,
     documents,
     handleMenuCommand,
@@ -1740,6 +1827,14 @@ export function WorkbenchView({
           onImport={() => setImportOpen(true)}
           onExport={() => void exportDocument()}
           onConfirmSegment={() => confirmActiveSegment()}
+          activeSegmentLocked={
+            activeSegment ? activeSegment.locked === true : null
+          }
+          onToggleLock={() => {
+            if (activeSegment) {
+              void toggleLockSegment(activeSegment);
+            }
+          }}
           onPretranslate={() => void pretranslate()}
           onOpenFind={() => openFind("find")}
           onOpenReplace={() => openFind("replace")}
@@ -2130,6 +2225,7 @@ export function WorkbenchView({
                   }
                   onCopySource={copySourceToTarget}
                   onClearTarget={clearTargetText}
+                  onToggleLock={(segment) => void toggleLockSegment(segment)}
                   onCaretChange={setCaret}
                 />
               )}

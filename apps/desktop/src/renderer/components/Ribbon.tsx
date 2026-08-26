@@ -17,6 +17,8 @@ import {
   IconFilter,
   IconFolders,
   IconListSearch,
+  IconLock,
+  IconLockOpen,
   IconReplace,
   IconSearch,
 } from "@tabler/icons-react";
@@ -43,6 +45,13 @@ export interface RibbonProps {
   onImport: () => void;
   onExport: () => void;
   onConfirmSegment: () => void;
+  /**
+   * The active segment's stored lock flag (straight from Segment.locked);
+   * flips the button between 锁定句段 and 解锁句段. Null with no selection —
+   * the button then disables instead of guessing a direction.
+   */
+  activeSegmentLocked: boolean | null;
+  onToggleLock: () => void;
   onPretranslate: () => void;
   /** Summons the floating find widget (find row / replace row). */
   onOpenFind: () => void;
@@ -74,6 +83,8 @@ export function Ribbon({
   onImport,
   onExport,
   onConfirmSegment,
+  activeSegmentLocked,
+  onToggleLock,
   onPretranslate,
   onOpenFind,
   onOpenReplace,
@@ -131,6 +142,19 @@ export function Ribbon({
       icon: <IconCheck {...ICON_PROPS} />,
       disabled: !documentOpen,
       onClick: onConfirmSegment,
+    },
+    {
+      id: "lock",
+      group: "编辑",
+      label: activeSegmentLocked ? "解锁句段" : "锁定句段",
+      title: activeSegmentLocked ? "解锁句段（Ctrl+L）" : "锁定句段（Ctrl+L）",
+      icon: activeSegmentLocked ? (
+        <IconLockOpen {...ICON_PROPS} />
+      ) : (
+        <IconLock {...ICON_PROPS} />
+      ),
+      disabled: !documentOpen || activeSegmentLocked === null,
+      onClick: onToggleLock,
     },
     {
       id: "pretranslate",

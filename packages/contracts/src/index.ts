@@ -58,6 +58,7 @@ export const ENGINE_METHODS = [
   "segment.update",
   "segment.replace",
   "segment.confirm",
+  "segment.lock",
   "tm.lookup",
   "tm.list",
   "tm.update",
