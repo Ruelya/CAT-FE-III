@@ -3012,6 +3012,7 @@ describe("WorkbenchView segment intel", () => {
     },
     score: 100,
     grade: "exact",
+    memoryName: "主记忆库",
   };
 
   it("surfaces the best TM match on the tab chip, active row, and dock", async () => {
@@ -3039,6 +3040,8 @@ describe("WorkbenchView segment intel", () => {
     expect(
       screen.getByText("源：The retention period is 30 days."),
     ).toBeInTheDocument();
+    // The match card names the memory the hit came from.
+    expect(screen.getByTitle("来源记忆库")).toHaveTextContent("主记忆库");
   });
 
   it("reports live document stats to the shell status bar", async () => {

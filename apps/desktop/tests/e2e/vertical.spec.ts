@@ -198,6 +198,9 @@ test("vertical slice through the workbench", async () => {
   const bestMatch = page.locator(".match-card").first();
   await expect(bestMatch.locator(".tl-match__score")).toHaveText("100");
   await expect(bestMatch.locator(".tl-match__origin")).toHaveText("TM");
+  // The match card names the memory the hit lives in — the project's own
+  // memory, mounted writable when the project was created.
+  await expect(bestMatch.locator(".match-card__memory")).toHaveText("演示项目");
   await shot("03-confirmed-tm-hit.png");
 
   // Draft a wrong number in segment 2, then run the full QA library.
@@ -1076,4 +1079,69 @@ test("unedited fuzzy confirm is flagged and batch waivers clear repeat noise", a
     waivedCards.first().getByRole("button", { name: "恢复" }),
   ).toBeVisible();
   await shot("27-batch-waived-behavioral-stays.png");
+});
+
+test("multi-TM: writable switch routes confirm writes, merged lookup names the memory", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // Open TM 管理: the project's implicit memory landed as the single
+  // writable mount.
+  await page.getByRole("button", { name: "TM 管理" }).click();
+  const dialog = page.locator(".tl-dialog", { hasText: "TM 管理" });
+  const mounts = dialog.locator(".tm-manage__mount");
+  await expect(mounts).toHaveCount(1);
+  await expect(mounts.first()).toContainText("演示项目");
+  await expect(mounts.first()).toContainText("可写");
+
+  // Create and attach a second memory — it mounts read-only; a confirm can
+  // never silently start writing into it.
+  await dialog.getByLabel("新建记忆库").fill("风格库");
+  await dialog.getByRole("button", { name: "新建并挂载" }).click();
+  await expect(mounts).toHaveCount(2);
+  const styleMount = mounts.filter({ hasText: "风格库" });
+  await expect(styleMount).toContainText("只读");
+  await shot("28-tm-mounts-attached-readonly.png");
+
+  // Promote 风格库: the engine holds exactly one writable mount, so the
+  // project memory flips to 只读 in the same action.
+  await styleMount
+    .getByRole("button", { name: "设为可写记忆库 风格库" })
+    .click();
+  await expect(styleMount).toContainText("可写");
+  await expect(mounts.filter({ hasText: "演示项目" })).toContainText("只读");
+  await shot("29-tm-writable-switched.png");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+
+  // Confirm the drafted segment 3 — the TM write goes to the writable
+  // mount (风格库), not to every memory.
+  await rows.nth(2).click();
+  await page.getByLabel("句段 3 译文").press("Control+Enter");
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "句段 #3 已确认并写入 TM",
+  );
+
+  // The merged lookup finds the exact hit and names the memory it lives in.
+  await rows.nth(2).click();
+  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  const best = page.locator(".match-card").first();
+  await expect(best.locator(".tl-match__score")).toHaveText("100");
+  await expect(best.locator(".match-card__memory")).toHaveText("风格库");
+  await shot("30-merged-lookup-names-memory.png");
+
+  // Back in TM 管理, the entries listing proves where the write landed:
+  // 风格库 holds exactly the confirmed pair, the project memory does not.
+  await page.getByRole("button", { name: "TM 管理" }).click();
+  await expect(dialog.locator(".tm-manage__count")).toContainText(
+    "记忆库「风格库」共 1 条",
+  );
+  await expect(dialog.getByText("源：Send 7 files.")).toBeVisible();
+  await dialog
+    .getByRole("combobox", { name: "记忆库", exact: true })
+    .selectOption({ label: "演示项目" });
+  await expect(dialog.locator(".tm-manage__count")).toContainText(
+    "记忆库「演示项目」共",
+  );
+  await expect(dialog.getByText("源：Send 7 files.")).toHaveCount(0);
+  await shot("31-write-landed-in-writable-only.png");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 });

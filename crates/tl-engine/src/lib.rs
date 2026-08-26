@@ -16,6 +16,7 @@ mod assist;
 mod events;
 mod export;
 mod import;
+mod memories;
 mod qacheck;
 mod store;
 
@@ -351,6 +352,11 @@ impl Engine {
             methods::TM_IMPORT => to_value(self.tm_import(parse(params)?)?),
             methods::TM_EXPORT => to_value(self.tm_export(parse(params)?)?),
             methods::TM_PRETRANSLATE => to_value(self.tm_pretranslate(parse(params)?)?),
+            methods::MEMORY_CREATE => to_value(self.memory_create(parse(params)?)?),
+            methods::MEMORY_LIST => to_value(self.memory_list(parse(params)?)?),
+            methods::MEMORY_ATTACH => to_value(self.memory_attach(parse(params)?)?),
+            methods::MEMORY_DETACH => to_value(self.memory_detach(parse(params)?)?),
+            methods::MEMORY_UPDATE => to_value(self.memory_update(parse(params)?)?),
             methods::TERMBASE_CREATE => to_value(self.termbase_create(parse(params)?)?),
             methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
             methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),
@@ -432,13 +438,40 @@ impl Engine {
             updated_at_ms: now,
             archived_at_ms: None,
         };
+        // Every project starts with its own memory, mounted enabled and
+        // writable at priority 0 — the working memory confirm-time TM
+        // writes go to. The id keeps the `tm-{project_id}` shape the
+        // materialization backfill uses, so the two paths converge.
+        let memory = tl_asset::Memory {
+            id: Self::project_memory_id(&project.id),
+            name: project.name.clone(),
+            source_locale: project.source_locale.clone(),
+            target_locale: project.target_locale.clone(),
+            revision: 1,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        let mount = tl_asset::MemoryMount {
+            project_id: project.id.clone(),
+            memory_id: memory.id.clone(),
+            priority: 0,
+            enabled: true,
+            writable: true,
+            revision: 1,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
         self.store.apply(&StateDelta {
             projects: vec![project.clone()],
+            memories: vec![memory.clone()],
+            memory_mounts: vec![mount.clone()],
             ..Default::default()
         })?;
         self.state
             .projects
             .insert(project.id.clone(), project.clone());
+        self.state.memories.insert(memory.id.clone(), memory);
+        self.state.memory_mounts.push(mount);
         Ok(project)
     }
 
@@ -534,8 +567,43 @@ impl Engine {
         stored.revision += 1;
         stored.updated_at_ms = now;
         let updated = stored.clone();
+        // A language change passed the blockers, so every mounted memory is
+        // empty. Follow the new pair on the memories only this project
+        // mounts (its dedicated ones — tm.import parses against memory
+        // locales, so a stale pair would mis-parse the next file). Shared
+        // memories keep their declared pair.
+        let mut synced_memories = Vec::new();
+        if language_changed {
+            let mounted_ids: Vec<String> = self
+                .memory_mounts_for(&params.project_id)
+                .into_iter()
+                .map(|mount| mount.memory_id.clone())
+                .collect();
+            for memory_id in mounted_ids {
+                let shared = self.state.memory_mounts.iter().any(|mount| {
+                    mount.memory_id == memory_id && mount.project_id != params.project_id
+                });
+                if shared || self.store.tm_entry_count(&memory_id, None)? > 0 {
+                    continue;
+                }
+                let Some(memory) = self.state.memories.get_mut(&memory_id) else {
+                    continue;
+                };
+                if memory.source_locale == updated.source_locale
+                    && memory.target_locale == updated.target_locale
+                {
+                    continue;
+                }
+                memory.source_locale = updated.source_locale.clone();
+                memory.target_locale = updated.target_locale.clone();
+                memory.revision += 1;
+                memory.updated_at_ms = now;
+                synced_memories.push(memory.clone());
+            }
+        }
         self.store.apply(&StateDelta {
             projects: vec![updated.clone()],
+            memories: synced_memories,
             ..Default::default()
         })?;
         Ok(updated)
@@ -554,8 +622,11 @@ impl Engine {
         if documents > 0 {
             blockers.push(format!("{documents} imported document(s)"));
         }
-        let memory_id = Self::project_memory_id(project_id);
-        let tm_entries = self.store.tm_entry_count(&memory_id, None)?;
+        let mut tm_entries = 0_u32;
+        for mount in self.memory_mounts_for(project_id) {
+            tm_entries =
+                tm_entries.saturating_add(self.store.tm_entry_count(&mount.memory_id, None)?);
+        }
         if tm_entries > 0 {
             blockers.push(format!("{tm_entries} TM entry(ies)"));
         }
@@ -1147,8 +1218,10 @@ impl Engine {
             })?;
         let project = self.require_project(&project_id)?.clone();
 
-        // Upsert the project TM entry for this normalized source.
-        let memory_id = Self::project_memory_id(&project_id);
+        // Confirm-time TM write goes to the project's single writable mount
+        // (the working memory). With none — every mount demoted or detached
+        // — the confirm fails honestly instead of picking a memory itself.
+        let memory_id = self.working_memory_id(&project_id)?;
         let (tm_entry, _) = self.upsert_tm_entry(
             &mut BTreeMap::new(),
             &memory_id,
@@ -1430,7 +1503,13 @@ impl Engine {
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
         let document_id = record.document.id.clone();
-        let memory_id = Self::project_memory_id(&project.id);
+        // The read path honors mounts: the exact pass consults the enabled
+        // mounts in priority order and the first hit wins.
+        let read_memory_ids: Vec<String> = self
+            .enabled_memory_mounts(&project.id)
+            .into_iter()
+            .map(|mount| mount.memory_id.clone())
+            .collect();
         let max_segments = params
             .max_segments
             .unwrap_or(AGENT_DEFAULT_MAX_SEGMENTS)
@@ -1478,10 +1557,16 @@ impl Engine {
         let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
         let mut tm_applied_segments: Vec<Segment> = Vec::new();
         for mut segment in pending {
-            let tm_hit = self
-                .store
-                .tm_entry_by_source(&memory_id, &segment.source_hash)?
-                .map(|entry| entry.target_text);
+            let mut tm_hit: Option<String> = None;
+            for read_memory_id in &read_memory_ids {
+                if let Some(entry) = self
+                    .store
+                    .tm_entry_by_source(read_memory_id, &segment.source_hash)?
+                {
+                    tm_hit = Some(entry.target_text);
+                    break;
+                }
+            }
             match tm_hit {
                 Some(target) if !target.trim().is_empty() => {
                     let segment_id = segment.id.clone();

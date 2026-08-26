@@ -19,6 +19,8 @@ pub mod segment;
 pub use segment::*;
 pub mod tm;
 pub use tm::*;
+pub mod memory;
+pub use memory::*;
 pub mod term;
 pub use term::*;
 pub mod qa;
@@ -52,6 +54,11 @@ pub mod methods {
     pub const TM_IMPORT: &str = "tm.import";
     pub const TM_EXPORT: &str = "tm.export";
     pub const TM_PRETRANSLATE: &str = "tm.pretranslate";
+    pub const MEMORY_CREATE: &str = "memory.create";
+    pub const MEMORY_LIST: &str = "memory.list";
+    pub const MEMORY_ATTACH: &str = "memory.attach";
+    pub const MEMORY_DETACH: &str = "memory.detach";
+    pub const MEMORY_UPDATE: &str = "memory.update";
     pub const TERMBASE_CREATE: &str = "termbase.create";
     pub const TERMBASE_LIST: &str = "termbase.list";
     pub const TERMBASE_ATTACH: &str = "termbase.attach";
@@ -142,6 +149,16 @@ pub struct RpcMethodCatalog {
     pub tm_export: MethodContract<TmExportParams, TmExportResult>,
     #[serde(rename = "tm.pretranslate")]
     pub tm_pretranslate: MethodContract<TmPretranslateParams, TmPretranslateResult>,
+    #[serde(rename = "memory.create")]
+    pub memory_create: MethodContract<MemoryCreateParams, tl_asset::Memory>,
+    #[serde(rename = "memory.list")]
+    pub memory_list: MethodContract<MemoryListParams, MemoryListResult>,
+    #[serde(rename = "memory.attach")]
+    pub memory_attach: MethodContract<MemoryAttachParams, MemoryAttachResult>,
+    #[serde(rename = "memory.detach")]
+    pub memory_detach: MethodContract<MemoryDetachParams, MemoryDetachResult>,
+    #[serde(rename = "memory.update")]
+    pub memory_update: MethodContract<MemoryUpdateParams, MemoryUpdateResult>,
     #[serde(rename = "termbase.create")]
     pub termbase_create: MethodContract<TermbaseCreateParams, tl_asset::Termbase>,
     #[serde(rename = "termbase.list")]
@@ -252,6 +269,11 @@ mod tests {
             methods::TM_IMPORT,
             methods::TM_EXPORT,
             methods::TM_PRETRANSLATE,
+            methods::MEMORY_CREATE,
+            methods::MEMORY_LIST,
+            methods::MEMORY_ATTACH,
+            methods::MEMORY_DETACH,
+            methods::MEMORY_UPDATE,
             methods::TERMBASE_CREATE,
             methods::TERMBASE_LIST,
             methods::TERMBASE_ATTACH,

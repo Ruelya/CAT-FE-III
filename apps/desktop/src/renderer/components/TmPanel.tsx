@@ -76,6 +76,11 @@ export function TmPanel({
                       {GRADE_LABEL[match.grade]}
                     </span>
                   ) : null}
+                  {match.memoryName ? (
+                    <span className="match-card__memory" title="来源记忆库">
+                      {match.memoryName}
+                    </span>
+                  ) : null}
                 </span>
                 <Button
                   size="sm"
