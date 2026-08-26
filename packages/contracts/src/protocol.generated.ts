@@ -62,6 +62,12 @@ export type QaSeverity = "error" | "warning" | "info";
  *   actually match). Only `qa.run` moves issues here; waiving never does.
  */
 export type QaIssueStatus = "open" | "waived" | "resolved";
+/**
+ * Closed set of places a segment's target text can honestly come from.
+ * `human` exists for completeness; plain human typing normally leaves the
+ * origin absent instead of stamping it.
+ */
+export type SegmentOriginKind = "tmExact" | "tmFuzzy" | "aiDraft" | "human";
 export type SegmentState = "untranslated" | "draft" | "confirmed";
 export type TermStatus = "candidate" | "active" | "deprecated";
 export type TermExchangeFormat = "csv" | "tsv" | "tbx";
@@ -440,6 +446,14 @@ export interface SegmentCounts {
   confirmed: number;
   draft: number;
   openIssues: number;
+  /**
+   * Total source word count of the counted segments, computed by the
+   * engine with [`source_word_count`]. 口径：UAX #29 词边界；CJK 统一
+   * 表意文字与假名逐字计 1；数字串计 1；URL/email 计 1（对齐 Crowdin
+   * Word Counter）。Absent from older engines — clients must render
+   * nothing rather than count locally.
+   */
+  sourceWords?: number;
   total: number;
   untranslated: number;
   [k: string]: unknown;
@@ -862,6 +876,11 @@ export interface Segment {
   documentId: string;
   id: string;
   ordinal: number;
+  /**
+   * Where the current target text came from. Absent for rows written
+   * before origins existed and for plain human typing.
+   */
+  origin?: SegmentOrigin | null;
   revision: number;
   sourceHash: string;
   sourceText: string;
@@ -869,6 +888,32 @@ export interface Segment {
   structuralPath: string;
   targetText: string;
   updatedAtMs: number;
+  [k: string]: unknown;
+}
+/**
+ * Where the current target text came from, stamped by the write that put
+ * it there. Only writes that carry an origin stamp one — rows written
+ * before this field existed stay origin-less forever (no backfill), and an
+ * update that empties the target clears the origin (an empty target has no
+ * origin). Confirming never changes the origin.
+ */
+export interface SegmentOrigin {
+  /**
+   * Pollution signal: true once the target was edited after the origin
+   * write (Studio-style "edited fuzzy"). Engine-owned — the value sent
+   * by a client is ignored; a stamping write always resets it to false.
+   */
+  edited?: boolean;
+  kind: SegmentOriginKind;
+  /**
+   * Provider model that produced an `aiDraft`; absent otherwise.
+   */
+  model?: string | null;
+  /**
+   * Real TM match score (0-100) as reported at apply time. Present only
+   * for TM origins; never fabricated for AI or human writes.
+   */
+  score?: number | null;
   [k: string]: unknown;
 }
 /**
@@ -982,6 +1027,17 @@ export interface SegmentUpdateParams {
    * Optimistic concurrency: must match the segment's current revision.
    */
   baseRevision: number;
+  /**
+   * Where `targetText` came from, for writes that apply stored material
+   * (TM match apply → `tmExact`/`tmFuzzy` with the real lookup score, AI
+   * draft apply → `aiDraft` with the provider model). The kinds are the
+   * closed [`SegmentOrigin`] enum — nothing free-form. Omit for human
+   * typing: the engine then keeps any existing origin and marks it
+   * `edited` when the target changed, and clears the origin entirely
+   * when the update empties the target. `origin.edited` is engine-owned
+   * and ignored on input.
+   */
+  origin?: SegmentOrigin | null;
   segmentId: string;
   targetText: string;
   [k: string]: unknown;

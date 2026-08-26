@@ -41,7 +41,11 @@ function sleep(ms: number): Promise<void> {
 
 export interface AiPanelProps {
   activeSegment: Segment | null;
-  onApplyDraft: (targetText: string) => void;
+  /**
+   * Applies the candidate as a draft. The provider model travels with the
+   * text so the write can stamp an honest aiDraft origin.
+   */
+  onApplyDraft: (targetText: string, model: string) => void;
   onStatusMessage: (message: string) => void;
 }
 
@@ -303,7 +307,10 @@ export function AiPanel({
                     variant="primary"
                     disabled={applyBlocked}
                     onClick={() => {
-                      onApplyDraft(candidateForActive.result.draftTarget);
+                      onApplyDraft(
+                        candidateForActive.result.draftTarget,
+                        candidateForActive.result.model,
+                      );
                       setCandidate(null);
                     }}
                   >

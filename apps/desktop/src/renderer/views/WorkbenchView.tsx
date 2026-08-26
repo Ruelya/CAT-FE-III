@@ -16,6 +16,7 @@ import type {
   QaIssue,
   Segment,
   SegmentCounts,
+  SegmentOrigin,
   TmMatchItem,
 } from "@translunar/contracts";
 import { Button, EmptyState, SegmentProgress } from "@translunar/ui";
@@ -100,6 +101,12 @@ export type StatJumpTarget = "draft" | "qa";
 export interface WorkbenchStats {
   documentName: string;
   counts: SegmentCounts;
+  /**
+   * Source word count reported by the engine (口径：UAX #29；CJK 按字；
+   * 数字串计 1；URL/email 计 1). Null when the engine did not report one
+   * (older binary) — the readout then renders nothing, never a local count.
+   */
+  sourceWords: number | null;
   /** Ordinal of the selected segment, or null when nothing is selected. */
   activeOrdinal: number | null;
   /** Caret line/column in the target editor; null with no editor mounted. */
@@ -721,12 +728,14 @@ export function WorkbenchView({
   // auto-saves pass quiet=true: success shows through the row's 草稿 badge
   // instead of a statusbar line per pause; failures always surface.
   // Resolves false when the engine never acked, so the grid re-arms and
-  // retries the text on its next flush.
+  // retries the text on its next flush. Writes that apply stored material
+  // (TM match, AI draft) pass `origin` so the engine stamps where the text
+  // came from; plain typing omits it and the engine handles the edited mark.
   const saveDraft = useCallback(
     (
       segment: Segment,
       targetText: string,
-      options?: { quiet?: boolean },
+      options?: { quiet?: boolean; origin?: SegmentOrigin },
     ): Promise<boolean> =>
       enqueueSegmentWrite(async () => {
         const latest = latestSegmentsRef.current.get(segment.id) ?? segment;
@@ -740,6 +749,7 @@ export function WorkbenchView({
             segmentId: segment.id,
             targetText,
             baseRevision: latest.revision,
+            ...(options?.origin ? { origin: options.origin } : {}),
           });
           applySegments([result.segment]);
           setUnackedWrite((current) =>
@@ -845,12 +855,34 @@ export function WorkbenchView({
     ],
   );
 
-  const applyDraftToActive = useCallback(
-    (text: string) => {
+  // TM apply stamps the real lookup grade and score as the origin. The
+  // contract's `inContext` grade is a dead variant no lookup emits; it
+  // would still be an exact-source reuse if one ever appeared.
+  const applyTmMatchToActive = useCallback(
+    (match: TmMatchItem) => {
       if (!activeSegment) {
         return;
       }
-      void saveDraft(activeSegment, text);
+      void saveDraft(activeSegment, match.entry.targetText, {
+        origin: {
+          kind: match.grade === "fuzzy" ? "tmFuzzy" : "tmExact",
+          score: match.score,
+        },
+      });
+    },
+    [activeSegment, saveDraft],
+  );
+
+  // AI apply stamps aiDraft with the provider model — never a score (no
+  // provider returns confidence).
+  const applyAiDraftToActive = useCallback(
+    (text: string, model: string) => {
+      if (!activeSegment) {
+        return;
+      }
+      void saveDraft(activeSegment, text, {
+        origin: { kind: "aiDraft", model },
+      });
     },
     [activeSegment, saveDraft],
   );
@@ -1022,7 +1054,16 @@ export function WorkbenchView({
       ) {
         return current;
       }
-      return { ...current, [activeDocumentId]: counts };
+      // The local recount carries no sourceWords (the renderer never counts
+      // words); keep the engine's value — target edits never change the
+      // source text it was computed from.
+      return {
+        ...current,
+        [activeDocumentId]:
+          existing?.sourceWords !== undefined
+            ? { ...counts, sourceWords: existing.sourceWords }
+            : counts,
+      };
     });
   }, [activeDocumentId, segments, counts]);
 
@@ -1083,10 +1124,18 @@ export function WorkbenchView({
     onStatsChange({
       documentName: activeDocument.name,
       counts,
+      sourceWords: documentProgress[activeDocument.id]?.sourceWords ?? null,
       activeOrdinal: activeSegment?.ordinal ?? null,
       caret,
     });
-  }, [onStatsChange, activeDocument, counts, activeSegment, caret]);
+  }, [
+    onStatsChange,
+    activeDocument,
+    counts,
+    documentProgress,
+    activeSegment,
+    caret,
+  ]);
   useEffect(() => {
     return () => {
       onStatsChange?.(null);
@@ -1378,7 +1427,7 @@ export function WorkbenchView({
           event.preventDefault();
           const match = tmMatches[index];
           if (match) {
-            applyDraftToActive(match.entry.targetText);
+            applyTmMatchToActive(match);
             onStatusMessage(
               `已应用第 ${index + 1} 条记忆匹配（${match.score}%）为草稿`,
             );
@@ -1487,7 +1536,7 @@ export function WorkbenchView({
     findMatch,
     moveSelection,
     tmMatches,
-    applyDraftToActive,
+    applyTmMatchToActive,
     onStatusMessage,
   ]);
 
@@ -2189,7 +2238,7 @@ export function WorkbenchView({
                   activeSegment={activeSegment}
                   matches={tmMatches}
                   error={tmError}
-                  onApply={applyDraftToActive}
+                  onApply={applyTmMatchToActive}
                 />
                 <ConcordancePanel
                   projectId={project.id}
@@ -2224,7 +2273,7 @@ export function WorkbenchView({
               <>
                 <AiPanel
                   activeSegment={activeSegment}
-                  onApplyDraft={applyDraftToActive}
+                  onApplyDraft={applyAiDraftToActive}
                   onStatusMessage={onStatusMessage}
                 />
                 <AgentPanel

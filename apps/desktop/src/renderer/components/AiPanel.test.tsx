@@ -313,7 +313,9 @@ describe("AiPanel", () => {
       assistId: "assist-1",
     });
     await userEvent.click(screen.getByRole("button", { name: "应用为草稿" }));
-    expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 继续。");
+    // The provider model travels with the text so the segment.update can
+    // stamp an honest aiDraft origin.
+    expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 继续。", "gpt-test");
   });
 
   it("surfaces a failed assist run instead of pretending", async () => {

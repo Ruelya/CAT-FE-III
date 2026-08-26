@@ -244,6 +244,19 @@ export function App() {
                   {workbenchStats.counts.untranslated}
                 </span>
               </span>
+              {workbenchStats.sourceWords !== null ? (
+                // Engine-computed only (口径 documented on the RPC field);
+                // an engine that reports no count renders no readout.
+                <span
+                  className="app-statusbar__stat"
+                  title="源文词数 · CJK 按字"
+                >
+                  字数{" "}
+                  <span className="tl-num">
+                    {workbenchStats.sourceWords.toLocaleString("en-US")}
+                  </span>
+                </span>
+              ) : null}
               {workbenchStats.counts.openIssues > 0 ? (
                 <button
                   type="button"

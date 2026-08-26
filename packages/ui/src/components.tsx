@@ -300,24 +300,49 @@ export function SegmentProgress({
 export type MatchGrade = "exact" | "inContext" | "fuzzy";
 
 export interface MatchBadgeProps {
-  /** 0-100 score as reported by the engine; shown verbatim. */
-  score: number;
-  grade: MatchGrade;
+  /**
+   * 0-100 score as reported by the engine; shown verbatim. Omitted when no
+   * real score exists (AI origins) — the chip then shows the label alone
+   * instead of inventing a number.
+   */
+  score?: number | undefined;
+  /** Drives the tone (exact green / fuzzy blue); omit for non-TM chips. */
+  grade?: MatchGrade | undefined;
+  /** Origin abbreviation segment; defaults to "TM". */
+  label?: string;
+  /**
+   * Studio-style pollution signal: the target was edited after the origin
+   * write. Drops the tone fill while keeping the value readable.
+   */
+  muted?: boolean;
   title?: string;
 }
 
 /**
- * TM match chip: score segment + origin abbreviation segment ("95 TM").
- * Exact matches read as settled (green), fuzzy matches as work-to-verify
- * (blue); the numeric score always accompanies the tone so the information
- * is never color-only.
+ * Score + origin dual-segment chip ("95 TM", "AI"). Exact matches read as
+ * settled (green), fuzzy matches as work-to-verify (blue); the numeric
+ * score always accompanies the tone so the information is never color-only.
  */
-export function MatchBadge({ score, grade, title }: MatchBadgeProps) {
-  const tone: BadgeTone = grade === "fuzzy" ? "accent" : "ok";
+export function MatchBadge({
+  score,
+  grade,
+  label = "TM",
+  muted = false,
+  title,
+}: MatchBadgeProps) {
+  const tone: BadgeTone | undefined =
+    grade === undefined ? undefined : grade === "fuzzy" ? "accent" : "ok";
   return (
-    <span className="tl-match" data-tone={tone} title={title}>
-      <span className="tl-match__score tl-num">{score}</span>
-      <span className="tl-match__origin">TM</span>
+    <span
+      className="tl-match"
+      data-tone={muted ? undefined : tone}
+      data-muted={muted || undefined}
+      title={title}
+    >
+      {typeof score === "number" ? (
+        <span className="tl-match__score tl-num">{score}</span>
+      ) : null}
+      <span className="tl-match__origin">{label}</span>
     </span>
   );
 }

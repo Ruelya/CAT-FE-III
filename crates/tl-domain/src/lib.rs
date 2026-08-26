@@ -7,10 +7,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
 static NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?x)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?").expect("valid number regex")
+});
+
+/// URLs and email addresses each count as one word (word-count 口径); they
+/// are extracted before UAX #29 segmentation, which would split them.
+static URL_EMAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?xi)
+        \b(?:https?://|www\.)\S+        # URLs
+        | [^\s@]+@[^\s@]+\.[^\s@.]+     # email addresses
+    ",
+    )
+    .expect("valid url/email regex")
 });
 
 /// Placeholder-like tokens a translation must carry through verbatim:
@@ -284,6 +297,46 @@ pub struct BackupManifest {
     pub files: Vec<BackupFile>,
 }
 
+/// Closed set of places a segment's target text can honestly come from.
+/// `human` exists for completeness; plain human typing normally leaves the
+/// origin absent instead of stamping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SegmentOriginKind {
+    /// Exact TM reuse (apply, pretranslate, confirm-time propagation).
+    TmExact,
+    /// Fuzzy TM reuse; `score` carries the real match score.
+    TmFuzzy,
+    /// AI-proposed draft applied by a human; `model` names the provider model.
+    AiDraft,
+    /// Explicit human authorship. No engine path stamps this today; absent
+    /// means the same thing.
+    Human,
+}
+
+/// Where the current target text came from, stamped by the write that put
+/// it there. Only writes that carry an origin stamp one — rows written
+/// before this field existed stay origin-less forever (no backfill), and an
+/// update that empties the target clears the origin (an empty target has no
+/// origin). Confirming never changes the origin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentOrigin {
+    pub kind: SegmentOriginKind,
+    /// Real TM match score (0-100) as reported at apply time. Present only
+    /// for TM origins; never fabricated for AI or human writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<u8>,
+    /// Provider model that produced an `aiDraft`; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Pollution signal: true once the target was edited after the origin
+    /// write (Studio-style "edited fuzzy"). Engine-owned — the value sent
+    /// by a client is ignored; a stamping write always resets it to false.
+    #[serde(default)]
+    pub edited: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Segment {
@@ -298,6 +351,10 @@ pub struct Segment {
     pub source_hash: String,
     pub context_hash: String,
     pub updated_at_ms: i64,
+    /// Where the current target text came from. Absent for rows written
+    /// before origins existed and for plain human typing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SegmentOrigin>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -436,6 +493,13 @@ pub struct SegmentCounts {
     pub draft: u32,
     pub confirmed: u32,
     pub open_issues: u32,
+    /// Total source word count of the counted segments, computed by the
+    /// engine with [`source_word_count`]. 口径：UAX #29 词边界；CJK 统一
+    /// 表意文字与假名逐字计 1；数字串计 1；URL/email 计 1（对齐 Crowdin
+    /// Word Counter）。Absent from older engines — clients must render
+    /// nothing rather than count locally.
+    #[serde(default)]
+    pub source_words: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -561,6 +625,59 @@ pub fn state_for_target(target: &str) -> SegmentState {
     } else {
         SegmentState::Draft
     }
+}
+
+/// Word count 口径 (the only counting rule in the product; the status bar
+/// documents it as 「源文词数 · CJK 按字」):
+///
+/// - UAX #29 word boundaries segment the text (`unicode-segmentation`).
+/// - Each CJK unified ideograph and each kana (hiragana/katakana, incl.
+///   halfwidth) counts as **1**, even inside one boundary segment.
+/// - A number string (`1,200.00`, full-width digits) counts as **1**.
+/// - A URL or email address counts as **1** (extracted before boundary
+///   segmentation, which would otherwise split them).
+///
+/// Aligned with the Crowdin Word Counter rules the PRD adopted.
+pub fn source_word_count(text: &str) -> u32 {
+    let mut count: u32 = 0;
+    // URLs and emails first: UAX #29 would split them at punctuation.
+    let mut remainder = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for found in URL_EMAIL_RE.find_iter(text) {
+        count = count.saturating_add(1);
+        remainder.push_str(&text[cursor..found.start()]);
+        remainder.push(' ');
+        cursor = found.end();
+    }
+    remainder.push_str(&text[cursor..]);
+    for segment in remainder.split_word_bounds() {
+        let cjk = segment.chars().filter(|c| is_countable_cjk(*c)).count();
+        if cjk > 0 {
+            count = count.saturating_add(u32::try_from(cjk).unwrap_or(u32::MAX));
+        } else if segment.chars().any(char::is_alphanumeric) {
+            count = count.saturating_add(1);
+        }
+    }
+    count
+}
+
+/// Characters the 口径 counts one-by-one: CJK unified ideographs (incl.
+/// extensions and compatibility blocks) and kana. The katakana middle dot
+/// `・` is a separator, not a word.
+fn is_countable_cjk(character: char) -> bool {
+    if character == '\u{30FB}' {
+        return false;
+    }
+    matches!(character,
+        '\u{3400}'..='\u{4DBF}'      // CJK Extension A
+        | '\u{4E00}'..='\u{9FFF}'    // CJK Unified Ideographs
+        | '\u{F900}'..='\u{FAFF}'    // CJK Compatibility Ideographs
+        | '\u{20000}'..='\u{2FA1F}'  // CJK Extensions B+ and supplements
+        | '\u{3040}'..='\u{309F}'    // Hiragana
+        | '\u{30A0}'..='\u{30FF}'    // Katakana
+        | '\u{31F0}'..='\u{31FF}'    // Katakana Phonetic Extensions
+        | '\u{FF66}'..='\u{FF9D}'    // Halfwidth Katakana
+    )
 }
 
 pub fn number_tokens(value: &str) -> Vec<String> {
@@ -705,6 +822,68 @@ mod tests {
         let (source_b, context_b) = segment_hashes("Same", Some("Other"), None);
         assert_eq!(source_a, source_b);
         assert_ne!(context_a, context_b);
+    }
+
+    #[test]
+    fn counts_pure_latin_words() {
+        assert_eq!(source_word_count("The retention period is 30 days."), 6);
+        // UAX #29 breaks at hyphens; a hyphenated compound is its parts.
+        assert_eq!(source_word_count("state-of-the-art design"), 5);
+        assert_eq!(source_word_count(""), 0);
+        assert_eq!(source_word_count("  …!?  "), 0);
+    }
+
+    #[test]
+    fn counts_cjk_per_character() {
+        // 5 ideographs + the number string 60 = 6; punctuation is free.
+        assert_eq!(source_word_count("保留期为 60 天。"), 6);
+        // Katakana runs stay one UAX#29 segment but still count per kana.
+        assert_eq!(source_word_count("コーヒー"), 4);
+        assert_eq!(source_word_count("ひらがな"), 4);
+    }
+
+    #[test]
+    fn counts_mixed_text_numbers_urls_and_emails() {
+        // 2 ideographs + "GPU" + number string = 4.
+        assert_eq!(source_word_count("使用 GPU 1,200.00"), 4);
+        // URL and email each count 1 regardless of inner punctuation.
+        assert_eq!(
+            source_word_count("见 https://example.com/a?b=c 或 support@example.com"),
+            4
+        );
+        // 4 ideographs + URL + 3 Latin words.
+        assert_eq!(
+            source_word_count("详情请见 www.example.org and click here"),
+            8
+        );
+    }
+
+    #[test]
+    fn segment_origin_roundtrips_and_defaults() {
+        let origin = SegmentOrigin {
+            kind: SegmentOriginKind::TmFuzzy,
+            score: Some(85),
+            model: None,
+            edited: false,
+        };
+        let json = serde_json::to_value(&origin).expect("serialize origin");
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "tmFuzzy", "score": 85, "edited": false})
+        );
+        // Clients may omit `edited`; it defaults to false.
+        let parsed: SegmentOrigin =
+            serde_json::from_value(serde_json::json!({"kind": "aiDraft", "model": "gpt-x"}))
+                .expect("deserialize origin");
+        assert_eq!(parsed.kind, SegmentOriginKind::AiDraft);
+        assert_eq!(parsed.model.as_deref(), Some("gpt-x"));
+        assert!(!parsed.edited);
+        // Segments serialized before the field existed still parse.
+        let legacy: SegmentCounts = serde_json::from_str(
+            r#"{"total":1,"untranslated":1,"draft":0,"confirmed":0,"openIssues":0}"#,
+        )
+        .expect("legacy counts");
+        assert_eq!(legacy.source_words, 0);
     }
 
     #[test]

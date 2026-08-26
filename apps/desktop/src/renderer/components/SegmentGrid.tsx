@@ -13,6 +13,7 @@ import { IconDots } from "@tabler/icons-react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
 import { MatchBadge } from "@translunar/ui";
+import type { MatchGrade } from "@translunar/ui";
 
 import { TokenText } from "./TokenText.js";
 
@@ -119,6 +120,54 @@ const STATE_CHIP: Record<SegmentState, { glyph: string; label: string }> = {
   draft: { glyph: "✎", label: "草稿" },
   confirmed: { glyph: "✓", label: "已确认" },
 };
+
+/** Persisted-origin chip for one row (`95 TM` / `AI`), straight from the
+   stored Segment.origin. Rows without an origin — history from before the
+   field existed, or plain human typing — render nothing, never a guess.
+   The tooltip lists 状态/来源/分值/模型, each line only when it exists. */
+interface OriginChip {
+  score?: number | undefined;
+  grade?: MatchGrade | undefined;
+  label: string;
+  /** Edited after the origin write: tone dropped, value kept (§5.4). */
+  muted: boolean;
+  title: string;
+}
+
+function originChipFor(
+  segment: Segment,
+  stateLabel: string,
+): OriginChip | null {
+  const origin = segment.origin;
+  if (!origin || origin.kind === "human") {
+    return null;
+  }
+  const isTm = origin.kind === "tmExact" || origin.kind === "tmFuzzy";
+  // Scores exist only for TM origins; an AI chip never carries a number
+  // (no provider returns confidence — NEVER-FAKE).
+  const score =
+    isTm && typeof origin.score === "number" ? origin.score : undefined;
+  const sourceLabel =
+    origin.kind === "tmExact"
+      ? "TM 精确"
+      : origin.kind === "tmFuzzy"
+        ? "TM 模糊"
+        : "AI";
+  const lines = [`状态：${stateLabel}`, `来源：${sourceLabel}`];
+  if (score !== undefined) {
+    lines.push(`分值：${score}`);
+  }
+  if (origin.model) {
+    lines.push(`模型：${origin.model}`);
+  }
+  return {
+    score,
+    grade: isTm ? (origin.kind === "tmFuzzy" ? "fuzzy" : "exact") : undefined,
+    label: isTm ? "TM" : "AI",
+    muted: origin.edited === true,
+    title: lines.join("\n"),
+  };
+}
 
 /** Rows above this count are windowed instead of fully rendered. */
 const VIRTUAL_THRESHOLD = 120;
@@ -716,6 +765,7 @@ export function SegmentGrid({
             const statusLabel = hasQa
               ? `${label}，${qaCount > 0 ? `${qaCount} 个` : "存在"}未解决 QA 问题`
               : label;
+            const originChip = originChipFor(segment, label);
             return (
               <tr
                 key={segment.id}
@@ -828,7 +878,17 @@ export function SegmentGrid({
                         </span>
                       ) : null}
                     </span>
-                    {isActive && activeMatch ? (
+                    {originChip ? (
+                      // Persisted origin wins over the live lookup: the
+                      // stored score is what actually produced this target.
+                      <MatchBadge
+                        score={originChip.score}
+                        grade={originChip.grade}
+                        label={originChip.label}
+                        muted={originChip.muted}
+                        title={originChip.title}
+                      />
+                    ) : isActive && activeMatch ? (
                       <MatchBadge
                         score={activeMatch.score}
                         grade={activeMatch.grade}

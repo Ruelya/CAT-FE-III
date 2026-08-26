@@ -7,7 +7,11 @@ export interface TmPanelProps {
   matches: TmMatchItem[];
   /** Lookup failure, if the last query could not be answered. */
   error: string | null;
-  onApply: (targetText: string) => void;
+  /**
+   * Applies the hit as a draft. The whole match travels so the write can
+   * stamp the real grade and score as the segment's origin.
+   */
+  onApply: (match: TmMatchItem) => void;
 }
 
 /**
@@ -62,7 +66,7 @@ export function TmPanel({
               key={match.entry.id}
               className="match-card"
               data-grade={index === 0 ? match.grade : undefined}
-              onDoubleClick={() => onApply(match.entry.targetText)}
+              onDoubleClick={() => onApply(match)}
             >
               <div className="match-card__row">
                 <span className="match-card__grade">
@@ -76,7 +80,7 @@ export function TmPanel({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onApply(match.entry.targetText)}
+                  onClick={() => onApply(match)}
                 >
                   应用为草稿
                 </Button>

@@ -1174,6 +1174,7 @@ mod tests {
             source_hash: String::new(),
             context_hash: String::new(),
             updated_at_ms: 0,
+            origin: None,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1210,6 +1211,7 @@ mod tests {
             source_hash: String::new(),
             context_hash: String::new(),
             updated_at_ms: 0,
+            origin: None,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1299,6 +1301,7 @@ mod tests {
             source_hash: String::new(),
             context_hash: String::new(),
             updated_at_ms: 0,
+            origin: None,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1340,6 +1343,7 @@ mod tests {
             source_hash: String::new(),
             context_hash: String::new(),
             updated_at_ms: 0,
+            origin: None,
         };
         XliffFilter
             .export(ExportRequest {

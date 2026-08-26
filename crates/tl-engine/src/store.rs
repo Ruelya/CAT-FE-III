@@ -68,7 +68,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tl_asset::{TermEntry, Termbase, TermbaseMount};
 use tl_domain::{
-    Document, Project, QaIssue, QaIssueStatus, Segment, SegmentCounts, SegmentState, TmEntry,
+    Document, Project, QaIssue, QaIssueStatus, Segment, SegmentCounts, SegmentOrigin, SegmentState,
+    TmEntry, source_word_count,
 };
 
 pub const DB_FILE_NAME: &str = "engine.sqlite";
@@ -78,7 +79,7 @@ const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
 
 /// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
 /// DESC, id` walks this index instead of sorting the memory per request.
@@ -90,6 +91,16 @@ CREATE INDEX tm_entries_by_memory_recency ON tm_entries(memory_id, confirmed_at_
 /// every non-waived row (and for all rows written by earlier builds).
 const SCHEMA_V3: &str = "
 ALTER TABLE qa_issues ADD COLUMN waive_note TEXT;
+";
+
+/// `Segment.origin` persistence. Deliberately no backfill: rows written
+/// before origins existed keep a NULL `origin_kind` forever, which reads
+/// back as "no origin" — the engine never invents where old text came from.
+const SCHEMA_V4: &str = "
+ALTER TABLE segments ADD COLUMN origin_kind TEXT;
+ALTER TABLE segments ADD COLUMN origin_score INTEGER;
+ALTER TABLE segments ADD COLUMN origin_model TEXT;
+ALTER TABLE segments ADD COLUMN origin_edited INTEGER NOT NULL DEFAULT 0;
 ";
 
 const SCHEMA_V1: &str = "
@@ -412,9 +423,13 @@ impl Store {
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 
-    /// One document's per-state segment counts plus its open QA issue
-    /// count — the file-rail progress numbers. Two indexed aggregate
-    /// queries; no segment or issue rows leave SQL.
+    /// One document's per-state segment counts, its open QA issue count,
+    /// and its source word count — the file-rail progress numbers. State
+    /// and QA are indexed aggregate queries; the word count streams the
+    /// document's source texts once through [`source_word_count`] (the 口径
+    /// lives on `SegmentCounts.sourceWords`) because UAX #29 segmentation
+    /// cannot run in SQL. Source text is immutable per row, so the sum is
+    /// stable for a document's lifetime.
     pub fn document_segment_counts(&self, document_id: &str) -> io::Result<SegmentCounts> {
         let mut statement = self
             .conn
@@ -433,6 +448,7 @@ impl Store {
             draft: 0,
             confirmed: 0,
             open_issues: 0,
+            source_words: 0,
         };
         let untranslated = enum_text(&SegmentState::Untranslated)?;
         let draft = enum_text(&SegmentState::Draft)?;
@@ -464,6 +480,17 @@ impl Store {
             )
             .map_err(db_err)?;
         counts.open_issues = u32::try_from(open).unwrap_or(u32::MAX);
+        let mut words_statement = self
+            .conn
+            .prepare_cached("SELECT source_text FROM segments WHERE document_id = ?1")
+            .map_err(db_err)?;
+        let mut rows = words_statement.query([document_id]).map_err(db_err)?;
+        while let Some(row) = rows.next().map_err(db_err)? {
+            let source_text: String = row.get(0).map_err(db_err)?;
+            counts.source_words = counts
+                .source_words
+                .saturating_add(source_word_count(&source_text));
+        }
         Ok(counts)
     }
 
@@ -482,7 +509,8 @@ impl Store {
             .map_err(db_err)?;
         let rows = statement
             .query_map([document_id], |row| {
-                Ok((segment_from_row(row)?, row.get::<_, String>(11)?))
+                // `leading` sits right after the SEGMENT_COLUMNS list.
+                Ok((segment_from_row(row)?, row.get::<_, String>(15)?))
             })
             .map_err(db_err)?;
         let mut segments = Vec::new();
@@ -530,7 +558,8 @@ impl Store {
             .prepare_cached(
                 "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
                     s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
-                    s.updated_at_ms
+                    s.updated_at_ms, s.origin_kind, s.origin_score, s.origin_model,
+                    s.origin_edited
                  FROM segments s
                  JOIN documents d ON d.id = s.document_id
                  WHERE s.source_hash = ?1 AND d.project_id = ?2
@@ -830,7 +859,8 @@ impl Store {
 }
 
 const SEGMENT_COLUMNS: &str = "id, document_id, ordinal, structural_path, source_text, \
-     target_text, state, revision, source_hash, context_hash, updated_at_ms";
+     target_text, state, revision, source_hash, context_hash, updated_at_ms, \
+     origin_kind, origin_score, origin_model, origin_edited";
 
 const TM_ENTRY_COLUMNS: &str = "id, memory_id, source_text, target_text, source_hash, \
      origin_project_id, origin_document_id, origin_segment_id, confirmed_at_ms";
@@ -857,7 +887,26 @@ fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
         source_hash: row.get(8)?,
         context_hash: row.get(9)?,
         updated_at_ms: row.get(10)?,
+        origin: segment_origin_from_row(row, 11)?,
     })
+}
+
+/// A NULL `origin_kind` means the row predates origins or the write that
+/// produced the current target carried none — never a fabricated value.
+fn segment_origin_from_row(row: &Row, first: usize) -> rusqlite::Result<Option<SegmentOrigin>> {
+    let kind: Option<String> = row.get(first)?;
+    let Some(kind) = kind else {
+        return Ok(None);
+    };
+    let kind = serde_json::from_value(Value::String(kind)).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(first, rusqlite::types::Type::Text, error.into())
+    })?;
+    Ok(Some(SegmentOrigin {
+        kind,
+        score: row.get(first + 1)?,
+        model: row.get(first + 2)?,
+        edited: row.get(first + 3)?,
+    }))
 }
 
 fn tm_entry_from_row(row: &Row) -> rusqlite::Result<TmEntry> {
@@ -1179,20 +1228,28 @@ fn upsert_document(conn: &Connection, record: &DocumentRecord) -> io::Result<()>
 }
 
 /// Source-side columns and `leading` are immutable once a segment exists;
-/// updates only touch the translation-side columns.
+/// updates only touch the translation-side columns (target, state,
+/// revision, timestamps, and origin — origin describes the target).
 fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
             "INSERT INTO segments (id, document_id, ordinal, structural_path, source_text,
-               target_text, state, revision, source_hash, context_hash, updated_at_ms, leading)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+               target_text, state, revision, source_hash, context_hash, updated_at_ms, leading,
+               origin_kind, origin_score, origin_model, origin_edited)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              ON CONFLICT(id) DO UPDATE SET
                target_text = excluded.target_text,
                state = excluded.state,
                revision = excluded.revision,
-               updated_at_ms = excluded.updated_at_ms",
+               updated_at_ms = excluded.updated_at_ms,
+               origin_kind = excluded.origin_kind,
+               origin_score = excluded.origin_score,
+               origin_model = excluded.origin_model,
+               origin_edited = excluded.origin_edited",
         )
         .map_err(db_err)?;
+    let origin = segment.origin.as_ref();
+    let origin_kind = origin.map(|origin| enum_text(&origin.kind)).transpose()?;
     statement
         .execute(params![
             segment.id,
@@ -1207,6 +1264,10 @@ fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Re
             segment.context_hash,
             segment.updated_at_ms,
             leading,
+            origin_kind,
+            origin.and_then(|origin| origin.score),
+            origin.and_then(|origin| origin.model.as_deref()),
+            origin.is_some_and(|origin| origin.edited),
         ])
         .map_err(db_err)?;
     Ok(())
@@ -1612,6 +1673,7 @@ mod tests {
             source_hash: format!("hash-{id}"),
             context_hash: format!("context-{id}"),
             updated_at_ms: 1,
+            origin: None,
         }
     }
 
@@ -2351,5 +2413,103 @@ mod tests {
             })
             .expect("apply waiver");
         assert_eq!(store.qa_issue_by_id("qa1").expect("read"), Some(waived));
+    }
+
+    /// A database written before migration 4 (no origin columns) upgrades
+    /// in place: legacy segment rows read back origin-less — the migration
+    /// never invents where old text came from — and a stamped write
+    /// round-trips through the new columns afterwards.
+    #[test]
+    fn migrates_pre_origin_databases_without_backfilling_origins() {
+        use tl_domain::{SegmentOrigin, SegmentOriginKind};
+
+        let directory = tempfile::tempdir().expect("tempdir");
+        let mut conn =
+            Connection::open(directory.path().join(DB_FILE_NAME)).expect("raw connection");
+        let tx = conn.transaction().expect("tx");
+        tx.execute_batch(SCHEMA_V1).expect("v1");
+        tx.execute_batch(SCHEMA_V2).expect("v2");
+        tx.execute_batch(SCHEMA_V3).expect("v3");
+        tx.commit().expect("commit");
+        conn.pragma_update(None, "user_version", 3)
+            .expect("version");
+        // A segment row exactly as a pre-origin engine wrote it.
+        conn.execute(
+            "INSERT INTO segments (id, document_id, ordinal, structural_path, source_text,
+               target_text, state, revision, source_hash, context_hash, updated_at_ms, leading)
+             VALUES ('s1', 'd1', 0, 'p:0', 'Source 0.', '旧译文。', 'draft', 3, 'h1', 'c1', 5, '')",
+            [],
+        )
+        .expect("legacy row");
+        drop(conn);
+
+        let (mut store, _) = Store::open(directory.path()).expect("open migrates to v4");
+        let legacy = store
+            .segment("s1")
+            .expect("read")
+            .expect("legacy row survives");
+        assert_eq!(legacy.state, SegmentState::Draft);
+        assert_eq!(legacy.origin, None, "no backfilled origin");
+
+        let mut stamped = legacy;
+        stamped.origin = Some(SegmentOrigin {
+            kind: SegmentOriginKind::TmFuzzy,
+            score: Some(85),
+            model: None,
+            edited: false,
+        });
+        stamped.revision = 4;
+        store
+            .apply(&StateDelta {
+                segments: vec![stamped.clone()],
+                ..Default::default()
+            })
+            .expect("apply stamp");
+        drop(store);
+        let (reopened, _) = Store::open(directory.path()).expect("reopen");
+        assert_eq!(reopened.segment("s1").expect("read"), Some(stamped));
+    }
+
+    /// Every read path returns the stored origin, and the counts include
+    /// the engine-computed source word count (UAX #29 / CJK-per-char 口径).
+    #[test]
+    fn origin_flows_through_reads_and_counts_include_source_words() {
+        use tl_domain::{SegmentOrigin, SegmentOriginKind};
+
+        let directory = tempfile::tempdir().expect("tempdir");
+        let (mut store, _) = Store::open(directory.path()).expect("open");
+        let mut ai_row = sample_segment("s1", "d1", 0);
+        ai_row.source_text = "The retention period is 30 days.".to_string(); // 6 words
+        ai_row.target_text = "保留期为 30 天。".to_string();
+        ai_row.state = SegmentState::Draft;
+        ai_row.origin = Some(SegmentOrigin {
+            kind: SegmentOriginKind::AiDraft,
+            score: None,
+            model: Some("test-model".to_string()),
+            edited: true,
+        });
+        let mut plain_row = sample_segment("s2", "d1", 1);
+        plain_row.source_text = "保留期为 60 天。".to_string(); // 6 words (5 hanzi + number)
+        store
+            .apply(&StateDelta {
+                projects: vec![sample_project("p1")],
+                documents: vec![sample_record("d1", "p1", 2)],
+                segments: vec![ai_row.clone(), plain_row.clone()],
+                ..Default::default()
+            })
+            .expect("apply");
+
+        let page = store.document_segments_page("d1", 0, None).expect("page");
+        assert_eq!(page, vec![ai_row.clone(), plain_row.clone()]);
+        let siblings = store
+            .untranslated_siblings("p1", &plain_row.source_hash, "elsewhere")
+            .expect("siblings");
+        assert_eq!(siblings, vec![plain_row]);
+
+        let counts = store.document_segment_counts("d1").expect("counts");
+        assert_eq!(counts.total, 2);
+        assert_eq!(counts.draft, 1);
+        assert_eq!(counts.untranslated, 1);
+        assert_eq!(counts.source_words, 12);
     }
 }

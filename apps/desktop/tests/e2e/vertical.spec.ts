@@ -627,6 +627,86 @@ test("import dialog segmentation options shape the grid", async () => {
   await shot("14-custom-srx.png");
 });
 
+// S2: persisted origin chips and the engine word count, against the real
+// engine. The TM already holds "Billing is monthly." from the external CSV
+// imported in the settings test above.
+test("persisted origin chips and the engine word count stay honest", async () => {
+  const rows = page.locator(".segment-grid tbody tr");
+
+  // Mixed fixture for the documented 口径 (UAX #29; CJK per char; number
+  // runs count 1; URLs count 1):
+  //   "Billing is monthly."            → 3
+  //   "保留期为 30 天。"               → 4 ideographs + 1 number + 1 → 6
+  //   "Visit https://example.com now." → 1 + 1 URL + 1 → 3
+  const wordsPath = join(workDir, "words.txt");
+  writeFileSync(
+    wordsPath,
+    "Billing is monthly.\n\n保留期为 30 天。\n\nVisit https://example.com now.\n",
+  );
+  await importThroughDialog(wordsPath);
+  await expect(page.locator(".app-statusbar")).toContainText(
+    "已导入「words.txt」",
+    { timeout: 30_000 },
+  );
+  await expect(rows).toHaveCount(3);
+
+  // The word count is the engine's number, labeled with its 口径 — the
+  // renderer never counts locally.
+  const wordStat = page.locator(
+    '.app-statusbar__stat[title="源文词数 · CJK 按字"]',
+  );
+  await expect(wordStat).toContainText("字数 12");
+
+  // Freshly imported rows carry no origin. Row 1's source does have a live
+  // TM hit, so park the selection on the CJK row (no hit) first: with no
+  // stored origins and no live match, no chip may appear anywhere.
+  await rows.nth(1).click();
+  await expect(rows.locator(".tl-match")).toHaveCount(0);
+
+  // Pretranslate fills row 1 from the TM and stamps the real grade and
+  // score as its persisted origin.
+  await page.getByRole("button", { name: "预翻译" }).click();
+  await expect(page.locator(".app-statusbar")).toContainText("预翻译完成");
+  await expect(rows.first()).toContainText("按月计费。");
+
+  // Row 1 is not the active row: its chip reads from the stored
+  // Segment.origin, not from any live lookup.
+  const storedChip = rows.first().locator(".tl-match");
+  await expect(storedChip.locator(".tl-match__score")).toHaveText("100");
+  await expect(storedChip.locator(".tl-match__origin")).toHaveText("TM");
+  await expect(storedChip).toHaveAttribute(
+    "title",
+    "状态：草稿\n来源：TM 精确\n分值：100",
+  );
+  await shot("17-origin-chip-pretranslate.png");
+
+  // Human typing stays origin-less: draft the CJK row and confirm the
+  // state chip flips with no origin chip appearing.
+  const editor2 = page.getByLabel("句段 2 译文");
+  await editor2.fill("Retention is 30 days.");
+  await expect(
+    rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
+  ).toBeVisible();
+  await expect(rows.nth(1).locator(".tl-match")).toHaveCount(0);
+
+  // Editing a TM-applied row marks its stamp edited (Studio pollution
+  // signal): the tone fill goes, the score stays readable.
+  await rows.first().click();
+  const editor1 = page.getByLabel("句段 1 译文");
+  await editor1.fill("按月计费（改）。");
+  await expect(rows.first().locator(".tl-match")).toHaveAttribute(
+    "data-muted",
+    "true",
+  );
+  await expect(
+    rows.first().locator(".tl-match .tl-match__score"),
+  ).toHaveText("100");
+  await shot("18-origin-chip-edited.png");
+
+  // Target edits never move the source word count.
+  await expect(wordStat).toContainText("字数 12");
+});
+
 // Runs with the state left by the previous tests: project open, document
 // open. Menu assertions stay in the main process (template snapshot +
 // programmatic clicks) — Playwright never touches the native menu bar.

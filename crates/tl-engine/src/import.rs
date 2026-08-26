@@ -103,6 +103,9 @@ pub fn build_segments(
             source_hash,
             context_hash,
             updated_at_ms: now_ms,
+            // Freshly imported rows have no origin; a bilingual import's
+            // pre-filled target is upstream material, not a TM/AI stamp.
+            origin: None,
         });
     }
     PreparedSegments { segments, leading }

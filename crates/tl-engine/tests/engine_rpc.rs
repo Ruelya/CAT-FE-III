@@ -987,6 +987,17 @@ fn tm_import_export_roundtrip_and_pretranslate() {
     assert_eq!(segments[0]["targetText"], "保留期是 30 天。");
     assert_eq!(segments[1]["state"], "draft");
     assert_eq!(segments[2]["state"], "untranslated");
+    // Pretranslation stamps the real lookup grade and score as the origin.
+    assert_eq!(segments[0]["origin"]["kind"], "tmExact");
+    assert_eq!(segments[0]["origin"]["score"], 100);
+    assert_eq!(segments[0]["origin"]["edited"], false);
+    assert_eq!(segments[1]["origin"]["kind"], "tmFuzzy");
+    // "45 days" vs "30 days" keys to the same normalized placeholder text, so
+    // the scorer honestly reports 100 while the grade stays fuzzy (different
+    // source hash). The origin stores that reported score verbatim.
+    assert_eq!(segments[1]["origin"]["score"], 100);
+    // The untouched row stays origin-less — the field is absent, not faked.
+    assert!(segments[2].get("origin").is_none());
 
     // A rerun has nothing left to fill.
     let rerun = harness.call("tm.pretranslate", json!({ "documentId": document_id }));
@@ -1041,6 +1052,118 @@ fn tm_import_export_roundtrip_and_pretranslate() {
             json!({ "projectId": project_id, "path": managed_path, "overwrite": true }),
         ),
         "exportBlocked"
+    );
+}
+
+#[test]
+fn segment_origin_write_paths_persist_and_stay_honest() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "job.txt",
+        "Repeat me.\n\nRepeat me.\n\nSolo line.\n",
+    );
+    let segments = harness.segments(&document_id);
+    // Freshly imported rows carry no origin — the field is absent, not null.
+    for segment in &segments {
+        assert!(segment.get("origin").is_none());
+    }
+
+    // A stamped write records the stamp; `edited` is engine-owned, so the
+    // client-sent `true` is ignored and stored as false.
+    let solo = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segments[2]["id"],
+            "targetText": "独行译文",
+            "baseRevision": segments[2]["revision"],
+            "origin": { "kind": "tmFuzzy", "score": 85, "edited": true },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(
+        solo["origin"],
+        json!({ "kind": "tmFuzzy", "score": 85, "edited": false })
+    );
+
+    // A plain write that does not change the target leaves the stamp alone.
+    let solo = harness.set_target(&solo, "独行译文");
+    assert_eq!(solo["origin"]["edited"], false);
+
+    // A plain write that changes the target marks the stamp edited — the
+    // pollution signal — while keeping kind and score.
+    let solo = harness.set_target(&solo, "独行译文（改）");
+    assert_eq!(
+        solo["origin"],
+        json!({ "kind": "tmFuzzy", "score": 85, "edited": true })
+    );
+
+    // Emptying the target returns the row to untranslated and clears the
+    // origin entirely: no translation, no source to attribute.
+    let solo = harness.set_target(&solo, "");
+    assert_eq!(solo["state"], "untranslated");
+    assert!(solo.get("origin").is_none());
+
+    // An AI-draft apply is a stamped update carrying the provider model.
+    let first = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segments[0]["id"],
+            "targetText": "重复我。",
+            "baseRevision": segments[0]["revision"],
+            "origin": { "kind": "aiDraft", "model": "test-model" },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(
+        first["origin"],
+        json!({ "kind": "aiDraft", "model": "test-model", "edited": false })
+    );
+
+    // Confirming never restamps: the confirmed row keeps its aiDraft origin,
+    // the TM entry is still written, and the propagated sibling gets an
+    // honest tmExact/100 (exact-source reuse by construction).
+    let confirmed = harness.confirm(&first);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["segment"]["origin"],
+        json!({ "kind": "aiDraft", "model": "test-model", "edited": false })
+    );
+    assert_eq!(confirmed["tmEntry"]["sourceText"], "Repeat me.");
+    let propagated = confirmed["propagated"].as_array().expect("propagated");
+    assert_eq!(propagated.len(), 1);
+    assert_eq!(propagated[0]["id"], segments[1]["id"]);
+    assert_eq!(propagated[0]["state"], "draft");
+    assert_eq!(
+        propagated[0]["origin"],
+        json!({ "kind": "tmExact", "score": 100, "edited": false })
+    );
+
+    // Origins live in SQL, not RAM: everything reads back after a restart,
+    // and the never-stamped row is still origin-less.
+    harness.reopen();
+    let segments = harness.segments(&document_id);
+    assert_eq!(
+        segments[0]["origin"],
+        json!({ "kind": "aiDraft", "model": "test-model", "edited": false })
+    );
+    assert_eq!(
+        segments[1]["origin"],
+        json!({ "kind": "tmExact", "score": 100, "edited": false })
+    );
+    assert!(segments[2].get("origin").is_none());
+
+    // segment.replace is plain-edit semantics: the rewritten row keeps its
+    // stamp but gains the edited mark.
+    let replaced = harness.call(
+        "segment.replace",
+        json!({ "documentId": document_id, "find": "重复", "replaceWith": "重复了" }),
+    );
+    assert_eq!(replaced["segments"].as_array().expect("segments").len(), 1);
+    assert_eq!(
+        replaced["segments"][0]["origin"],
+        json!({ "kind": "tmExact", "score": 100, "edited": true })
     );
 }
 
@@ -2650,9 +2773,18 @@ fn document_list_reports_per_document_progress() {
     for (document, entry) in documents.iter().zip(progress) {
         assert_eq!(document["id"], entry["documentId"], "aligned by order");
     }
+    // sourceWords follows the documented 口径 (UAX #29; numbers count 1):
+    // "The amount is 30." = 4, "Second line." = 2, "Third line." = 2.
     assert_eq!(
         progress[0]["counts"],
-        json!({ "total": 3, "untranslated": 3, "draft": 0, "confirmed": 0, "openIssues": 0 })
+        json!({
+            "total": 3,
+            "untranslated": 3,
+            "draft": 0,
+            "confirmed": 0,
+            "openIssues": 0,
+            "sourceWords": 8,
+        })
     );
 
     // One draft with a number mismatch (open QA issues after qa.run), one
@@ -2680,6 +2812,8 @@ fn document_list_reports_per_document_progress() {
             "draft": 1,
             "confirmed": 1,
             "openIssues": open_issues,
+            // Target edits never move the source word count.
+            "sourceWords": 8,
         })
     );
     let second = progress
@@ -2688,7 +2822,14 @@ fn document_list_reports_per_document_progress() {
         .expect("second document progress");
     assert_eq!(
         second["counts"],
-        json!({ "total": 2, "untranslated": 2, "draft": 0, "confirmed": 0, "openIssues": 0 })
+        json!({
+            "total": 2,
+            "untranslated": 2,
+            "draft": 0,
+            "confirmed": 0,
+            "openIssues": 0,
+            "sourceWords": 2,
+        })
     );
 
     // Waiving one issue removes exactly it from the open count without
@@ -2720,6 +2861,7 @@ fn document_list_reports_per_document_progress() {
             "draft": 1,
             "confirmed": 1,
             "openIssues": open_issues - 1,
+            "sourceWords": 8,
         })
     );
 }

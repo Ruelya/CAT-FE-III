@@ -480,6 +480,13 @@ textarea.tl-field__control {
   color: var(--tl-color-accent-strong);
 }
 
+/* Edited after apply (Studio-style pollution signal): the fill goes, the
+   value stays readable. */
+.tl-match[data-muted] .tl-match__score,
+.tl-match[data-muted] .tl-match__origin {
+  background: transparent;
+}
+
 /* Keyboard-shortcut chip for inline hints. */
 .tl-kbd {
   display: inline-block;

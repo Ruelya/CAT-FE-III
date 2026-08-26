@@ -393,6 +393,8 @@ describe("WorkbenchView application menu commands", () => {
       expect(updateParams).toMatchObject({
         segmentId: "s1",
         targetText: "保留期为 30 天。",
+        // The apply stamps the real lookup grade and score as the origin.
+        origin: { kind: "tmExact", score: 100 },
       });
     });
     expect(onStatusMessage).toHaveBeenCalledWith(
@@ -401,6 +403,55 @@ describe("WorkbenchView application menu commands", () => {
     // A number with no matching hit reports honestly and writes nothing.
     fireEvent.keyDown(editor, { key: "5", ctrlKey: true });
     expect(onStatusMessage).toHaveBeenCalledWith("没有第 5 条记忆匹配");
+  });
+
+  it("stamps the fuzzy grade and score as the origin on dock apply", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.lookup"] = () => ({
+      matches: [
+        {
+          entry: {
+            id: "tm-1",
+            memoryId: "m1",
+            sourceHash: "other-hash",
+            sourceText: "The retention period is 45 days.",
+            targetText: "保留期为 45 天。",
+            originProjectId: "p1",
+            originDocumentId: "d1",
+            originSegmentId: "s1",
+            confirmedAtMs: 1,
+          },
+          score: 85,
+          grade: "fuzzy",
+        },
+      ],
+      totalMatches: 1,
+    });
+    let updateParams: unknown = null;
+    handlers["segment.update"] = (params) => {
+      updateParams = params;
+      return {
+        segment: { ...SEGMENT, targetText: "保留期为 45 天。", revision: 2 },
+      };
+    };
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const apply = await screen.findByText("应用为草稿");
+    fireEvent.click(apply);
+    await waitFor(() => {
+      expect(updateParams).toMatchObject({
+        segmentId: "s1",
+        targetText: "保留期为 45 天。",
+        origin: { kind: "tmFuzzy", score: 85 },
+      });
+    });
   });
 
   it("opens the import dialog from the menu like the 导入 button", async () => {
@@ -2479,6 +2530,9 @@ describe("WorkbenchView segment intel", () => {
           confirmed: 0,
           openIssues: 0,
         },
+        // baseHandlers' document.list reports no sourceWords, so the shell
+        // gets null — the readout renders nothing rather than counting.
+        sourceWords: null,
         activeOrdinal: 0,
         // The target editor is mounted, so the caret readout is live.
         caret: { line: 1, column: 1 },
@@ -2488,6 +2542,49 @@ describe("WorkbenchView segment intel", () => {
     // status bar pointing at a document that is no longer open.
     view.unmount();
     expect(onStatsChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("passes the engine's source word count through to the shell stats", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT],
+      progress: [
+        {
+          documentId: "d1",
+          counts: {
+            total: 1,
+            untranslated: 0,
+            draft: 1,
+            confirmed: 0,
+            openIssues: 0,
+            // Engine-computed 口径 value; the renderer never counts words.
+            sourceWords: 8,
+          },
+        },
+      ],
+    });
+    installBridge(handlers);
+    const onStatsChange = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onStatsChange={onStatsChange}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await waitFor(() => {
+      expect(onStatsChange).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceWords: 8 }),
+      );
+    });
+    // The local recount that keeps the explorer live must not drop the
+    // engine's word count (target edits never change the source text).
+    const lastStats = onStatsChange.mock.calls.at(-1)?.[0] as {
+      sourceWords: number | null;
+    };
+    expect(lastStats.sourceWords).toBe(8);
   });
 
   it("registers a status-bar jump that applies the 草稿/QA grid filters", async () => {

@@ -12,7 +12,10 @@ use tl_asset::{
     TermEntry, TermExchangeEntry, TermExchangeTranslation, TermMatch, TermStatus, TermTranslation,
     Termbase, TermbaseMount, TmExchangeUnit, match_score, normalize_match_key, term_spans,
 };
-use tl_domain::{Segment, SegmentState, TmEntry, new_id, normalize_text, sha256_hex};
+use tl_domain::{
+    Segment, SegmentOrigin, SegmentOriginKind, SegmentState, TmEntry, new_id, normalize_text,
+    sha256_hex,
+};
 use tl_protocol::{
     TM_LIST_DEFAULT_LIMIT, TM_LIST_MAX_LIMIT, TM_LOOKUP_DEFAULT_LIMIT, TM_LOOKUP_DEFAULT_MIN_SCORE,
     TM_LOOKUP_MAX_LIMIT, TM_PRETRANSLATE_DEFAULT_MIN_SCORE, TermAddParams, TermAddResult,
@@ -405,6 +408,18 @@ impl Engine {
             }
             segment.target_text = best.entry.target_text.clone();
             segment.state = SegmentState::Draft;
+            // Stamp the origin with the real lookup grade and score. No
+            // lookup path emits `inContext` (dead contract variant); it
+            // would still be an exact-source reuse if one ever did.
+            segment.origin = Some(SegmentOrigin {
+                kind: match best.grade {
+                    TmMatchGrade::Fuzzy => SegmentOriginKind::TmFuzzy,
+                    TmMatchGrade::Exact | TmMatchGrade::InContext => SegmentOriginKind::TmExact,
+                },
+                score: Some(best.score),
+                model: None,
+                edited: false,
+            });
             segment.revision += 1;
             segment.updated_at_ms = now;
             if best.grade == TmMatchGrade::Exact {

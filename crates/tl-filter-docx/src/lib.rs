@@ -1346,6 +1346,7 @@ mod tests {
                     source_hash,
                     context_hash,
                     updated_at_ms: 0,
+                    origin: None,
                 }
             })
             .collect()
