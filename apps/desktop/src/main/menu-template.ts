@@ -8,7 +8,7 @@
  * main must not swallow them):
  * - Chords the renderer already listens for (F3 concordance, F4/Shift+F4
  *   find next/prev, Ctrl+Enter confirm) and workbench-interaction chords
- *   (Ctrl+F filter) are displayed
+ *   (Ctrl+F/Ctrl+H find widget, Ctrl+Shift+F filter) are displayed
  *   in the menu but NOT registered as global accelerators on Windows/Linux
  *   (`registerAccelerator: false`), so the raw key events keep reaching the
  *   renderer keymap. Clicking the item dispatches the same command over IPC.
@@ -38,6 +38,7 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "CmdOrCtrl+Alt+Shift+Enter",
   "CmdOrCtrl+F",
   "CmdOrCtrl+H",
+  "CmdOrCtrl+Shift+F",
   "CmdOrCtrl+Shift+P",
   // Ctrl+数字: dock switch normally, numbered-TM-match apply while the
   // grid editor has focus — only the renderer can tell the two apart.
@@ -198,16 +199,25 @@ export function buildMenuTemplate(
   const navigationMenu: MenuItemConstructorOptions = {
     label: "导航",
     submenu: [
-      // Renderer-owned Ctrl+F focuses the grid filter input.
+      // Renderer-owned Ctrl+F summons the floating find widget (find row);
+      // Ctrl+H summons it with the replace row revealed. Find jumps the
+      // selection and never hides rows — hiding is the filter channel.
       commandItem(
-        "筛选句段",
-        "focus-filter",
+        "查找…",
+        "open-find",
         context.documentOpen,
         "CmdOrCtrl+F",
         true,
       ),
+      commandItem(
+        "替换…",
+        "open-replace",
+        context.documentOpen,
+        "CmdOrCtrl+H",
+        true,
+      ),
       // Renderer-owned F4 / Shift+F4 jump the selection through segments
-      // matching the find box query without hiding any rows.
+      // matching the find query without hiding any rows.
       commandItem("查找下一个", "find-next", context.documentOpen, "F4", true),
       commandItem(
         "查找上一个",
@@ -216,13 +226,13 @@ export function buildMenuTemplate(
         "Shift+F4",
         true,
       ),
-      // Renderer-owned Ctrl+H focuses the replace box in the find/replace
-      // toolbar; the actual replace stays a button/Enter action there.
+      // Renderer-owned Ctrl+Shift+F focuses the grid filter input (display
+      // filter: hides rows, chips on the grid toolbar).
       commandItem(
-        "替换…",
-        "focus-replace",
+        "筛选句段",
+        "focus-filter",
         context.documentOpen,
-        "CmdOrCtrl+H",
+        "CmdOrCtrl+Shift+F",
         true,
       ),
       // Renderer-owned F3 seeds concordance from the current selection.

@@ -536,28 +536,6 @@ body {
   flex: none;
 }
 
-.ribbon__filter-count {
-  font-family: var(--tl-font-mono);
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-text-muted);
-  white-space: nowrap;
-}
-
-.ribbon__filter-clear {
-  font: inherit;
-  font-size: var(--tl-text-xs);
-  color: var(--tl-color-accent-strong);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: var(--tl-space-1) var(--tl-space-2);
-  border-radius: var(--tl-radius-sm);
-}
-
-.ribbon__filter-clear:hover {
-  background: var(--tl-color-accent-faint);
-}
-
 .ribbon__search-box {
   display: flex;
   align-items: center;
@@ -969,8 +947,9 @@ body {
   border-bottom-color: var(--tl-color-accent);
 }
 
-/* Segment grid toolbar (state filter + find/replace). One row, no wrap:
-   inputs shrink before anything folds or clips. */
+/* Segment grid toolbar: state filter + removable filter chips on the
+   left, the resident visible/total count on the right. Find/replace has
+   no permanent chrome here — it lives in the summonable find widget. */
 
 .grid-toolbar {
   display: flex;
@@ -983,15 +962,7 @@ body {
   min-width: 0;
 }
 
-.grid-toolbar__sep {
-  width: 1px;
-  height: 18px;
-  background: var(--tl-color-border);
-  flex: none;
-}
-
-.grid-toolbar__select,
-.grid-toolbar__search {
+.grid-toolbar__select {
   font-family: var(--tl-font-ui);
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text);
@@ -1002,29 +973,202 @@ body {
   padding: 0 8px;
 }
 
-.grid-toolbar__select:focus-visible,
-.grid-toolbar__search:focus-visible {
+.grid-toolbar__select:focus-visible {
   outline: none;
   border-color: var(--tl-color-accent);
   box-shadow: var(--tl-focus-ring);
 }
 
-.grid-toolbar__search {
-  width: 180px;
-  flex: 0 1 auto;
-  min-width: 60px;
+.grid-toolbar__spacer {
+  flex: 1;
 }
 
-.grid-toolbar__search::placeholder {
+/* Resident visible/total readout — always on, even with no filter. */
+.grid-toolbar__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+}
+
+/* Removable filter chips: one per active filter channel; × clears it. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent-strong);
+  background: var(--tl-color-accent-faint);
+  border: 1px solid var(--tl-color-accent);
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--tl-motion-fast) var(--tl-ease-out);
+}
+
+.filter-chip:hover {
+  background: var(--tl-color-surface-raised);
+}
+
+.filter-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.filter-chip__x {
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+}
+
+/* Floating find/replace widget (Ctrl+F / Ctrl+H, VS Code form). The
+   zero-height anchor keeps it overlaying the grid's top-right corner
+   without magic offsets; entry uses the shared overlay rise-in. */
+
+.find-widget-anchor {
+  position: relative;
+  height: 0;
+  z-index: 30;
+  flex: none;
+}
+
+.find-widget {
+  position: absolute;
+  top: var(--tl-space-2);
+  right: 20px;
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+  padding: var(--tl-space-2);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  box-shadow: var(--tl-shadow-pop);
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.find-widget__toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__toggle:hover {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__input {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+  width: 200px;
+}
+
+.find-widget__input:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__input::placeholder {
   color: var(--tl-color-text-faint);
 }
 
-/* Find next/prev box: navigates the selection without hiding rows. */
-.grid-toolbar__find {
-  width: 140px;
+.find-widget__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  min-width: 34px;
+  text-align: right;
+  white-space: nowrap;
 }
 
-.grid-toolbar__checkbox {
+.find-widget__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__button:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.find-widget__button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__action {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: 22px;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.find-widget__action:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__action:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__checkbox {
   display: inline-flex;
   align-items: center;
   gap: 4px;

@@ -50,6 +50,13 @@ export interface SegmentGridHandle {
    * flight, so callers can report honestly instead of guessing.
    */
   confirmActive: (mode?: ConfirmMode) => boolean;
+  /**
+   * Return keyboard focus to the grid: the mounted target editor if one
+   * exists, otherwise the active row. Used when a floating surface (find
+   * widget) closes so the keyboard loop continues where it left off.
+   * Returns false when there is nothing to focus.
+   */
+  focusActive: () => boolean;
 }
 
 export interface SegmentGridProps {
@@ -358,8 +365,30 @@ export function SegmentGrid({
         onConfirm(activeSegment, draft, mode);
         return true;
       },
+      focusActive: () => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+          textarea.focus();
+          return true;
+        }
+        if (activeSegmentId) {
+          const row = rowRefs.current.get(activeSegmentId);
+          if (row) {
+            row.focus();
+            return true;
+          }
+        }
+        return false;
+      },
     }),
-    [spliceIntoEditor, activeSegment, draft, onConfirm, handOffToConfirm],
+    [
+      spliceIntoEditor,
+      activeSegment,
+      activeSegmentId,
+      draft,
+      onConfirm,
+      handOffToConfirm,
+    ],
   );
 
   // --- Roving focus ------------------------------------------------------
@@ -438,6 +467,9 @@ export function SegmentGrid({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Mark the event consumed so workbench-level Escape fallbacks
+        // (clear the display filter) don't also fire on the same press.
+        event.preventDefault();
         setMenuSegmentId(null);
       }
     };

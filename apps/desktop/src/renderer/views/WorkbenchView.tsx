@@ -45,6 +45,7 @@ import type {
 } from "../lib/segment-filter.js";
 import { CommandPalette } from "../components/CommandPalette.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
+import { FindWidget } from "../components/FindWidget.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
 import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
@@ -133,6 +134,11 @@ const STATE_FILTER_OPTIONS: Array<[SegmentStateFilter, string]> = [
   ["qa", "QA 问题"],
 ];
 
+/** Chip labels for active state filters (never shows 全部状态). */
+const STATE_FILTER_LABEL = new Map<SegmentStateFilter, string>(
+  STATE_FILTER_OPTIONS,
+);
+
 function readTextSelection(): string {
   const active = document.activeElement;
   if (
@@ -180,6 +186,10 @@ export function WorkbenchView({
   const [tab, setTab] = useState<DockTab>("memory");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
+  // Mirror for the global keydown handler (Esc clears the filter) so the
+  // listener never resubscribes on every filter keystroke.
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
   // Find next/prev query (F4 / Shift+F4). Unlike `filter`, it never hides
   // rows: it only moves the selection through matching segments.
   const [findQuery, setFindQuery] = useState("");
@@ -189,6 +199,12 @@ export function WorkbenchView({
   // Whether replace may rewrite confirmed segments (demoting them back to
   // draft). Off by default: confirmed work is skipped and reported.
   const [includeConfirmed, setIncludeConfirmed] = useState(false);
+  // The floating find widget (Ctrl+F find row, Ctrl+H adds the replace
+  // row). `findSummon` bumps on every summon chord so an already-open
+  // widget still re-focuses its input.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findMode, setFindMode] = useState<"find" | "replace">("find");
+  const [findSummon, setFindSummon] = useState(0);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -196,8 +212,6 @@ export function WorkbenchView({
   const [layout, updateLayout] = useWorkbenchLayout(project.id);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
-  const findInputRef = useRef<HTMLInputElement | null>(null);
-  const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // Two-step remove: the first 移除 click only arms this id; the row then
   // shows 确认移除/取消 and nothing is deleted until the explicit confirm.
@@ -1088,14 +1102,20 @@ export function WorkbenchView({
     return true;
   }, []);
 
-  const focusFind = useCallback(() => {
-    const input = findInputRef.current;
-    if (!input) {
-      return false;
-    }
-    input.focus();
-    input.select();
-    return true;
+  // Summon the floating find widget. Ctrl+F opens the find row, Ctrl+H
+  // opens with the replace row revealed; either chord re-focuses the
+  // matching input when the widget is already up.
+  const openFind = useCallback((mode: "find" | "replace") => {
+    setFindOpen(true);
+    setFindMode(mode);
+    setFindSummon((count) => count + 1);
+  }, []);
+
+  // Esc (or the × button) dismisses the widget and hands focus back to
+  // the grid so the keyboard loop continues where it left off.
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    gridRef.current?.focusActive();
   }, []);
 
   // Find next/prev (F4 / Shift+F4, menu 查找下一个/查找上一个): moves the
@@ -1111,7 +1131,7 @@ export function WorkbenchView({
       const query = findQuery.trim();
       if (query.length === 0) {
         // No query yet: land the user in the find box instead of guessing.
-        focusFind();
+        openFind("find");
         return;
       }
       const result = findSegmentMatch(
@@ -1138,20 +1158,25 @@ export function WorkbenchView({
       findQuery,
       filteredSegments,
       activeSegmentId,
-      focusFind,
+      openFind,
       onStatusMessage,
     ],
   );
 
-  const focusReplace = useCallback(() => {
-    const input = replaceInputRef.current;
-    if (!input) {
-      return false;
+  // Visible segments matching the find query — the widget's honest count
+  // (whole segments, not occurrences). Same matching semantics as the
+  // filter's text channel, applied to the already-filtered rows.
+  const findMatchCount = useMemo(() => {
+    const query = findQuery.trim();
+    if (query.length === 0) {
+      return 0;
     }
-    input.focus();
-    input.select();
-    return true;
-  }, []);
+    return filterSegments(
+      filteredSegments,
+      { state: "all", query },
+      openIssueSegmentIds,
+    ).length;
+  }, [filteredSegments, findQuery, openIssueSegmentIds]);
 
   // 替换: replace every occurrence of the find query inside the active
   // segment's saved target (case-insensitive, like find). A confirmed
@@ -1165,7 +1190,7 @@ export function WorkbenchView({
     }
     const query = findQuery.trim();
     if (query.length === 0) {
-      focusFind();
+      openFind("replace");
       return;
     }
     if (!activeSegment) {
@@ -1205,7 +1230,7 @@ export function WorkbenchView({
     findQuery,
     replaceWith,
     includeConfirmed,
-    focusFind,
+    openFind,
     findMatch,
     applySegments,
     onStatusMessage,
@@ -1222,7 +1247,7 @@ export function WorkbenchView({
     }
     const query = findQuery.trim();
     if (query.length === 0) {
-      focusFind();
+      openFind("replace");
       return;
     }
     setBusy(true);
@@ -1259,7 +1284,7 @@ export function WorkbenchView({
     findQuery,
     replaceWith,
     includeConfirmed,
-    focusFind,
+    openFind,
     applySegments,
     onStatusMessage,
   ]);
@@ -1279,11 +1304,13 @@ export function WorkbenchView({
 
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
-  // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
-  // segment filter, Ctrl/Cmd+H focus the replace box, Ctrl/Cmd+K and
-  // Ctrl/Cmd+Shift+P summon the command palette, Alt+↑/↓ step the
-  // segment selection (works while typing in the target editor),
-  // Ctrl/Cmd+数字 applies a TM match (editor focused) or switches docks.
+  // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F and Ctrl/Cmd+H
+  // summon the find widget (find / replace rows), Ctrl/Cmd+Shift+F focuses
+  // the segment filter, Ctrl/Cmd+K and Ctrl/Cmd+Shift+P summon the command
+  // palette, Alt+↑/↓ step the segment selection (works while typing in
+  // the target editor), Ctrl/Cmd+数字 applies a TM match (editor focused)
+  // or switches docks, and Esc (when nothing closer consumed it) clears
+  // the active display filter.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
@@ -1362,7 +1389,7 @@ export function WorkbenchView({
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
-        !event.shiftKey &&
+        event.shiftKey &&
         (event.key === "f" || event.key === "F")
       ) {
         if (focusFilter()) {
@@ -1374,10 +1401,39 @@ export function WorkbenchView({
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
         !event.shiftKey &&
+        (event.key === "f" || event.key === "F")
+      ) {
+        event.preventDefault();
+        openFind("find");
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
         (event.key === "h" || event.key === "H")
       ) {
-        if (focusReplace()) {
+        event.preventDefault();
+        openFind("replace");
+        return;
+      }
+      // Esc clears the display filter — but only as the last resort:
+      // surfaces closer to the key (find widget, row menu, editing exit,
+      // dialogs) preventDefault first, and text inputs keep their own Esc.
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !event.isComposing
+      ) {
+        const target = event.target;
+        const inTextControl =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement;
+        if (!inTextControl && isFilterActive(filterRef.current)) {
           event.preventDefault();
+          setFilter(EMPTY_FILTER);
+          onStatusMessage("已清除筛选");
         }
       }
     };
@@ -1386,7 +1442,7 @@ export function WorkbenchView({
   }, [
     openConcordance,
     focusFilter,
-    focusReplace,
+    openFind,
     findMatch,
     moveSelection,
     tmMatches,
@@ -1429,8 +1485,15 @@ export function WorkbenchView({
         case "focus-filter":
           focusFilter();
           break;
-        case "focus-replace":
-          focusReplace();
+        case "open-find":
+          if (activeDocument) {
+            openFind("find");
+          }
+          break;
+        case "open-replace":
+          if (activeDocument) {
+            openFind("replace");
+          }
           break;
         case "find-next":
           findMatch("next");
@@ -1457,7 +1520,7 @@ export function WorkbenchView({
       activeDocument,
       openConcordance,
       focusFilter,
-      focusReplace,
+      openFind,
       findMatch,
       confirmActiveSegment,
     ],
@@ -1532,10 +1595,11 @@ export function WorkbenchView({
         "Ctrl+Alt+Shift+Enter",
       ),
       command("open-preview", "译文预览…", documentOpen, "Ctrl+P"),
-      command("focus-filter", "筛选句段", documentOpen, "Ctrl+F"),
+      command("open-find", "查找…", documentOpen, "Ctrl+F"),
+      command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
       command("find-prev", "查找上一个", documentOpen, "Shift+F4"),
-      command("focus-replace", "替换…", documentOpen, "Ctrl+H"),
+      command("focus-filter", "筛选句段", documentOpen, "Ctrl+Shift+F"),
       command("open-concordance", "检索（取选中文本）", true, "F3"),
       command("show-dock-memory", "记忆面板", true, "Ctrl+1"),
       command("show-dock-term", "术语面板", true, "Ctrl+2"),
@@ -1575,22 +1639,18 @@ export function WorkbenchView({
           documentOpen={activeDocument !== null}
           busy={busy}
           filterQuery={filter.query}
-          filterActive={isFilterActive(filter)}
-          filteredCount={filteredSegments.length}
-          totalCount={counts.total}
           filterInputRef={filterInputRef}
           onFilterQueryChange={(value) =>
             setFilter((current) => ({ ...current, query: value }))
           }
-          onClearFilter={() => setFilter(EMPTY_FILTER)}
           onCloseProject={onCloseProject}
           onOpenTmManage={onOpenTmManage}
           onImport={() => setImportOpen(true)}
           onExport={() => void exportDocument()}
           onConfirmSegment={() => confirmActiveSegment()}
           onPretranslate={() => void pretranslate()}
-          onFocusFind={() => focusFind()}
-          onFocusReplace={() => focusReplace()}
+          onOpenFind={() => openFind("find")}
+          onOpenReplace={() => openFind("replace")}
           onFocusFilter={() => focusFilter()}
           onConcordance={openConcordance}
         />
@@ -1865,11 +1925,7 @@ export function WorkbenchView({
                   </Button>
                 </div>
               ) : null}
-              <div
-                className="grid-toolbar"
-                role="toolbar"
-                aria-label="筛选与查找替换"
-              >
+              <div className="grid-toolbar" role="toolbar" aria-label="筛选">
                 <select
                   className="grid-toolbar__select"
                   aria-label="按状态筛选"
@@ -1887,93 +1943,65 @@ export function WorkbenchView({
                     </option>
                   ))}
                 </select>
-                <span className="grid-toolbar__sep" />
-                <input
-                  ref={findInputRef}
-                  className="grid-toolbar__search grid-toolbar__find"
-                  aria-label="查找"
-                  placeholder="查找"
-                  value={findQuery}
-                  onChange={(event) => setFindQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) {
-                      // Enter mid-IME commits the composed text, not a jump.
-                      return;
+                {/* Active filters as removable chips (PRD §3.6): one per
+                    channel, × clears just that channel; Esc clears all. */}
+                {filter.state !== "all" ? (
+                  <button
+                    type="button"
+                    className="filter-chip"
+                    aria-label={`清除状态筛选：${STATE_FILTER_LABEL.get(filter.state) ?? filter.state}`}
+                    onClick={() =>
+                      setFilter((current) => ({ ...current, state: "all" }))
                     }
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      findMatch(event.shiftKey ? "prev" : "next");
+                  >
+                    {STATE_FILTER_LABEL.get(filter.state) ?? filter.state}
+                    <span className="filter-chip__x" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                ) : null}
+                {filter.query.trim().length > 0 ? (
+                  <button
+                    type="button"
+                    className="filter-chip"
+                    aria-label={`清除文本筛选：${filter.query.trim()}`}
+                    onClick={() =>
+                      setFilter((current) => ({ ...current, query: "" }))
                     }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="查找上一个"
-                  title="查找上一个（Shift+F4）"
-                  disabled={findQuery.trim().length === 0}
-                  onClick={() => findMatch("prev")}
+                  >
+                    “{filter.query.trim()}”
+                    <span className="filter-chip__x" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                ) : null}
+                <span className="grid-toolbar__spacer" />
+                <span
+                  className="grid-toolbar__count tl-num"
+                  aria-label="可见句段/总句段"
                 >
-                  上一个
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="查找下一个"
-                  title="查找下一个（F4）"
-                  disabled={findQuery.trim().length === 0}
-                  onClick={() => findMatch("next")}
-                >
-                  下一个
-                </Button>
-                <input
-                  ref={replaceInputRef}
-                  className="grid-toolbar__search grid-toolbar__find"
-                  aria-label="替换为"
-                  placeholder="替换为"
-                  value={replaceWith}
-                  onChange={(event) => setReplaceWith(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) {
-                      return;
-                    }
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void replaceInActive();
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="替换"
-                  title="替换（Ctrl+H）"
-                  disabled={findQuery.trim().length === 0 || busy}
-                  onClick={() => void replaceInActive()}
-                >
-                  替换
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label="全部替换"
-                  title="全部替换"
-                  disabled={findQuery.trim().length === 0 || busy}
-                  onClick={() => void replaceAllInDocument()}
-                >
-                  全部替换
-                </Button>
-                <label className="grid-toolbar__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={includeConfirmed}
-                    onChange={(event) =>
-                      setIncludeConfirmed(event.target.checked)
-                    }
-                  />
-                  含已确认
-                </label>
+                  {filteredSegments.length}/{counts.total}
+                </span>
               </div>
+              <FindWidget
+                open={findOpen}
+                mode={findMode}
+                query={findQuery}
+                replaceWith={replaceWith}
+                includeConfirmed={includeConfirmed}
+                matchCount={findMatchCount}
+                busy={busy}
+                summon={findSummon}
+                onQueryChange={setFindQuery}
+                onReplaceWithChange={setReplaceWith}
+                onIncludeConfirmedChange={setIncludeConfirmed}
+                onModeChange={setFindMode}
+                onFindNext={() => findMatch("next")}
+                onFindPrev={() => findMatch("prev")}
+                onReplace={() => void replaceInActive()}
+                onReplaceAll={() => void replaceAllInDocument()}
+                onClose={closeFind}
+              />
               {segments.length === 0 ? (
                 <EmptyState title="该文档没有句段" />
               ) : filteredSegments.length === 0 ? (

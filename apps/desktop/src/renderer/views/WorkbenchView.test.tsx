@@ -512,7 +512,7 @@ describe("WorkbenchView application menu commands", () => {
     );
   });
 
-  it("focuses the segment filter via the menu command and the Ctrl+F chord", async () => {
+  it("focuses the segment filter via the menu command and the Ctrl+Shift+F chord", async () => {
     const bridge = installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -529,7 +529,7 @@ describe("WorkbenchView application menu commands", () => {
     expect(document.activeElement).toBe(filter);
     // The chord itself is renderer-owned: the menu only displays it.
     (document.activeElement as HTMLElement).blur();
-    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true });
     expect(document.activeElement).toBe(filter);
   });
 });
@@ -732,11 +732,13 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    // Ctrl+F summons the floating find widget over the grid.
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "day",
     );
-    // The find box navigates only; unlike the filter it hides no rows.
+    // The find widget navigates only; unlike the filter it hides no rows.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
     expect(screen.getByText("First day of work.")).toBeInTheDocument();
 
@@ -780,6 +782,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "missing",
@@ -801,6 +804,7 @@ describe("WorkbenchView find next/prev", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "day",
@@ -815,7 +819,7 @@ describe("WorkbenchView find next/prev", () => {
     expect(await screen.findByLabelText("句段 1 译文")).toBeInTheDocument();
   });
 
-  it("focuses the find box when F4 is pressed with an empty query", async () => {
+  it("summons the find widget when F4 is pressed with an empty query", async () => {
     installFindBridge();
     render(
       <WorkbenchView
@@ -825,8 +829,12 @@ describe("WorkbenchView find next/prev", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
+    expect(
+      screen.queryByRole("dialog", { name: "查找" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "F4" });
+    expect(screen.getByRole("dialog", { name: "查找" })).toBeInTheDocument();
     expect(document.activeElement).toBe(
       screen.getByLabelText("查找", { selector: "input" }),
     );
@@ -1060,17 +1068,13 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    // The ribbon also has a 替换 button (focuses the box); the replace
-    // action itself lives in the find/replace toolbar.
-    const toolbar = within(
-      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
-    );
-    await userEvent.type(
-      screen.getByLabelText("查找", { selector: "input" }),
-      "30 天",
-    );
-    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    // Ctrl+H summons the find widget with the replace row revealed; the
+    // replace action lives there (no permanent toolbar chrome).
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
+    const widget = within(screen.getByRole("dialog", { name: "查找替换" }));
+    await userEvent.type(widget.getByLabelText("查找"), "30 天");
+    await userEvent.type(widget.getByLabelText("替换为"), "60 天");
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
 
     await waitFor(() => {
       expect(updateParams).toMatchObject({
@@ -1112,22 +1116,18 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    const toolbar = within(
-      screen.getByRole("toolbar", { name: "筛选与查找替换" }),
-    );
-    await userEvent.type(
-      screen.getByLabelText("查找", { selector: "input" }),
-      "30 天",
-    );
-    await userEvent.type(screen.getByLabelText("替换为"), "60 天");
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
+    const widget = within(screen.getByRole("dialog", { name: "查找替换" }));
+    await userEvent.type(widget.getByLabelText("查找"), "30 天");
+    await userEvent.type(widget.getByLabelText("替换为"), "60 天");
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
 
     // Nothing was written; the guard is reported.
     expect(updateCalls).toHaveLength(0);
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认，未替换");
 
-    await userEvent.click(screen.getByRole("checkbox", { name: /含已确认/ }));
-    await userEvent.click(toolbar.getByRole("button", { name: "替换" }));
+    await userEvent.click(widget.getByRole("checkbox", { name: /含已确认/ }));
+    await userEvent.click(widget.getByRole("button", { name: "替换" }));
     await waitFor(() => {
       expect(updateCalls).toHaveLength(1);
     });
@@ -1164,6 +1164,7 @@ describe("WorkbenchView find & replace", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "30 天",
@@ -1212,6 +1213,7 @@ describe("WorkbenchView find & replace", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    fireEvent.keyDown(window, { key: "h", ctrlKey: true });
     await userEvent.type(
       screen.getByLabelText("查找", { selector: "input" }),
       "missing",
@@ -1228,7 +1230,7 @@ describe("WorkbenchView find & replace", () => {
     );
   });
 
-  it("focuses the replace box via Ctrl+H and the menu 替换… command", async () => {
+  it("opens the widget on the replace row via Ctrl+H and the menu 替换… command", async () => {
     const bridge = installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -1238,16 +1240,163 @@ describe("WorkbenchView find & replace", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    const replaceInput = screen.getByLabelText("替换为");
+    // No permanent replace chrome before the summon.
+    expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "h", ctrlKey: true });
-    expect(document.activeElement).toBe(replaceInput);
+    expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
 
     (document.activeElement as HTMLElement).blur();
     act(() => {
-      bridge.emitMenuCommand("focus-replace");
+      bridge.emitMenuCommand("open-replace");
     });
-    expect(document.activeElement).toBe(replaceInput);
+    expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
+  });
+});
+
+describe("WorkbenchView find widget & filter chips", () => {
+  const CHIP_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0, targetText: "第一天。" },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Second line.",
+      targetText: "第二行。",
+      state: "confirmed",
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Third line.",
+      targetText: "",
+      state: "untranslated",
+    },
+  ];
+
+  function installChipBridge() {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: CHIP_SEGMENTS });
+    return installBridge(handlers);
+  }
+
+  it("Ctrl+F opens find-only, the toggle reveals replace, Esc returns focus to the grid", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor = await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    const widget = screen.getByRole("dialog", { name: "查找" });
+    expect(widget).toBeInTheDocument();
+    // Find mode keeps the replace row collapsed.
+    expect(screen.queryByLabelText("替换为")).not.toBeInTheDocument();
+
+    // The chevron toggle expands the replace row in place.
+    await userEvent.click(screen.getByRole("button", { name: "展开替换" }));
+    expect(screen.getByLabelText("替换为")).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "查找替换" }),
+    ).toBeInTheDocument();
+
+    // Esc dismisses the widget and hands focus back to the grid editor.
+    fireEvent.keyDown(screen.getByLabelText("查找", { selector: "input" }), {
+      key: "Escape",
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "查找" }),
+    ).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("shows the honest matching-segment count next to the find box", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
+    await userEvent.type(
+      screen.getByLabelText("查找", { selector: "input" }),
+      "line",
+    );
+    // s2 and s3 contain "line" (case-insensitive); s1 does not.
+    expect(screen.getByLabelText("匹配句段数")).toHaveTextContent("2 段");
+  });
+
+  it("shows removable filter chips and the resident visible/total count", async () => {
+    installChipBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The count is resident even with no filter active.
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+    expect(screen.queryByRole("button", { name: /清除状态筛选/ })).toBeNull();
+
+    // A state filter raises its chip and shrinks the visible count.
+    await userEvent.selectOptions(
+      screen.getByLabelText("按状态筛选"),
+      "confirmed",
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+    // A text filter raises a second, independently removable chip.
+    await userEvent.type(screen.getByLabelText("按文本筛选"), "line");
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+    expect(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    ).toBeInTheDocument();
+
+    // × on the state chip clears only the state channel.
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除状态筛选：已确认" }),
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("2/3");
+    expect(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除文本筛选：line" }),
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+  });
+
+  it("Esc on the grid clears the active filter as the last resort", async () => {
+    installChipBridge();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.selectOptions(
+      screen.getByLabelText("按状态筛选"),
+      "confirmed",
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/3");
+
+    // Esc fired outside any text control clears the filter and says so.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("3/3");
+    expect(onStatusMessage).toHaveBeenCalledWith("已清除筛选");
   });
 });
 
@@ -1939,7 +2088,7 @@ describe("WorkbenchView ribbon", () => {
     expect(onCloseProject).toHaveBeenCalledTimes(1);
   });
 
-  it("focuses the workbench inputs from the review group buttons", async () => {
+  it("summons the find widget and focuses the filter from the review group buttons", async () => {
     installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -1949,7 +2098,7 @@ describe("WorkbenchView ribbon", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
-    // Ribbon buttons share accessible names with grid-toolbar controls
+    // Ribbon buttons share accessible names with find-widget controls
     // (替换), so scope the clicks to the toolbar.
     const ribbon = within(screen.getByRole("toolbar", { name: "工具栏" }));
     await userEvent.click(ribbon.getByRole("button", { name: "查找" }));
