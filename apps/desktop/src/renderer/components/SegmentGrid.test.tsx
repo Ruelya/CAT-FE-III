@@ -136,6 +136,115 @@ describe("SegmentGrid", () => {
     expect(screen.getByRole("img", { name: "草稿" })).toBeInTheDocument();
   });
 
+  it("renders persisted origin chips honestly (S2a)", () => {
+    const withOrigin = (
+      base: Segment,
+      origin: NonNullable<Segment["origin"]>,
+    ): Segment => ({ ...base, origin });
+    const { container } = render(
+      <SegmentGrid
+        segments={[
+          // TM fuzzy apply: score + TM label, fuzzy (accent) tone.
+          withOrigin(segment("s1", 0, "One.", "一。"), {
+            kind: "tmFuzzy",
+            score: 85,
+            edited: false,
+          }),
+          // Edited after apply: the value stays, the tone fill goes.
+          withOrigin(segment("s2", 1, "Two.", "二！"), {
+            kind: "tmExact",
+            score: 100,
+            edited: true,
+          }),
+          // AI draft: label only — no provider returns confidence, so the
+          // chip never carries a number.
+          withOrigin(segment("s3", 2, "Three.", "三。"), {
+            kind: "aiDraft",
+            model: "gpt-test",
+            edited: false,
+          }),
+          // History/human rows have no origin: the chip slot stays empty.
+          segment("s4", 3, "Four.", "四。"),
+        ]}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    const chips = container.querySelectorAll(".tl-match");
+    expect(chips).toHaveLength(3);
+    expect(chips[0]).toHaveTextContent("85TM");
+    expect(chips[0]).toHaveAttribute("data-tone", "accent");
+    // Tooltip: 状态/来源/分值/模型 — only the lines that exist.
+    expect(chips[0]).toHaveAttribute("title", "状态：草稿\n来源：TM 模糊\n分值：85");
+    expect(chips[1]).toHaveTextContent("100TM");
+    expect(chips[1]).not.toHaveAttribute("data-tone");
+    expect(chips[1]).toHaveAttribute("data-muted");
+    expect(chips[2]).toHaveTextContent("AI");
+    expect(chips[2]?.querySelector(".tl-match__score")).toBeNull();
+    expect(chips[2]).toHaveAttribute(
+      "title",
+      "状态：草稿\n来源：AI\n模型：gpt-test",
+    );
+  });
+
+  it("shows the live lookup badge only on origin-less active rows", () => {
+    const match = {
+      entry: {
+        id: "tm1",
+        memoryId: "m1",
+        sourceText: "One.",
+        targetText: "一。",
+        sourceHash: "hash",
+        originProjectId: "p1",
+        originDocumentId: "d1",
+        originSegmentId: "s0",
+        confirmedAtMs: 1,
+      },
+      score: 92,
+      grade: "fuzzy" as const,
+    };
+    // Origin-less active row: the live lookup badge is the only honest
+    // score available.
+    const { container, rerender } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "One.", "一。")]}
+        activeSegmentId="s1"
+        activeMatch={match}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByTitle("TM 最佳匹配 92%")).toBeInTheDocument();
+
+    // Once a real stored origin exists it wins over the live lookup.
+    rerender(
+      <SegmentGrid
+        segments={[
+          {
+            ...segment("s1", 0, "One.", "一。"),
+            origin: { kind: "tmExact", score: 100, edited: false },
+          },
+        ]}
+        activeSegmentId="s1"
+        activeMatch={match}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTitle("TM 最佳匹配 92%")).not.toBeInTheDocument();
+    expect(container.querySelector(".tl-match")).toHaveAttribute(
+      "title",
+      "状态：草稿\n来源：TM 精确\n分值：100",
+    );
+  });
+
   it("reports the caret line/column while editing and clears it on exit", () => {
     const onCaretChange = vi.fn();
     render(
