@@ -1,8 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Project, TmEntry } from "@translunar/contracts";
+import type {
+  Memory,
+  MemoryMount,
+  Project,
+  TmEntry,
+} from "@translunar/contracts";
 import type {
   DesktopApi,
   EngineInvokeResponse,
@@ -23,10 +28,45 @@ const project: Project = {
   configuration: {},
 };
 
-function entry(id: string, sourceText: string, targetText: string): TmEntry {
+function memory(id: string, name: string): Memory {
   return {
     id,
-    memoryId: "tm-p1",
+    name,
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+    revision: 1,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+}
+
+function mount(
+  memoryId: string,
+  priority: number,
+  overrides?: Partial<MemoryMount>,
+): MemoryMount {
+  return {
+    projectId: "p1",
+    memoryId,
+    priority,
+    enabled: true,
+    writable: false,
+    revision: 1,
+    createdAtMs: 1,
+    updatedAtMs: 1,
+    ...overrides,
+  };
+}
+
+function entry(
+  id: string,
+  memoryId: string,
+  sourceText: string,
+  targetText: string,
+): TmEntry {
+  return {
+    id,
+    memoryId,
     sourceText,
     targetText,
     sourceHash: `hash-${id}`,
@@ -37,9 +77,141 @@ function entry(id: string, sourceText: string, targetText: string): TmEntry {
   };
 }
 
-function installBridge(
-  invoke: (method: string, params: unknown) => Promise<EngineInvokeResponse>,
-) {
+interface BridgeState {
+  memories: Memory[];
+  mounts: MemoryMount[];
+  entries: TmEntry[];
+}
+
+/**
+ * Stateful fake engine: serves memory.list / tm.list from state and applies
+ * memory.attach / detach / update and tm.update / delete the way the real
+ * engine does — including the refusal to hold two writable mounts, so the
+ * dialog's demote-then-promote sequence is actually exercised.
+ */
+function installMemoryBridge(state: BridgeState) {
+  const calls: Array<[string, unknown]> = [];
+  const sorted = () =>
+    [...state.mounts].sort((a, b) => a.priority - b.priority);
+  const renumber = (list: MemoryMount[]) => {
+    list.forEach((item, index) => {
+      item.priority = index;
+    });
+    state.mounts = list;
+  };
+  const invoke = (
+    method: string,
+    params: unknown,
+  ): Promise<EngineInvokeResponse> => {
+    calls.push([method, params]);
+    const p = params as Record<string, unknown>;
+    switch (method) {
+      case "memory.list":
+        return Promise.resolve({
+          ok: true,
+          result: { memories: [...state.memories], mounts: sorted() },
+        });
+      case "memory.attach": {
+        const added = mount(p.memoryId as string, state.mounts.length);
+        state.mounts.push(added);
+        return Promise.resolve({ ok: true, result: { mount: added } });
+      }
+      case "memory.detach": {
+        const removed = state.mounts.find(
+          (item) => item.memoryId === p.memoryId,
+        );
+        if (!removed) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "notFound", message: "mount not found" },
+          });
+        }
+        renumber(sorted().filter((item) => item !== removed));
+        return Promise.resolve({ ok: true, result: { mount: removed } });
+      }
+      case "memory.update": {
+        const target = state.mounts.find(
+          (item) => item.memoryId === p.memoryId,
+        );
+        if (!target) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "notFound", message: "mount not found" },
+          });
+        }
+        if (
+          p.writable === true &&
+          state.mounts.some((item) => item.writable && item !== target)
+        ) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "conflict", message: "已有可写挂载" },
+          });
+        }
+        if (typeof p.enabled === "boolean") {
+          target.enabled = p.enabled;
+        }
+        if (typeof p.writable === "boolean") {
+          target.writable = p.writable;
+        }
+        if (typeof p.priority === "number") {
+          const rest = sorted().filter((item) => item !== target);
+          rest.splice(Math.min(p.priority, rest.length), 0, target);
+          renumber(rest);
+        }
+        return Promise.resolve({ ok: true, result: { mounts: sorted() } });
+      }
+      case "memory.create": {
+        const created = memory(
+          `m-new-${state.memories.length}`,
+          p.name as string,
+        );
+        state.memories.push(created);
+        return Promise.resolve({ ok: true, result: created });
+      }
+      case "tm.list": {
+        const query = typeof p.query === "string" ? p.query : "";
+        const all = state.entries.filter(
+          (item) =>
+            item.memoryId === p.memoryId &&
+            (!query ||
+              item.sourceText.includes(query) ||
+              item.targetText.includes(query)),
+        );
+        const offset = typeof p.offset === "number" ? p.offset : 0;
+        const limit = typeof p.limit === "number" ? p.limit : 50;
+        return Promise.resolve({
+          ok: true,
+          result: {
+            entries: all.slice(offset, offset + limit),
+            total: all.length,
+          },
+        });
+      }
+      case "tm.update": {
+        const target = state.entries.find((item) => item.id === p.entryId);
+        if (!target) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "notFound", message: "entry not found" },
+          });
+        }
+        target.sourceText = p.sourceText as string;
+        target.targetText = p.targetText as string;
+        return Promise.resolve({ ok: true, result: { entry: { ...target } } });
+      }
+      case "tm.delete": {
+        const target = state.entries.find((item) => item.id === p.entryId);
+        state.entries = state.entries.filter((item) => item !== target);
+        return Promise.resolve({ ok: true, result: { entry: target } });
+      }
+      default:
+        return Promise.resolve({
+          ok: false,
+          error: { code: "invalidParams", message: `unexpected ${method}` },
+        });
+    }
+  };
   const bridge = { invoke: vi.fn(invoke) };
   const api: Partial<DesktopApi> = bridge;
   Object.defineProperty(window, "tl", {
@@ -47,88 +219,258 @@ function installBridge(
     configurable: true,
     writable: true,
   });
-  return bridge;
+  return { bridge, calls };
 }
 
-function listResponse(
-  entries: TmEntry[],
-  total?: number,
-): EngineInvokeResponse {
+/** Working memory (writable) plus one read-only reference memory. */
+function twoMountState(): BridgeState {
   return {
-    ok: true,
-    result: { entries, total: total ?? entries.length },
+    memories: [memory("tm-p1", "主记忆库"), memory("m-b", "领域库")],
+    mounts: [
+      mount("tm-p1", 0, { writable: true }),
+      mount("m-b", 1),
+    ],
+    entries: [
+      entry("e1", "tm-p1", "Hello world.", "你好，世界。"),
+      entry("e2", "tm-p1", "Save often.", "经常保存。"),
+      entry("e3", "m-b", "Domain term.", "领域术语。"),
+    ],
   };
 }
 
 describe("TmManageDialog", () => {
-  it("lists project TM entries with the engine's honest count", async () => {
-    const calls: Array<[string, unknown]> = [];
-    installBridge((method, params) => {
-      calls.push([method, params]);
-      return Promise.resolve(
-        listResponse([
-          entry("e1", "Hello world.", "你好，世界。"),
-          entry("e2", "Save often.", "经常保存。"),
-        ]),
-      );
-    });
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("lists mounts with 可写/只读 badges and the writable memory's entries", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByText("源：Hello world.")).toBeInTheDocument();
     });
-    expect(screen.getByText("你好，世界。")).toBeInTheDocument();
-    expect(screen.getByText("项目 TM 共 2 条")).toBeInTheDocument();
+    // Both mounts render, the writable one badged 可写, the other 只读.
+    expect(screen.getByText("可写")).toBeInTheDocument();
+    expect(screen.getByText("只读")).toBeInTheDocument();
+    // Entries default to the writable (working) memory with an honest count.
+    expect(screen.getByText("记忆库「主记忆库」共 2 条")).toBeInTheDocument();
     const listCall = calls.find(([method]) => method === "tm.list");
-    expect(listCall?.[1]).toEqual({ projectId: "p1", limit: 50, offset: 0 });
+    expect(listCall?.[1]).toEqual({
+      projectId: "p1",
+      memoryId: "tm-p1",
+      limit: 50,
+      offset: 0,
+    });
   });
 
-  it("shows an honest empty state when the TM has no entries", async () => {
-    installBridge(() => Promise.resolve(listResponse([])));
+  it("switches the entries listing to another mounted memory", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText("TM 暂无条目")).toBeInTheDocument();
+      expect(screen.getByText("源：Hello world.")).toBeInTheDocument();
     });
-    expect(screen.getByText("项目 TM 共 0 条")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("记忆库"), "m-b");
+    await waitFor(() => {
+      expect(screen.getByText("源：Domain term.")).toBeInTheDocument();
+    });
+    expect(screen.getByText("记忆库「领域库」共 1 条")).toBeInTheDocument();
+    expect(screen.queryByText("源：Hello world.")).not.toBeInTheDocument();
+    const switched = calls.find(
+      ([method, params]) =>
+        method === "tm.list" &&
+        (params as { memoryId?: string }).memoryId === "m-b",
+    );
+    expect(switched).toBeDefined();
   });
 
-  it("surfaces tm.list engine errors instead of pretending", async () => {
-    installBridge(() =>
-      Promise.resolve({
-        ok: false,
-        error: { code: "notFound", message: "project p1" },
-      }),
+  it("promotes a memory to writable by demoting the current one first", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("可写")).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "设为可写记忆库 领域库" }),
     );
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已设为可写：领域库",
+      );
+    });
+    // The fake engine refuses two writable mounts, so reaching this state
+    // proves the demote ran before the promote.
+    const updates = calls.filter(([method]) => method === "memory.update");
+    expect(updates.map(([, params]) => params)).toEqual([
+      { projectId: "p1", memoryId: "tm-p1", writable: false },
+      { projectId: "p1", memoryId: "m-b", writable: true },
+    ]);
+    // Exactly one 可写 badge remains.
+    expect(screen.getAllByText("可写")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "设为可写记忆库 主记忆库" }),
+    ).toBeInTheDocument();
+  });
+
+  it("reorders mounts through memory.update priority", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    const moveUp = await screen.findByRole("button", {
+      name: "上移记忆库 领域库",
+    });
+    await userEvent.click(moveUp);
+    await waitFor(() => {
+      const names = screen
+        .getAllByText(/主记忆库|领域库/)
+        .filter((node) => node.className === "tm-manage__mount-name")
+        .map((node) => node.textContent);
+      expect(names).toEqual(["领域库", "主记忆库"]);
+    });
+    const move = calls.find(([method]) => method === "memory.update");
+    expect(move?.[1]).toEqual({
+      projectId: "p1",
+      memoryId: "m-b",
+      priority: 0,
+    });
+  });
+
+  it("disables a mount for the read path and re-enables it", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    const disable = await screen.findByRole("button", {
+      name: "停用记忆库 领域库",
+    });
+    await userEvent.click(disable);
+    await waitFor(() => {
+      expect(screen.getByText("已停用")).toBeInTheDocument();
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "启用记忆库 领域库" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText("已停用")).not.toBeInTheDocument();
+    });
+    const updates = calls.filter(([method]) => method === "memory.update");
+    expect(updates.map(([, params]) => params)).toEqual([
+      { projectId: "p1", memoryId: "m-b", enabled: false },
+      { projectId: "p1", memoryId: "m-b", enabled: true },
+    ]);
+  });
+
+  it("attaches an existing memory read-only", async () => {
+    const state = twoMountState();
+    state.memories.push(memory("m-c", "参考库"));
+    const { calls } = installMemoryBridge(state);
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("挂载已有记忆库")).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("挂载已有记忆库"),
+      "m-c",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "挂载" }));
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已挂载：参考库（只读）",
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "卸载记忆库 参考库" }),
+    ).toBeInTheDocument();
+    const attach = calls.find(([method]) => method === "memory.attach");
+    expect(attach?.[1]).toEqual({ projectId: "p1", memoryId: "m-c" });
+    // A fresh mount never becomes writable by itself.
+    expect(screen.getAllByText("只读")).toHaveLength(2);
+  });
+
+  it("creates a memory with the project locales and mounts it", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("新建记忆库")).toBeInTheDocument();
+    });
+    await userEvent.type(screen.getByLabelText("新建记忆库"), "  风格库  ");
+    await userEvent.click(
+      screen.getByRole("button", { name: "新建并挂载" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已新建并挂载：风格库（只读）",
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "卸载记忆库 风格库" }),
+    ).toBeInTheDocument();
+    const create = calls.find(([method]) => method === "memory.create");
+    expect(create?.[1]).toEqual({
+      name: "风格库",
+      sourceLocale: "en-US",
+      targetLocale: "zh-CN",
+    });
+    const attach = calls.find(([method]) => method === "memory.attach");
+    expect(attach?.[1]).toEqual({ projectId: "p1", memoryId: "m-new-2" });
+  });
+
+  it("detaches a mount and keeps its entries", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    const detachButton = await screen.findByRole("button", {
+      name: "卸载记忆库 领域库",
+    });
+    await userEvent.click(detachButton);
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "已卸载：领域库（条目保留）",
+      );
+    });
+    expect(
+      screen.queryByRole("button", { name: "卸载记忆库 领域库" }),
+    ).not.toBeInTheDocument();
+    const detach = calls.find(([method]) => method === "memory.detach");
+    expect(detach?.[1]).toEqual({ projectId: "p1", memoryId: "m-b" });
+  });
+
+  it("surfaces engine errors instead of pretending", async () => {
+    const bridge = {
+      invoke: vi.fn(() =>
+        Promise.resolve({
+          ok: false as const,
+          error: { code: "notFound", message: "project p1" },
+        }),
+      ),
+    };
+    Object.defineProperty(window, "tl", {
+      value: bridge as Partial<DesktopApi>,
+      configurable: true,
+      writable: true,
+    });
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("project p1");
     });
   });
 
-  it("searches entries by sending the trimmed query to tm.list", async () => {
-    const calls: Array<[string, unknown]> = [];
-    installBridge((method, params) => {
-      calls.push([method, params]);
-      const query = (params as { query?: string }).query;
-      if (query === "hello") {
-        return Promise.resolve(
-          listResponse([entry("e1", "Hello world.", "你好，世界。")]),
-        );
-      }
-      return Promise.resolve(
-        listResponse([
-          entry("e1", "Hello world.", "你好，世界。"),
-          entry("e2", "Save often.", "经常保存。"),
-        ]),
-      );
+  it("shows an honest empty state when the memory has no entries", async () => {
+    const state = twoMountState();
+    state.entries = [];
+    installMemoryBridge(state);
+    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
+    await waitFor(() => {
+      expect(screen.getByText("记忆库暂无条目")).toBeInTheDocument();
     });
+    expect(screen.getByText("记忆库「主记忆库」共 0 条")).toBeInTheDocument();
+  });
+
+  it("searches entries by sending the trimmed query to tm.list", async () => {
+    const { calls } = installMemoryBridge(twoMountState());
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByText("源：Save often.")).toBeInTheDocument();
     });
-    await userEvent.type(screen.getByLabelText("搜索源文或译文"), "  hello  ");
+    await userEvent.type(screen.getByLabelText("搜索源文或译文"), "  Hello  ");
     await userEvent.click(screen.getByRole("button", { name: "搜索" }));
     await waitFor(() => {
-      expect(screen.getByText(/匹配「hello」共 1 条/)).toBeInTheDocument();
+      expect(screen.getByText(/匹配「Hello」共 1 条/)).toBeInTheDocument();
     });
     expect(screen.queryByText("源：Save often.")).not.toBeInTheDocument();
     const queried = calls.find(
@@ -137,53 +479,15 @@ describe("TmManageDialog", () => {
     );
     expect(queried?.[1]).toEqual({
       projectId: "p1",
+      memoryId: "tm-p1",
       limit: 50,
       offset: 0,
-      query: "hello",
-    });
-  });
-
-  it("shows a no-match empty state for a fruitless search", async () => {
-    installBridge((_method, params) => {
-      if ((params as { query?: string }).query) {
-        return Promise.resolve(listResponse([]));
-      }
-      return Promise.resolve(
-        listResponse([entry("e1", "Hello world.", "你好，世界。")]),
-      );
-    });
-    render(<TmManageDialog open project={project} onClose={vi.fn()} />);
-    await waitFor(() => {
-      expect(screen.getByText("源：Hello world.")).toBeInTheDocument();
-    });
-    await userEvent.type(screen.getByLabelText("搜索源文或译文"), "nowhere");
-    await userEvent.click(screen.getByRole("button", { name: "搜索" }));
-    await waitFor(() => {
-      expect(screen.getByText("无匹配条目")).toBeInTheDocument();
+      query: "Hello",
     });
   });
 
   it("edits source and target through tm.update", async () => {
-    const calls: Array<[string, unknown]> = [];
-    installBridge((method, params) => {
-      calls.push([method, params]);
-      if (method === "tm.update") {
-        const update = params as {
-          entryId: string;
-          sourceText: string;
-          targetText: string;
-        };
-        return Promise.resolve({
-          ok: true,
-          result: {
-            entry: entry(update.entryId, update.sourceText, update.targetText),
-          },
-        });
-      }
-      return Promise.resolve(
-        listResponse([entry("e1", "Hello world.", "你好，世界。")]),
-      );
-    });
+    const { calls } = installMemoryBridge(twoMountState());
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByText("源：Hello world.")).toBeInTheDocument();
@@ -209,7 +513,10 @@ describe("TmManageDialog", () => {
   });
 
   it("surfaces tm.update conflicts and keeps the editor open", async () => {
-    installBridge((method) => {
+    const state = twoMountState();
+    const { bridge } = installMemoryBridge(state);
+    const original = bridge.invoke.getMockImplementation()!;
+    bridge.invoke.mockImplementation((method: string, params: unknown) => {
       if (method === "tm.update") {
         return Promise.resolve({
           ok: false,
@@ -220,9 +527,7 @@ describe("TmManageDialog", () => {
           },
         });
       }
-      return Promise.resolve(
-        listResponse([entry("e1", "Hello world.", "你好，世界。")]),
-      );
+      return original(method, params);
     });
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
@@ -241,23 +546,7 @@ describe("TmManageDialog", () => {
   });
 
   it("deletes only after explicit confirmation and never confirms or exports", async () => {
-    const calls: Array<[string, unknown]> = [];
-    let backing = [
-      entry("e1", "Hello world.", "你好，世界。"),
-      entry("e2", "Save often.", "经常保存。"),
-    ];
-    installBridge((method, params) => {
-      calls.push([method, params]);
-      if (method === "tm.delete") {
-        const removed = backing.find(
-          (candidate) =>
-            candidate.id === (params as { entryId: string }).entryId,
-        );
-        backing = backing.filter((candidate) => candidate !== removed);
-        return Promise.resolve({ ok: true, result: { entry: removed } });
-      }
-      return Promise.resolve(listResponse(backing));
-    });
+    const { calls } = installMemoryBridge(twoMountState());
     render(<TmManageDialog open project={project} onClose={vi.fn()} />);
     await waitFor(() => {
       expect(screen.getByText("源：Save often.")).toBeInTheDocument();
@@ -270,8 +559,14 @@ describe("TmManageDialog", () => {
     expect(screen.getByText(/确认删除该条目？/)).toBeInTheDocument();
     expect(calls.some(([method]) => method === "tm.delete")).toBe(false);
 
-    // Backing out leaves the entry alone.
-    await userEvent.click(screen.getByRole("button", { name: "取消" }));
+    // Backing out leaves the entry alone. The delete confirm's 取消 sits in
+    // the entries stack — the footer 关闭 and mount rows have other labels.
+    const entryCard = screen
+      .getByText("源：Save often.")
+      .closest(".match-card")!;
+    await userEvent.click(
+      within(entryCard as HTMLElement).getByRole("button", { name: "取消" }),
+    );
     expect(calls.some(([method]) => method === "tm.delete")).toBe(false);
     expect(screen.getByText("源：Save often.")).toBeInTheDocument();
 
@@ -288,7 +583,7 @@ describe("TmManageDialog", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "已删除条目：Save often.",
     );
-    expect(screen.getByText("项目 TM 共 1 条")).toBeInTheDocument();
+    expect(screen.getByText("记忆库「主记忆库」共 1 条")).toBeInTheDocument();
     const deleteCall = calls.find(([method]) => method === "tm.delete");
     expect(deleteCall?.[1]).toEqual({ entryId: "e2" });
 
@@ -298,7 +593,7 @@ describe("TmManageDialog", () => {
   });
 
   it("renders nothing when closed and closes via the footer button", async () => {
-    installBridge(() => Promise.resolve(listResponse([])));
+    installMemoryBridge(twoMountState());
     const onClose = vi.fn();
     const { rerender } = render(
       <TmManageDialog open={false} project={project} onClose={onClose} />,

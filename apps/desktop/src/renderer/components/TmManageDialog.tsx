@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { Project, TmEntry } from "@translunar/contracts";
+import type {
+  Memory,
+  MemoryMount,
+  Project,
+  TmEntry,
+} from "@translunar/contracts";
 import {
+  Badge,
   Button,
   Dialog,
   EmptyState,
+  SelectField,
   TextAreaField,
   TextField,
 } from "@translunar/ui";
@@ -20,17 +27,33 @@ export interface TmManageDialogProps {
 const PAGE_SIZE = 50;
 
 /**
- * Browse, edit, and delete the project TM's individual entries through
- * tm.list / tm.update / tm.delete. This surface never confirms segments and
+ * Manage the project's memory mounts and browse each memory's entries.
+ *
+ * Mounts come from memory.list and are edited through memory.attach /
+ * memory.detach / memory.update: enable/disable gates the read path
+ * (lookup, pretranslate), the single writable mount is the working memory
+ * confirm-time TM writes go to, and priority order breaks equal-score ties
+ * in merged lookups. Promoting a memory first demotes the current writable
+ * one — the engine refuses two writable mounts, so the sequence can never
+ * end with a double write path.
+ *
+ * Entries page through tm.list / tm.update / tm.delete against the memory
+ * picked in the entries toolbar. This surface never confirms segments and
  * never exports files — confirmation-time TM writes stay in the workbench,
- * import/export stays in project settings. Deletion always asks first, and
- * every list, count, and result message reflects the engine's real state.
+ * import/export stays in project settings.
  */
 export function TmManageDialog({
   open,
   project,
   onClose,
 }: TmManageDialogProps) {
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [mounts, setMounts] = useState<MemoryMount[]>([]);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(
+    null,
+  );
+  const [attachChoice, setAttachChoice] = useState("");
+  const [newMemoryName, setNewMemoryName] = useState("");
   const [entries, setEntries] = useState<TmEntry[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [queryInput, setQueryInput] = useState("");
@@ -46,9 +69,37 @@ export function TmManageDialog({
     null,
   );
 
+  const memoryName = useCallback(
+    (memoryId: string) =>
+      memories.find((memory) => memory.id === memoryId)?.name ?? memoryId,
+    [memories],
+  );
+
+  const refreshMounts = useCallback(async () => {
+    const result = await callEngine("memory.list", { projectId: project.id });
+    setMemories(result.memories);
+    setMounts(result.mounts);
+    setSelectedMemoryId((current) => {
+      if (
+        current &&
+        result.mounts.some((mount) => mount.memoryId === current)
+      ) {
+        return current;
+      }
+      const writable = result.mounts.find((mount) => mount.writable);
+      return writable?.memoryId ?? result.mounts[0]?.memoryId ?? null;
+    });
+  }, [project.id]);
+
   const refresh = useCallback(async () => {
+    if (!selectedMemoryId) {
+      setEntries([]);
+      setTotal(null);
+      return;
+    }
     const result = await callEngine("tm.list", {
       projectId: project.id,
+      memoryId: selectedMemoryId,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
       ...(appliedQuery ? { query: appliedQuery } : {}),
@@ -61,13 +112,22 @@ export function TmManageDialog({
     }
     setEntries(result.entries);
     setTotal(result.total);
-  }, [project.id, page, appliedQuery]);
+  }, [project.id, selectedMemoryId, page, appliedQuery]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
     setError(null);
+    refreshMounts().catch((listError: unknown) => {
+      setError(describeError(listError));
+    });
+  }, [open, refreshMounts]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
     refresh().catch((listError: unknown) => {
       setError(describeError(listError));
     });
@@ -75,6 +135,11 @@ export function TmManageDialog({
 
   useEffect(() => {
     if (!open) {
+      setMemories([]);
+      setMounts([]);
+      setSelectedMemoryId(null);
+      setAttachChoice("");
+      setNewMemoryName("");
       setQueryInput("");
       setAppliedQuery("");
       setPage(0);
@@ -82,9 +147,124 @@ export function TmManageDialog({
       setError(null);
       setEditingId(null);
       setConfirmingDeleteId(null);
+      setEntries([]);
       setTotal(null);
     }
   }, [open]);
+
+  /** One mount mutation: run, then re-read the engine's real mount state. */
+  const runMountAction = useCallback(
+    async (action: () => Promise<void>, done: string | null) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await action();
+        await refreshMounts();
+        if (done) {
+          setNotice(done);
+        }
+      } catch (actionError) {
+        setError(describeError(actionError));
+        // A failed sequence (for example promote after demote) may still
+        // have changed state; show what the engine really holds now.
+        await refreshMounts().catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refreshMounts],
+  );
+
+  const moveMount = useCallback(
+    (mount: MemoryMount, delta: number) =>
+      runMountAction(async () => {
+        await callEngine("memory.update", {
+          projectId: project.id,
+          memoryId: mount.memoryId,
+          priority: Math.max(0, mount.priority + delta),
+        });
+      }, null),
+    [project.id, runMountAction],
+  );
+
+  const toggleEnabled = useCallback(
+    (mount: MemoryMount) =>
+      runMountAction(async () => {
+        await callEngine("memory.update", {
+          projectId: project.id,
+          memoryId: mount.memoryId,
+          enabled: !mount.enabled,
+        });
+      }, null),
+    [project.id, runMountAction],
+  );
+
+  const makeWritable = useCallback(
+    (mount: MemoryMount) =>
+      runMountAction(async () => {
+        // The engine allows at most one writable mount: demote the current
+        // one first, then promote. If the second step fails, the refresh
+        // shows the honest in-between state (no writable mount).
+        const current = mounts.find(
+          (candidate) =>
+            candidate.writable && candidate.memoryId !== mount.memoryId,
+        );
+        if (current) {
+          await callEngine("memory.update", {
+            projectId: project.id,
+            memoryId: current.memoryId,
+            writable: false,
+          });
+        }
+        await callEngine("memory.update", {
+          projectId: project.id,
+          memoryId: mount.memoryId,
+          writable: true,
+        });
+      }, `已设为可写：${memoryName(mount.memoryId)}`),
+    [project.id, mounts, memoryName, runMountAction],
+  );
+
+  const detachMount = useCallback(
+    (mount: MemoryMount) =>
+      runMountAction(async () => {
+        await callEngine("memory.detach", {
+          projectId: project.id,
+          memoryId: mount.memoryId,
+        });
+      }, `已卸载：${memoryName(mount.memoryId)}（条目保留）`),
+    [project.id, memoryName, runMountAction],
+  );
+
+  const attachExisting = useCallback(
+    () =>
+      runMountAction(async () => {
+        await callEngine("memory.attach", {
+          projectId: project.id,
+          memoryId: attachChoice,
+        });
+        setAttachChoice("");
+      }, `已挂载：${memoryName(attachChoice)}（只读）`),
+    [project.id, attachChoice, memoryName, runMountAction],
+  );
+
+  const createAndAttach = useCallback(
+    () =>
+      runMountAction(async () => {
+        const memory = await callEngine("memory.create", {
+          name: newMemoryName.trim(),
+          sourceLocale: project.sourceLocale,
+          targetLocale: project.targetLocale,
+        });
+        await callEngine("memory.attach", {
+          projectId: project.id,
+          memoryId: memory.id,
+        });
+        setNewMemoryName("");
+      }, `已新建并挂载：${newMemoryName.trim()}（只读）`),
+    [project, newMemoryName, runMountAction],
+  );
 
   const beginEdit = useCallback((entry: TmEntry) => {
     setEditingId(entry.id);
@@ -141,6 +321,9 @@ export function TmManageDialog({
     [refresh],
   );
 
+  const unmounted = memories.filter(
+    (memory) => !mounts.some((mount) => mount.memoryId === memory.id),
+  );
   const pageCount =
     total === null ? 0 : Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -157,31 +340,6 @@ export function TmManageDialog({
       }
     >
       <div className="tm-manage">
-        <form
-          className="tm-manage__toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setPage(0);
-            setAppliedQuery(queryInput.trim());
-          }}
-        >
-          <TextField
-            label="搜索源文或译文"
-            value={queryInput}
-            onChange={(event) => setQueryInput(event.target.value)}
-          />
-          <Button type="submit" size="sm" variant="outline" disabled={busy}>
-            搜索
-          </Button>
-        </form>
-        <p className="tm-manage__count">
-          {total === null
-            ? "加载中…"
-            : appliedQuery
-              ? `匹配「${appliedQuery}」共 ${total} 条`
-              : `项目 TM 共 ${total} 条`}
-        </p>
-
         {error ? (
           <div className="honest-note" data-tone="danger" role="alert">
             {error}
@@ -193,136 +351,307 @@ export function TmManageDialog({
           </div>
         ) : null}
 
-        {total === 0 ? (
-          appliedQuery ? (
-            <EmptyState title="无匹配条目" />
+        <section className="tm-manage__mounts">
+          <h3 className="tm-manage__heading">挂载的记忆库</h3>
+          {mounts.length === 0 ? (
+            <EmptyState title="未挂载记忆库" />
           ) : (
-            <EmptyState title="TM 暂无条目" />
-          )
-        ) : (
-          <div className="dock-stack">
-            {entries.map((entry) =>
-              editingId === entry.id ? (
-                <div className="match-card" key={entry.id}>
-                  <TextAreaField
-                    label="源文"
-                    rows={2}
-                    value={editSource}
-                    onChange={(event) => setEditSource(event.target.value)}
-                  />
-                  <TextAreaField
-                    label="译文"
-                    rows={2}
-                    value={editTarget}
-                    onChange={(event) => setEditTarget(event.target.value)}
-                  />
+            mounts.map((mount, index) => {
+              const name = memoryName(mount.memoryId);
+              return (
+                <div className="tm-manage__mount" key={mount.memoryId}>
+                  <span className="tm-manage__mount-name">{name}</span>
+                  <Badge tone={mount.writable ? "ok" : "neutral"}>
+                    {mount.writable ? "可写" : "只读"}
+                  </Badge>
+                  {mount.enabled ? null : <Badge tone="warn">已停用</Badge>}
                   <div className="tm-manage__actions">
                     <Button
                       size="sm"
-                      variant="primary"
-                      disabled={
-                        busy || !editSource.trim() || !editTarget.trim()
-                      }
-                      onClick={() => void saveEdit()}
+                      variant="ghost"
+                      disabled={busy || index === 0}
+                      aria-label={`上移记忆库 ${name}`}
+                      onClick={() => void moveMount(mount, -1)}
                     >
-                      保存
+                      上移
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={busy}
-                      onClick={() => setEditingId(null)}
+                      disabled={busy || index === mounts.length - 1}
+                      aria-label={`下移记忆库 ${name}`}
+                      onClick={() => void moveMount(mount, 1)}
                     >
-                      取消
+                      下移
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      aria-label={
+                        mount.enabled
+                          ? `停用记忆库 ${name}`
+                          : `启用记忆库 ${name}`
+                      }
+                      onClick={() => void toggleEnabled(mount)}
+                    >
+                      {mount.enabled ? "停用" : "启用"}
+                    </Button>
+                    {mount.writable ? null : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        aria-label={`设为可写记忆库 ${name}`}
+                        onClick={() => void makeWritable(mount)}
+                      >
+                        设为可写
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      aria-label={`卸载记忆库 ${name}`}
+                      onClick={() => void detachMount(mount)}
+                    >
+                      卸载
                     </Button>
                   </div>
                 </div>
-              ) : (
-                <div className="match-card" key={entry.id}>
-                  <span className="match-card__origin">
-                    源：{entry.sourceText}
-                  </span>
-                  <p className="match-card__text">{entry.targetText}</p>
-                  <div className="tm-manage__actions">
-                    {confirmingDeleteId === entry.id ? (
-                      <>
-                        <span className="tm-manage__confirm">
-                          确认删除该条目？
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={busy}
-                          aria-label={`确认删除条目 ${entry.sourceText}`}
-                          onClick={() => void deleteEntry(entry)}
-                        >
-                          确认删除
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => setConfirmingDeleteId(null)}
-                        >
-                          取消
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          aria-label={`编辑条目 ${entry.sourceText}`}
-                          onClick={() => beginEdit(entry)}
-                        >
-                          编辑
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          aria-label={`删除条目 ${entry.sourceText}`}
-                          onClick={() => {
-                            setConfirmingDeleteId(entry.id);
-                            setEditingId(null);
-                            setNotice(null);
-                          }}
-                        >
-                          删除
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ),
-            )}
+              );
+            })
+          )}
+          <div className="tm-manage__attach">
+            {unmounted.length > 0 ? (
+              <div className="tm-manage__attach-row">
+                <SelectField
+                  label="挂载已有记忆库"
+                  value={attachChoice}
+                  onChange={(event) => setAttachChoice(event.target.value)}
+                >
+                  <option value="">选择记忆库…</option>
+                  {unmounted.map((memory) => (
+                    <option key={memory.id} value={memory.id}>
+                      {memory.name}
+                    </option>
+                  ))}
+                </SelectField>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || !attachChoice}
+                  onClick={() => void attachExisting()}
+                >
+                  挂载
+                </Button>
+              </div>
+            ) : null}
+            <div className="tm-manage__attach-row">
+              <TextField
+                label="新建记忆库"
+                value={newMemoryName}
+                onChange={(event) => setNewMemoryName(event.target.value)}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !newMemoryName.trim()}
+                onClick={() => void createAndAttach()}
+              >
+                新建并挂载
+              </Button>
+            </div>
           </div>
-        )}
+        </section>
 
-        {pageCount > 1 ? (
-          <div className="tm-manage__pager">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy || page === 0}
-              onClick={() => setPage(page - 1)}
-            >
-              上一页
-            </Button>
-            <span>
-              第 {page + 1} / {pageCount} 页
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy || page >= pageCount - 1}
-              onClick={() => setPage(page + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        ) : null}
+        <section className="tm-manage__entries">
+          <h3 className="tm-manage__heading">条目</h3>
+          {selectedMemoryId === null ? (
+            <EmptyState title="未挂载记忆库" />
+          ) : (
+            <>
+              <form
+                className="tm-manage__toolbar"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setPage(0);
+                  setAppliedQuery(queryInput.trim());
+                }}
+              >
+                <SelectField
+                  label="记忆库"
+                  value={selectedMemoryId}
+                  onChange={(event) => {
+                    setSelectedMemoryId(event.target.value);
+                    setPage(0);
+                  }}
+                >
+                  {mounts.map((mount) => (
+                    <option key={mount.memoryId} value={mount.memoryId}>
+                      {memoryName(mount.memoryId)}
+                    </option>
+                  ))}
+                </SelectField>
+                <TextField
+                  label="搜索源文或译文"
+                  value={queryInput}
+                  onChange={(event) => setQueryInput(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                >
+                  搜索
+                </Button>
+              </form>
+              <p className="tm-manage__count">
+                {total === null
+                  ? "加载中…"
+                  : appliedQuery
+                    ? `匹配「${appliedQuery}」共 ${total} 条`
+                    : `记忆库「${memoryName(selectedMemoryId)}」共 ${total} 条`}
+              </p>
+
+              {total === 0 ? (
+                appliedQuery ? (
+                  <EmptyState title="无匹配条目" />
+                ) : (
+                  <EmptyState title="记忆库暂无条目" />
+                )
+              ) : (
+                <div className="dock-stack">
+                  {entries.map((entry) =>
+                    editingId === entry.id ? (
+                      <div className="match-card" key={entry.id}>
+                        <TextAreaField
+                          label="源文"
+                          rows={2}
+                          value={editSource}
+                          onChange={(event) =>
+                            setEditSource(event.target.value)
+                          }
+                        />
+                        <TextAreaField
+                          label="译文"
+                          rows={2}
+                          value={editTarget}
+                          onChange={(event) =>
+                            setEditTarget(event.target.value)
+                          }
+                        />
+                        <div className="tm-manage__actions">
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={
+                              busy || !editSource.trim() || !editTarget.trim()
+                            }
+                            onClick={() => void saveEdit()}
+                          >
+                            保存
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setEditingId(null)}
+                          >
+                            取消
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="match-card" key={entry.id}>
+                        <span className="match-card__origin">
+                          源：{entry.sourceText}
+                        </span>
+                        <p className="match-card__text">{entry.targetText}</p>
+                        <div className="tm-manage__actions">
+                          {confirmingDeleteId === entry.id ? (
+                            <>
+                              <span className="tm-manage__confirm">
+                                确认删除该条目？
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                disabled={busy}
+                                aria-label={`确认删除条目 ${entry.sourceText}`}
+                                onClick={() => void deleteEntry(entry)}
+                              >
+                                确认删除
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={busy}
+                                onClick={() => setConfirmingDeleteId(null)}
+                              >
+                                取消
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                aria-label={`编辑条目 ${entry.sourceText}`}
+                                onClick={() => beginEdit(entry)}
+                              >
+                                编辑
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                aria-label={`删除条目 ${entry.sourceText}`}
+                                onClick={() => {
+                                  setConfirmingDeleteId(entry.id);
+                                  setEditingId(null);
+                                  setNotice(null);
+                                }}
+                              >
+                                删除
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+
+              {pageCount > 1 ? (
+                <div className="tm-manage__pager">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || page === 0}
+                    onClick={() => setPage(page - 1)}
+                  >
+                    上一页
+                  </Button>
+                  <span>
+                    第 {page + 1} / {pageCount} 页
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || page >= pageCount - 1}
+                    onClick={() => setPage(page + 1)}
+                  >
+                    下一页
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
       </div>
     </Dialog>
   );
