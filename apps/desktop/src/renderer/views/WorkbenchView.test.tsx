@@ -2259,9 +2259,9 @@ describe("WorkbenchView document tabs", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
-    // Collapsed by default: the bar is there, the body is not visible.
+    // Collapsed by default: the bar is there, the body content is not.
     const pane = screen.getByRole("region", { name: "预览面板" });
-    expect(within(pane).queryByText(/共 \d+ 个句段/)).not.toBeVisible();
+    expect(within(pane).queryByText(/共 \d+ 个句段/)).toBeNull();
 
     await userEvent.click(
       within(pane).getByRole("button", { name: "展开预览" }),
@@ -2272,7 +2272,7 @@ describe("WorkbenchView document tabs", () => {
     act(() => {
       bridge.emitMenuCommand("toggle-preview");
     });
-    expect(within(pane).queryByText(/共 1 个句段/)).not.toBeVisible();
+    expect(within(pane).queryByText(/共 1 个句段/)).toBeNull();
   });
 
   it("jumps from a proofread preview segment back to the grid row", async () => {

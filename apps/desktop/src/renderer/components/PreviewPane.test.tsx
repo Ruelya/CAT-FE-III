@@ -296,8 +296,9 @@ describe("PreviewPane", () => {
   it("collapsed: only the slim bar shows and the toggle reports state", async () => {
     const onToggle = vi.fn();
     renderPane({ open: false, onToggle });
-    // Body content is hidden, not unmounted (expanding is instant).
-    expect(screen.getByText("第一句。")).not.toBeVisible();
+    // Proofread content leaves the DOM entirely: a hidden copy of every
+    // segment would shadow the grid for tooling (and screen readers).
+    expect(screen.queryByText("第一句。")).toBeNull();
     expect(
       screen.queryByRole("tab", { name: /版式视图/ }),
     ).not.toBeInTheDocument();

@@ -291,48 +291,58 @@ export function PreviewPane({
           )}
         </button>
       </header>
+      {/* While collapsed, the proofread content leaves the DOM entirely (a
+          hidden copy of every segment would shadow the grid for tooling and
+          serve no reader). Only the docx container stays mounted so an
+          already-rendered layout survives collapse/expand without another
+          export round. */}
       <div
         className="preview-pane__body"
         hidden={!open}
         style={{ height: `${height}px` }}
       >
-        {model.totalSegments === 0 ? (
+        {open && model.totalSegments === 0 ? (
           <p className="preview__empty">当前文档没有句段。</p>
-        ) : (
+        ) : null}
+        {model.totalSegments > 0 ? (
           <>
             <div className="preview__pane" hidden={mode !== "proofread"}>
-              <p className="preview__summary">
-                共 {model.totalSegments} 个句段：{model.translatedSegments}{" "}
-                个已有译文
-                {model.fallbackSegments > 0
-                  ? `，${model.fallbackSegments} 个未译`
-                  : ""}
-              </p>
-              <div className="preview__document" ref={proofreadRef}>
-                {model.blocks.map((block) => (
-                  <p key={block.key} className="preview__block">
-                    {block.parts.map((part) => (
-                      <button
-                        key={part.segmentId}
-                        type="button"
-                        className="preview__segment"
-                        data-state={part.state}
-                        data-fallback={part.fallback}
-                        data-segment-id={part.segmentId}
-                        data-active={part.segmentId === activeSegmentId}
-                        title={
-                          part.fallback
-                            ? `句段 #${part.ordinal + 1}（未译）`
-                            : `句段 #${part.ordinal + 1}`
-                        }
-                        onClick={() => onJump(part.segmentId)}
-                      >
-                        {part.text}
-                      </button>
-                    ))}
+              {open ? (
+                <>
+                  <p className="preview__summary">
+                    共 {model.totalSegments} 个句段：{model.translatedSegments}{" "}
+                    个已有译文
+                    {model.fallbackSegments > 0
+                      ? `，${model.fallbackSegments} 个未译`
+                      : ""}
                   </p>
-                ))}
-              </div>
+                  <div className="preview__document" ref={proofreadRef}>
+                    {model.blocks.map((block) => (
+                      <p key={block.key} className="preview__block">
+                        {block.parts.map((part) => (
+                          <button
+                            key={part.segmentId}
+                            type="button"
+                            className="preview__segment"
+                            data-state={part.state}
+                            data-fallback={part.fallback}
+                            data-segment-id={part.segmentId}
+                            data-active={part.segmentId === activeSegmentId}
+                            title={
+                              part.fallback
+                                ? `句段 #${part.ordinal + 1}（未译）`
+                                : `句段 #${part.ordinal + 1}`
+                            }
+                            onClick={() => onJump(part.segmentId)}
+                          >
+                            {part.text}
+                          </button>
+                        ))}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {layoutAvailable ? (
@@ -340,20 +350,20 @@ export function PreviewPane({
                 className="preview__layout preview__pane"
                 hidden={mode !== "layout"}
               >
-                {layout.phase === "loading" ? (
+                {open && layout.phase === "loading" ? (
                   <p className="preview__summary">正在生成版式预览…</p>
                 ) : null}
-                {layout.phase === "refreshing" ? (
+                {open && layout.phase === "refreshing" ? (
                   <p className="preview__summary" role="status">
                     正在重新生成版式预览…
                   </p>
                 ) : null}
-                {layout.phase === "error" ? (
+                {open && layout.phase === "error" ? (
                   <div className="honest-note" data-tone="danger" role="alert">
                     版式预览生成失败：{layout.message}
                   </div>
                 ) : null}
-                {layout.phase === "ready" ? (
+                {open && layout.phase === "ready" ? (
                   <p className="preview__summary">
                     已回填 {layout.translatedSegments} 个已译单元
                   </p>
@@ -385,7 +395,7 @@ export function PreviewPane({
               </div>
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </section>
   );
