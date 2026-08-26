@@ -51,6 +51,7 @@ import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
 import type {
   ConfirmMode,
+  EditorCaret,
   SegmentGridHandle,
 } from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
@@ -78,6 +79,12 @@ export interface WorkbenchViewProps {
   onProjectUpdated?: (project: Project) => void;
   /** Live grid stats for the shell status bar; null when no document. */
   onStatsChange?: (stats: WorkbenchStats | null) => void;
+  /**
+   * Registers the status-bar readout jump (clicking 草稿/QA filters the
+   * grid to that state); called with null on unmount so the shell never
+   * holds a jump into a closed workbench.
+   */
+  onRegisterStatJump?: (jump: ((target: StatJumpTarget) => void) | null) => void;
   /** Opens the project settings dialog (owned by the shell). */
   onOpenSettings?: () => void;
   /** Opens the TM manage dialog (owned by the shell). */
@@ -86,12 +93,17 @@ export interface WorkbenchViewProps {
   onCloseProject?: () => void;
 }
 
+/** Status-bar readouts that jump to a grid filter (PRD §3.8). */
+export type StatJumpTarget = "draft" | "qa";
+
 /** What the shell status bar shows about the open document. */
 export interface WorkbenchStats {
   documentName: string;
   counts: SegmentCounts;
   /** Ordinal of the selected segment, or null when nothing is selected. */
   activeOrdinal: number | null;
+  /** Caret line/column in the target editor; null with no editor mounted. */
+  caret: EditorCaret | null;
 }
 
 /**
@@ -164,6 +176,7 @@ export function WorkbenchView({
   onDocumentOpenChange,
   onProjectUpdated,
   onStatsChange,
+  onRegisterStatJump,
   onOpenSettings,
   onOpenTmManage,
   onCloseProject,
@@ -185,6 +198,11 @@ export function WorkbenchView({
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [tab, setTab] = useState<DockTab>("memory");
   const [busy, setBusy] = useState(false);
+  // Caret line/column reported by the grid's target editor (status bar).
+  const [caret, setCaret] = useState<EditorCaret | null>(null);
+  // Explorer file search (PRD §3.5): local filter over the in-memory
+  // document list, no RPC.
+  const [fileQuery, setFileQuery] = useState("");
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
   // Mirror for the global keydown handler (Esc clears the filter) so the
   // listener never resubscribes on every filter keystroke.
@@ -1041,6 +1059,17 @@ export function WorkbenchView({
       ? Math.round((projectTotals.confirmed / projectTotals.total) * 100)
       : null;
 
+  // Explorer file list under the local search box; name substring only.
+  const visibleDocuments = useMemo(() => {
+    const query = fileQuery.trim().toLowerCase();
+    if (query.length === 0) {
+      return documents;
+    }
+    return documents.filter((document) =>
+      document.name.toLowerCase().includes(query),
+    );
+  }, [documents, fileQuery]);
+
   // Feed the shell status bar. Cleared on unmount (project close) so stale
   // numbers never outlive the workbench that produced them.
   useEffect(() => {
@@ -1055,13 +1084,26 @@ export function WorkbenchView({
       documentName: activeDocument.name,
       counts,
       activeOrdinal: activeSegment?.ordinal ?? null,
+      caret,
     });
-  }, [onStatsChange, activeDocument, counts, activeSegment]);
+  }, [onStatsChange, activeDocument, counts, activeSegment, caret]);
   useEffect(() => {
     return () => {
       onStatsChange?.(null);
     };
   }, [onStatsChange]);
+
+  // Status-bar 草稿/QA readouts jump straight into the matching grid
+  // filter (PRD §3.8). Registration mirrors onStatsChange's lifetime.
+  useEffect(() => {
+    if (!onRegisterStatJump) {
+      return;
+    }
+    onRegisterStatJump((target) => {
+      setFilter((current) => ({ ...current, state: target }));
+    });
+    return () => onRegisterStatJump(null);
+  }, [onRegisterStatJump]);
 
   // Jump target may be hidden by the active filter; clear it so the jump
   // always lands (QA "定位句段", concordance hits, preview clicks).
@@ -1707,11 +1749,23 @@ export function WorkbenchView({
             <header className="explorer__heading">
               <h2 className="explorer__caption">文件</h2>
             </header>
+            {documents.length > 0 ? (
+              <input
+                className="explorer__search"
+                type="search"
+                aria-label="搜索文件"
+                placeholder="搜索文件"
+                value={fileQuery}
+                onChange={(event) => setFileQuery(event.target.value)}
+              />
+            ) : null}
             {documents.length === 0 ? (
               <EmptyState title="暂无文档" />
+            ) : visibleDocuments.length === 0 ? (
+              <EmptyState title="无匹配文件" />
             ) : (
               <div className="document-list">
-                {documents.map((document) => {
+                {visibleDocuments.map((document) => {
                   const progress = documentProgress[document.id];
                   return (
                     <div
@@ -2027,6 +2081,7 @@ export function WorkbenchView({
                   }
                   onCopySource={copySourceToTarget}
                   onClearTarget={clearTargetText}
+                  onCaretChange={setCaret}
                 />
               )}
               <PreviewPane

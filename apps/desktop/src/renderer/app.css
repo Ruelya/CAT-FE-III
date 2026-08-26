@@ -66,6 +66,21 @@ body {
   color: var(--tl-status-danger);
 }
 
+/* 草稿/QA readouts double as buttons: clicking applies the grid filter. */
+button.app-statusbar__jump {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.app-statusbar__jump:hover {
+  text-decoration: underline;
+}
+
 .app-statusbar__progress {
   display: flex;
   align-items: center;
@@ -622,6 +637,31 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tl-color-text-faint);
+}
+
+/* Local file search (PRD §3.5): filters the in-memory document list. */
+.explorer__search {
+  display: block;
+  width: calc(100% - 2 * var(--tl-space-4));
+  margin: 0 var(--tl-space-4) var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+}
+
+.explorer__search::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.explorer__search:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
 }
 
 .explorer__gear {

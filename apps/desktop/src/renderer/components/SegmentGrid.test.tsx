@@ -136,6 +136,33 @@ describe("SegmentGrid", () => {
     expect(screen.getByRole("img", { name: "草稿" })).toBeInTheDocument();
   });
 
+  it("reports the caret line/column while editing and clears it on exit", () => {
+    const onCaretChange = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "第一行\n第二行")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+        onCaretChange={onCaretChange}
+      />,
+    );
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    // Mount report: the caret starts at the top of the editor.
+    expect(onCaretChange).toHaveBeenCalledWith({ line: 1, column: 1 });
+
+    // Moving the caret past the newline reports the real line/column.
+    editor.setSelectionRange(5, 5);
+    fireEvent.select(editor);
+    expect(onCaretChange).toHaveBeenLastCalledWith({ line: 2, column: 2 });
+
+    // Esc leaves editing: the readout clears instead of freezing stale.
+    fireEvent.keyDown(editor, { key: "Escape" });
+    expect(onCaretChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("renders every row for small documents (no virtualization)", () => {
     const segments = Array.from({ length: 20 }, (_, i) =>
       segment(`s${i}`, i, `Sentence ${i}.`),

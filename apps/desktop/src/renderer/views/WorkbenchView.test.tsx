@@ -2373,6 +2373,44 @@ describe("WorkbenchView project explorer", () => {
     expect(details).not.toHaveTextContent("已确认句段");
     expect(screen.queryByText(/^进度：/)).not.toBeInTheDocument();
   });
+
+  it("filters the file list locally through the 搜索文件 box", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [DOCUMENT, { ...DOCUMENT, id: "d2", name: "second.txt" }],
+    });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    expect(files.getByText("guide.txt")).toBeInTheDocument();
+    expect(files.getByText("second.txt")).toBeInTheDocument();
+
+    const listCallsBefore = bridge.invoke.mock.calls.filter(
+      ([method]) => method === "document.list",
+    ).length;
+    // Substring, case-insensitive, in-memory: no RPC leaves the renderer.
+    await userEvent.type(files.getByLabelText("搜索文件"), "SECOND");
+    expect(files.queryByText("guide.txt")).not.toBeInTheDocument();
+    expect(files.getByText("second.txt")).toBeInTheDocument();
+
+    // A miss shows the honest empty state, and clearing restores the list.
+    await userEvent.clear(files.getByLabelText("搜索文件"));
+    await userEvent.type(files.getByLabelText("搜索文件"), "無此文件");
+    expect(files.getByText("无匹配文件")).toBeInTheDocument();
+    await userEvent.clear(files.getByLabelText("搜索文件"));
+    expect(files.getByText("guide.txt")).toBeInTheDocument();
+    const listCallsAfter = bridge.invoke.mock.calls.filter(
+      ([method]) => method === "document.list",
+    ).length;
+    expect(listCallsAfter).toBe(listCallsBefore);
+  });
 });
 
 describe("WorkbenchView segment intel", () => {
@@ -2442,11 +2480,52 @@ describe("WorkbenchView segment intel", () => {
           openIssues: 0,
         },
         activeOrdinal: 0,
+        // The target editor is mounted, so the caret readout is live.
+        caret: { line: 1, column: 1 },
       });
     });
     // Unmounting (project close) clears the stats instead of leaving the
     // status bar pointing at a document that is no longer open.
     view.unmount();
     expect(onStatsChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("registers a status-bar jump that applies the 草稿/QA grid filters", async () => {
+    installBridge(baseHandlers());
+    let jump: ((target: "draft" | "qa") => void) | null = null;
+    const view = render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onRegisterStatJump={(next) => {
+          jump = next;
+        }}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    expect(jump).not.toBeNull();
+
+    // 草稿 readout → draft filter: the chip appears and the draft row stays.
+    act(() => {
+      jump?.("draft");
+    });
+    expect(
+      screen.getByRole("button", { name: "清除状态筛选：草稿" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+
+    // QA readout → QA filter: no open issues, so the grid empties honestly.
+    act(() => {
+      jump?.("qa");
+    });
+    expect(
+      screen.getByRole("button", { name: "清除状态筛选：QA 问题" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("没有符合筛选条件的句段")).toBeInTheDocument();
+
+    // Unmount deregisters: the shell never keeps a jump into a closed view.
+    view.unmount();
+    expect(jump).toBeNull();
   });
 });

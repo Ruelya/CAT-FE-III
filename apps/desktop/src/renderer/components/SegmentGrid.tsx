@@ -33,6 +33,12 @@ export interface PlaceholderAlert {
   extra: ReadonlySet<string>;
 }
 
+/** Caret line/column (1-based) inside the mounted target editor. */
+export interface EditorCaret {
+  line: number;
+  column: number;
+}
+
 export interface SegmentGridHandle {
   /**
    * Splice text into the mounted target editor at the caret (replacing any
@@ -94,6 +100,12 @@ export interface SegmentGridProps {
   onCopySource?: (segment: Segment) => void;
   /** Row menu 清空译文 — segment.update with an empty string. */
   onClearTarget?: (segment: Segment) => void;
+  /**
+   * Status-bar caret readout: reports the caret's line/column inside the
+   * mounted target editor, and null whenever no editor is mounted. Editor
+   * local facts only — never guessed from segment text.
+   */
+  onCaretChange?: (caret: EditorCaret | null) => void;
   /** Debounce for the typing auto-save; tests may shorten it. */
   autoSaveDelayMs?: number;
   /** Imperative access to the target editor (dock term insertion). */
@@ -138,6 +150,18 @@ function confirmModeForKey(event: {
   return "nextUnconfirmed";
 }
 
+/** 1-based line/column of `index` inside `value` (newline-separated). */
+function caretPosition(value: string, index: number): EditorCaret {
+  const before = value.slice(0, index);
+  let line = 1;
+  for (const character of before) {
+    if (character === "\n") {
+      line += 1;
+    }
+  }
+  return { line, column: index - before.lastIndexOf("\n") };
+}
+
 export function SegmentGrid({
   segments,
   activeSegmentId,
@@ -152,6 +176,7 @@ export function SegmentGrid({
   onConfirm,
   onCopySource,
   onClearTarget,
+  onCaretChange,
   autoSaveDelayMs = AUTO_SAVE_DELAY_MS,
   ref,
 }: SegmentGridProps) {
@@ -341,6 +366,39 @@ export function SegmentGrid({
     textarea.focus();
     textarea.setSelectionRange(caret, caret);
   }, [draft]);
+
+  /** Reads the caret straight off the mounted textarea (never guessed). */
+  const reportCaret = useCallback(() => {
+    if (!onCaretChange) {
+      return;
+    }
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    onCaretChange(
+      caretPosition(
+        textarea.value,
+        textarea.selectionStart ?? textarea.value.length,
+      ),
+    );
+  }, [onCaretChange]);
+
+  // Status-bar caret readout: report when an editor mounts (or the active
+  // row changes), clear the moment there is no editor — including unmount.
+  useEffect(() => {
+    if (!onCaretChange) {
+      return;
+    }
+    if (!editing || !activeSegment) {
+      onCaretChange(null);
+      return;
+    }
+    reportCaret();
+  }, [onCaretChange, editing, activeSegment, reportCaret]);
+  useEffect(() => {
+    return () => onCaretChange?.(null);
+  }, [onCaretChange]);
 
   useImperativeHandle(
     ref,
@@ -696,7 +754,13 @@ export function SegmentGrid({
                         ref={textareaRef}
                         value={draft}
                         autoFocus
-                        onChange={(event) => setDraft(event.target.value)}
+                        onChange={(event) => {
+                          setDraft(event.target.value);
+                          reportCaret();
+                        }}
+                        // Fires on every caret move (keyboard or mouse), so
+                        // the status-bar readout tracks the real position.
+                        onSelect={reportCaret}
                         onCompositionStart={() => {
                           composingRef.current = true;
                         }}
