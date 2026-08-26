@@ -213,7 +213,8 @@ describe("WorkbenchView term insertion", () => {
     expect(editor.selectionEnd).toBe(6);
     // Focus returns to the editor so Ctrl+Enter confirm still works.
     expect(document.activeElement).toBe(editor);
-    // Insertion edits the draft in place; nothing is saved to the engine.
+    // Insertion edits the draft in place; no synchronous save happens (the
+    // debounced Trados-style auto-save persists it after the pause).
     expect(
       invoke.mock.calls.some(([method]) => method === "segment.update"),
     ).toBe(false);
@@ -430,6 +431,103 @@ describe("WorkbenchView application menu commands", () => {
   });
 });
 
+describe("WorkbenchView Trados-style editor flow", () => {
+  it("auto-saves typing quietly and confirms with the fresh revision", async () => {
+    const handlers = baseHandlers();
+    const updateCalls: unknown[] = [];
+    handlers["segment.update"] = (params) => {
+      updateCalls.push(params);
+      return {
+        segment: {
+          ...SEGMENT,
+          targetText: (params as { targetText: string }).targetText,
+          revision: 2,
+        },
+      };
+    };
+    const confirmCalls: unknown[] = [];
+    handlers["segment.confirm"] = (params) => {
+      confirmCalls.push(params);
+      return {
+        segment: {
+          ...SEGMENT,
+          targetText: "文件的为 30 天。补",
+          state: "confirmed",
+          revision: 3,
+        },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    // Typing persists the draft after the pause — no button, no toast.
+    await userEvent.type(editor, "补");
+    await waitFor(
+      () => {
+        expect(updateCalls).toHaveLength(1);
+      },
+      { timeout: 4000 },
+    );
+    expect(updateCalls[0]).toMatchObject({
+      segmentId: "s1",
+      targetText: "文件的为 30 天。补",
+      baseRevision: 1,
+    });
+    expect(onStatusMessage).not.toHaveBeenCalledWith("句段 #1 草稿已保存");
+
+    // Ctrl+Enter after the auto-save ack: the text is already persisted,
+    // so the confirm goes straight to segment.confirm with the revision
+    // the auto-save produced — no duplicate segment.update.
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    await waitFor(() => {
+      expect(confirmCalls).toHaveLength(1);
+    });
+    expect(confirmCalls[0]).toMatchObject({
+      segmentId: "s1",
+      baseRevision: 2,
+    });
+    expect(updateCalls).toHaveLength(1);
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
+  });
+
+  it("refuses to confirm an empty target with an honest message", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [{ ...SEGMENT, targetText: "", state: "untranslated" }],
+    });
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 译文为空，无法确认");
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "segment.confirm"),
+    ).toBe(false);
+  });
+});
+
 describe("WorkbenchView find next/prev", () => {
   // s1 and s3 both contain "day" (case-insensitive); s2 does not.
   const FIND_SEGMENTS: Segment[] = [
@@ -616,9 +714,13 @@ describe("WorkbenchView segment navigation", () => {
         onStatusMessage={vi.fn()}
       />,
     );
-    await screen.findByLabelText("句段 1 译文");
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
 
-    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
 
     // s2 is already confirmed, so the selection skips it and the editor
     // opens on the untranslated s3 — the classic confirm-and-move-on loop.
@@ -948,7 +1050,7 @@ describe("WorkbenchView document rail progress", () => {
     });
     expect(screen.getByText("txt · 确认 0/1 · 草稿 1")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
     // No document.list round-trip needed: the rail follows the grid.
     await waitFor(() => {
       expect(screen.getByText("txt · 确认 1/1")).toBeInTheDocument();
@@ -997,29 +1099,35 @@ describe("WorkbenchView engine-down honesty", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    // Trados-style typing: the auto-draft reaches the dead engine after
+    // the debounce pause — no save button involved.
+    await userEvent.type(editor, "补");
 
     // A blocking-style inline alert, not just a statusbar toast.
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, { timeout: 4000 });
     expect(alert).toHaveTextContent("句段 #1 的草稿未被引擎确认写入");
     expect(alert).toHaveTextContent("engine process is not running");
     // The editor still holds the user's text; nothing was lost or reset.
-    expect(editor.value).toBe("文件的为 30 天。");
+    expect(editor.value).toBe("文件的为 30 天。补");
     expect(onStatusMessage).toHaveBeenCalledWith(
       "句段 #1 草稿未保存：引擎未确认写入",
     );
     // The segment must NOT be presented as saved anywhere.
     expect(onStatusMessage).not.toHaveBeenCalledWith("句段 #1 草稿已保存");
 
-    // Once the engine acks a later save of the same segment, the alert goes.
+    // Once the engine acks a later auto-save of the same segment, the
+    // alert goes — and the quiet auto-save posts no success toast.
     updateResponse = {
-      segment: { ...SEGMENT, revision: 2 },
+      segment: { ...SEGMENT, targetText: "文件的为 30 天。补充", revision: 2 },
     };
-    await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    });
-    expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 草稿已保存");
+    await userEvent.type(editor, "充");
+    await waitFor(
+      () => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
+    expect(onStatusMessage).not.toHaveBeenCalledWith("句段 #1 草稿已保存");
   });
 
   it("flags an unacked confirm without pretending it reached the TM", async () => {
@@ -1041,7 +1149,7 @@ describe("WorkbenchView engine-down honesty", () => {
       expect(editor.value).toBe("文件的为 30 天。");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("句段 #1 的确认未被引擎确认写入");

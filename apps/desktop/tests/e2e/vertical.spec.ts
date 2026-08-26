@@ -152,9 +152,7 @@ test("vertical slice through the workbench", async () => {
   await page.getByRole("button", { name: "创建项目" }).click();
   await expect(page.locator(".project-explorer__name")).toHaveText("演示项目");
   await expect(page.getByRole("toolbar", { name: "工具栏" })).toBeVisible();
-  await expect(page.locator(".explorer__langs")).toContainText(
-    "en-US → zh-CN",
-  );
+  await expect(page.locator(".explorer__langs")).toContainText("en-US → zh-CN");
 
   // Import the DOCX fixture through the import dialog: pick the file via
   // the (seamed) dedicated dialog channel, keep default sentence mode.
@@ -180,11 +178,12 @@ test("vertical slice through the workbench", async () => {
   await expect(details).toContainText("总句段");
   await shot("02-imported-grid.png");
 
-  // Edit and confirm segment 1 (writes the exact TM). The confirm advances
-  // the selection to the next unconfirmed segment, Trados-style.
+  // Edit and confirm segment 1 (writes the exact TM). Trados-style: the
+  // row has no buttons — Ctrl+Enter in the target editor confirms and
+  // advances the selection to the next unconfirmed segment.
   const editor = page.getByLabel("句段 1 译文");
   await editor.fill("保留期为 30 天。");
-  await page.getByRole("button", { name: "确认", exact: true }).click();
+  await editor.press("Control+Enter");
   await expect(rows.first()).toContainText("已确认");
   await expect(page.locator(".app-statusbar")).toContainText("写入 TM");
   await expect(page.getByLabel("句段 2 译文")).toBeVisible();
@@ -196,11 +195,12 @@ test("vertical slice through the workbench", async () => {
   await shot("03-confirmed-tm-hit.png");
 
   // Draft a wrong number in segment 2, then run the full QA library.
+  // No save button: typing persists the draft automatically after the
+  // pause — the row's state badge flips to 草稿 once the engine acks it.
   await rows.nth(1).click();
   const editor2 = page.getByLabel("句段 2 译文");
   await editor2.fill("表中金额：1,300。");
-  await page.getByRole("button", { name: "保存草稿" }).click();
-  await expect(page.locator(".app-statusbar")).toContainText("草稿已保存");
+  await expect(rows.nth(1)).toContainText("草稿");
   await page.getByRole("button", { name: "QA", exact: true }).click();
   await page.getByRole("button", { name: "运行 QA" }).click();
   // The engine now runs the full rule library, so target the number issue

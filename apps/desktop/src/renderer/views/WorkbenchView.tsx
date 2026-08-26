@@ -183,6 +183,30 @@ export function WorkbenchView({
     outputPath: string;
   } | null>(null);
 
+  // Latest engine-acked copy of every loaded segment, kept fresh
+  // synchronously (outside React state) so queued writes always send the
+  // current revision — with debounced auto-saves, a confirm or flush can
+  // run before the render that carries the previous ack has committed.
+  const latestSegmentsRef = useRef(new Map<string, Segment>());
+  const recordSegments = useCallback((list: Segment[]) => {
+    for (const segment of list) {
+      latestSegmentsRef.current.set(segment.id, segment);
+    }
+  }, []);
+
+  // Draft saves and confirms run strictly one at a time: the engine
+  // rejects writes with a stale baseRevision, and the Trados-style typing
+  // auto-save can otherwise race the Ctrl+Enter confirm or a leave-flush.
+  const writeQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueSegmentWrite = useCallback(
+    <T,>(task: () => Promise<T>): Promise<T> => {
+      const run = writeQueueRef.current.then(task);
+      writeQueueRef.current = run.catch(() => undefined);
+      return run;
+    },
+    [],
+  );
+
   const activeDocument = useMemo(
     () =>
       documents.find((document) => document.id === activeDocumentId) ?? null,
@@ -252,22 +276,26 @@ export function WorkbenchView({
     return result.documents;
   }, [project.id]);
 
-  const loadDocument = useCallback(async (documentId: string) => {
-    setActiveDocumentId(documentId);
-    setOpenDocumentIds((current) =>
-      current.includes(documentId) ? current : [...current, documentId],
-    );
-    setFilter(EMPTY_FILTER);
-    setFindQuery("");
-    setOverwritePrompt(null);
-    const [segmentResult, issueResult] = await Promise.all([
-      callEngine("segment.list", { documentId }),
-      callEngine("qa.list", { documentId }),
-    ]);
-    setSegments(segmentResult.segments);
-    setIssues(issueResult.issues);
-    setActiveSegmentId(segmentResult.segments[0]?.id ?? null);
-  }, []);
+  const loadDocument = useCallback(
+    async (documentId: string) => {
+      setActiveDocumentId(documentId);
+      setOpenDocumentIds((current) =>
+        current.includes(documentId) ? current : [...current, documentId],
+      );
+      setFilter(EMPTY_FILTER);
+      setFindQuery("");
+      setOverwritePrompt(null);
+      const [segmentResult, issueResult] = await Promise.all([
+        callEngine("segment.list", { documentId }),
+        callEngine("qa.list", { documentId }),
+      ]);
+      recordSegments(segmentResult.segments);
+      setSegments(segmentResult.segments);
+      setIssues(issueResult.issues);
+      setActiveSegmentId(segmentResult.segments[0]?.id ?? null);
+    },
+    [recordSegments],
+  );
 
   // Leaves the grid with no document open: everything document-scoped is
   // reset so nothing stale can be presented as current.
@@ -345,6 +373,7 @@ export function WorkbenchView({
             callEngine("segment.list", { documentId: activeDocumentId }),
             callEngine("qa.list", { documentId: activeDocumentId }),
           ]);
+          recordSegments(segmentResult.segments);
           setSegments(segmentResult.segments);
           setIssues(issueResult.issues);
         }
@@ -353,7 +382,13 @@ export function WorkbenchView({
         onStatusMessage(`引擎恢复后同步失败：${describeError(error)}`);
       }
     })();
-  }, [engineState, activeDocumentId, refreshDocuments, onStatusMessage]);
+  }, [
+    engineState,
+    activeDocumentId,
+    refreshDocuments,
+    recordSegments,
+    onStatusMessage,
+  ]);
 
   // The import dialog owns file picking and the document.import call
   // (including segmentation and SRX options); this only reacts to success.
@@ -482,14 +517,18 @@ export function WorkbenchView({
     onStatusMessage("已取消导出：保留现有文件，未做任何修改");
   }, [onStatusMessage]);
 
-  const applySegments = useCallback((updated: Segment[]) => {
-    setSegments((current) =>
-      current.map((segment) => {
-        const replacement = updated.find((item) => item.id === segment.id);
-        return replacement ?? segment;
-      }),
-    );
-  }, []);
+  const applySegments = useCallback(
+    (updated: Segment[]) => {
+      recordSegments(updated);
+      setSegments((current) =>
+        current.map((segment) => {
+          const replacement = updated.find((item) => item.id === segment.id);
+          return replacement ?? segment;
+        }),
+      );
+    },
+    [recordSegments],
+  );
 
   const openIssueSegmentIds = useMemo(() => {
     const ids = new Set<string>();
@@ -564,95 +603,136 @@ export function WorkbenchView({
       const result = await callEngine("segment.list", {
         documentId: activeDocumentId,
       });
+      recordSegments(result.segments);
       setSegments(result.segments);
     } catch (error) {
       // Refreshing with a dead engine cannot work; keep the local state
       // (it still holds the user's text) instead of exploding.
       onStatusMessage(`刷新句段失败：${describeError(error)}`);
     }
-  }, [activeDocumentId, onStatusMessage]);
+  }, [activeDocumentId, recordSegments, onStatusMessage]);
 
+  // Persists targetText as the segment's draft. Trados-style typing
+  // auto-saves pass quiet=true: success shows through the row's 草稿 badge
+  // instead of a statusbar line per pause; failures always surface.
+  // Resolves false when the engine never acked, so the grid re-arms and
+  // retries the text on its next flush.
   const saveDraft = useCallback(
-    async (segment: Segment, targetText: string) => {
-      try {
-        const result = await callEngine("segment.update", {
-          segmentId: segment.id,
-          targetText,
-          baseRevision: segment.revision,
-        });
-        applySegments([result.segment]);
-        setUnackedWrite((current) =>
-          current?.segmentId === segment.id ? null : current,
-        );
-        onStatusMessage(`句段 #${segment.ordinal + 1} 草稿已保存`);
-      } catch (error) {
-        if (isEngineUnavailable(error)) {
-          // The engine never acked this write: keep an inline alert up (the
-          // editor still holds the text) and skip the doomed reload.
-          setUnackedWrite({
-            segmentId: segment.id,
-            ordinal: segment.ordinal,
-            kind: "draft",
-            message: describeError(error),
-          });
-          onStatusMessage(
-            `句段 #${segment.ordinal + 1} 草稿未保存：引擎未确认写入`,
-          );
-          return;
+    (
+      segment: Segment,
+      targetText: string,
+      options?: { quiet?: boolean },
+    ): Promise<boolean> =>
+      enqueueSegmentWrite(async () => {
+        const latest = latestSegmentsRef.current.get(segment.id) ?? segment;
+        if (options?.quiet && latest.targetText === targetText) {
+          // A leave-flush can trail an identical debounced save (or a
+          // confirm already persisted the text); nothing new to write.
+          return true;
         }
-        onStatusMessage(`保存失败：${describeError(error)}`);
-        await reloadSegments();
-      }
-    },
-    [applySegments, onStatusMessage, reloadSegments],
+        try {
+          const result = await callEngine("segment.update", {
+            segmentId: segment.id,
+            targetText,
+            baseRevision: latest.revision,
+          });
+          applySegments([result.segment]);
+          setUnackedWrite((current) =>
+            current?.segmentId === segment.id ? null : current,
+          );
+          if (!options?.quiet) {
+            onStatusMessage(`句段 #${segment.ordinal + 1} 草稿已保存`);
+          }
+          return true;
+        } catch (error) {
+          if (isEngineUnavailable(error)) {
+            // The engine never acked this write: keep an inline alert up
+            // (the editor still holds the text) and skip the doomed reload.
+            setUnackedWrite({
+              segmentId: segment.id,
+              ordinal: segment.ordinal,
+              kind: "draft",
+              message: describeError(error),
+            });
+            onStatusMessage(
+              `句段 #${segment.ordinal + 1} 草稿未保存：引擎未确认写入`,
+            );
+            return false;
+          }
+          onStatusMessage(`保存失败：${describeError(error)}`);
+          await reloadSegments();
+          return false;
+        }
+      }),
+    [enqueueSegmentWrite, applySegments, onStatusMessage, reloadSegments],
   );
 
   const confirmSegment = useCallback(
-    async (segment: Segment, targetText: string) => {
-      try {
-        let current = segment;
-        if (targetText !== segment.targetText) {
-          const updated = await callEngine("segment.update", {
-            segmentId: segment.id,
-            targetText,
-            baseRevision: segment.revision,
-          });
-          current = updated.segment;
-        }
-        const result = await callEngine("segment.confirm", {
-          segmentId: current.id,
-          baseRevision: current.revision,
-        });
-        applySegments([result.segment, ...result.propagated]);
-        setUnackedWrite((currentAlert) =>
-          currentAlert?.segmentId === segment.id ? null : currentAlert,
-        );
-        const propagated =
-          result.propagated.length > 0
-            ? `，TM 传播 ${result.propagated.length} 个重复句段`
-            : "";
-        onStatusMessage(
-          `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
-        );
-        advanceAfterConfirm(segment.id, [result.segment, ...result.propagated]);
-      } catch (error) {
-        if (isEngineUnavailable(error)) {
-          setUnackedWrite({
-            segmentId: segment.id,
-            ordinal: segment.ordinal,
-            kind: "confirm",
-            message: describeError(error),
-          });
-          onStatusMessage(
-            `句段 #${segment.ordinal + 1} 未确认：引擎未确认写入`,
-          );
-          return;
-        }
-        onStatusMessage(`确认失败：${describeError(error)}`);
-        await reloadSegments();
+    (segment: Segment, targetText: string): Promise<void> => {
+      if (targetText.trim().length === 0) {
+        // Same rule the engine enforces; report it without a doomed RPC.
+        onStatusMessage(`句段 #${segment.ordinal + 1} 译文为空，无法确认`);
+        return Promise.resolve();
       }
+      return enqueueSegmentWrite(async () => {
+        let current = latestSegmentsRef.current.get(segment.id) ?? segment;
+        try {
+          if (targetText !== current.targetText) {
+            const updated = await callEngine("segment.update", {
+              segmentId: current.id,
+              targetText,
+              baseRevision: current.revision,
+            });
+            current = updated.segment;
+            // Fresh revision survives even if the confirm below fails, so
+            // a retry never sends a stale baseRevision.
+            recordSegments([current]);
+          }
+          const result = await callEngine("segment.confirm", {
+            segmentId: current.id,
+            baseRevision: current.revision,
+          });
+          applySegments([result.segment, ...result.propagated]);
+          setUnackedWrite((currentAlert) =>
+            currentAlert?.segmentId === segment.id ? null : currentAlert,
+          );
+          const propagated =
+            result.propagated.length > 0
+              ? `，TM 传播 ${result.propagated.length} 个重复句段`
+              : "";
+          onStatusMessage(
+            `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
+          );
+          advanceAfterConfirm(segment.id, [
+            result.segment,
+            ...result.propagated,
+          ]);
+        } catch (error) {
+          if (isEngineUnavailable(error)) {
+            setUnackedWrite({
+              segmentId: segment.id,
+              ordinal: segment.ordinal,
+              kind: "confirm",
+              message: describeError(error),
+            });
+            onStatusMessage(
+              `句段 #${segment.ordinal + 1} 未确认：引擎未确认写入`,
+            );
+            return;
+          }
+          onStatusMessage(`确认失败：${describeError(error)}`);
+          await reloadSegments();
+        }
+      });
     },
-    [applySegments, advanceAfterConfirm, onStatusMessage, reloadSegments],
+    [
+      enqueueSegmentWrite,
+      recordSegments,
+      applySegments,
+      advanceAfterConfirm,
+      onStatusMessage,
+      reloadSegments,
+    ],
   );
 
   const applyDraftToActive = useCallback(
@@ -1508,9 +1588,10 @@ export function WorkbenchView({
                     句段 #{unackedWrite.ordinal + 1} 的
                     {unackedWrite.kind === "draft" ? "草稿" : "确认"}
                     未被引擎确认写入（{unackedWrite.message}）。
-                    编辑器中的文本仍保留；引擎恢复后请重新
-                    {unackedWrite.kind === "draft" ? "保存" : "确认"}
-                    该句段。
+                    编辑器中的文本仍保留；
+                    {unackedWrite.kind === "draft"
+                      ? "引擎恢复后继续输入即可自动重新保存，或按 Ctrl+Enter 确认。"
+                      : "引擎恢复后请重新确认该句段（Ctrl+Enter）。"}
                   </span>
                   <Button
                     size="sm"
@@ -1649,7 +1730,7 @@ export function WorkbenchView({
                   qaSegmentIds={openIssueSegmentIds}
                   onSelect={setActiveSegmentId}
                   onSaveDraft={(segment, text) =>
-                    void saveDraft(segment, text)
+                    saveDraft(segment, text, { quiet: true })
                   }
                   onConfirm={(segment, text) =>
                     void confirmSegment(segment, text)

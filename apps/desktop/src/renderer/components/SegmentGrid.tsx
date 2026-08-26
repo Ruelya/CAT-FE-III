@@ -10,7 +10,7 @@ import {
 import type { Ref } from "react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
-import { Badge, Button, Kbd, MatchBadge } from "@translunar/ui";
+import { Badge, Kbd, MatchBadge } from "@translunar/ui";
 import type { BadgeTone } from "@translunar/ui";
 
 export interface SegmentGridHandle {
@@ -43,8 +43,21 @@ export interface SegmentGridProps {
   /** Segment ids with open QA issues. */
   qaSegmentIds: ReadonlySet<string>;
   onSelect: (segmentId: string) => void;
-  onSaveDraft: (segment: Segment, targetText: string) => void;
+  /**
+   * Persists the segment's draft text (Trados-style: typing keeps the
+   * segment a draft with no save button). The grid debounces this while
+   * typing and flushes it when the selection leaves the segment or the
+   * editor unmounts. A returned promise resolving to `false` means the
+   * engine never acked the write; the grid then re-arms so its next flush
+   * retries the same text instead of silently dropping it.
+   */
+  onSaveDraft: (
+    segment: Segment,
+    targetText: string,
+  ) => void | boolean | Promise<void | boolean>;
   onConfirm: (segment: Segment, targetText: string) => void;
+  /** Debounce for the typing auto-save; tests may shorten it. */
+  autoSaveDelayMs?: number;
   /** Imperative access to the target editor (dock term insertion). */
   ref?: Ref<SegmentGridHandle>;
 }
@@ -60,6 +73,8 @@ const VIRTUAL_THRESHOLD = 120;
 const ESTIMATED_ROW_HEIGHT = 56;
 const OVERSCAN_PX = 400;
 const FALLBACK_VIEWPORT = 600;
+/** Pause after the last keystroke before the draft is persisted. */
+const AUTO_SAVE_DELAY_MS = 700;
 
 export function SegmentGrid({
   segments,
@@ -71,6 +86,7 @@ export function SegmentGrid({
   onSelect,
   onSaveDraft,
   onConfirm,
+  autoSaveDelayMs = AUTO_SAVE_DELAY_MS,
   ref,
 }: SegmentGridProps) {
   const [draft, setDraft] = useState("");
@@ -91,15 +107,137 @@ export function SegmentGrid({
   const activeSegment =
     segments.find((segment) => segment.id === activeSegmentId) ?? null;
 
-  // Re-seed the editor whenever the active segment (or its committed target)
-  // changes from the outside, e.g. TM apply, AI draft, or propagation. Any
-  // in-flight composition or queued insert belonged to the old text.
+  // --- Trados-style draft lifecycle -------------------------------------
+  // Typing never needs a save button: the text is handed to onSaveDraft
+  // after a short pause and flushed when the selection leaves the segment.
+  // These mirrors let the flush/debounce callbacks (which outlive renders)
+  // read the live values without re-subscribing.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const onSaveDraftRef = useRef(onSaveDraft);
+  onSaveDraftRef.current = onSaveDraft;
+  // The last text handed off for persistence (or seeded from the committed
+  // target). Anything newer than this is "unsaved typing".
+  const savedTextRef = useRef("");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped to re-arm the debounce when no draft change occurs (IME commit).
+  const [saveTick, setSaveTick] = useState(0);
+  // Latest object for the selected segment (fresh revision after saves);
+  // set by an effect below AFTER the segment-switch flush has run, so a
+  // flush always targets the segment the text belongs to.
+  const flushSegmentRef = useRef<Segment | null>(null);
+
+  // Persist the pending draft now (leave-segment flush and timer body).
+  const commitDraftSave = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const segment = flushSegmentRef.current;
+    if (!segment) {
+      return;
+    }
+    const text = draftRef.current;
+    if (text === savedTextRef.current) {
+      return;
+    }
+    savedTextRef.current = text;
+    const outcome = onSaveDraftRef.current(segment, text);
+    if (
+      outcome &&
+      typeof (outcome as Promise<void | boolean>).then === "function"
+    ) {
+      void (outcome as Promise<void | boolean>).then((acked) => {
+        // The engine never acked this write: forget the hand-off (unless
+        // newer text was handed off meanwhile) so the next flush retries
+        // the same text instead of silently dropping it.
+        if (acked === false && savedTextRef.current === text) {
+          savedTextRef.current = segment.targetText;
+        }
+      });
+    }
+  }, []);
+
+  // Confirm persists the exact editor text itself; drop any pending
+  // auto-save so the same write is never sent twice.
+  const handOffToConfirm = useCallback((text: string) => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    savedTextRef.current = text;
+  }, []);
+
+  // Selection moved to another segment: leaving never confirms (Studio
+  // semantics), but unsaved typing is flushed as a draft first. Then the
+  // editor re-seeds from the newly selected segment; any in-flight
+  // composition or queued insert belonged to the old text.
   useEffect(() => {
-    setDraft(activeSegment?.targetText ?? "");
+    commitDraftSave();
+    const seeded = activeSegment?.targetText ?? "";
+    setDraft(seeded);
+    savedTextRef.current = seeded;
     composingRef.current = false;
     pendingInsertRef.current = "";
     pendingCaretRef.current = null;
-  }, [activeSegment?.id, activeSegment?.targetText]);
+  }, [activeSegment?.id]);
+
+  // An outside write landed in the committed target of the segment being
+  // edited (TM apply, AI draft, replace): re-seed the editor. Our own
+  // auto-save echo is recognized by matching the handed-off text and never
+  // clobbers typing that happened while the save was in flight.
+  useEffect(() => {
+    if (!activeSegment) {
+      return;
+    }
+    const target = activeSegment.targetText;
+    if (target === draftRef.current || target === savedTextRef.current) {
+      return;
+    }
+    setDraft(target);
+    savedTextRef.current = target;
+    composingRef.current = false;
+    pendingInsertRef.current = "";
+    pendingCaretRef.current = null;
+  }, [activeSegment?.targetText]);
+
+  // Runs after the two effects above, so the segment-switch flush still
+  // saw the previous segment while this keeps revisions fresh in between.
+  useEffect(() => {
+    flushSegmentRef.current = activeSegment;
+  });
+
+  // Debounced auto-save: re-armed on every keystroke, quiet during IME
+  // composition (compositionend bumps saveTick to re-arm).
+  useEffect(() => {
+    if (!activeSegment || composingRef.current) {
+      return;
+    }
+    if (draft === savedTextRef.current) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (saveTimerRef.current === timer) {
+        saveTimerRef.current = null;
+      }
+      if (!composingRef.current) {
+        commitDraftSave();
+      }
+    }, autoSaveDelayMs);
+    saveTimerRef.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (saveTimerRef.current === timer) {
+        saveTimerRef.current = null;
+      }
+    };
+  }, [draft, saveTick, activeSegment?.id, autoSaveDelayMs, commitDraftSave]);
+
+  // The editor can unmount with pending text (filter hides the row, the
+  // document or project closes): flush it, exactly like leaving a segment.
+  useEffect(() => {
+    return () => commitDraftSave();
+  }, [commitDraftSave]);
 
   const spliceIntoEditor = useCallback(
     (textarea: HTMLTextAreaElement, text: string) => {
@@ -145,11 +283,12 @@ export function SegmentGrid({
         if (!textareaRef.current || !activeSegment || composingRef.current) {
           return false;
         }
+        handOffToConfirm(draft);
         onConfirm(activeSegment, draft);
         return true;
       },
     }),
-    [spliceIntoEditor, activeSegment, draft, onConfirm],
+    [spliceIntoEditor, activeSegment, draft, onConfirm, handOffToConfirm],
   );
 
   const virtualized = segments.length > VIRTUAL_THRESHOLD;
@@ -351,6 +490,10 @@ export function SegmentGrid({
                             pendingInsertRef.current = "";
                             spliceIntoEditor(event.currentTarget, pending);
                           }
+                          // Text committed by the IME must reach the
+                          // debounced draft save even when no further
+                          // input follows.
+                          setSaveTick((tick) => tick + 1);
                         }}
                         onKeyDown={(event) => {
                           if (event.nativeEvent.isComposing) {
@@ -363,38 +506,18 @@ export function SegmentGrid({
                             event.key === "Enter"
                           ) {
                             event.preventDefault();
+                            handOffToConfirm(draft);
                             onConfirm(segment, draft);
                           }
                         }}
                       />
-                      <div className="segment-grid__actions">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSaveDraft(segment, draft);
-                          }}
-                        >
-                          保存草稿
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          disabled={draft.trim().length === 0}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onConfirm(segment, draft);
-                          }}
-                        >
-                          确认
-                        </Button>
-                        <span className="segment-grid__hint">
-                          <Kbd>Ctrl+Enter</Kbd> 确认并下一句
-                          <span className="segment-grid__hint-sep">·</span>
-                          <Kbd>Alt+↑/↓</Kbd> 切换句段
-                        </span>
-                      </div>
+                      <span className="segment-grid__hint">
+                        <Kbd>Ctrl+Enter</Kbd> 确认并写入 TM
+                        <span className="segment-grid__hint-sep">·</span>
+                        <Kbd>Alt+↑/↓</Kbd> 切换句段
+                        <span className="segment-grid__hint-sep">·</span>
+                        输入自动保存草稿
+                      </span>
                     </div>
                   ) : segment.targetText ? (
                     segment.targetText

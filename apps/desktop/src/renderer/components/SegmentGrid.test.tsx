@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -47,7 +53,7 @@ describe("SegmentGrid", () => {
     expect(onSelect).toHaveBeenCalledWith("s2");
   });
 
-  it("edits the active segment and confirms with the typed draft", async () => {
+  it("edits the active segment and confirms the typed draft with Ctrl+Enter", async () => {
     const onConfirm = vi.fn();
     render(
       <SegmentGrid
@@ -61,7 +67,7 @@ describe("SegmentGrid", () => {
     );
     const editor = screen.getByLabelText("句段 1 译文");
     await userEvent.type(editor, "你好。");
-    await userEvent.click(screen.getByRole("button", { name: "确认" }));
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
     expect(onConfirm).toHaveBeenCalledTimes(1);
     const [confirmedSegment, draft] = onConfirm.mock.calls[0] as [
       Segment,
@@ -69,6 +75,27 @@ describe("SegmentGrid", () => {
     ];
     expect(confirmedSegment.id).toBe("s1");
     expect(draft).toBe("你好。");
+  });
+
+  it("renders no per-row save/confirm buttons in the active row", () => {
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // Trados-style editor: typing auto-saves the draft and Ctrl+Enter (or
+    // the ribbon/menu) confirms — the row itself carries no buttons.
+    expect(
+      screen.queryByRole("button", { name: "保存草稿" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "确认" }),
+    ).not.toBeInTheDocument();
   });
 
   it("flags segments with open QA issues", () => {
@@ -299,6 +326,195 @@ describe("SegmentGrid", () => {
     expect(onConfirm).not.toHaveBeenCalled();
     fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-saves the typed draft after a pause, without any button", async () => {
+    const onSaveDraft = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    await userEvent.type(editor, "你好。");
+    await waitFor(() => {
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    });
+    const [savedSegment, text] = onSaveDraft.mock.calls[0] as [Segment, string];
+    expect(savedSegment.id).toBe("s1");
+    expect(text).toBe("你好。");
+  });
+
+  it("flushes unsaved typing when the selection leaves the segment, and never confirms", () => {
+    const onSaveDraft = vi.fn();
+    const onConfirm = vi.fn();
+    const segments = [segment("s1", 0, "Hello."), segment("s2", 1, "World.")];
+    const view = render(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={onConfirm}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.change(editor, { target: { value: "你好。" } });
+    // Selection moves before the debounce ever fires: the text still lands
+    // as a draft of the segment it was typed into (Studio semantics), and
+    // leaving a segment never confirms it.
+    view.rerender(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId="s2"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={onConfirm}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    const [savedSegment, text] = onSaveDraft.mock.calls[0] as [Segment, string];
+    expect(savedSegment.id).toBe("s1");
+    expect(text).toBe("你好。");
+    expect(onConfirm).not.toHaveBeenCalled();
+    // The editor re-seeded for s2 (empty target).
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>("句段 2 译文").value,
+    ).toBe("");
+  });
+
+  it("saves nothing when the editor text matches the committed target", () => {
+    const onSaveDraft = vi.fn();
+    const { unmount } = render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    unmount();
+    expect(onSaveDraft).not.toHaveBeenCalled();
+  });
+
+  it("holds the auto-save during IME composition and saves after compositionend", async () => {
+    const onSaveDraft = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.compositionStart(editor);
+    fireEvent.change(editor, { target: { value: "你好" } });
+    // Composition text stays out of segment.update while the IME is open.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(onSaveDraft).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(editor);
+    await waitFor(() => {
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    });
+    expect(onSaveDraft.mock.calls[0]?.[1]).toBe("你好");
+  });
+
+  it("confirm hands the text off and cancels the pending auto-save", async () => {
+    const onSaveDraft = vi.fn();
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={onConfirm}
+        autoSaveDelayMs={20}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.change(editor, { target: { value: "你好。" } });
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0]?.[1]).toBe("你好。");
+    // The confirm persists the text itself; the debounced draft save must
+    // not fire a duplicate write afterwards.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(onSaveDraft).not.toHaveBeenCalled();
+  });
+
+  it("never confirms on Esc or blur", async () => {
+    const onConfirm = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    await userEvent.type(editor, "你好。");
+    fireEvent.keyDown(editor, { key: "Escape" });
+    fireEvent.blur(editor);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("retries the same text on the next flush when the save was never acked", async () => {
+    // onSaveDraft resolving false = the engine never acked the write.
+    const onSaveDraft = vi.fn().mockResolvedValue(false);
+    const segments = [segment("s1", 0, "Hello.")];
+    const view = render(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    const editor = screen.getByLabelText("句段 1 译文");
+    fireEvent.change(editor, { target: { value: "你好。" } });
+    await waitFor(() => {
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    });
+    // Leaving the segment flushes the unacked text again instead of
+    // silently treating the failed write as saved.
+    view.rerender(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId={null}
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    expect(onSaveDraft).toHaveBeenCalledTimes(2);
+    expect(onSaveDraft.mock.calls[1]?.[1]).toBe("你好。");
   });
 
   it("windows large documents instead of rendering every row", () => {
