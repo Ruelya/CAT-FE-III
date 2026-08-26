@@ -4,7 +4,7 @@
 >
 > 说明：`docs.rws.com` 的 zh-CN 路径下 2026 文档尚未翻译，页面回退显示英文原文（页面提示 "该内容不提供所选语言版本"），因此本文引用 zh-CN URL、正文引述官方英文原名。
 >
-> 本次共读取 2026 文档树约 440+ 个主题页（见文末附录），官方截图存档于 `/opt/cursor/artifacts/research-trados/`。
+> 本次对 2026 文档树做了全量 BFS 抓取，共读取 **1146 个主题页**（见文末附录），官方截图存档于 `/opt/cursor/artifacts/research-trados/`。
 
 ---
 
@@ -412,7 +412,7 @@ Studio 的确认/TM 写入与**文档文件落盘是两回事**：
 
 2026 版把 AI 归为四件套 + 一个云包（[Trados Studio and AI](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/trados-studio-and-ai-1147776)）：
 
-- **AI Bridge**（2026 新增，随 Studio 自动安装的原生 AI 集成层）：一个 provider 桥连接 **OpenAI、Azure OpenAI、Anthropic Claude、Google Gemini、DeepSeek、xAI Grok** 及**本地运行时（Ollama、LM Studio）**；同一套 provider 连接与 prompt library 供两个消费面共享——① Editor 右缘 **AI Assistant** 面板（针对活动段的交互式提示建议），② **批任务 translation provider**（Analyze / Pre-translate Files with AI Bridge）与逐段翻译来源。它取代 2024 的 AppStore 插件 "Open AI Provider (AI Professional)"（[AI Assistant and AI Bridge](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/ai-assistant-and-ai-bridge-1147781)）。生成式翻译会结合术语库、TM 等资源（官方称 generative translation）。
+- **AI Bridge**（2026 新增，随 Studio 自动安装的原生 AI 集成层）：一个 provider 桥连接 **OpenAI、Azure OpenAI、Anthropic Claude、Google Gemini、DeepSeek、xAI Grok** 及**本地运行时（Ollama、LM Studio）**；同一套 provider 连接与 prompt library 供两个消费面共享——① Editor 右缘 **AI Assistant** 面板（针对活动段的交互式提示建议），② **批任务 translation provider**（Analyze / Pre-translate Files with AI Bridge）与逐段翻译来源。它取代 2024 的 AppStore 插件 "Open AI Provider (AI Professional)"（[AI Assistant and AI Bridge](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/ai-assistant-and-ai-bridge-1147781)）。生成式翻译会结合术语库、TM 等资源（官方称 generative translation）。工程细节：统一走 **OpenAI 兼容 Chat Completions 协议**（`/chat/completions`），自定义 provider 用一个 **JSON descriptor 文件**即可接入——"no code, no plugin rebuild"（[Supported providers](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/supported-providers-1299511)、[Adding a custom provider using a JSON descriptor](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/adding-a-custom-provider-using-a-json-descriptor-1300095)）。
 - **Smart Review**：LLM 评审活动段，输出分数+解释（高质量绿标/低质量红标）+ 改译建议；**AppStore 应用**，云项目还需购买 **AI Essentials** 云包（AWS Bedrock，或加钱换 Azure OpenAI）（[Smart Review](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/smart-review-1152571)）。
 - **MTQE**（MT 质量预估）：Language Weaver 等 provider 对 MT 输出打质量分，2024 起支持，Editor 右缘 TQE 标签（[Machine Translation Quality Estimation](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/machine-translation-quality-estimation-1147785)，另见 §6.2）。
 - **Smart Help（Trados Copilot）**：界面内问答帮助（[Trados Copilot – Smart Help](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/trados-copilot-e28093-smart-help-1147789)）。
@@ -529,7 +529,7 @@ Studio 的确认/TM 写入与**文档文件落盘是两回事**：
 
 ## 附录 B：本次遍历的官方文档树
 
-- 主入口：[Understanding the user interface](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/understanding-the-user-interface-338262)（2026 Release，publication 1279521），自此 BFS 递归抓取站内链接，共读取约 **440+ 个主题页**，优先覆盖：Editor、segment、confirm、translation results、concordance、term、QA/verification、preview、filter、track changes、TM/MT、batch tasks、keyboard shortcuts 等关键词主题。
+- 主入口：[Understanding the user interface](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/understanding-the-user-interface-338262)（2026 Release，publication 1279521），自此 BFS 递归抓取站内链接直至队列耗尽，共读取 **1146 个主题页**（全树），优先覆盖：Editor、segment、confirm、translation results、concordance、term、QA/verification、preview、filter、track changes、TM/MT、batch tasks、keyboard shortcuts 等关键词主题；长尾部分为文件类型配置与 GroupShare 服务器管理主题，与本研究无冲突结论。
 - 2026 文档树已下线的参考页改引：[Segment Status column（2024 SR1）](https://docs.rws.com/en-US/trados-studio-2024-sr1-1187677/segment-status-column-340490)、[TM matches（2024 SR1）](https://docs.rws.com/en-US/trados-studio-2024-sr1-1187677/tm-matches-341353)、[The Editor view windows（2022）](https://docs.rws.com/en-US/trados-studio-2022-980998/the-editor-view-windows-340578)、[Extended keyboard support in the Editor view（2024）](https://docs.rws.com/en-US/trados-studio-2024-1145319/extended-keyboard-support-in-the-editor-view-802731)。
 - 官方补充材料：[Shortcuts in Online Editor（2026 文档树内）](https://docs.rws.com/zh-CN/trados-studio-2026-release-1279521/shortcuts-in-online-editor-515739)、SDL 官方 [Translating and Reviewing Documents Quick Start Guide（PDF）](http://www.uco.es/~lr1maalm/TradosTranslatingAndReviewingDocuments.pdf)。
 - 正文引用的 2026 主题页（核心子集）：
