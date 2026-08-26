@@ -30,17 +30,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tl_asset::TermEntry;
-use tl_domain::{NumberEvidence, QaIssue, QaIssueStatus, new_id};
+use tl_domain::{NumberEvidence, Project, QaIssue, QaIssueStatus, Segment, new_id};
 use tl_protocol::{
     QaListParams, QaListResult, QaRunParams, QaRunResult, QaWaiveParams, QaWaiveResult,
 };
 use tl_qa::{
     CompiledQaProfile, QaCandidateEvidence, QaConsistencySegment, QaFindingCandidate,
-    QaSegmentInput, QaTermExpectation, built_in_profiles, default_profile_id, evaluate_consistency,
+    QaProfileDefinition, QaSegmentInput, QaTermExpectation, built_in_profiles,
+    default_profile_id, evaluate_consistency,
 };
 
 use crate::store::StateDelta;
 use crate::{Engine, EngineError, now_ms};
+
+/// Rule ids produced by [`evaluate_consistency`] — the cross-segment pass a
+/// segment-scoped refresh cannot honestly re-evaluate.
+const CONSISTENCY_RULE_IDS: [&str; 2] = [
+    "qa.same-source-different-target",
+    "qa.different-source-same-target",
+];
 
 impl Engine {
     pub(crate) fn qa_run(&mut self, params: QaRunParams) -> Result<QaRunResult, EngineError> {
@@ -54,25 +62,21 @@ impl Engine {
         // and shared by every segment's terminology expectations.
         let term_entries = self.attached_term_entries(&project.id)?;
 
-        let profiles = built_in_profiles();
-        let profile_id = project
-            .configuration
-            .qa_profile_id
-            .as_deref()
-            .filter(|id| profiles.iter().any(|profile| profile.id == *id))
-            .unwrap_or_else(|| default_profile_id(&project.target_locale));
-        let definition = profiles
-            .iter()
-            .find(|profile| profile.id == profile_id)
-            .cloned()
-            .ok_or_else(|| EngineError::Internal(format!("missing QA profile {profile_id}")))?;
-        let profile = CompiledQaProfile::compile(definition.clone())
-            .map_err(|error| EngineError::Internal(error.to_string()))?;
+        let (definition, profile) = Self::compiled_profile(&project)?;
 
         let mut checked = 0_u32;
         let mut candidates: Vec<QaFindingCandidate> = Vec::new();
         let mut consistency_inputs = Vec::new();
+        // Locked rows sit outside the run entirely: no candidates, not
+        // counted as checked, and their persisted issues are shielded from
+        // the resolve pass below — resolving them would claim a check that
+        // never happened.
+        let mut locked_segment_ids: BTreeSet<&str> = BTreeSet::new();
         for segment in &segments {
+            if segment.locked {
+                locked_segment_ids.insert(segment.id.as_str());
+                continue;
+            }
             if segment.source_text.trim().is_empty() {
                 continue;
             }
@@ -111,68 +115,19 @@ impl Engine {
             .into_iter()
             .map(|issue| (issue.id.clone(), issue))
             .collect();
-        let mut id_by_fingerprint: BTreeMap<String, String> = BTreeMap::new();
-        for (id, issue) in &issues {
-            id_by_fingerprint
-                .entry(issue.fingerprint.clone())
-                .or_insert_with(|| id.clone());
-        }
 
         let now = now_ms();
-        let mut current_fingerprints = BTreeSet::new();
         let mut changed_ids: BTreeSet<String> = BTreeSet::new();
-        for candidate in candidates {
-            current_fingerprints.insert(candidate.fingerprint.clone());
-            match id_by_fingerprint.get(&candidate.fingerprint) {
-                Some(id) => {
-                    let issue = issues.get_mut(id).expect("issue id just indexed");
-                    let evidence = map_evidence(candidate.evidence);
-                    // The waiver rule: the exact finding the user accepted
-                    // (same fingerprint, same evidence) stays waived across
-                    // runs. Built-in fingerprints hash the evidence, so a
-                    // fingerprint match implies an evidence match; the
-                    // explicit comparison keeps the rule honest even if a
-                    // future rule ever fingerprints differently.
-                    if issue.status == QaIssueStatus::Waived && issue.evidence == evidence {
-                        continue;
-                    }
-                    if issue.status == QaIssueStatus::Waived {
-                        // Same fingerprint but different evidence: the
-                        // waiver no longer applies; drop its note and reopen.
-                        issue.waive_note = None;
-                    }
-                    issue.status = QaIssueStatus::Open;
-                    issue.severity = candidate.severity;
-                    issue.message = candidate.message;
-                    issue.evidence = evidence;
-                    issue.updated_at_ms = now;
-                    changed_ids.insert(id.clone());
-                }
-                None => {
-                    let issue = QaIssue {
-                        id: new_id(),
-                        segment_id: candidate.segment_id,
-                        rule_id: candidate.rule_id,
-                        severity: candidate.severity,
-                        status: QaIssueStatus::Open,
-                        message: candidate.message,
-                        fingerprint: candidate.fingerprint,
-                        evidence: map_evidence(candidate.evidence),
-                        waive_note: None,
-                        created_at_ms: now,
-                        updated_at_ms: now,
-                    };
-                    id_by_fingerprint.insert(issue.fingerprint.clone(), issue.id.clone());
-                    changed_ids.insert(issue.id.clone());
-                    issues.insert(issue.id.clone(), issue);
-                }
-            }
-        }
+        let current_fingerprints = fold_candidates(&mut issues, candidates, now, &mut changed_ids);
         // Resolve issues that no longer reproduce for this document. This
         // covers waived rows too: when the evidence behind a waiver changes
         // or the finding disappears, the waiver has run its course (any
-        // still-mismatching evidence opened a fresh issue above).
+        // still-mismatching evidence opened a fresh issue above). Issues on
+        // locked rows are exempt: those rows were not evaluated this run.
         for issue in issues.values_mut() {
+            if locked_segment_ids.contains(issue.segment_id.as_str()) {
+                continue;
+            }
             if issue.status != QaIssueStatus::Resolved
                 && !current_fingerprints.contains(&issue.fingerprint)
             {
@@ -202,6 +157,96 @@ impl Engine {
             open_issues,
             issues,
         })
+    }
+
+    /// Confirm-time QA: evaluate the segment-scoped rules against one
+    /// segment's current text and reconcile only that segment's issues.
+    /// Cross-segment consistency findings are left untouched — a
+    /// single-segment pass cannot honestly re-evaluate them, so they wait
+    /// for the next full `qa.run`. Returns `(changed rows, the segment's
+    /// full issue list after the refresh)`; the caller folds the changed
+    /// rows into its own transaction so the confirm and its QA refresh
+    /// commit (or fail) together. Never called for locked segments —
+    /// confirm refuses those first.
+    pub(crate) fn refresh_segment_qa(
+        &self,
+        project: &Project,
+        segment: &Segment,
+    ) -> Result<(Vec<QaIssue>, Vec<QaIssue>), EngineError> {
+        let (_, profile) = Self::compiled_profile(project)?;
+        let candidates = if segment.source_text.trim().is_empty() {
+            Vec::new()
+        } else {
+            let term_entries = self.attached_term_entries(&project.id)?;
+            let terms = if segment.target_text.trim().is_empty() {
+                Vec::new()
+            } else {
+                Self::term_expectations(&term_entries, &project.target_locale, &segment.source_text)
+            };
+            profile.evaluate_segment(&QaSegmentInput {
+                segment_id: segment.id.clone(),
+                source_text: segment.source_text.clone(),
+                target_text: segment.target_text.clone(),
+                source_locale: project.source_locale.clone(),
+                target_locale: project.target_locale.clone(),
+                tag_findings: Vec::new(),
+                terms,
+            })
+        };
+
+        let mut issues: BTreeMap<String, QaIssue> = self
+            .store
+            .segment_qa_issues(&segment.id)?
+            .into_iter()
+            .map(|issue| (issue.id.clone(), issue))
+            .collect();
+        let now = now_ms();
+        let mut changed_ids: BTreeSet<String> = BTreeSet::new();
+        let current_fingerprints = fold_candidates(&mut issues, candidates, now, &mut changed_ids);
+        // Scoped resolve pass: only the segment-scoped rules ran, so only
+        // their issues may resolve; consistency rows stay as they are.
+        for issue in issues.values_mut() {
+            if CONSISTENCY_RULE_IDS.contains(&issue.rule_id.as_str()) {
+                continue;
+            }
+            if issue.status != QaIssueStatus::Resolved
+                && !current_fingerprints.contains(&issue.fingerprint)
+            {
+                issue.status = QaIssueStatus::Resolved;
+                issue.waive_note = None;
+                issue.updated_at_ms = now;
+                changed_ids.insert(issue.id.clone());
+            }
+        }
+        let changed = changed_ids
+            .iter()
+            .filter_map(|id| issues.get(id).cloned())
+            .collect();
+        let mut all: Vec<QaIssue> = issues.into_values().collect();
+        sort_issues(&mut all);
+        Ok((changed, all))
+    }
+
+    /// The project's effective QA profile: the configured id when it names
+    /// a built-in profile, otherwise the locale default.
+    fn compiled_profile(
+        project: &Project,
+    ) -> Result<(QaProfileDefinition, CompiledQaProfile), EngineError> {
+        let profiles = built_in_profiles();
+        let profile_id = project
+            .configuration
+            .qa_profile_id
+            .as_deref()
+            .filter(|id| profiles.iter().any(|profile| profile.id == *id))
+            .unwrap_or_else(|| default_profile_id(&project.target_locale));
+        let definition = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .cloned()
+            .ok_or_else(|| EngineError::Internal(format!("missing QA profile {profile_id}")))?;
+        let profile = CompiledQaProfile::compile(definition.clone())
+            .map_err(|error| EngineError::Internal(error.to_string()))?;
+        Ok((definition, profile))
     }
 
     /// `qa.waive`: record a human decision on one issue. Waiving flips an
@@ -310,6 +355,74 @@ impl Engine {
         }
         expectations
     }
+}
+
+/// Fold rule candidates into a persisted issue map by fingerprint: reopen
+/// or refresh matching rows (respecting the waiver rule), insert new open
+/// rows for unseen fingerprints. Returns the fingerprints seen this pass;
+/// `changed_ids` collects every row the fold touched. Shared by the full
+/// document run and the confirm-time segment refresh.
+fn fold_candidates(
+    issues: &mut BTreeMap<String, QaIssue>,
+    candidates: Vec<QaFindingCandidate>,
+    now: i64,
+    changed_ids: &mut BTreeSet<String>,
+) -> BTreeSet<String> {
+    let mut id_by_fingerprint: BTreeMap<String, String> = BTreeMap::new();
+    for (id, issue) in issues.iter() {
+        id_by_fingerprint
+            .entry(issue.fingerprint.clone())
+            .or_insert_with(|| id.clone());
+    }
+    let mut current_fingerprints = BTreeSet::new();
+    for candidate in candidates {
+        current_fingerprints.insert(candidate.fingerprint.clone());
+        match id_by_fingerprint.get(&candidate.fingerprint) {
+            Some(id) => {
+                let issue = issues.get_mut(id).expect("issue id just indexed");
+                let evidence = map_evidence(candidate.evidence);
+                // The waiver rule: the exact finding the user accepted
+                // (same fingerprint, same evidence) stays waived across
+                // runs. Built-in fingerprints hash the evidence, so a
+                // fingerprint match implies an evidence match; the
+                // explicit comparison keeps the rule honest even if a
+                // future rule ever fingerprints differently.
+                if issue.status == QaIssueStatus::Waived && issue.evidence == evidence {
+                    continue;
+                }
+                if issue.status == QaIssueStatus::Waived {
+                    // Same fingerprint but different evidence: the
+                    // waiver no longer applies; drop its note and reopen.
+                    issue.waive_note = None;
+                }
+                issue.status = QaIssueStatus::Open;
+                issue.severity = candidate.severity;
+                issue.message = candidate.message;
+                issue.evidence = evidence;
+                issue.updated_at_ms = now;
+                changed_ids.insert(id.clone());
+            }
+            None => {
+                let issue = QaIssue {
+                    id: new_id(),
+                    segment_id: candidate.segment_id,
+                    rule_id: candidate.rule_id,
+                    severity: candidate.severity,
+                    status: QaIssueStatus::Open,
+                    message: candidate.message,
+                    fingerprint: candidate.fingerprint,
+                    evidence: map_evidence(candidate.evidence),
+                    waive_note: None,
+                    created_at_ms: now,
+                    updated_at_ms: now,
+                };
+                id_by_fingerprint.insert(issue.fingerprint.clone(), issue.id.clone());
+                changed_ids.insert(issue.id.clone());
+                issues.insert(issue.id.clone(), issue);
+            }
+        }
+    }
+    current_fingerprints
 }
 
 /// The list order every QA read shares: open, then waived, then resolved,

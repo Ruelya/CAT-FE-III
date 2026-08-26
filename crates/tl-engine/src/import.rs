@@ -106,6 +106,7 @@ pub fn build_segments(
             // Freshly imported rows have no origin; a bilingual import's
             // pre-filled target is upstream material, not a TM/AI stamp.
             origin: None,
+            locked: false,
         });
     }
     PreparedSegments { segments, leading }

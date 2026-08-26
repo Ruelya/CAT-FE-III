@@ -52,6 +52,7 @@ pub fn merge_for_export(segments: &[Segment], leading: &BTreeMap<String, String>
             context_hash: first.context_hash.clone(),
             updated_at_ms: first.updated_at_ms,
             origin: first.origin.clone(),
+            locked: first.locked,
         });
     }
     merged
@@ -81,6 +82,7 @@ mod tests {
             context_hash: String::new(),
             updated_at_ms: 1,
             origin: None,
+            locked: false,
         }
     }
 

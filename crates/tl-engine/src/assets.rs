@@ -386,13 +386,15 @@ impl Engine {
         let memory_id = Self::project_memory_id(&project_id);
         let now = now_ms();
         // Only the document's untranslated rows leave SQL; pretranslation
-        // inherently walks all of them once.
-        let pending: Vec<Segment> = self
+        // inherently walks all of them once. Locked rows are set aside and
+        // reported, never filled.
+        let (locked, pending): (Vec<Segment>, Vec<Segment>) = self
             .store
             .untranslated_document_segments(&document_id)?
             .into_iter()
             .filter(|segment| segment.target_text.trim().is_empty())
-            .collect();
+            .partition(|segment| segment.locked);
+        let skipped_locked = u32::try_from(locked.len()).unwrap_or(u32::MAX);
         let mut checked = 0_u32;
         let mut exact = 0_u32;
         let mut fuzzy = 0_u32;
@@ -439,6 +441,7 @@ impl Engine {
             pretranslated: exact + fuzzy,
             exact,
             fuzzy,
+            skipped_locked,
             segments: delta.segments,
         })
     }

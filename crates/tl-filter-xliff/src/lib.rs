@@ -1175,6 +1175,7 @@ mod tests {
             context_hash: String::new(),
             updated_at_ms: 0,
             origin: None,
+            locked: false,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1212,6 +1213,7 @@ mod tests {
             context_hash: String::new(),
             updated_at_ms: 0,
             origin: None,
+            locked: false,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1302,6 +1304,7 @@ mod tests {
             context_hash: String::new(),
             updated_at_ms: 0,
             origin: None,
+            locked: false,
         };
         XliffFilter
             .export(ExportRequest {
@@ -1344,6 +1347,7 @@ mod tests {
             context_hash: String::new(),
             updated_at_ms: 0,
             origin: None,
+            locked: false,
         };
         XliffFilter
             .export(ExportRequest {

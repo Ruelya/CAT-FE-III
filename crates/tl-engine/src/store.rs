@@ -79,7 +79,7 @@ const META_LEGACY_IMPORT: &str = "legacy_state_json_import";
 
 /// Ordered migration scripts; `PRAGMA user_version` records how many have
 /// been applied. Append-only: never edit a shipped script, add a new one.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
 
 /// Backs `tm.list` paging: `WHERE memory_id = ? ORDER BY confirmed_at_ms
 /// DESC, id` walks this index instead of sorting the memory per request.
@@ -101,6 +101,12 @@ ALTER TABLE segments ADD COLUMN origin_kind TEXT;
 ALTER TABLE segments ADD COLUMN origin_score INTEGER;
 ALTER TABLE segments ADD COLUMN origin_model TEXT;
 ALTER TABLE segments ADD COLUMN origin_edited INTEGER NOT NULL DEFAULT 0;
+";
+
+/// `Segment.locked` persistence. Rows written by earlier builds default to
+/// unlocked, matching the wire default.
+const SCHEMA_V5: &str = "
+ALTER TABLE segments ADD COLUMN locked INTEGER NOT NULL DEFAULT 0;
 ";
 
 const SCHEMA_V1: &str = "
@@ -510,7 +516,7 @@ impl Store {
         let rows = statement
             .query_map([document_id], |row| {
                 // `leading` sits right after the SEGMENT_COLUMNS list.
-                Ok((segment_from_row(row)?, row.get::<_, String>(15)?))
+                Ok((segment_from_row(row)?, row.get::<_, String>(16)?))
             })
             .map_err(db_err)?;
         let mut segments = Vec::new();
@@ -547,6 +553,7 @@ impl Store {
     /// Untranslated segments across one project that share a source hash —
     /// the confirm-time propagation candidates. Walks the source-hash index
     /// joined against the project's documents instead of scanning segments.
+    /// Locked rows are excluded: propagation never writes into them.
     pub fn untranslated_siblings(
         &self,
         project_id: &str,
@@ -559,11 +566,11 @@ impl Store {
                 "SELECT s.id, s.document_id, s.ordinal, s.structural_path, s.source_text,
                     s.target_text, s.state, s.revision, s.source_hash, s.context_hash,
                     s.updated_at_ms, s.origin_kind, s.origin_score, s.origin_model,
-                    s.origin_edited
+                    s.origin_edited, s.locked
                  FROM segments s
                  JOIN documents d ON d.id = s.document_id
                  WHERE s.source_hash = ?1 AND d.project_id = ?2
-                   AND s.state = ?3 AND s.id <> ?4
+                   AND s.state = ?3 AND s.id <> ?4 AND s.locked = 0
                  ORDER BY s.document_id, s.ordinal, s.id",
             )
             .map_err(db_err)?;
@@ -828,6 +835,21 @@ impl Store {
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 
+    /// Every issue of one segment, for the confirm-time segment-scoped
+    /// reconcile. Walks the `qa_issues_by_segment` index; the caller sorts.
+    pub fn segment_qa_issues(&self, segment_id: &str) -> io::Result<Vec<QaIssue>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {QA_ISSUE_COLUMNS} FROM qa_issues q WHERE q.segment_id = ?1"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map([segment_id], qa_issue_from_row)
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
     /// One issue by id, for `qa.waive`. Point query on the primary key.
     pub fn qa_issue_by_id(&self, issue_id: &str) -> io::Result<Option<QaIssue>> {
         let mut statement = self
@@ -860,7 +882,7 @@ impl Store {
 
 const SEGMENT_COLUMNS: &str = "id, document_id, ordinal, structural_path, source_text, \
      target_text, state, revision, source_hash, context_hash, updated_at_ms, \
-     origin_kind, origin_score, origin_model, origin_edited";
+     origin_kind, origin_score, origin_model, origin_edited, locked";
 
 const TM_ENTRY_COLUMNS: &str = "id, memory_id, source_text, target_text, source_hash, \
      origin_project_id, origin_document_id, origin_segment_id, confirmed_at_ms";
@@ -888,6 +910,7 @@ fn segment_from_row(row: &Row) -> rusqlite::Result<Segment> {
         context_hash: row.get(9)?,
         updated_at_ms: row.get(10)?,
         origin: segment_origin_from_row(row, 11)?,
+        locked: row.get(15)?,
     })
 }
 
@@ -1229,14 +1252,15 @@ fn upsert_document(conn: &Connection, record: &DocumentRecord) -> io::Result<()>
 
 /// Source-side columns and `leading` are immutable once a segment exists;
 /// updates only touch the translation-side columns (target, state,
-/// revision, timestamps, and origin — origin describes the target).
+/// revision, timestamps, origin — origin describes the target — and the
+/// lock flag).
 fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
             "INSERT INTO segments (id, document_id, ordinal, structural_path, source_text,
                target_text, state, revision, source_hash, context_hash, updated_at_ms, leading,
-               origin_kind, origin_score, origin_model, origin_edited)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+               origin_kind, origin_score, origin_model, origin_edited, locked)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
                target_text = excluded.target_text,
                state = excluded.state,
@@ -1245,7 +1269,8 @@ fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Re
                origin_kind = excluded.origin_kind,
                origin_score = excluded.origin_score,
                origin_model = excluded.origin_model,
-               origin_edited = excluded.origin_edited",
+               origin_edited = excluded.origin_edited,
+               locked = excluded.locked",
         )
         .map_err(db_err)?;
     let origin = segment.origin.as_ref();
@@ -1268,6 +1293,7 @@ fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Re
             origin.and_then(|origin| origin.score),
             origin.and_then(|origin| origin.model.as_deref()),
             origin.is_some_and(|origin| origin.edited),
+            segment.locked,
         ])
         .map_err(db_err)?;
     Ok(())
@@ -1674,6 +1700,7 @@ mod tests {
             context_hash: format!("context-{id}"),
             updated_at_ms: 1,
             origin: None,
+            locked: false,
         }
     }
 
