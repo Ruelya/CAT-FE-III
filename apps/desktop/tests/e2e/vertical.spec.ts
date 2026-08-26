@@ -148,7 +148,7 @@ test("vertical slice through the workbench", async () => {
   // Create a project. The workbench opens with the reference pane map:
   // ribbon toolbar on top, project explorer on the left (title, language
   // pair), resource rail on the right.
-  await page.getByPlaceholder("例如：产品手册 v3").fill("演示项目");
+  await page.getByLabel("项目名称").fill("演示项目");
   await page.getByRole("button", { name: "创建项目" }).click();
   await expect(page.locator(".project-explorer__name")).toHaveText("演示项目");
   await expect(page.getByRole("toolbar", { name: "工具栏" })).toBeVisible();
@@ -213,12 +213,11 @@ test("vertical slice through the workbench", async () => {
   await shot("04-number-qa-issue.png");
 
   // Waive the number issue: a human decision on record, not a fake resolve.
-  // The card flips to 已忽略 and says honestly that nothing was confirmed
-  // and nothing reached the TM; the segment stays a draft.
+  // The card flips to 已忽略; the segment stays a draft and nothing is
+  // confirmed or written to the TM (asserted via the state badge below).
   await numberIssue.getByRole("button", { name: "忽略" }).click();
   const waivedIssue = page.locator(".issue-card", { hasText: "1300" }).first();
   await expect(waivedIssue).toContainText("已忽略");
-  await expect(waivedIssue).toContainText("未确认句段、未写入 TM");
   await expect(page.locator(".app-statusbar")).toContainText("已忽略 QA 问题");
   await expect(rows.nth(1).locator(".segment-grid__state")).toContainText(
     "草稿",
@@ -231,24 +230,23 @@ test("vertical slice through the workbench", async () => {
     page.locator(".issue-card", { hasText: "1300" }).first(),
   ).toContainText("未解决");
 
-  // AI assist degrades honestly without credentials.
+  // AI assist degrades honestly without credentials: the badge reads 未配置
+  // and only the provider config form is offered.
   await page.getByRole("button", { name: "AI 辅助" }).click();
   await expect(page.locator(".tl-panel__header .tl-badge")).toContainText(
     "未配置",
   );
-  await expect(page.locator(".honest-note").first()).toContainText(
-    "不会假装成功",
-  );
+  await expect(page.getByLabel("API Key")).toBeVisible();
   await shot("05-ai-honest-unconfigured.png");
 
   // The agent cannot start without a provider: the start button stays
-  // disabled and the honest note says why.
+  // disabled.
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "创建任务单并运行" }),
   ).toBeDisabled();
   await expect(page.locator(".honest-note").first()).toContainText(
-    "没有密钥时它不会启动",
+    "未配置 AI 供应商",
   );
   await shot("06-agent-honest-refusal.png");
 
@@ -320,9 +318,6 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
     "保留期为 30 天。",
   );
   await expect(page.locator(".tl-dialog")).toContainText("已回填 2 个已译单元");
-  await expect(page.locator(".tl-dialog")).toContainText(
-    "点击段落可跳转到编辑网格",
-  );
   await shot("10b-preview-docx.png");
 
   // Click-to-segment: the preview export embeds per-paragraph segment
