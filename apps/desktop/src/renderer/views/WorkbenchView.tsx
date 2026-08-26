@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { IconSettings } from "@tabler/icons-react";
 
@@ -53,6 +54,12 @@ import { AiPanel } from "../components/AiPanel.js";
 import { AgentPanel } from "../components/AgentPanel.js";
 import { ExportOverwriteConfirm } from "../components/ExportOverwriteConfirm.js";
 import { PreviewDialog } from "../components/PreviewDialog.js";
+import {
+  DEFAULT_LAYOUT,
+  LAYOUT_LIMITS,
+  Splitter,
+  useWorkbenchLayout,
+} from "../components/Splitter.js";
 
 export interface WorkbenchViewProps {
   project: Project;
@@ -172,6 +179,8 @@ export function WorkbenchView({
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Rail widths / collapse / preview pane, persisted per project.
+  const [layout, updateLayout] = useWorkbenchLayout(project.id);
   const gridRef = useRef<SegmentGridHandle | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
@@ -1498,9 +1507,14 @@ export function WorkbenchView({
     onStatusMessage,
   ]);
 
+  const railVars = {
+    "--tl-rail-left": layout.leftCollapsed ? "0px" : `${layout.left}px`,
+    "--tl-rail-right": layout.rightCollapsed ? "0px" : `${layout.right}px`,
+  } as CSSProperties;
+
   return (
     <AiStatusProvider>
-      <main className="workbench">
+      <main className="workbench" style={railVars}>
         <Ribbon
           documentOpen={activeDocument !== null}
           busy={busy}
@@ -1525,7 +1539,10 @@ export function WorkbenchView({
           onConcordance={openConcordance}
         />
 
-        <aside className="workbench__explorer">
+        <aside
+          className="workbench__explorer"
+          data-collapsed={layout.leftCollapsed || undefined}
+        >
           <section
             className="explorer__section explorer__section--project"
             aria-label="项目"
@@ -1711,6 +1728,24 @@ export function WorkbenchView({
             </dl>
           </section>
         </aside>
+
+        <Splitter
+          orientation="vertical"
+          className="splitter--left"
+          label="左栏"
+          value={layout.left}
+          min={LAYOUT_LIMITS.left.min}
+          max={LAYOUT_LIMITS.left.max}
+          sign={1}
+          collapsed={layout.leftCollapsed}
+          onResize={(next) => updateLayout({ left: next })}
+          onReset={() =>
+            updateLayout({ left: DEFAULT_LAYOUT.left, leftCollapsed: false })
+          }
+          onToggleCollapse={() =>
+            updateLayout({ leftCollapsed: !layout.leftCollapsed })
+          }
+        />
 
         <section className="workbench__center">
           {openDocuments.length > 0 ? (
@@ -1943,7 +1978,31 @@ export function WorkbenchView({
           )}
         </section>
 
-        <aside className="workbench__dock">
+        <Splitter
+          orientation="vertical"
+          className="splitter--right"
+          label="右栏"
+          value={layout.right}
+          min={LAYOUT_LIMITS.right.min}
+          max={LAYOUT_LIMITS.right.max}
+          sign={-1}
+          collapsed={layout.rightCollapsed}
+          onResize={(next) => updateLayout({ right: next })}
+          onReset={() =>
+            updateLayout({
+              right: DEFAULT_LAYOUT.right,
+              rightCollapsed: false,
+            })
+          }
+          onToggleCollapse={() =>
+            updateLayout({ rightCollapsed: !layout.rightCollapsed })
+          }
+        />
+
+        <aside
+          className="workbench__dock"
+          data-collapsed={layout.rightCollapsed || undefined}
+        >
           <nav className="dock-tabs">
             {(
               [

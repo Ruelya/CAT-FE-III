@@ -288,11 +288,110 @@ body {
    Panes are flat surfaces split by hairline borders — no floating cards. */
 
 .workbench {
+  /* Rail widths are splitter-driven per project (useWorkbenchLayout);
+     the inline style on .workbench sets these two variables. */
+  --tl-rail-left: 260px;
+  --tl-rail-right: 336px;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 336px;
+  grid-template-columns:
+    var(--tl-rail-left) 4px minmax(0, 1fr) 4px var(--tl-rail-right);
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   background: var(--tl-color-surface-raised);
+}
+
+/* Pane splitters: 4px hit area, hover/drag accent, keyboard-resizable
+   (arrows), double-click resets, chevron collapses. */
+.splitter {
+  position: relative;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color 120ms var(--tl-ease-standard);
+}
+
+.splitter[data-orientation="horizontal"] {
+  cursor: row-resize;
+  height: 4px;
+  flex: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--tl-color-accent);
+  outline: none;
+}
+
+.splitter[data-collapsed] {
+  cursor: default;
+}
+
+.splitter__chevron {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 28px;
+  padding: 0;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+}
+
+.splitter[data-orientation="horizontal"] .splitter__chevron {
+  width: 28px;
+  height: 14px;
+}
+
+.splitter:hover .splitter__chevron,
+.splitter:focus-visible .splitter__chevron,
+.splitter[data-collapsed] .splitter__chevron {
+  display: inline-flex;
+}
+
+.splitter__chevron:hover {
+  color: var(--tl-color-accent-strong);
+  border-color: var(--tl-color-accent);
+}
+
+/* Explicit grid placement: a collapsed rail is display:none, so the
+   remaining children must not shift into its column. */
+.workbench > .workbench__explorer {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.workbench > .splitter--left {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.workbench > .workbench__center {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.workbench > .splitter--right {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.workbench > .workbench__dock {
+  grid-column: 5;
+  grid-row: 2;
+}
+
+/* A collapsed rail renders nothing: the splitter chevron is the way back. */
+.workbench__explorer[data-collapsed],
+.workbench__dock[data-collapsed] {
+  display: none;
 }
 
 /* Ribbon toolbar: labeled icon groups, hairline group dividers,
