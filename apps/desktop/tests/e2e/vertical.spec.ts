@@ -1110,7 +1110,7 @@ test("multi-TM: writable switch routes confirm writes, merged lookup names the m
   await expect(styleMount).toContainText("可写");
   await expect(mounts.filter({ hasText: "演示项目" })).toContainText("只读");
   await shot("29-tm-writable-switched.png");
-  await dialog.getByRole("button", { name: "关闭" }).click();
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 
   // Confirm the drafted segment 3 — the TM write goes to the writable
   // mount (风格库), not to every memory.
@@ -1136,12 +1136,12 @@ test("multi-TM: writable switch routes confirm writes, merged lookup names the m
   );
   await expect(dialog.getByText("源：Send 7 files.")).toBeVisible();
   await dialog
-    .getByLabel("记忆库", { exact: true })
+    .getByRole("combobox", { name: "记忆库", exact: true })
     .selectOption({ label: "演示项目" });
   await expect(dialog.locator(".tm-manage__count")).toContainText(
     "记忆库「演示项目」共",
   );
   await expect(dialog.getByText("源：Send 7 files.")).toHaveCount(0);
   await shot("31-write-landed-in-writable-only.png");
-  await dialog.getByRole("button", { name: "关闭" }).click();
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 });

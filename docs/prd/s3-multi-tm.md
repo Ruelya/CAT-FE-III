@@ -1,7 +1,23 @@
-# S3 提案：多 TM 挂载（契约先行，未立项）
+# S3 提案：多 TM 挂载（契约先行，S3c 已落地 MVP）
 
-状态：**书面提案**。引擎 memory 模型先行，TM 选择器 UI 在能力落地前
-一个像素都不出现（PRD §9：多 TM 文件树/TM 选择器现属 NEVER-FAKE）。
+状态：**S3c 已落地**。已交付：`Memory`/`MemoryMount` 实体 +
+`memory.create/list/attach/detach/update` RPC 族（与 termbase 族同形）；
+存储 V7 + 一次性物化（既有项目的隐式库变成真实 `Memory` 行 + 一条
+`writable, priority 0` 挂载，`tm_entries.memory_id` 零迁移零丢失）；
+`tm.lookup`/`tm.pretranslate`/检索合并全部 `enabled` 挂载、分数第一
+priority 决胜，`TmMatchItem.memoryName` 标注来源库；写路径唯一工作库
+（`segment.confirm` 只写 `writable` 挂载，第二个 writable 回 conflict，
+attach 永不 writable，无工作库时确认诚实报错）；`tm.list/import/export`
+可选 `memoryId` 缺省指向工作库；`project.create` 自动建库并挂 writable；
+TM 管理对话框升级为挂载列表（挂载/新建/启停/排序/设为可写/卸载 +
+按库浏览条目），记忆 dock 匹配卡标注来源库名。
+`project_memory_id` 保留为 id 铸造约定（`tm-{projectId}`，物化与
+project.create 汇合到同一行），不再是读路径派生。
+**未落地（后续立项）**：attach 时 locale 软校验警告（开放问题 1）；
+多库模糊召回基准（开放问题 2）；库改名/删库 RPC；设置页导入/导出的
+目标库选择器（今天缺省进工作库）。
+
+以下为原提案全文，契约边界不变。
 
 对应 PRD：`workbench-refactor.md` §8.4 条目 4。
 
