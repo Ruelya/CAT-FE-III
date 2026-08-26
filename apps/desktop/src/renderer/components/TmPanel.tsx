@@ -56,10 +56,13 @@ export function TmPanel({
       ) : (
         <div className="dock-stack">
           {matches.map((match, index) => (
+            // Double-click applies the hit as a draft — same segment.update
+            // as the button; Ctrl+数字 in the editor is the third path.
             <div
               key={match.entry.id}
               className="match-card"
               data-grade={index === 0 ? match.grade : undefined}
+              onDoubleClick={() => onApply(match.entry.targetText)}
             >
               <div className="match-card__row">
                 <span className="match-card__grade">

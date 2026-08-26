@@ -52,12 +52,10 @@ export type MenuCommand =
   | "confirm-segment"
   | "confirm-segment-any"
   | "confirm-segment-stay"
-  | "show-dock-tm"
+  | "show-dock-memory"
   | "show-dock-term"
-  | "show-dock-concordance"
   | "show-dock-qa"
-  | "show-dock-ai"
-  | "show-dock-agent";
+  | "show-dock-ai";
 
 /**
  * Renderer-reported state that drives menu item enablement, so the menu

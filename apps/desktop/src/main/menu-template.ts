@@ -39,6 +39,12 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "CmdOrCtrl+F",
   "CmdOrCtrl+H",
   "CmdOrCtrl+Shift+P",
+  // Ctrl+数字: dock switch normally, numbered-TM-match apply while the
+  // grid editor has focus — only the renderer can tell the two apart.
+  "CmdOrCtrl+1",
+  "CmdOrCtrl+2",
+  "CmdOrCtrl+3",
+  "CmdOrCtrl+4",
 ];
 
 const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
@@ -149,41 +155,36 @@ export function buildMenuTemplate(
         "CmdOrCtrl+P",
       ),
       SEPARATOR,
+      // Four dock groups (记忆/术语/QA/AI). Renderer-owned chords: while
+      // the grid editor has focus, Ctrl+数字 applies the numbered TM match
+      // instead (memoQ semantics), so the renderer must see the raw keys.
       commandItem(
-        "翻译记忆面板",
-        "show-dock-tm",
+        "记忆面板",
+        "show-dock-memory",
         context.projectOpen,
         "CmdOrCtrl+1",
+        true,
       ),
       commandItem(
         "术语面板",
         "show-dock-term",
         context.projectOpen,
         "CmdOrCtrl+2",
-      ),
-      commandItem(
-        "检索面板",
-        "show-dock-concordance",
-        context.projectOpen,
-        "CmdOrCtrl+3",
+        true,
       ),
       commandItem(
         "QA 面板",
         "show-dock-qa",
         context.projectOpen,
-        "CmdOrCtrl+4",
+        "CmdOrCtrl+3",
+        true,
       ),
       commandItem(
-        "AI 辅助面板",
+        "AI 面板",
         "show-dock-ai",
         context.projectOpen,
-        "CmdOrCtrl+5",
-      ),
-      commandItem(
-        "Agent 面板",
-        "show-dock-agent",
-        context.projectOpen,
-        "CmdOrCtrl+6",
+        "CmdOrCtrl+4",
+        true,
       ),
       SEPARATOR,
       { role: "resetZoom", label: "实际大小" },

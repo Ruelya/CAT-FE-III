@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import { IconSettings } from "@tabler/icons-react";
+import {
+  IconClipboardCheck,
+  IconDatabase,
+  IconSettings,
+  IconSparkles,
+  IconVocabulary,
+} from "@tabler/icons-react";
 
 import type {
   Document,
@@ -87,17 +93,24 @@ export interface WorkbenchStats {
   activeOrdinal: number | null;
 }
 
-type DockTab = "tm" | "term" | "concordance" | "qa" | "ai" | "agent";
+/**
+ * Four dock groups (PRD §3.7): 记忆 (TM lookup + 检索), 术语, QA, and
+ * AI (辅助 + Agent as two sections of one honest AI surface).
+ */
+type DockTab = "memory" | "term" | "qa" | "ai";
 
 /** Menu dock commands map onto the same tabs the dock buttons switch. */
 const DOCK_COMMANDS: Partial<Record<MenuCommand, DockTab>> = {
-  "show-dock-tm": "tm",
+  "show-dock-memory": "memory",
   "show-dock-term": "term",
-  "show-dock-concordance": "concordance",
   "show-dock-qa": "qa",
   "show-dock-ai": "ai",
-  "show-dock-agent": "agent",
 };
+
+/** Ctrl+1..4 ↔ dock order, kept identical to the menu accelerators. */
+const DOCK_ORDER: DockTab[] = ["memory", "term", "qa", "ai"];
+
+const DOCK_ICON = { size: 14, stroke: 1.75, "aria-hidden": true } as const;
 
 /**
  * A write (draft save or confirm) the engine never acknowledged. Kept as a
@@ -164,7 +177,7 @@ export function WorkbenchView({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [issues, setIssues] = useState<QaIssue[]>([]);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
-  const [tab, setTab] = useState<DockTab>("tm");
+  const [tab, setTab] = useState<DockTab>("memory");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<SegmentFilterSpec>(EMPTY_FILTER);
   // Find next/prev query (F4 / Shift+F4). Unlike `filter`, it never hides
@@ -1052,15 +1065,15 @@ export function WorkbenchView({
     [filteredSegments],
   );
 
-  // Opens concordance seeded with the current text selection, in line with
-  // the classic CAT shortcut. Shared by the F3 chord, the menu command,
-  // and the ribbon button so all take the exact same path.
+  // Opens the 检索 area (in the 记忆 dock) seeded with the current text
+  // selection, in line with the classic CAT shortcut. Shared by the F3
+  // chord, the menu command, and the ribbon button — same path for all.
   const openConcordance = useCallback(() => {
     const selection = readTextSelection();
     if (selection.length > 0) {
       setConcordanceSeed(selection);
     }
-    setTab("concordance");
+    setTab("memory");
   }, []);
 
   const focusFilter = useCallback(() => {
@@ -1269,12 +1282,48 @@ export function WorkbenchView({
   // F3 concordance, F4/Shift+F4 find next/prev, Ctrl/Cmd+F focus the
   // segment filter, Ctrl/Cmd+H focus the replace box, Ctrl/Cmd+K and
   // Ctrl/Cmd+Shift+P summon the command palette, Alt+↑/↓ step the
-  // segment selection (works while typing in the target editor).
+  // segment selection (works while typing in the target editor),
+  // Ctrl/Cmd+数字 applies a TM match (editor focused) or switches docks.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "F3") {
         event.preventDefault();
         openConcordance();
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key >= "1" &&
+        event.key <= "9"
+      ) {
+        const index = Number(event.key) - 1;
+        const target = event.target;
+        // While the grid target editor has focus, Ctrl+数字 applies the
+        // numbered 记忆 match as a draft (memoQ semantics) — the same
+        // segment.update the dock's 应用为草稿 button runs.
+        if (
+          target instanceof HTMLTextAreaElement &&
+          target.closest(".segment-grid") !== null
+        ) {
+          event.preventDefault();
+          const match = tmMatches[index];
+          if (match) {
+            applyDraftToActive(match.entry.targetText);
+            onStatusMessage(
+              `已应用第 ${index + 1} 条记忆匹配（${match.score}%）为草稿`,
+            );
+          } else {
+            onStatusMessage(`没有第 ${index + 1} 条记忆匹配`);
+          }
+          return;
+        }
+        const dock = DOCK_ORDER[index];
+        if (dock) {
+          event.preventDefault();
+          setTab(dock);
+        }
         return;
       }
       if (
@@ -1334,7 +1383,16 @@ export function WorkbenchView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openConcordance, focusFilter, focusReplace, findMatch, moveSelection]);
+  }, [
+    openConcordance,
+    focusFilter,
+    focusReplace,
+    findMatch,
+    moveSelection,
+    tmMatches,
+    applyDraftToActive,
+    onStatusMessage,
+  ]);
 
   // Application menu commands. Every branch reuses the exact handler the
   // corresponding ribbon button/shortcut already calls; state guards keep
@@ -1479,12 +1537,10 @@ export function WorkbenchView({
       command("find-prev", "查找上一个", documentOpen, "Shift+F4"),
       command("focus-replace", "替换…", documentOpen, "Ctrl+H"),
       command("open-concordance", "检索（取选中文本）", true, "F3"),
-      command("show-dock-tm", "翻译记忆面板", true, "Ctrl+1"),
+      command("show-dock-memory", "记忆面板", true, "Ctrl+1"),
       command("show-dock-term", "术语面板", true, "Ctrl+2"),
-      command("show-dock-concordance", "检索面板", true, "Ctrl+3"),
-      command("show-dock-qa", "QA 面板", true, "Ctrl+4"),
-      command("show-dock-ai", "AI 辅助面板", true, "Ctrl+5"),
-      command("show-dock-agent", "Agent 面板", true, "Ctrl+6"),
+      command("show-dock-qa", "QA 面板", true, "Ctrl+3"),
+      command("show-dock-ai", "AI 面板", true, "Ctrl+4"),
       ...documents.map((document): PaletteEntry => ({
         id: `open-document:${document.id}`,
         label: `打开文档：${document.name}`,
@@ -2006,25 +2062,26 @@ export function WorkbenchView({
           <nav className="dock-tabs">
             {(
               [
-                ["tm", "TM"],
-                ["term", "术语"],
-                ["concordance", "检索"],
-                ["qa", "QA"],
-                ["ai", "AI 辅助"],
-                ["agent", "Agent"],
-              ] as Array<[DockTab, string]>
-            ).map(([key, label]) => (
+                ["memory", "记忆", <IconDatabase key="i" {...DOCK_ICON} />],
+                ["term", "术语", <IconVocabulary key="i" {...DOCK_ICON} />],
+                ["qa", "QA", <IconClipboardCheck key="i" {...DOCK_ICON} />],
+                ["ai", "AI", <IconSparkles key="i" {...DOCK_ICON} />],
+              ] as Array<[DockTab, string, React.ReactNode]>
+            ).map(([key, label, icon]) => (
               <button
                 key={key}
                 type="button"
                 data-active={tab === key}
                 onClick={() => setTab(key)}
               >
+                <span className="dock-tabs__icon" aria-hidden="true">
+                  {icon}
+                </span>
                 {label}
                 {/* Live chips react to the active segment/document. They are
-                    aria-hidden so accessible names stay stable ("TM", "QA");
-                    the same numbers live accessibly in the panel titles. */}
-                {key === "tm" && bestTmMatch ? (
+                    aria-hidden so accessible names stay stable ("记忆",
+                    "QA"); the same numbers live accessibly in the panels. */}
+                {key === "memory" && bestTmMatch ? (
                   <span
                     className="dock-tabs__chip"
                     data-tone={bestTmMatch.grade === "fuzzy" ? "accent" : "ok"}
@@ -2046,13 +2103,23 @@ export function WorkbenchView({
             ))}
           </nav>
           <div className="dock-panel dock-view">
-            {tab === "tm" ? (
-              <TmPanel
-                activeSegment={activeSegment}
-                matches={tmMatches}
-                error={tmError}
-                onApply={applyDraftToActive}
-              />
+            {tab === "memory" ? (
+              // 记忆 dock: active-segment TM lookup on top, the 检索 area
+              // below — one memory surface, two honest query paths.
+              <>
+                <TmPanel
+                  activeSegment={activeSegment}
+                  matches={tmMatches}
+                  error={tmError}
+                  onApply={applyDraftToActive}
+                />
+                <ConcordancePanel
+                  projectId={project.id}
+                  segments={segments}
+                  initialQuery={concordanceSeed}
+                  onJump={jumpToSegment}
+                />
+              </>
             ) : null}
             {tab === "term" ? (
               <TermPanel
@@ -2060,14 +2127,6 @@ export function WorkbenchView({
                 targetLocale={project.targetLocale}
                 activeSegment={activeSegment}
                 onInsert={insertTermToActive}
-              />
-            ) : null}
-            {tab === "concordance" ? (
-              <ConcordancePanel
-                projectId={project.id}
-                segments={segments}
-                initialQuery={concordanceSeed}
-                onJump={jumpToSegment}
               />
             ) : null}
             {tab === "qa" ? (
@@ -2082,22 +2141,24 @@ export function WorkbenchView({
               />
             ) : null}
             {tab === "ai" ? (
-              <AiPanel
-                activeSegment={activeSegment}
-                onApplyDraft={applyDraftToActive}
-                onStatusMessage={onStatusMessage}
-              />
-            ) : null}
-            {tab === "agent" ? (
-              <AgentPanel
-                documentId={activeDocumentId}
-                onCompleted={() => {
-                  void reloadSegments();
-                  void runQa();
-                }}
-                onStatusMessage={onStatusMessage}
-                onGoExport={() => void exportDocument()}
-              />
+              // AI dock: 辅助 (assist lifecycle) above, Agent below —
+              // both keep their full honest lifecycles.
+              <>
+                <AiPanel
+                  activeSegment={activeSegment}
+                  onApplyDraft={applyDraftToActive}
+                  onStatusMessage={onStatusMessage}
+                />
+                <AgentPanel
+                  documentId={activeDocumentId}
+                  onCompleted={() => {
+                    void reloadSegments();
+                    void runQa();
+                  }}
+                  onStatusMessage={onStatusMessage}
+                  onGoExport={() => void exportDocument()}
+                />
+              </>
             ) : null}
           </div>
         </aside>

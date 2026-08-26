@@ -170,6 +170,9 @@ function installBridge(
         menuListener = null;
       };
     },
+    // The AI dock's Agent section subscribes to step notifications on
+    // mount; the tests never emit any.
+    onNotification: () => () => {},
     setMenuContext: vi.fn(),
   };
   Object.defineProperty(window, "tl", {
@@ -299,6 +302,105 @@ describe("WorkbenchView application menu commands", () => {
       bridge.emitMenuCommand("show-dock-term");
     });
     expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+  });
+
+  it("merges TM lookup and 检索 into the 记忆 dock, 辅助 and Agent into AI", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // Four dock tabs, no separate 检索/Agent tabs (6→4, PRD §3.7).
+    for (const label of ["记忆", "术语", "QA", "AI"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    // Default 记忆 tab shows both the TM lookup panel and the 检索 area.
+    expect(screen.getByText("翻译记忆")).toBeInTheDocument();
+    expect(screen.getByLabelText(/检索词/)).toBeInTheDocument();
+    // AI tab stacks 辅助 and Agent sections.
+    await userEvent.click(screen.getByRole("button", { name: "AI" }));
+    expect(screen.getByText("AI 辅助")).toBeInTheDocument();
+    expect(screen.getByText(/Agent/)).toBeInTheDocument();
+  });
+
+  it("switches docks with Ctrl+1..4 outside the editor", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "3", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "2", ctrlKey: true });
+    expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true });
+    expect(screen.getByText("翻译记忆")).toBeInTheDocument();
+  });
+
+  it("applies the numbered TM match as a draft on Ctrl+数字 in the editor", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.lookup"] = () => ({
+      matches: [
+        {
+          entry: {
+            id: "tm-1",
+            memoryId: "m1",
+            sourceHash: "hash",
+            sourceText: "The retention period is 30 days.",
+            targetText: "保留期为 30 天。",
+            originProjectId: "p1",
+            originDocumentId: "d1",
+            originSegmentId: "s1",
+            confirmedAtMs: 1,
+          },
+          score: 100,
+          grade: "exact",
+        },
+      ],
+      totalMatches: 1,
+    });
+    let updateParams: unknown = null;
+    handlers["segment.update"] = (params) => {
+      updateParams = params;
+      return {
+        segment: { ...SEGMENT, targetText: "保留期为 30 天。", revision: 2 },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(screen.getByText("应用为草稿")).toBeInTheDocument();
+    });
+    fireEvent.keyDown(editor, { key: "1", ctrlKey: true });
+    await waitFor(() => {
+      expect(updateParams).toMatchObject({
+        segmentId: "s1",
+        targetText: "保留期为 30 天。",
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已应用第 1 条记忆匹配（100%）为草稿",
+    );
+    // A number with no matching hit reports honestly and writes nothing.
+    fireEvent.keyDown(editor, { key: "5", ctrlKey: true });
+    expect(onStatusMessage).toHaveBeenCalledWith("没有第 5 条记忆匹配");
   });
 
   it("opens the import dialog from the menu like the 导入 button", async () => {
@@ -2121,8 +2223,8 @@ describe("WorkbenchView segment intel", () => {
     );
     await screen.findByLabelText("句段 1 译文");
     // The tab chip carries the live score but stays out of the accessible
-    // name, so the tab is still reachable as plain "TM".
-    const tmTab = screen.getByRole("button", { name: "TM" });
+    // name, so the tab is still reachable as plain "记忆".
+    const tmTab = screen.getByRole("button", { name: "记忆" });
     await waitFor(() => {
       expect(tmTab).toHaveTextContent("100%");
     });
