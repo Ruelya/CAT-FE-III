@@ -1385,18 +1385,16 @@ export function WorkbenchView({
       command("show-dock-qa", "QA 面板", true, "Ctrl+4"),
       command("show-dock-ai", "AI 辅助面板", true, "Ctrl+5"),
       command("show-dock-agent", "Agent 面板", true, "Ctrl+6"),
-      ...documents.map(
-        (document): PaletteEntry => ({
-          id: `open-document:${document.id}`,
-          label: `打开文档：${document.name}`,
-          enabled: true,
-          run: () => {
-            void loadDocument(document.id).catch((error: unknown) => {
-              onStatusMessage(`加载文档失败：${describeError(error)}`);
-            });
-          },
-        }),
-      ),
+      ...documents.map((document): PaletteEntry => ({
+        id: `open-document:${document.id}`,
+        label: `打开文档：${document.name}`,
+        enabled: true,
+        run: () => {
+          void loadDocument(document.id).catch((error: unknown) => {
+            onStatusMessage(`加载文档失败：${describeError(error)}`);
+          });
+        },
+      })),
     ];
   }, [
     activeDocument,
@@ -1685,7 +1683,11 @@ export function WorkbenchView({
                   </Button>
                 </div>
               ) : null}
-              <div className="grid-toolbar">
+              <div
+                className="grid-toolbar"
+                role="toolbar"
+                aria-label="筛选与查找替换"
+              >
                 <select
                   className="grid-toolbar__select"
                   aria-label="按状态筛选"

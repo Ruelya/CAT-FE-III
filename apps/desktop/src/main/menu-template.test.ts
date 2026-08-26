@@ -51,6 +51,13 @@ const COMMAND_ITEMS: Array<{
     needs: "document",
   },
   {
+    label: "命令面板",
+    command: "open-command-palette",
+    accelerator: "CmdOrCtrl+Shift+P",
+    rendererOwned: true,
+    needs: "project",
+  },
+  {
     label: "译文预览…",
     command: "open-preview",
     accelerator: "CmdOrCtrl+P",
@@ -69,7 +76,7 @@ const COMMAND_ITEMS: Array<{
     needs: "project",
   },
   {
-    label: "一致性检索面板",
+    label: "检索面板",
     command: "show-dock-concordance",
     accelerator: "CmdOrCtrl+3",
     needs: "project",
@@ -121,7 +128,7 @@ const COMMAND_ITEMS: Array<{
     needs: "document",
   },
   {
-    label: "一致性检索（取选中文本）",
+    label: "检索（取选中文本）",
     command: "open-concordance",
     accelerator: "F3",
     rendererOwned: true,

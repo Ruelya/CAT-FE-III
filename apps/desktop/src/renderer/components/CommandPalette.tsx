@@ -42,7 +42,11 @@ function highlight(label: string, query: string): ReactNode {
   );
 }
 
-export function CommandPalette({ open, entries, onClose }: CommandPaletteProps) {
+export function CommandPalette({
+  open,
+  entries,
+  onClose,
+}: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -71,9 +75,10 @@ export function CommandPalette({ open, entries, onClose }: CommandPaletteProps) 
 
   // Keep the armed row inside the scroll window during keyboard travel.
   useEffect(() => {
-    listRef.current
-      ?.querySelector('[data-selected="true"]')
-      ?.scrollIntoView({ block: "nearest" });
+    const armed = listRef.current?.querySelector('[data-selected="true"]');
+    if (armed && typeof armed.scrollIntoView === "function") {
+      armed.scrollIntoView({ block: "nearest" });
+    }
   }, [selected, matches]);
 
   if (!open) {
@@ -97,7 +102,12 @@ export function CommandPalette({ open, entries, onClose }: CommandPaletteProps) 
         }
       }}
     >
-      <div className="palette" role="dialog" aria-modal="true" aria-label="命令面板">
+      <div
+        className="palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="命令面板"
+      >
         <input
           className="palette__input"
           aria-label="搜索命令"

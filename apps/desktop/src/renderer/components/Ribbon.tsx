@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode, Ref } from "react";
 
 import {
@@ -275,7 +281,12 @@ export function Ribbon({
   const overflow = items.slice(visibleCount);
 
   return (
-    <div className="ribbon" role="toolbar" aria-label="工具栏" ref={containerRef}>
+    <div
+      className="ribbon"
+      role="toolbar"
+      aria-label="工具栏"
+      ref={containerRef}
+    >
       <div className="ribbon__commands" ref={commandsRef}>
         {visible.map((item, index) => (
           <span key={item.id} className="ribbon__slot" data-ribbon-id={item.id}>
