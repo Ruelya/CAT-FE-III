@@ -133,6 +133,53 @@ describe("AiPanel", () => {
     });
   });
 
+  it("sends a non-default provider and base URL through ai.configure", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> =>
+      Promise.resolve(
+        method === "ai.status"
+          ? {
+              ok: true,
+              result: { configured: false, provider: null, model: null },
+            }
+          : {
+              ok: true,
+              result: {
+                configured: true,
+                provider: "gemini",
+                model: "gemini-2.5-flash",
+              },
+            },
+      ),
+    );
+    installBridge(invoke);
+    renderPanel();
+    await waitFor(() => {
+      expect(screen.getByLabelText("供应商")).toBeInTheDocument();
+    });
+    await userEvent.selectOptions(screen.getByLabelText("供应商"), "gemini");
+    await userEvent.type(
+      screen.getByPlaceholderText("例如 gpt-5.2"),
+      "gemini-2.5-flash",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("https://…"),
+      "https://gateway.example/v1beta",
+    );
+    await userEvent.type(screen.getByPlaceholderText("sk-…"), "test-key");
+    await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("ai.configure", {
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        baseUrl: "https://gateway.example/v1beta",
+        apiKey: "test-key",
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/gemini · gemini-2.5-flash/)).toBeInTheDocument();
+    });
+  });
+
   it("blocks Apply when the candidate breaks placeholders", async () => {
     const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
       if (method === "ai.status") {
