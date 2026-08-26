@@ -50,6 +50,8 @@ export type MenuCommand =
   | "find-next"
   | "find-prev"
   | "confirm-segment"
+  | "confirm-segment-any"
+  | "confirm-segment-stay"
   | "show-dock-tm"
   | "show-dock-term"
   | "show-dock-concordance"

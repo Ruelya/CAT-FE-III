@@ -795,6 +795,108 @@ describe("WorkbenchView segment navigation", () => {
     expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
   });
 
+  it("Ctrl+Alt+Enter advances to the immediate next segment even if confirmed", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, altKey: true });
+
+    // s2 is confirmed but Ctrl+Alt+Enter lands on it anyway — the review
+    // pass walks every row regardless of state.
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+
+  it("Ctrl+Alt+Shift+Enter confirms and stays on the same segment", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    let confirmed = 0;
+    handlers["segment.confirm"] = () => {
+      confirmed += 1;
+      return {
+        segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    fireEvent.keyDown(editor, {
+      key: "Enter",
+      ctrlKey: true,
+      altKey: true,
+      shiftKey: true,
+    });
+
+    await waitFor(() => {
+      expect(confirmed).toBe(1);
+    });
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        "句段 #1 已确认并写入 TM",
+      );
+    });
+    // The selection did not move: segment 1's editor is still mounted.
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+    expect(screen.queryByLabelText("句段 2 译文")).not.toBeInTheDocument();
+  });
+
+  it("dispatches the confirm variants from the menu commands", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["segment.confirm"] = () => ({
+      segment: { ...NAV_SEGMENTS[0]!, state: "confirmed", revision: 2 },
+      propagated: [],
+    });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("第一句。");
+    });
+
+    act(() => {
+      bridge.emitMenuCommand("confirm-segment-any");
+    });
+    // Menu command follows the same path as the chord: next row, any state.
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+  });
+
   it("steps the selection with Alt+↑/↓ and never wraps", async () => {
     const handlers = baseHandlers();
     handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });

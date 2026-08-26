@@ -994,9 +994,22 @@ body {
 
 .segment-grid tbody tr[data-active="true"] {
   background: var(--tl-color-surface-active);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+/* The 1px accent perimeter belongs to the editing state only; a row
+   selected in navigation mode (Esc) keeps just the spine + surface. */
+.segment-grid tbody tr[data-editing="true"] {
   box-shadow:
     inset 2px 0 0 var(--tl-color-accent),
     inset 0 0 0 1px var(--tl-color-accent);
+}
+
+/* Keyboard navigation mode: the focused row is the selection; the focus
+   ring is drawn inside the row so it never collides with neighbors. */
+.segment-grid tbody tr:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: -2px;
 }
 
 .segment-grid td {
@@ -1130,6 +1143,93 @@ body {
   background: var(--tl-status-danger-soft);
   color: var(--tl-status-danger);
   white-space: nowrap;
+}
+
+/* Placeholder tokens ({name}, {{var}}, %s, <b>, &amp;) render as mono
+   glyph chips in both text columns — same token grammar as the engine's
+   qa.tag-placeholder_* rules. A QA-flagged token turns its border danger. */
+.tl-token {
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 0 3px;
+  border: var(--tl-border-hairline);
+  border-radius: 2px;
+  background: var(--tl-color-sunken);
+  white-space: pre;
+}
+
+.tl-token[data-danger] {
+  border-color: var(--tl-status-danger);
+  color: var(--tl-status-danger);
+}
+
+/* Row ⋯ menu (right-click / status-cell dots): copy source, clear target.
+   No confirm in the menu — confirming stays a keyboard/editor act. */
+.segment-grid__menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.segment-grid__menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text-faint);
+  cursor: pointer;
+}
+
+.segment-grid__menu-button:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.segment-grid__menu-button:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: 1px;
+}
+
+.segment-grid__menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: var(--tl-space-1);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-color-surface-raised);
+  box-shadow: var(--tl-shadow-pop);
+}
+
+.segment-grid__menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px var(--tl-space-2);
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text);
+  font-size: var(--tl-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.segment-grid__menu-item:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.segment-grid__menu-item:disabled {
+  color: var(--tl-color-text-faint);
+  cursor: default;
 }
 
 /* Right resource rail */

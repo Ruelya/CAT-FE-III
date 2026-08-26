@@ -34,6 +34,8 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "F4",
   "Shift+F4",
   "CmdOrCtrl+Enter",
+  "CmdOrCtrl+Alt+Enter",
+  "CmdOrCtrl+Alt+Shift+Enter",
   "CmdOrCtrl+F",
   "CmdOrCtrl+H",
   "CmdOrCtrl+Shift+P",
@@ -99,13 +101,29 @@ export function buildMenuTemplate(
       { role: "paste", label: "粘贴" },
       { role: "selectAll", label: "全选" },
       SEPARATOR,
-      // Same command as the grid editor's Ctrl+Enter; display-only
-      // accelerator so the textarea handler stays the owner.
+      // Studio confirm chord family. Same commands as the grid editor's
+      // chords; display-only accelerators so the textarea handler stays
+      // the owner. All three run the same segment.confirm — only the
+      // navigation afterwards differs.
       commandItem(
         "确认当前句段",
         "confirm-segment",
         context.documentOpen,
         "CmdOrCtrl+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并到下一句段",
+        "confirm-segment-any",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并停留",
+        "confirm-segment-stay",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Shift+Enter",
         true,
       ),
     ],

@@ -41,7 +41,10 @@ import type { PaletteEntry } from "../components/CommandPalette.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
 import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
-import type { SegmentGridHandle } from "../components/SegmentGrid.js";
+import type {
+  ConfirmMode,
+  SegmentGridHandle,
+} from "../components/SegmentGrid.js";
 import { TmPanel } from "../components/TmPanel.js";
 import { TermPanel } from "../components/TermPanel.js";
 import { ConcordancePanel } from "../components/ConcordancePanel.js";
@@ -556,18 +559,51 @@ export function WorkbenchView({
     return counts;
   }, [issues]);
 
+  // Open placeholder-QA evidence per segment: the exact tokens the engine
+  // flagged (missing → source side, extra → target side) drive the danger
+  // outline on the grid's token highlighting. Straight from qa.list — the
+  // renderer never re-diffs placeholders on its own.
+  const placeholderAlerts = useMemo(() => {
+    const alerts = new Map<string, { missing: Set<string>; extra: Set<string> }>();
+    for (const issue of issues) {
+      if (issue.status !== "open") {
+        continue;
+      }
+      const isMissing = issue.ruleId === "qa.tag-placeholder_missing";
+      const isExtra = issue.ruleId === "qa.tag-placeholder_extra";
+      if (!isMissing && !isExtra) {
+        continue;
+      }
+      let alert = alerts.get(issue.segmentId);
+      if (!alert) {
+        alert = { missing: new Set(), extra: new Set() };
+        alerts.set(issue.segmentId, alert);
+      }
+      for (const value of issue.evidence.sourceValues ?? []) {
+        alert.missing.add(value);
+      }
+      for (const value of issue.evidence.targetValues ?? []) {
+        alert.extra.add(value);
+      }
+    }
+    return alerts;
+  }, [issues]);
+
   const filteredSegments = useMemo(
     () => filterSegments(segments, filter, openIssueSegmentIds),
     [segments, filter, openIssueSegmentIds],
   );
 
-  // Trados-style flow: after a confirm, the selection steps down to the next
-  // visible segment that still needs work, so the keyboard loop stays
-  // type → Ctrl+Enter → type. `written` carries the freshly confirmed and
-  // propagated rows (state updates land asynchronously). Nothing wraps: at
-  // the bottom of the document the selection stays put.
+  // Trados-style flow: after a confirm, the selection steps to the next
+  // visible segment per the chord's navigation policy, so the keyboard
+  // loop stays type → Ctrl+Enter → type. `written` carries the freshly
+  // confirmed and propagated rows (state updates land asynchronously).
+  // Nothing wraps: at the bottom of the document the selection stays put.
   const advanceAfterConfirm = useCallback(
-    (confirmedId: string, written: Segment[]) => {
+    (confirmedId: string, written: Segment[], mode: ConfirmMode) => {
+      if (mode === "stay") {
+        return;
+      }
       const writtenById = new Map(written.map((item) => [item.id, item]));
       const index = filteredSegments.findIndex(
         (item) => item.id === confirmedId,
@@ -578,7 +614,7 @@ export function WorkbenchView({
       for (let i = index + 1; i < filteredSegments.length; i += 1) {
         const candidate = filteredSegments[i]!;
         const state = writtenById.get(candidate.id)?.state ?? candidate.state;
-        if (state !== "confirmed") {
+        if (mode === "nextAny" || state !== "confirmed") {
           setActiveSegmentId(candidate.id);
           return;
         }
@@ -684,7 +720,11 @@ export function WorkbenchView({
   );
 
   const confirmSegment = useCallback(
-    (segment: Segment, targetText: string): Promise<void> => {
+    (
+      segment: Segment,
+      targetText: string,
+      mode: ConfirmMode,
+    ): Promise<void> => {
       if (targetText.trim().length === 0) {
         // Same rule the engine enforces; report it without a doomed RPC.
         onStatusMessage(`句段 #${segment.ordinal + 1} 译文为空，无法确认`);
@@ -719,10 +759,11 @@ export function WorkbenchView({
           onStatusMessage(
             `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}`,
           );
-          advanceAfterConfirm(segment.id, [
-            result.segment,
-            ...result.propagated,
-          ]);
+          advanceAfterConfirm(
+            segment.id,
+            [result.segment, ...result.propagated],
+            mode,
+          );
         } catch (error) {
           if (isEngineUnavailable(error)) {
             setUnackedWrite({
@@ -759,6 +800,34 @@ export function WorkbenchView({
       void saveDraft(activeSegment, text);
     },
     [activeSegment, saveDraft],
+  );
+
+  // Row menu 复制源文: the source text becomes the draft via the same
+  // segment.update path as typing (quiet save + a purpose-named message).
+  const copySourceToTarget = useCallback(
+    (segment: Segment) => {
+      void saveDraft(segment, segment.sourceText, { quiet: true }).then(
+        (acked) => {
+          if (acked) {
+            onStatusMessage(`句段 #${segment.ordinal + 1} 已复制源文为草稿`);
+          }
+        },
+      );
+    },
+    [saveDraft, onStatusMessage],
+  );
+
+  // Row menu 清空译文: an empty segment.update — the engine honestly
+  // returns the segment to 未译 (an empty target has no draft meaning).
+  const clearTargetText = useCallback(
+    (segment: Segment) => {
+      void saveDraft(segment, "", { quiet: true }).then((acked) => {
+        if (acked) {
+          onStatusMessage(`句段 #${segment.ordinal + 1} 已清空译文`);
+        }
+      });
+    },
+    [saveDraft, onStatusMessage],
   );
 
   // Terms land at the caret of the live grid editor (unsaved draft) without
@@ -1174,13 +1243,17 @@ export function WorkbenchView({
   ]);
 
   // Confirms the live editor draft — the exact command the grid editor's
-  // Ctrl+Enter fires. Shared by the ribbon button and the menu item; both
-  // report honestly when no editor is mounted instead of guessing.
-  const confirmActiveSegment = useCallback(() => {
-    if (!gridRef.current?.confirmActive()) {
-      onStatusMessage("没有正在编辑的句段，无法确认");
-    }
-  }, [onStatusMessage]);
+  // confirm chords fire. Shared by the ribbon button, the menu items, and
+  // the palette; all report honestly when no editor is mounted instead of
+  // guessing.
+  const confirmActiveSegment = useCallback(
+    (mode: ConfirmMode = "nextUnconfirmed") => {
+      if (!gridRef.current?.confirmActive(mode)) {
+        onStatusMessage("没有正在编辑的句段，无法确认");
+      }
+    },
+    [onStatusMessage],
+  );
 
   // Workbench keymap (renderer-owned; the application menu displays these
   // accelerators but does not register them, so the raw events land here):
@@ -1299,7 +1372,13 @@ export function WorkbenchView({
           findMatch("prev");
           break;
         case "confirm-segment":
-          confirmActiveSegment();
+          confirmActiveSegment("nextUnconfirmed");
+          break;
+        case "confirm-segment-any":
+          confirmActiveSegment("nextAny");
+          break;
+        case "confirm-segment-stay":
+          confirmActiveSegment("stay");
           break;
         default:
           break;
@@ -1373,6 +1452,18 @@ export function WorkbenchView({
           ]
         : []),
       command("confirm-segment", "确认当前句段", documentOpen, "Ctrl+Enter"),
+      command(
+        "confirm-segment-any",
+        "确认并到下一句段",
+        documentOpen,
+        "Ctrl+Alt+Enter",
+      ),
+      command(
+        "confirm-segment-stay",
+        "确认并停留",
+        documentOpen,
+        "Ctrl+Alt+Shift+Enter",
+      ),
       command("open-preview", "译文预览…", documentOpen, "Ctrl+P"),
       command("focus-filter", "筛选句段", documentOpen, "Ctrl+F"),
       command("find-next", "查找下一个", documentOpen, "F4"),
@@ -1426,7 +1517,7 @@ export function WorkbenchView({
           onOpenTmManage={onOpenTmManage}
           onImport={() => setImportOpen(true)}
           onExport={() => void exportDocument()}
-          onConfirmSegment={confirmActiveSegment}
+          onConfirmSegment={() => confirmActiveSegment()}
           onPretranslate={() => void pretranslate()}
           onFocusFind={() => focusFind()}
           onFocusReplace={() => focusReplace()}
@@ -1806,13 +1897,16 @@ export function WorkbenchView({
                   targetLocale={project.targetLocale}
                   qaSegmentIds={openIssueSegmentIds}
                   qaCounts={openIssueCounts}
+                  placeholderAlerts={placeholderAlerts}
                   onSelect={setActiveSegmentId}
                   onSaveDraft={(segment, text) =>
                     saveDraft(segment, text, { quiet: true })
                   }
-                  onConfirm={(segment, text) =>
-                    void confirmSegment(segment, text)
+                  onConfirm={(segment, text, mode) =>
+                    void confirmSegment(segment, text, mode)
                   }
+                  onCopySource={copySourceToTarget}
+                  onClearTarget={clearTargetText}
                 />
               )}
               <div className="view-tabs" role="tablist" aria-label="视图">
