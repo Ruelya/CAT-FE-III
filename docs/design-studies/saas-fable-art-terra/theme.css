@@ -1,0 +1,177 @@
+/* Fable Art · Terra — 陶土触感。
+   矿物灰绿的工作台上，控件是软挤出的陶土：上缘一线高光、
+   底部一层土色投影，按下时真的陷进去（inset）。所有位移用
+   带回弹的弹簧曲线，对话框落位有一次过冲。赤陶色（#B85C38）
+   是唯一强调色，QA 的玫红与它保持距离。Onest + Sometype Mono，
+   14px 大圆角。 */
+
+:root {
+  color-scheme: light;
+
+  --font-ui: "Onest", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Sometype Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --fs-ui: 13px;
+  --fs-grid: 13.5px;
+  /* the spring: small overshoot on everything that moves */
+  --ease: cubic-bezier(0.34, 1.45, 0.5, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry — thumbed clay */
+  --r-ctl: 10px; --r-card: 12px; --r-dlg: 18px; --r-badge: 7px; --r-chip: 999px;
+  --h-menubar: 40px; --h-ribbon: 50px; --h-statusbar: 28px;
+  --h-ctl: 30px; --h-ctl-sm: 24px;
+  --h-gridbar: 38px; --h-previewbar: 36px; --preview-h: 216px;
+  --w-explorer: 264px; --w-dock: 336px; --w-staterow: 176px;
+  --pad-panel: 15px; --pad-cell-y: 9px;
+  --bar-h: 5px; --ic: 15px; --dtabs-pad: 6px;
+  --tree-row: 25px; --tree-folder: #9a8f77;
+
+  /* mineral neutrals — stone, not paper */
+  --bg-app: #e6e3da;
+  --bg-chrome: #ecebe3;
+  --bg-panel: #e9e7de;
+  --bg-surface: #f1efe8;
+  --bg-card: #f7f6f0;
+  --bg-float: #faf9f4;
+  --bg-inset: #dcd8cc;
+  --bg-thead: #edebe2;
+  --bg-hover: #dfdcd0;
+  --bg-active: #d6d2c4;
+  --bg-status: #ecebe3;
+
+  --border: #cfcaba;
+  --border-strong: #aaa28c;
+  --border-float: #b8b09a;
+  --row-border: #dad6c9;
+  --row-hover: #eeece4;
+  --row-active: rgba(184, 92, 56, 0.09);
+  --row-locked: #e2dfd4;
+
+  --text: #2e2a23;
+  --text-2: #6a6355;
+  --text-3: #938b77;
+
+  /* accent — terracotta */
+  --accent: #b85c38;
+  --accent-hover: #a44f2e;
+  --on-accent: #ffffff;
+  --accent-text: #9c4a29;
+  --accent-soft: rgba(184, 92, 56, 0.13);
+  --accent-soft-hover: rgba(184, 92, 56, 0.2);
+  --accent-tint: rgba(184, 92, 56, 0.07);
+  --accent-mid: rgba(184, 92, 56, 0.42);
+  --focus: #b85c38;
+  --focus-soft: rgba(184, 92, 56, 0.24);
+  --select-bg: rgba(184, 92, 56, 0.22);
+  --mark-bg: rgba(214, 168, 44, 0.4);
+
+  /* semantics — glaze colors */
+  --ok: #4d8b45;
+  --ok-text: #3c7136;
+  --ok-soft: rgba(77, 139, 69, 0.14);
+  --ok-tint: rgba(77, 139, 69, 0.08);
+  --warn-text: #92660f;
+  --warn-soft: rgba(190, 138, 30, 0.16);
+  --warn-tint: rgba(190, 138, 30, 0.09);
+  --warn-mid: rgba(190, 138, 30, 0.42);
+  --danger: #b93352;
+  --danger-hover: #a32c48;
+  --danger-text: #a32c48;
+  --danger-soft: rgba(185, 51, 82, 0.12);
+  --danger-mid: rgba(185, 51, 82, 0.4);
+  --danger-status: #ff9eb3;
+  --draft: #be8a1e;
+  --draft-text: #92660f;
+  --ai-soft: rgba(59, 142, 165, 0.14);
+  --ai-text: #2e7186;
+  --issue-open-edge: #be8a1e;
+  --tok-bg: #e6e2d5;
+  --tok-text: #6a6355;
+  --tok-border: #c8c2af;
+  --bar-track: #d8d4c6;
+
+  --tip-bg: #33302a;
+  --tip-text: #f4f2ea;
+  --overlay-bg: rgba(46, 42, 35, 0.34);
+  --page-bg: #fbfaf6;
+  --page-text: #33302a;
+  --status-text: #837b68;
+  --status-text-strong: #2e2a23;
+  --status-hover: #dfdcd0;
+  --scroll-thumb: #c4bda9;
+  --scroll-thumb-hover: #aaa28c;
+
+  /* clay shadows: high light above, earth shadow below */
+  --shadow-1: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(122, 106, 84, 0.18);
+  --shadow-2: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 24px rgba(122, 106, 84, 0.24), 0 2px 6px rgba(122, 106, 84, 0.14);
+  --shadow-3: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 26px 60px rgba(96, 82, 62, 0.32), 0 4px 12px rgba(96, 82, 62, 0.16);
+  --card-best-glow: 0 0 0 1.5px rgba(184, 92, 56, 0.5);
+
+  --demo-bg: #26231d;
+  --demo-border: #3d382e;
+  --demo-text: #a99f89;
+  --demo-text-dim: #7c745f;
+  --demo-hover: rgba(255, 255, 255, 0.08);
+  --demo-on-bg: #e6e3da;
+  --demo-on-text: #26231d;
+}
+
+/* every control is extruded clay */
+.btn, .iconbtn, .chip, select, input[type="search"], input[type="text"], input[type="url"], input[type="password"] {
+  transition: transform 180ms var(--ease), box-shadow 180ms var(--ease), background 140ms ease;
+}
+.btn, .chip {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 2px rgba(122, 106, 84, 0.22);
+}
+.btn:active:not(:disabled), .chip:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(96, 82, 62, 0.28);
+}
+.btn--primary {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 2px 6px rgba(164, 79, 46, 0.4);
+}
+.btn--primary:active:not(:disabled) { box-shadow: inset 0 2px 5px rgba(70, 30, 14, 0.4); }
+.btn--ghost, .btn--outline { box-shadow: none; }
+.btn--outline { background: transparent; }
+
+/* inputs are pressed hollows */
+input[type="search"], input[type="text"], input[type="url"], input[type="password"], textarea, select {
+  box-shadow: inset 0 1.5px 3px rgba(122, 106, 84, 0.18);
+}
+
+/* soft-body chrome */
+.explorer, .dock { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55); }
+.card, .issue { box-shadow: var(--shadow-1); border-color: var(--border); }
+.menu, .find, .dialog, .palette, .gate, .toast { box-shadow: var(--shadow-2); }
+.dialog, .gate { box-shadow: var(--shadow-3); }
+
+/* the spring lands with one overshoot */
+@keyframes dialog-in {
+  0% { opacity: 0; transform: translateY(14px) scale(0.965); }
+  70% { opacity: 1; transform: translateY(-2px) scale(1.004); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dialog, .gate { animation: dialog-in 300ms var(--ease); }
+@keyframes toast-in {
+  0% { opacity: 0; transform: translateY(10px); }
+  70% { opacity: 1; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* chevrons and tabs spring too (inherits --ease) */
+.tree__chevron { transition-duration: 240ms; }
+.dtab[data-active="true"] { background: var(--bg-card); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(122, 106, 84, 0.25); }
+
+/* focus: terracotta ring on a soft halo */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; box-shadow: 0 0 0 4px var(--focus-soft); }
+
+.grid tr[data-active="true"] td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+kbd { background: var(--bg-inset); border-color: var(--border-strong); color: var(--text-2); box-shadow: 0 1px 0 var(--border-strong); }
+.rb--cmdk { background: var(--bg-inset); }
+.preview__page { box-shadow: 0 6px 18px rgba(122, 106, 84, 0.25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog, .gate { animation: none; }
+  .btn:active, .chip:active { transform: none; }
+}
