@@ -111,6 +111,11 @@ caption 按钮，但会摘掉原生标题栏这一行：标题文本、拖拽区
   的行为判断依据：Electron 默认 `frame: true` 的文档语义 +
   代码中不存在任何覆盖项。xvfb 下无窗口管理器，截图只能呈现客户区
   （菜单栏 + ribbon + 工作台），原生装饰不会出现 —— 截图旁注已写明。
+- xvfb 实测（Playwright 驱动真实主进程 + 真实引擎走完建项目/导入）：
+  `nativeTheme.themeSource === "light"`、`win.isMenuBarVisible() === true`、
+  窗口标题随文档变为「演示项目 — m0-source.docx (en-US → zh-CN)」。
+  整窗抓屏：`01-projects-full-window.png`（浅色菜单栏 + 项目列表）、
+  `02-workbench-full-window.png`（菜单栏 → ribbon → 工作台三层 chrome）。
 - 改动面：仅 `apps/desktop/src/main/index.ts`（import `nativeTheme` +
   `themeSource = "light"` 一行 + 注释）。通过 `pnpm --filter
   @translunar/desktop typecheck` 与 `vitest run`。
