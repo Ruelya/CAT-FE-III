@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { BrowserWindow, app, dialog, ipcMain } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, nativeTheme } from "electron";
 
 import { IPC_CHANNELS } from "../shared/desktop-api.js";
 import type {
@@ -311,6 +311,12 @@ function registerIpc(): void {
 }
 
 void app.whenReady().then(() => {
+  // The window keeps the OS-native frame: on Windows that means DWM caption
+  // buttons, drag, double-click maximize, and Snap Layouts for free. The
+  // renderer ships a single light token set, so pin the native chrome
+  // (caption bar, menu bar) to light too — otherwise a dark-mode OS paints
+  // a dark title bar over a light workbench.
+  nativeTheme.themeSource = "light";
   supervisor = new EngineSupervisor({
     binaryPath: resolveEngineBinary(),
     dataDir: resolveDataDir(),
