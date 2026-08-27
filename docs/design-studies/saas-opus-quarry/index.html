@@ -134,7 +134,7 @@
   --pv-lock: var(--info-soft);
   --pv-lock-line: transparent;
   --pv-none: var(--sunken);
-  --pv-none-line: var(--border-soft);
+  --pv-none-line: var(--border);
   --pv-radius: var(--r-md);
 }
 
@@ -4513,9 +4513,17 @@ function vPreview() {
                   .map((n) => {
                     const s = seg(n);
                     const fb = s.state === "untranslated";
-                    return `<button class="pvseg" data-state="${s.state}"${fb ? ' data-fallback="1"' : ""}${
+                    /* A locked segment is confirmed and then frozen. The grid
+                       stacks the two; a chip has one fill, so lock wins —
+                       it is the fact that changes what a proofreader can do
+                       with the segment. */
+                    const st = s.locked ? "locked" : s.state;
+                    const title = s.locked
+                      ? `句段 #${n} · ${STATE_LABEL[s.state]} · 锁定`
+                      : `句段 #${n} · ${STATE_LABEL[s.state]}`;
+                    return `<button class="pvseg" data-state="${st}"${fb ? ' data-fallback="1"' : ""}${
                       n === S.active ? ' data-active="1"' : ""
-                    } data-jump="${n}" title="句段 #${n} · ${STATE_LABEL[s.state]}">${esc(fb ? s.src : s.tgt)}</button>`;
+                    } data-jump="${n}" title="${title}">${esc(fb ? s.src : s.tgt)}</button>`;
                   })
                   .join("")}</p>`,
             )
