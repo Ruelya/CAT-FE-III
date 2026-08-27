@@ -23,7 +23,7 @@
   --w-explorer: 258px; --w-dock: 330px; --w-staterow: 172px;
   --pad-panel: 13px; --pad-cell-y: 7px;
   --bar-h: 3px; --ic: 14px; --dtabs-pad: 5px;
-  --confirm-ic: #79cdb8; --tree-row: 23px; --tree-folder: #8fb9e8;
+  --tree-row: 23px; --tree-folder: #8fb9e8;
 
   /* prussian paper, layered by depth of blue */
   --bg-app: #0d2440;

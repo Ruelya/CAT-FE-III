@@ -1,7 +1,7 @@
 # Workbench 功能清单（FEATURE INVENTORY）
 
 来源：`cursor/gf-workbench-s3d-2398` 上的真实桌面端代码（`apps/desktop/src`）。
-本清单先于任何视觉稿完成，是全部设计稿（`saas-compact` / `saas-comfortable` / `saas-dark` 及五个 `saas-fable-art-*`）必须全量呈现的信息架构。功能区为图标在上、文字在下的堆叠布局，按 历史 / 文档 / 翻译 / 审校 四组排布，组间竖发丝线、组名居中于组底，确认图标用弱化青色。逐文件核对对象：
+本清单先于任何视觉稿完成，是全部设计稿（`saas-compact` / `saas-comfortable` / `saas-dark` 及五个 `saas-fable-art-*`）必须全量呈现的信息架构。功能区为图标在上、文字在下的堆叠布局，按 历史 / 文档 / 翻译 / 审校 四组排布，组间竖发丝线、组名居中于组底，确认图标用各主题自己的强调色。逐文件核对对象：
 `WorkbenchView` `SegmentGrid` `Ribbon` `FindWidget` `PreviewPane` `TmPanel` `ConcordancePanel` `TermPanel` `QaPanel` `AiPanel` `AgentPanel` `CommandPalette` `ImportDocumentDialog` `ProjectSettingsDialog` `TmManageDialog` `TermManagePanel` `ExportOverwriteConfirm` `ExportQaGateConfirm` `EngineGate` `ProjectsView` `App`（状态栏）`menu-template`（应用菜单）。
 
 ## 1. 命令与快捷键（应用菜单 / 功能区 / 命令面板共用一套 handler）
