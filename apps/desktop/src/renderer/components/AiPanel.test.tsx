@@ -398,4 +398,97 @@ describe("AiPanel", () => {
     });
     expect(screen.queryByText("AI 翻译")).not.toBeInTheDocument();
   });
+
+  it("runs a menu-driven assist request exactly once", async () => {
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve(CONFIGURED_STATUS);
+      }
+      if (method === "ai.assist.start") {
+        return Promise.resolve({ ok: true, result: RUNNING_ASSIST });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: doneAssist({
+          draftTarget: "点击 {button} 继续。",
+          provider: "openai",
+          model: "gpt-test",
+          elapsedMs: 9,
+          tagCheck: { ok: true, missing: [], extra: [] },
+        }),
+      });
+    });
+    installBridge(invoke);
+    const onRequestConsumed = vi.fn();
+    const view = renderPanel({
+      request: { action: "translate", token: 1 },
+      onRequestConsumed,
+    });
+    // The menu request runs the same assist the panel button runs.
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "ai.assist.start",
+        expect.objectContaining({ segmentId: "s1", action: "translate" }),
+      );
+    });
+    expect(onRequestConsumed).toHaveBeenCalled();
+
+    // The same token never replays across re-renders.
+    const startCalls = () =>
+      invoke.mock.calls.filter(([method]) => method === "ai.assist.start")
+        .length;
+    const before = startCalls();
+    view.rerender(
+      <AiStatusProvider>
+        <AiPanel
+          activeSegment={segment}
+          onApplyDraft={vi.fn()}
+          onStatusMessage={vi.fn()}
+          request={{ action: "translate", token: 1 }}
+          onRequestConsumed={onRequestConsumed}
+        />
+      </AiStatusProvider>,
+    );
+    expect(startCalls()).toBe(before);
+  });
+
+  it("drops the menu request while unconfigured instead of faking a run", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true,
+      result: { configured: false, provider: null, model: null },
+    });
+    installBridge(invoke);
+    const onRequestConsumed = vi.fn();
+    renderPanel({
+      request: { action: "translate", token: 1 },
+      onRequestConsumed,
+    });
+    await waitFor(() => {
+      expect(screen.getByText("未配置")).toBeInTheDocument();
+    });
+    // Consumed but never started: the panel already shows why it refuses.
+    await waitFor(() => {
+      expect(onRequestConsumed).toHaveBeenCalled();
+    });
+    expect(
+      invoke.mock.calls.some(([method]) => method === "ai.assist.start"),
+    ).toBe(false);
+  });
+
+  it("drops a menu refine request when the target is empty", async () => {
+    const invoke = vi.fn().mockResolvedValue(CONFIGURED_STATUS);
+    installBridge(invoke);
+    const onRequestConsumed = vi.fn();
+    renderPanel({
+      activeSegment: { ...segment, targetText: "" },
+      request: { action: "refine", token: 1 },
+      onRequestConsumed,
+    });
+    await waitFor(() => {
+      expect(onRequestConsumed).toHaveBeenCalled();
+    });
+    expect(
+      invoke.mock.calls.some(([method]) => method === "ai.assist.start"),
+    ).toBe(false);
+  });
 });

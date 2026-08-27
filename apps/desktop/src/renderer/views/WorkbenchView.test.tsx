@@ -296,14 +296,19 @@ describe("WorkbenchView application menu commands", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
+    // The ribbon carries its own 运行 QA button, so dock assertions scope
+    // to the dock element.
+    const dock = within(
+      document.querySelector(".workbench__dock") as HTMLElement,
+    );
     act(() => {
       bridge.emitMenuCommand("show-dock-qa");
     });
-    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    expect(dock.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
     act(() => {
       bridge.emitMenuCommand("show-dock-term");
     });
-    expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+    expect(await dock.findByRole("button", { name: "插入" })).toBeVisible();
   });
 
   it("merges TM lookup and 检索 into the 记忆 dock, 辅助 and Agent into AI", async () => {
@@ -339,10 +344,13 @@ describe("WorkbenchView application menu commands", () => {
       />,
     );
     await screen.findByLabelText("句段 1 译文");
+    const dock = within(
+      document.querySelector(".workbench__dock") as HTMLElement,
+    );
     fireEvent.keyDown(window, { key: "3", ctrlKey: true });
-    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    expect(dock.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "2", ctrlKey: true });
-    expect(await screen.findByRole("button", { name: "插入" })).toBeVisible();
+    expect(await dock.findByRole("button", { name: "插入" })).toBeVisible();
     fireEvent.keyDown(window, { key: "1", ctrlKey: true });
     expect(screen.getByText("翻译记忆")).toBeInTheDocument();
   });
@@ -585,6 +593,225 @@ describe("WorkbenchView application menu commands", () => {
     fireEvent.keyDown(window, { key: "F", ctrlKey: true, shiftKey: true });
     expect(document.activeElement).toBe(filter);
   });
+
+  it("toggle-left / toggle-right collapse the rails like the splitter chevrons", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const explorer = document.querySelector(
+      ".workbench__explorer",
+    ) as HTMLElement;
+    const dock = document.querySelector(".workbench__dock") as HTMLElement;
+    expect(explorer).not.toHaveAttribute("data-collapsed");
+    expect(dock).not.toHaveAttribute("data-collapsed");
+
+    act(() => {
+      bridge.emitMenuCommand("toggle-left");
+    });
+    expect(explorer).toHaveAttribute("data-collapsed");
+    act(() => {
+      bridge.emitMenuCommand("toggle-left");
+    });
+    expect(explorer).not.toHaveAttribute("data-collapsed");
+
+    act(() => {
+      bridge.emitMenuCommand("toggle-right");
+    });
+    expect(dock).toHaveAttribute("data-collapsed");
+    act(() => {
+      bridge.emitMenuCommand("toggle-right");
+    });
+    expect(dock).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("archive-project archives only after the explicit confirm", async () => {
+    const handlers = baseHandlers();
+    let archiveParams: unknown = null;
+    handlers["project.archive"] = (params) => {
+      archiveParams = params;
+      return { ...PROJECT, lifecycle: "archived", revision: 2 };
+    };
+    const bridge = installBridge(handlers);
+    const onProjectUpdated = vi.fn();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+        onProjectUpdated={onProjectUpdated}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("archive-project");
+    });
+    // 取消 leaves the project untouched.
+    const dialog = screen.getByRole("dialog", { name: "归档项目" });
+    expect(dialog).toHaveTextContent("归档「演示项目」。");
+    await userEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(archiveParams).toBeNull();
+
+    // 确认归档 runs the same project.archive RPC as the settings dialog.
+    act(() => {
+      bridge.emitMenuCommand("archive-project");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "确认归档" }));
+    await waitFor(() => {
+      expect(archiveParams).toEqual({ projectId: "p1", archived: true });
+    });
+    expect(onProjectUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({ lifecycle: "archived" }),
+    );
+    expect(onStatusMessage).toHaveBeenCalledWith("项目已归档");
+  });
+
+  it("toggle-gate flips the stored QA export gate through qa.profile.update", async () => {
+    const handlers = baseHandlers();
+    const profile = {
+      baseProfileId: "default",
+      severityOverrides: {},
+      settings: {},
+      blockExportOnError: false,
+      revision: 3,
+    };
+    handlers["qa.profile.get"] = () => profile;
+    let updateParams: unknown = null;
+    handlers["qa.profile.update"] = (params) => {
+      updateParams = params;
+      return { ...profile, blockExportOnError: true, revision: 4 };
+    };
+    const bridge = installBridge(handlers);
+    const onExportGateChange = vi.fn();
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+        onExportGateChange={onExportGateChange}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The mount fetch reports the stored gate for the menu checkbox.
+    await waitFor(() => {
+      expect(onExportGateChange).toHaveBeenLastCalledWith(false);
+    });
+    act(() => {
+      bridge.emitMenuCommand("toggle-gate");
+    });
+    // The write is based on the refetched revision, never a stale view.
+    await waitFor(() => {
+      expect(updateParams).toEqual({
+        projectId: "p1",
+        baseRevision: 3,
+        blockExportOnError: true,
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith("已开启导出前 QA 检查");
+    await waitFor(() => {
+      expect(onExportGateChange).toHaveBeenLastCalledWith(true);
+    });
+  });
+
+  it("QA menu commands report honestly with no matching finding", async () => {
+    const bridge = installBridge(baseHandlers());
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // baseHandlers answers qa.list with zero issues: every QA command on
+    // the active segment reports instead of pretending.
+    act(() => {
+      bridge.emitMenuCommand("waive");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith(
+      "当前句段没有未解决的 QA 问题",
+    );
+    act(() => {
+      bridge.emitMenuCommand("waive-rule");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith(
+      "当前句段没有未解决的 QA 问题",
+    );
+    act(() => {
+      bridge.emitMenuCommand("restore");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith(
+      "当前句段没有已忽略的 QA 问题",
+    );
+    act(() => {
+      bridge.emitMenuCommand("apply-fix");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith(
+      "当前句段没有可应用的修复",
+    );
+    // Nothing was written.
+    expect(
+      bridge.invoke.mock.calls.some(
+        ([method]) => method === "qa.waive" || method === "segment.update",
+      ),
+    ).toBe(false);
+  });
+
+  it("open-term-manage and open-tm-manage open the existing surfaces", async () => {
+    const bridge = installBridge(baseHandlers());
+    const onOpenSettings = vi.fn();
+    const onOpenTmManage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        onOpenTmManage={onOpenTmManage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("open-term-manage");
+    });
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    act(() => {
+      bridge.emitMenuCommand("open-tm-manage");
+    });
+    expect(onOpenTmManage).toHaveBeenCalledTimes(1);
+  });
+
+  it("ai-translate switches to the AI dock and hands the request to the panel", async () => {
+    const bridge = installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("ai-translate");
+    });
+    // The AI dock opens; ai.status is unconfigured so the panel shows its
+    // own honest refusal instead of a fake run.
+    expect(screen.getByRole("button", { name: "AI" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "ai.assist.start"),
+    ).toBe(false);
+  });
 });
 
 describe("WorkbenchView command palette", () => {
@@ -608,7 +835,11 @@ describe("WorkbenchView command palette", () => {
     expect(
       screen.queryByRole("dialog", { name: "命令面板" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "运行 QA" })).toBeInTheDocument();
+    expect(
+      within(
+        document.querySelector(".workbench__dock") as HTMLElement,
+      ).getByRole("button", { name: "运行 QA" }),
+    ).toBeInTheDocument();
   });
 
   it("opens via Ctrl+Shift+P and the menu command, listing document jumps", async () => {
@@ -1766,6 +1997,179 @@ describe("WorkbenchView find widget & filter chips", () => {
   });
 });
 
+describe("WorkbenchView boolean filter chips", () => {
+  // s1 and s4 share one sourceText (the term hit); s2 is locked and carries
+  // a placeholder token; s3 is plain.
+  const BOOL_SEGMENTS: Segment[] = [
+    { ...SEGMENT, id: "s1", ordinal: 0 },
+    {
+      ...SEGMENT,
+      id: "s2",
+      ordinal: 1,
+      sourceText: "Second {count} line.",
+      targetText: "第二 {count} 行。",
+      locked: true,
+    },
+    {
+      ...SEGMENT,
+      id: "s3",
+      ordinal: 2,
+      sourceText: "Third line.",
+      targetText: "第三行。",
+    },
+    { ...SEGMENT, id: "s4", ordinal: 3 },
+  ];
+
+  function installBoolBridge(
+    termLookup?: (params: unknown) => unknown,
+  ): Bridge {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: BOOL_SEGMENTS });
+    if (termLookup) {
+      handlers["term.lookup"] = termLookup;
+    }
+    return installBridge(handlers);
+  }
+
+  function termLookupCalls(bridge: Bridge): unknown[] {
+    return bridge.invoke.mock.calls
+      .filter(([method]) => method === "term.lookup")
+      .map(([, params]) => params);
+  }
+
+  it("锁定 keeps only locked rows and clears through its own chip", async () => {
+    installBoolBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
+
+    const toggle = screen.getByRole("button", { name: "锁定" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/4");
+
+    // × on the chip clears just this channel.
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除筛选：锁定" }),
+    );
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
+  });
+
+  it("有标签 keeps only rows whose text carries placeholder tokens", async () => {
+    installBoolBridge();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "有标签" }));
+    // Only s2 carries a {count} placeholder run.
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("1/4");
+    await userEvent.click(
+      screen.getByRole("button", { name: "清除筛选：有标签" }),
+    );
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
+  });
+
+  it("有术语 asks term.lookup once per distinct source and keeps engine hits", async () => {
+    const bridge = installBoolBridge((params) => {
+      const { sourceText } = params as { sourceText: string };
+      return sourceText === SEGMENT.sourceText
+        ? { matches: [TERM_MATCH] }
+        : { matches: [] };
+    });
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The chip is off: nothing scans the table.
+    expect(termLookupCalls(bridge)).toHaveLength(0);
+
+    const toggle = screen.getByRole("button", { name: "有术语" });
+    await userEvent.click(toggle);
+    // s1 and s4 share the hit sourceText; s2/s3 miss.
+    await waitFor(() => {
+      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent(
+        "2/4",
+      );
+    });
+    // Four segments, three distinct source texts — the duplicate is served
+    // from the cache, never re-asked.
+    const calls = termLookupCalls(bridge);
+    expect(calls).toHaveLength(3);
+    for (const params of calls) {
+      expect(params).toMatchObject({ projectId: "p1" });
+    }
+
+    // Turning the chip off restores the rows without another scan.
+    await userEvent.click(toggle);
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
+    expect(termLookupCalls(bridge)).toHaveLength(3);
+  });
+
+  it("有术语 with no hits anywhere empties the grid honestly", async () => {
+    installBoolBridge(() => ({ matches: [] }));
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "有术语" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent(
+        "0/4",
+      );
+    });
+    expect(screen.getByText("没有符合筛选条件的句段")).toBeInTheDocument();
+  });
+
+  it("a failed lookup reports and drops the 有术语 channel", async () => {
+    installBoolBridge(
+      () => new EngineFailure("internal", "termbase unavailable"),
+    );
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const toggle = screen.getByRole("button", { name: "有术语" });
+    await userEvent.click(toggle);
+    // The failure surfaces and the channel switches itself back off — the
+    // grid never narrows on a half-answered set.
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith(
+        expect.stringContaining("术语筛选失败"),
+      );
+    });
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+    });
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
+  });
+});
+
 describe("WorkbenchView document rail progress", () => {
   const DOCUMENT_2 = {
     ...DOCUMENT,
@@ -2669,7 +3073,7 @@ describe("WorkbenchView ribbon", () => {
     expect(onCloseProject).toHaveBeenCalledTimes(1);
   });
 
-  it("summons the find widget and focuses the filter from the review group buttons", async () => {
+  it("summons the find widget and opens 检索 from the review group buttons", async () => {
     installBridge(baseHandlers());
     render(
       <WorkbenchView
@@ -2688,10 +3092,186 @@ describe("WorkbenchView ribbon", () => {
     );
     await userEvent.click(ribbon.getByRole("button", { name: "替换" }));
     expect(document.activeElement).toBe(screen.getByLabelText("替换为"));
-    await userEvent.click(ribbon.getByRole("button", { name: "筛选" }));
-    expect(document.activeElement).toBe(screen.getByLabelText("按文本筛选"));
     await userEvent.click(ribbon.getByRole("button", { name: "检索" }));
     expect(await screen.findByLabelText(/检索词/)).toBeInTheDocument();
+  });
+
+  it("撤销/重做 drive the mounted editor's undo stack and disable without one", async () => {
+    installBridge(baseHandlers());
+    const execCommand = vi.fn(() => true);
+    document.execCommand = execCommand as never;
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const editor = await screen.findByLabelText("句段 1 译文");
+    // The active row's editor is mounted, so history commands are live and
+    // land on the refocused editor.
+    const undo = screen.getByRole("button", { name: "撤销" });
+    const redo = screen.getByRole("button", { name: "重做" });
+    expect(undo).toBeEnabled();
+    await userEvent.click(undo);
+    expect(execCommand).toHaveBeenCalledWith("undo");
+    expect(document.activeElement).toBe(editor);
+    await userEvent.click(redo);
+    expect(execCommand).toHaveBeenCalledWith("redo");
+
+    // Filter the row out: no editor, no application-level undo to fake.
+    await userEvent.type(screen.getByLabelText("按文本筛选"), "无匹配文本");
+    await waitFor(() => {
+      expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
+    });
+    expect(undo).toBeDisabled();
+    expect(redo).toBeDisabled();
+  });
+
+  it("插入记忆 applies TM match #1 as a draft with its origin", async () => {
+    const handlers = baseHandlers();
+    handlers["tm.lookup"] = () => ({
+      matches: [
+        {
+          entry: {
+            id: "tm-1",
+            memoryId: "m1",
+            sourceHash: "hash",
+            sourceText: SEGMENT.sourceText,
+            targetText: "保留期为 30 天。",
+            originProjectId: "p1",
+            originDocumentId: "d1",
+            originSegmentId: "s1",
+            confirmedAtMs: 1,
+          },
+          score: 100,
+          grade: "exact",
+          memoryName: "主记忆库",
+        },
+      ],
+      totalMatches: 1,
+    });
+    let updateParams: unknown = null;
+    handlers["segment.update"] = (params) => {
+      updateParams = params;
+      return {
+        segment: {
+          ...SEGMENT,
+          targetText: "保留期为 30 天。",
+          revision: 2,
+        },
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // The dock lists the match before the button applies it.
+    await screen.findByText("应用为草稿");
+    await userEvent.click(screen.getByRole("button", { name: "插入记忆" }));
+    await waitFor(() => {
+      expect(updateParams).toMatchObject({
+        segmentId: "s1",
+        targetText: "保留期为 30 天。",
+        origin: { kind: "tmExact", score: 100 },
+      });
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "已应用第 1 条记忆匹配（100%）为草稿",
+    );
+  });
+
+  it("插入记忆 reports the honest miss when the engine has no match", async () => {
+    const bridge = installBridge(baseHandlers());
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // baseHandlers answers tm.lookup with zero matches.
+    await userEvent.click(screen.getByRole("button", { name: "插入记忆" }));
+    expect(onStatusMessage).toHaveBeenCalledWith("没有第 1 条记忆匹配");
+    expect(
+      bridge.invoke.mock.calls.some(([method]) => method === "segment.update"),
+    ).toBe(false);
+  });
+
+  it("插入术语 lands the first non-forbidden hit at the caret, a miss opens the 术语 dock", async () => {
+    const handlers = baseHandlers();
+    let termMatches: unknown[] = [TERM_MATCH];
+    handlers["term.lookup"] = () => ({ matches: termMatches });
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+    editor.setSelectionRange(3, 3);
+    await userEvent.click(screen.getByRole("button", { name: "插入术语" }));
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的保留期为 30 天。");
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith("已插入术语「保留期」");
+
+    // A miss switches to the 术语 dock and says so — nothing is inserted.
+    termMatches = [];
+    await userEvent.click(screen.getByRole("button", { name: "插入术语" }));
+    await waitFor(() => {
+      expect(onStatusMessage).toHaveBeenCalledWith("当前句段无术语命中");
+    });
+    expect(screen.getByRole("button", { name: "术语" })).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(editor.value).toBe("文件的保留期为 30 天。");
+  });
+
+  it("运行 QA and 预览 run the same handlers as the menu commands", async () => {
+    const handlers = baseHandlers();
+    let qaRuns = 0;
+    handlers["qa.run"] = () => {
+      qaRuns += 1;
+      return { issues: [], checkedSegments: 1, openIssues: 0 };
+    };
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const ribbon = within(screen.getByRole("toolbar", { name: "工具栏" }));
+    await userEvent.click(ribbon.getByRole("button", { name: "运行 QA" }));
+    await waitFor(() => {
+      expect(qaRuns).toBe(1);
+    });
+    // 预览 toggles the same layout flag as Ctrl+P.
+    const pane = screen.getByLabelText("预览面板");
+    expect(pane).not.toHaveAttribute("data-open");
+    await userEvent.click(ribbon.getByRole("button", { name: "预览" }));
+    expect(pane).toHaveAttribute("data-open");
+    await userEvent.click(ribbon.getByRole("button", { name: "预览" }));
+    expect(pane).not.toHaveAttribute("data-open");
   });
 });
 
@@ -3088,6 +3668,146 @@ describe("WorkbenchView project explorer", () => {
     expect(
       within(docsDir).queryByTitle(/未解决 QA 问题/),
     ).not.toBeInTheDocument();
+  });
+
+  it("marks open-but-inactive documents with data-open, weaker than active", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [
+        DOCUMENT,
+        {
+          ...DOCUMENT,
+          id: "d2",
+          name: "second.txt",
+          relativePath: "second.txt",
+        },
+      ],
+    });
+    handlers["segment.list"] = (params) => ({
+      segments:
+        (params as { documentId: string }).documentId === "d1"
+          ? [SEGMENT]
+          : [{ ...SEGMENT, id: "s2", documentId: "d2" }],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    const first = files.getByRole("treeitem", { name: /guide\.txt/ });
+    const second = files.getByRole("treeitem", { name: /second\.txt/ });
+    // Only the auto-opened first document is open; second is plain closed.
+    expect(first).toHaveAttribute("data-active", "true");
+    expect(first).not.toHaveAttribute("data-open");
+    expect(second).toHaveAttribute("data-active", "false");
+    expect(second).not.toHaveAttribute("data-open");
+
+    // Opening the second document flips activation; the first stays open
+    // in its tab and now wears the in-between data-open state.
+    await userEvent.click(
+      second.querySelector(".document-list__select") as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(second).toHaveAttribute("data-active", "true");
+    });
+    expect(first).toHaveAttribute("data-active", "false");
+    expect(first).toHaveAttribute("data-open", "true");
+    expect(second).not.toHaveAttribute("data-open");
+  });
+
+  it("draws format-specific file glyphs from the engine's format id", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [
+        {
+          ...DOCUMENT,
+          format: "docx",
+          name: "spec.docx",
+          relativePath: "spec.docx",
+        },
+        {
+          ...DOCUMENT,
+          id: "d2",
+          format: "markdown",
+          name: "notes.md",
+          relativePath: "notes.md",
+        },
+        {
+          ...DOCUMENT,
+          id: "d3",
+          format: "mystery",
+          name: "blob.bin",
+          relativePath: "blob.bin",
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    const glyph = (name: RegExp) =>
+      files
+        .getByRole("treeitem", { name })
+        .querySelector(".document-list__file-icon")
+        ?.getAttribute("class") ?? "";
+    expect(glyph(/spec\.docx/)).toContain("tabler-icon-file-type-docx");
+    expect(glyph(/notes\.md/)).toContain("tabler-icon-markdown");
+    // An unmapped format keeps the plain file glyph — never an invented one.
+    expect(glyph(/blob\.bin/)).toContain("tabler-icon-file-text");
+  });
+
+  it("draws one indent guide per ancestor folder level", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [
+        { ...DOCUMENT, relativePath: "/w/docs/guides/guide.txt" },
+        {
+          ...DOCUMENT,
+          id: "d2",
+          name: "terms.txt",
+          relativePath: "/w/terms.txt",
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    // guide.txt sits under docs/guides → two ancestor hairlines; the
+    // root-level terms.txt draws none.
+    expect(
+      files
+        .getByRole("treeitem", { name: /guide\.txt/ })
+        .querySelectorAll(".document-list__guide"),
+    ).toHaveLength(2);
+    expect(
+      files
+        .getByRole("treeitem", { name: /terms\.txt/ })
+        .querySelectorAll(".document-list__guide"),
+    ).toHaveLength(0);
+    // Folder rows indent the same way: guides (depth 1) draws one line.
+    expect(
+      files
+        .getByRole("treeitem", { name: /guides/ })
+        .querySelectorAll(".document-list__guide"),
+    ).toHaveLength(1);
   });
 });
 

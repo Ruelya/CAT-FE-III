@@ -47,6 +47,15 @@ export interface AiPanelProps {
    */
   onApplyDraft: (targetText: string, model: string) => void;
   onStatusMessage: (message: string) => void;
+  /**
+   * Menu-driven assist (翻译 ▸ AI 翻译/润色当前句段). Each token runs the
+   * exact assist the panel buttons run, once. When the panel would refuse
+   * (unconfigured, no segment, confirmed row, busy, refine with an empty
+   * target) the request is dropped and the panel's own state says why.
+   */
+  request?: { action: "translate" | "refine"; token: number } | null;
+  /** Marks the request consumed so a later remount never replays it. */
+  onRequestConsumed?: () => void;
 }
 
 interface Candidate {
@@ -61,6 +70,8 @@ export function AiPanel({
   activeSegment,
   onApplyDraft,
   onStatusMessage,
+  request,
+  onRequestConsumed,
 }: AiPanelProps) {
   const { status, configured, setStatus } = useAiStatus();
   const [provider, setProvider] = useState<AiProviderKind>("openai");
@@ -166,6 +177,42 @@ export function AiPanel({
     },
     [activeSegment, onStatusMessage],
   );
+
+  // Menu-driven assist: each token is consumed exactly once (the consumer
+  // reports back through onRequestConsumed, so a later remount never
+  // replays it). The guards mirror the buttons' own enablement — the panel
+  // is already showing why it refuses.
+  const consumedRequestTokenRef = useRef(0);
+  useEffect(() => {
+    if (!request || request.token === consumedRequestTokenRef.current) {
+      return;
+    }
+    // ai.status is still in flight: hold the request until the answer says
+    // whether the panel can run at all.
+    if (status === null) {
+      return;
+    }
+    consumedRequestTokenRef.current = request.token;
+    onRequestConsumed?.();
+    if (
+      !configured ||
+      busy ||
+      !activeSegment ||
+      activeSegment.state === "confirmed" ||
+      (request.action === "refine" && !activeSegment.targetText.trim())
+    ) {
+      return;
+    }
+    void assist(request.action);
+  }, [
+    request,
+    onRequestConsumed,
+    status,
+    configured,
+    busy,
+    activeSegment,
+    assist,
+  ]);
 
   const cancelAssist = useCallback(async () => {
     if (!activeAssistId) {
