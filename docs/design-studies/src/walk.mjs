@@ -18,6 +18,8 @@ const THEMES = [
   "saas-opus-art-atelier",
   "saas-opus-art-phosphor",
   "saas-opus-art-vitrine",
+  "saas-opus-art-atelier-light",
+  "saas-opus-art-phosphor-light",
 ];
 const VIEW = { width: 1640, height: 1000 };
 

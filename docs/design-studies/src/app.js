@@ -933,7 +933,7 @@ function vFind() {
 }
 
 const STATE_GLYPH = { untranslated: "○", draft: "✎", confirmed: "✓" };
-const STATE_LABEL = { untranslated: "未译", draft: "草稿", confirmed: "已确认" };
+const STATE_LABEL = { untranslated: "未译", draft: "草稿", confirmed: "已确认", locked: "锁定" };
 
 function vOrigin(s) {
   if (!s.origin) return "";
@@ -1037,7 +1037,7 @@ function vPreview() {
       <span class="preview__spacer"></span>
       ${
         open && S.preview.mode === "proofread"
-          ? `<span class="legend"><span class="lg" data-state="confirmed">已确认</span><span class="lg" data-state="draft">草稿</span><span class="lg" data-state="untranslated">未译</span></span>`
+          ? `<span class="legend"><span class="lg" data-state="confirmed">已确认</span><span class="lg" data-state="draft">草稿</span><span class="lg" data-state="locked">锁定</span><span class="lg" data-state="untranslated">未译</span></span>`
           : ""
       }
       <button class="iconbtn" data-cmd="toggle-preview" title="${open ? "折叠预览（Ctrl+P）" : "展开预览（Ctrl+P）"}">${ic(open ? "down" : "up", 14)}</button>
@@ -1058,7 +1058,7 @@ function vPreview() {
                     const fb = s.state === "untranslated";
                     return `<button class="pvseg" data-state="${s.state}"${fb ? ' data-fallback="1"' : ""}${
                       n === S.active ? ' data-active="1"' : ""
-                    } data-jump="${n}" title="句段 #${n}${fb ? "（未译）" : ""}">${esc(fb ? s.src : s.tgt)}</button>`;
+                    } data-jump="${n}" title="句段 #${n} · ${STATE_LABEL[s.state]}">${esc(fb ? s.src : s.tgt)}</button>`;
                   })
                   .join("")}</p>`,
             )

@@ -11,6 +11,13 @@
   const TILE = 128;
   const TILES = 4;
 
+  /* An emissive tube screens grain up; a reflective panel multiplies it
+     down. The sheet decides which, so the light sibling reuses this layer
+     unchanged. */
+  const css = getComputedStyle(document.documentElement);
+  const blend = (css.getPropertyValue("--crt-noise-blend") || "screen").trim();
+  const alpha = (css.getPropertyValue("--crt-noise-alpha") || "0.05").trim();
+
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
   Object.assign(canvas.style, {
@@ -20,8 +27,8 @@
     height: "100%",
     zIndex: "9996",
     pointerEvents: "none",
-    mixBlendMode: "screen",
-    opacity: "0.05",
+    mixBlendMode: blend,
+    opacity: alpha,
   });
 
   const bake = () => {

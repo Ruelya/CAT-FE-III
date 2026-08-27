@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Translunar 工作台 — saas-opus-art / vitrine</title>
-<meta name="description" content="玻璃与光：磨砂层叠、镜面高光、漂移光场。">
+<meta name="description" content="液态玻璃：连续圆角、镜面描边、编辑区与右栏同为厚玻璃。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 /* Structural layer shared by every visual system.
@@ -122,6 +122,20 @@
 
   --dur: 120ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Proofreading chip contract. Each segment state gets a fill and an
+     optional outline; a study retints by restating these. Defaults route
+     through the semantic tokens, so a theme that only sets --ok-soft and
+     friends already gets a coherent proofreading view. */
+  --pv-done: var(--ok-soft);
+  --pv-done-line: transparent;
+  --pv-todo: var(--warn-soft);
+  --pv-todo-line: transparent;
+  --pv-lock: var(--info-soft);
+  --pv-lock-line: transparent;
+  --pv-none: var(--sunken);
+  --pv-none-line: var(--border-soft);
+  --pv-radius: var(--r-md);
 }
 
 /* -------------------------------------------------------------- resets */
@@ -1526,20 +1540,28 @@ tr[data-active] .rowmenu__btn,
   align-items: center;
   gap: 4px;
 }
+/* The legend swatch is a miniature of the chip it stands for, fill and
+   border both, so the key and the text below it are the same object. */
 .lg::before {
   content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+  width: 13px;
+  height: 10px;
+  border-radius: var(--pv-radius, var(--r-md));
+  border: 1px solid transparent;
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
 }
 .lg[data-state="confirmed"]::before {
-  background: var(--ok);
+  background: var(--pv-done);
+  border-color: var(--pv-done-line);
 }
 .lg[data-state="draft"]::before {
-  background: var(--warn);
+  background: var(--pv-todo);
+  border-color: var(--pv-todo-line);
 }
-.lg[data-state="untranslated"]::before {
-  background: var(--border-strong);
+.lg[data-state="locked"]::before {
+  background: var(--pv-lock);
+  border-color: var(--pv-lock-line);
 }
 .preview__body {
   overflow-y: auto;
@@ -1551,38 +1573,67 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
   padding-bottom: var(--s3);
 }
+/* Proofreading reads as blocks of colour, not as decorated running text.
+   Each segment is its own filled chip and a paragraph is a wrapping row of
+   them, so the shape of the document survives while every boundary and
+   every state is legible at a glance. Themes retint by overriding the --pv-*
+   contract below; nothing here underlines or strikes through. */
 .preview__doc {
-  max-width: 74ch;
+  max-width: 78ch;
 }
 .preview__block {
-  margin-bottom: var(--s3);
-  line-height: 1.8;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 5px;
+  margin-bottom: var(--s4);
 }
 .pvseg {
-  display: inline;
-  padding: 1px 2px;
-  border-radius: var(--r-sm);
+  display: block;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius);
   font-size: var(--fs-md);
+  line-height: 1.55;
   color: var(--text);
-  border-bottom: 2px solid transparent;
+  white-space: normal;
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .pvseg[data-state="confirmed"] {
-  border-bottom-color: var(--ok);
+  background: var(--pv-done);
+  border-color: var(--pv-done-line);
 }
 .pvseg[data-state="draft"] {
-  border-bottom-color: var(--warn);
+  background: var(--pv-todo);
+  border-color: var(--pv-todo-line);
 }
+.pvseg[data-state="locked"] {
+  background: var(--pv-lock);
+  border-color: var(--pv-lock-line);
+}
+/* No target yet, so the chip carries the source yet still reads as a gap. */
 .pvseg[data-fallback] {
   color: var(--text-faint);
-  font-style: italic;
-  border-bottom-color: var(--border-strong);
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
+  border-style: dashed;
 }
 .pvseg:hover {
-  background: var(--accent-faint);
+  border-color: var(--accent);
 }
 .pvseg[data-active] {
-  background: var(--accent-soft);
+  background: var(--surface);
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent);
   color: var(--text);
+  font-weight: var(--strong-weight);
 }
 .preview__page {
   max-width: 62ch;
@@ -2574,27 +2625,50 @@ tr[data-active] .rowmenu__btn,
 }
 
 /* ===== art-vitrine.css — this visual system ===== */
-/* VITRINE — glass over daylight.
+/* --- art-vitrine.css --- */
+/* VITRINE — liquid glass.
    A cold light field drifts behind the window (art-vitrine.js) and every
-   piece of chrome is a frosted pane floating over it: blurred, saturated,
-   with a lit top edge and a shadow that proves the gap. One rule keeps it
-   usable — glass is for chrome only. The segment grid is the single opaque
-   sheet in the composition, so the text a translator reads all day never
-   sits on moving colour. */
+   surface in front of it is the same material, differing only in how much
+   light it holds back. Chrome is thin glass; the segment sheet and the dock
+   are thick glass. Nothing is a flat slab, and nothing is so transparent
+   that the field moves under running text.
+
+   Three rules hold the material together:
+   1. One glass, four densities — 0.24 chrome, 0.34 rails, 0.50 dock cards,
+      0.74 the reading sheet. Depth is density, never a different substance.
+   2. Every pane carries the same specular signature: a bright top stroke, a
+      dimmer bottom one, a hairline ring, and a shadow that proves the gap.
+   3. Radii are concentric — a pane's children are rounded by the parent
+      radius minus their inset, so nested corners stay parallel. */
 
 :root {
-  --bg: #e8eef3;
-  --glass: rgba(255, 255, 255, 0.42);
-  --glass-2: rgba(255, 255, 255, 0.3);
-  --glass-edge: rgba(255, 255, 255, 0.92);
-  --blur: saturate(1.6) blur(22px);
+  --bg: #dce8ef;
 
-  --surface: var(--glass);
-  --surface-2: rgba(255, 255, 255, 0.66);
-  --surface-3: rgba(255, 255, 255, 0.78);
-  --sunken: rgba(9, 42, 58, 0.06);
-  --chrome: rgba(255, 255, 255, 0.5);
-  --chrome-text: #10333f;
+  /* The glass scale. Everything visible is one of these four densities. */
+  --glass-thin: rgba(255, 255, 255, 0.3);
+  --glass-rail: rgba(255, 255, 255, 0.34);
+  --glass-card: rgba(255, 255, 255, 0.5);
+  --glass-sheet: rgba(255, 255, 255, 0.74);
+  --glass-over: rgba(255, 255, 255, 0.66);
+
+  --blur-thin: saturate(1.8) blur(20px);
+  --blur-card: saturate(1.9) blur(26px);
+  --blur-sheet: saturate(1.7) blur(44px);
+  --blur-over: saturate(2) blur(48px);
+
+  /* The specular signature, applied to every pane at every density. */
+  --spec: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  --ring: 0 0 0 0.5px rgba(11, 58, 76, 0.12);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+
+  --surface: var(--glass-card);
+  --surface-2: rgba(255, 255, 255, 0.62);
+  --surface-3: rgba(255, 255, 255, 0.74);
+  --sunken: rgba(9, 42, 58, 0.055);
+  --chrome: var(--glass-thin);
+  --chrome-text: #0f3542;
 
   --border: rgba(9, 52, 70, 0.16);
   --border-soft: rgba(9, 52, 70, 0.09);
@@ -2602,9 +2676,12 @@ tr[data-active] .rowmenu__btn,
   --hair: 1px solid var(--border-soft);
   --hair-strong: 1px solid var(--border);
 
-  --text: #0c2a35;
-  --text-muted: #416069;
-  --text-faint: #77949e;
+  /* Thin glass lets a lot of field through, so secondary text is set darker
+     than a solid theme would need it — measured at 4.5:1 or better on the
+     lightest pane in the composition. */
+  --text: #08242e;
+  --text-muted: #2f4d57;
+  --text-faint: #446570;
 
   --accent: #0a7f96;
   --accent-strong: #075d6f;
@@ -2612,14 +2689,16 @@ tr[data-active] .rowmenu__btn,
   --accent-faint: rgba(10, 127, 150, 0.07);
   --on-accent: #ffffff;
 
-  --ok: #0f8a5f;
-  --ok-soft: rgba(15, 138, 95, 0.14);
-  --warn: #b06a10;
-  --warn-soft: rgba(176, 106, 16, 0.14);
-  --danger: #c53a3a;
-  --danger-soft: rgba(197, 58, 58, 0.13);
-  --info: #2a6fb0;
-  --info-soft: rgba(42, 111, 176, 0.13);
+  /* Held to one cool family with a single warm exception, so state colour
+     reads as part of the glass rather than as stickers on top of it. */
+  --ok: #0d8467;
+  --ok-soft: rgba(13, 132, 103, 0.16);
+  --warn: #a86a12;
+  --warn-soft: rgba(200, 132, 40, 0.2);
+  --danger: #c03c48;
+  --danger-soft: rgba(192, 60, 72, 0.14);
+  --info: #2f6ea8;
+  --info-soft: rgba(47, 110, 168, 0.14);
 
   --font-ui: "Inter", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
     sans-serif;
@@ -2660,16 +2739,17 @@ tr[data-active] .rowmenu__btn,
   --cell-pad-y: 8px;
   --cell-pad-x: 13px;
 
-  --r-sm: 5px;
-  --r-md: 9px;
-  --r-lg: 15px;
+  /* Continuous-corner scale: generous, and concentric where panes nest. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 22px;
   --r-pill: 999px;
 
-  --shadow-1: 0 1px 2px rgba(9, 42, 58, 0.07);
-  --shadow-2: 0 18px 44px -14px rgba(9, 42, 58, 0.4);
-  --shadow-3: 0 48px 110px -24px rgba(9, 42, 58, 0.55);
-  --focus: 0 0 0 3px rgba(10, 127, 150, 0.3);
-  --scrim: rgba(196, 214, 224, 0.5);
+  --shadow-1: 0 1px 3px rgba(9, 42, 58, 0.08);
+  --shadow-2: 0 20px 50px -16px rgba(9, 42, 58, 0.34);
+  --shadow-3: 0 50px 120px -28px rgba(9, 42, 58, 0.48);
+  --focus: 0 0 0 4px rgba(10, 127, 150, 0.26);
+  --scrim: rgba(150, 184, 200, 0.34);
 
   --row-hover: rgba(10, 127, 150, 0.05);
   --row-active: rgba(10, 127, 150, 0.1);
@@ -2699,78 +2779,95 @@ body {
 
 /* ------------------------------------------------------------- panes */
 
+/* Thin glass: the window furniture, which should disappear into the light. */
 .titlebar,
 .ribbon,
-.rail--left,
-.rail--right,
-.statusbar,
-.doctabs,
-.docktabs,
-.gridbar,
-.preview {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border-color: var(--border-soft);
+.statusbar {
+  background: var(--glass-thin);
+  -webkit-backdrop-filter: var(--blur-thin);
+  backdrop-filter: var(--blur-thin);
+  border-color: transparent;
 }
 .titlebar {
-  background: rgba(255, 255, 255, 0.32);
   box-shadow: inset 0 1px 0 var(--glass-edge);
 }
-.ribbon {
-  background: rgba(255, 255, 255, 0.24);
+.statusbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Two floating panes of the same material: the reading sheet and the dock.
+   Both are inset from the window so the field is visible around them, both
+   are rounded on the same continuous scale, both carry the same specular
+   signature. The dock is thinner because it is scanned; the sheet is
+   thicker because it is read. */
+.center,
+.rail--right,
+.rail--left {
+  border-radius: var(--r-lg);
+  border: 0;
+  overflow: hidden;
+}
+.center {
+  margin: var(--s3);
+  background: var(--glass-sheet);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  box-shadow:
+    var(--spec),
+    var(--ring),
+    0 26px 60px -26px rgba(9, 42, 58, 0.42);
 }
 .rail--left,
 .rail--right {
-  background: rgba(255, 255, 255, 0.34);
-}
-.statusbar {
-  background: rgba(255, 255, 255, 0.38);
-  box-shadow: inset 0 1px 0 var(--glass-edge);
-}
-
-/* The object in the case: the work sheet floats clear of the chrome on all
-   four sides so the light behind it is visible around the edge. It is the
-   densest glass in the composition — near-solid, because this is the one
-   surface someone reads for hours. */
-.center {
-  margin: var(--s3) var(--s3) var(--s3) 0;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.93);
-  -webkit-backdrop-filter: saturate(1.5) blur(30px);
-  backdrop-filter: saturate(1.5) blur(30px);
+  background: var(--glass-rail);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 1px rgba(9, 52, 70, 0.08),
-    0 30px 64px -28px rgba(9, 42, 58, 0.5);
+    var(--spec),
+    var(--ring),
+    0 18px 44px -24px rgba(9, 42, 58, 0.34);
 }
 .rail--left {
-  margin-right: var(--s3);
-  border-right: 0;
+  margin: var(--s3) 0 var(--s3) var(--s3);
 }
 .rail--right {
-  border-left: 0;
+  margin: var(--s3) var(--s3) var(--s3) 0;
 }
+
+/* Inside a pane nothing is filled again — the sub-bars are the sheet itself,
+   separated by a hairline, so the editor reads as one piece of glass. */
 .doctabs,
 .gridbar,
-.preview {
-  background: rgba(255, 255, 255, 0.4);
+.preview,
+.docktabs {
+  background: rgba(255, 255, 255, 0.16);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  border-color: var(--border-soft);
 }
 .grid thead th {
-  background: rgba(252, 253, 254, 0.97);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.62);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--border-soft);
 }
-#grid {
+#grid,
+.dockbody,
+.railbody {
   background: transparent;
 }
 .preview__page {
-  background: #fff;
-  box-shadow: var(--shadow-1);
+  background: rgba(255, 255, 255, 0.72);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow:
+    var(--spec),
+    var(--shadow-1);
+}
+/* Concentric: a rail section sits var(--s3) inside a var(--r-lg) pane. */
+.railsec,
+.panel {
+  border-color: var(--border-soft);
 }
 
 .mark {
@@ -2841,10 +2938,13 @@ body {
 }
 .btn--outline,
 .btn--ghost {
-  background: rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
 }
 .btn--ghost {
   background: transparent;
@@ -2863,27 +2963,41 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+/* Ribbon verbs pick up a glass lozenge under the pointer rather than a
+   painted rectangle: the material comes forward, the button does not. */
 .rbtn {
   border-radius: var(--r-md);
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .rbtn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: var(--shadow-1);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
   transform: translateY(-1px);
 }
 .rgroup {
   border-right: 1px solid var(--border-soft);
 }
 
+/* Inputs are the one place the material is pushed in rather than lifted. */
 .field input,
 .field select,
 .field textarea,
 .searchbox,
 .railsearch,
 .findwidget__input {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--border);
-  box-shadow: inset 0 1px 2px rgba(9, 42, 58, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  box-shadow:
+    inset 0 1px 3px rgba(9, 42, 58, 0.09),
+    inset 0 0 0 1px rgba(11, 58, 76, 0.09);
 }
 .editor textarea {
   background: #fff;
@@ -2894,10 +3008,13 @@ body {
 }
 
 .chip {
-  background: rgba(255, 255, 255, 0.62);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
 }
 .chip--on {
   background: linear-gradient(178deg, #16a2bc, #0a7f96);
@@ -2908,48 +3025,55 @@ body {
     0 4px 12px -5px rgba(10, 127, 150, 0.7);
 }
 
+/* Dock cards are the same glass one density thinner than the sheet, so the
+   right rail reads as layered material instead of opaque cards on a pane. */
 .card,
 .issue,
 .agentsum {
-  background: rgba(255, 255, 255, 0.66);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border-color: var(--border-soft);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-md);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 2px 8px -4px rgba(9, 42, 58, 0.22);
+    var(--spec),
+    var(--ring),
+    0 4px 12px -8px rgba(9, 42, 58, 0.28);
   transition:
     transform var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease);
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .card--match:hover,
 .issue:hover {
+  background: rgba(255, 255, 255, 0.62);
   transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 8px 20px -8px rgba(9, 42, 58, 0.3);
+    var(--spec),
+    var(--ring),
+    0 12px 26px -12px rgba(9, 42, 58, 0.32);
 }
 .card--match[data-best] {
-  border-color: rgba(15, 138, 95, 0.4);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 6px 18px -8px rgba(15, 138, 95, 0.45);
+    var(--spec),
+    0 0 0 1px rgba(13, 132, 103, 0.4),
+    0 10px 24px -12px rgba(13, 132, 103, 0.42);
 }
 
 .docktabs [role="tab"][data-active] {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.6);
   border-bottom-color: var(--accent);
   color: var(--accent-strong);
 }
 .doctab[data-active] {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.5);
 }
 .tree__row--dir .tree__name {
   letter-spacing: -0.01em;
 }
 .tree__filerow[data-active] .tree__row {
-  background: linear-gradient(90deg, rgba(10, 127, 150, 0.14), rgba(10, 127, 150, 0.03));
-  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: linear-gradient(90deg, rgba(10, 127, 150, 0.16), rgba(10, 127, 150, 0.03));
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
 }
 
 /* --------------------------------------------------------- overlays */
@@ -2964,14 +3088,20 @@ body {
 .menudrop,
 .rowmenu,
 .findwidget {
-  background: rgba(255, 255, 255, 0.82);
-  -webkit-backdrop-filter: saturate(1.8) blur(34px);
-  backdrop-filter: saturate(1.8) blur(34px);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: var(--glass-over);
+  -webkit-backdrop-filter: var(--blur-over);
+  backdrop-filter: var(--blur-over);
+  border: 0;
+  border-radius: var(--r-lg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 1px rgba(9, 52, 70, 0.09),
+    var(--spec),
+    var(--ring),
     var(--shadow-3);
+}
+.menudrop,
+.rowmenu,
+.findwidget {
+  border-radius: var(--r-md);
 }
 .dialog__head,
 .dialog__foot,
@@ -3032,30 +3162,37 @@ body {
 
 .banner {
   border: 0;
-  border-bottom: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.72);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow: var(--shadow-1);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  box-shadow:
+    inset 0 -1px 0 rgba(11, 58, 76, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .banner[data-tone="danger"] .banner__title {
   color: var(--danger);
 }
 .bigempty {
-  background: rgba(255, 255, 255, 0.5);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: var(--glass-rail);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-lg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--spec),
+    var(--ring),
     var(--shadow-2);
 }
 .projects__toolbar {
-  background: rgba(255, 255, 255, 0.7);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: var(--shadow-2);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow:
+    var(--spec),
+    var(--ring),
+    var(--shadow-2);
 }
 .meter {
   background: rgba(9, 52, 70, 0.1);
@@ -4698,7 +4835,7 @@ function vFind() {
 }
 
 const STATE_GLYPH = { untranslated: "○", draft: "✎", confirmed: "✓" };
-const STATE_LABEL = { untranslated: "未译", draft: "草稿", confirmed: "已确认" };
+const STATE_LABEL = { untranslated: "未译", draft: "草稿", confirmed: "已确认", locked: "锁定" };
 
 function vOrigin(s) {
   if (!s.origin) return "";
@@ -4802,7 +4939,7 @@ function vPreview() {
       <span class="preview__spacer"></span>
       ${
         open && S.preview.mode === "proofread"
-          ? `<span class="legend"><span class="lg" data-state="confirmed">已确认</span><span class="lg" data-state="draft">草稿</span><span class="lg" data-state="untranslated">未译</span></span>`
+          ? `<span class="legend"><span class="lg" data-state="confirmed">已确认</span><span class="lg" data-state="draft">草稿</span><span class="lg" data-state="locked">锁定</span><span class="lg" data-state="untranslated">未译</span></span>`
           : ""
       }
       <button class="iconbtn" data-cmd="toggle-preview" title="${open ? "折叠预览（Ctrl+P）" : "展开预览（Ctrl+P）"}">${ic(open ? "down" : "up", 14)}</button>
@@ -4823,7 +4960,7 @@ function vPreview() {
                     const fb = s.state === "untranslated";
                     return `<button class="pvseg" data-state="${s.state}"${fb ? ' data-fallback="1"' : ""}${
                       n === S.active ? ' data-active="1"' : ""
-                    } data-jump="${n}" title="句段 #${n}${fb ? "（未译）" : ""}">${esc(fb ? s.src : s.tgt)}</button>`;
+                    } data-jump="${n}" title="句段 #${n} · ${STATE_LABEL[s.state]}">${esc(fb ? s.src : s.tgt)}</button>`;
                   })
                   .join("")}</p>`,
             )
@@ -5972,14 +6109,14 @@ document.addEventListener("DOMContentLoaded", boot);
      so it reads as a reflection off something outside the frame. Painted
      normally, not additively — additive blending over a pale ground clips
      straight to white and the field disappears. */
-  const GROUND = "#cddfe9";
+  const GROUND = "#dbe8ef";
   const LIGHTS = [
-    { hue: "56,180,205", a: 0.62, r: 0.6, px: 0.16, py: 0.2, sx: 0.26, sy: 0.15, tx: 41, ty: 67 },
-    { hue: "96,138,200", a: 0.5, r: 0.68, px: 0.8, py: 0.16, sx: 0.2, sy: 0.19, tx: 59, ty: 47 },
-    { hue: "126,222,196", a: 0.55, r: 0.54, px: 0.5, py: 0.9, sx: 0.24, sy: 0.12, tx: 73, ty: 53 },
-    { hue: "255,166,110", a: 0.6, r: 0.33, px: 0.93, py: 0.76, sx: 0.14, sy: 0.16, tx: 97, ty: 83 },
-    { hue: "255,255,255", a: 0.34, r: 0.3, px: 0.35, py: 0.52, sx: 0.3, sy: 0.22, tx: 113, ty: 71 },
-    { hue: "168,224,236", a: 0.5, r: 0.5, px: 0.06, py: 0.62, sx: 0.16, sy: 0.2, tx: 87, ty: 61 },
+    { hue: "92,190,208", a: 0.4, r: 0.6, px: 0.16, py: 0.2, sx: 0.26, sy: 0.15, tx: 41, ty: 67 },
+    { hue: "126,160,206", a: 0.34, r: 0.68, px: 0.8, py: 0.16, sx: 0.2, sy: 0.19, tx: 59, ty: 47 },
+    { hue: "142,214,198", a: 0.32, r: 0.54, px: 0.5, py: 0.9, sx: 0.24, sy: 0.12, tx: 73, ty: 53 },
+    { hue: "247,180,138", a: 0.38, r: 0.33, px: 0.93, py: 0.76, sx: 0.14, sy: 0.16, tx: 97, ty: 83 },
+    { hue: "255,255,255", a: 0.44, r: 0.34, px: 0.35, py: 0.52, sx: 0.3, sy: 0.22, tx: 113, ty: 71 },
+    { hue: "176,220,232", a: 0.32, r: 0.5, px: 0.06, py: 0.62, sx: 0.16, sy: 0.2, tx: 87, ty: 61 },
   ];
 
   const start = () => {

@@ -21,6 +21,8 @@ const THEMES = [
   "saas-opus-art-atelier",
   "saas-opus-art-phosphor",
   "saas-opus-art-vitrine",
+  "saas-opus-art-atelier-light",
+  "saas-opus-art-phosphor-light",
 ];
 const VIEW = { width: 1640, height: 1000 };
 
@@ -168,6 +170,20 @@ const SHOTS = [
     },
   ],
   [
+    /* Proofreading reads as colour blocks, so the shot has to show enough of
+       the flow to compare fills: opened tall, scrolled to where confirmed,
+       draft, locked and untranslated chips all sit together. */
+    "27-proofread-chips",
+    async (p) => {
+      await scene(p, "grid");
+      await p.evaluate(() => {
+        document.querySelector(".preview").style.maxHeight = "660px";
+        document.querySelector(".preview__body").style.maxHeight = "600px";
+        document.querySelector(".preview__body").scrollTop = 300;
+      });
+    },
+  ],
+  [
     "24-engine-gate",
     async (p) => {
       await scene(p, "grid");
@@ -250,10 +266,47 @@ for (const theme of THEMES) {
       ".docktabs [role=tab]",
       ".dockbody .panel",
       ".statusbar .stat--engine",
+      '.pvseg[data-state="confirmed"]',
+      '.pvseg[data-state="draft"]',
+      '.pvseg[data-state="locked"]',
+      ".pvseg[data-fallback]",
+      ".pvseg[data-active]",
     ];
     return need.filter((s) => !document.querySelector(s));
   });
   if (missing.length) errors.push(`${theme}: missing ${missing.join(", ")}`);
+
+  /* The proofreading view states segment status with fills, so assert that
+     every state resolves to its own opaque colour and that no chip carries a
+     line decoration. A theme that forgets to retint would otherwise ship a
+     preview where four states look identical. */
+  const chips = await page.evaluate(() => {
+    const pick = (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, deco: cs.textDecorationLine, border: cs.borderTopColor };
+    };
+    return {
+      confirmed: pick('.pvseg[data-state="confirmed"]'),
+      draft: pick('.pvseg[data-state="draft"]'),
+      locked: pick('.pvseg[data-state="locked"]'),
+      none: pick(".pvseg[data-fallback]"),
+      active: pick(".pvseg[data-active]"),
+      decorated: [...document.querySelectorAll(".pvseg")].filter(
+        (e) => getComputedStyle(e).textDecorationLine !== "none",
+      ).length,
+    };
+  });
+  const fills = [chips.confirmed, chips.draft, chips.locked, chips.none].map((c) => c && c.bg);
+  if (new Set(fills).size !== 4)
+    errors.push(`${theme}: proofread fills not distinct ${JSON.stringify(fills)}`);
+  if (fills.some((f) => !f || f === "rgba(0, 0, 0, 0)"))
+    errors.push(`${theme}: proofread chip without a fill ${JSON.stringify(fills)}`);
+  if (chips.decorated)
+    errors.push(`${theme}: ${chips.decorated} proofread chips carry a line decoration`);
+  if (!chips.active || chips.active.border === chips.confirmed.border)
+    errors.push(`${theme}: active proofread chip has no outline of its own`);
 
   await browser.close();
   console.log(`captured ${theme}: ${SHOTS.length} shots`);
