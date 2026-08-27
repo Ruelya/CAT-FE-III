@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Translunar 工作台 - saas-gpt-plus / moss</title>
-<meta name="description" content="暖纸底、苔绿焦点与低眩光表面，适合长时工作。">
+<title>Translunar 工作台 - saas-gpt-plus / folio</title>
+<meta name="description" content="编辑纸张、森林墨色与触感分区。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 /* Structural layer shared by every visual system.
@@ -2678,117 +2678,152 @@ tr[data-active] .rowmenu__btn,
   }
 }
 
-/* ===== theme-moss.css — this visual system ===== */
-/* MOSS — low-glare paper and pine. Warm neutrals support long translation
-   sessions while green remains the positional accent and amber reports work. */
+/* ===== theme-folio.css — this visual system ===== */
+/* FOLIO: an editorial work surface with archival paper, forest ink, and
+   typographic hierarchy. Dense data stays sans; document preview gains serif. */
 :root {
-  --bg: #e5e6df;
-  --surface: #f2f3ed;
-  --surface-2: #fbfcf7;
-  --surface-3: #fffffb;
-  --sunken: #e4e7dd;
-  --chrome: #ecefe7;
-  --chrome-text: #1d2924;
+  --bg: #dddcd4;
+  --surface: #efeee8;
+  --surface-2: #faf9f4;
+  --surface-3: #fffef9;
+  --sunken: #e5e3da;
+  --chrome: #e9e8e1;
+  --chrome-text: #17211c;
   --toolbar: #f9f7f2;
-  --border: #cbd0c4;
-  --border-soft: #e0e4da;
-  --border-strong: #adb6a8;
-  --text: #1e2924;
-  --text-muted: #59645d;
-  --text-faint: #828c84;
-  --accent: #27725c;
-  --accent-strong: #1e5a48;
-  --accent-soft: #c7ddd4;
-  --accent-faint: #e9f1ed;
-  --on-accent: #ffffff;
-  --ok: #2b704f;
+  --border: #c7c5ba;
+  --border-soft: #dfddd3;
+  --border-strong: #9d9c92;
+  --text: #18221d;
+  --text-muted: #56605a;
+  --text-faint: #858a85;
+  --accent: #1e5d48;
+  --accent-strong: #164635;
+  --accent-soft: #c9ded5;
+  --accent-faint: #e9f0ec;
+  --on-accent: #fffef9;
+  --confirm: #4f8b7e;
+  --ok: #226849;
   --ok-soft: #dcecdf;
-  --warn: #91610d;
-  --warn-soft: #f4e8cc;
-  --danger: #ad4339;
-  --danger-soft: #f2dedb;
-  --info: #4b6278;
-  --info-soft: #e2e8ec;
-  --font-ui: "Aptos", "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
-  --font-num: "IBM Plex Mono", Consolas, ui-monospace, monospace;
-  --font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
-  --fs-xs: 10.5px;
-  --fs-sm: 12px;
-  --fs-md: 13px;
-  --fs-lg: 15.5px;
+  --warn: #93620e;
+  --warn-soft: #f5e8c9;
+  --danger: #ad4036;
+  --danger-soft: #f4ded8;
+  --info: #405d72;
+  --info-soft: #e0e8ec;
+  --proof-translated: #eaf5ee;
+  --proof-source: #fff3df;
+  --proof-active: #fffef9;
+  --proof-border: #27725c;
+  --font-ui: "Avenir Next", Avenir, "Segoe UI", "PingFang SC", sans-serif;
+  --font-num: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 10px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 15px;
   --fs-xl: 20px;
-  --lh: 1.52;
-  --lh-tight: 1.38;
-  --label-transform: none;
-  --label-tracking: 0;
-  --label-weight: 650;
-  --label-size: 11px;
-  --label-color: #5c695f;
+  --lh: 1.5;
+  --lh-tight: 1.34;
+  --label-transform: uppercase;
+  --label-tracking: 0.075em;
+  --label-weight: 700;
+  --label-size: 9.5px;
+  --label-color: #657069;
   --strong-weight: 650;
-  --heading-tracking: -0.008em;
+  --heading-tracking: -0.014em;
   --u: 4px;
-  --titlebar-h: 32px;
-  --ribbon-h: 58px;
-  --status-h: 26px;
-  --tab-h: 32px;
-  --row-h: 34px;
-  --ctl-h: 28px;
-  --ctl-h-sm: 23px;
-  --rail-left: 292px;
-  --rail-right: 354px;
-  --brand-w: 136px;
-  --menu-item-w: 54px;
-  --cell-pad-y: 9px;
-  --cell-pad-x: 12px;
-  --r-sm: 4px;
-  --r-md: 7px;
-  --r-lg: 12px;
+  --titlebar-h: 31px;
+  --ribbon-h: 57px;
+  --status-h: 25px;
+  --tab-h: 31px;
+  --row-h: 32px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 21px;
+  --rail-left: 286px;
+  --rail-right: 352px;
+  --brand-w: 132px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 11px;
+  --r-sm: 2px;
+  --r-md: 4px;
+  --r-lg: 6px;
   --r-pill: 999px;
   --shadow-1: none;
-  --shadow-2: 0 8px 24px rgba(39, 54, 43, 0.12);
-  --shadow-3: 0 26px 70px rgba(39, 54, 43, 0.22);
-  --focus: 0 0 0 2px #fbfcf7, 0 0 0 4px var(--accent);
-  --scrim: rgba(34, 44, 37, 0.34);
-  --row-hover: rgba(39, 114, 92, 0.05);
-  --row-active: #edf3ed;
-  --row-marker: #27725c;
+  --shadow-2: 0 8px 22px rgba(32, 42, 35, 0.12);
+  --shadow-3: 0 28px 70px rgba(32, 42, 35, 0.24);
+  --focus: 0 0 0 2px #fffef9, 0 0 0 4px var(--accent);
+  --scrim: rgba(31, 39, 33, 0.38);
+  --row-hover: rgba(30, 93, 72, 0.05);
+  --row-active: #ecf1eb;
+  --row-marker: var(--accent);
   --row-marker-w: 3px;
 }
 
-.railsec__head {
-  border-bottom: 1px solid var(--border-soft);
-  padding-bottom: var(--s2);
+.titlebar__brand {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.panel__head,
-.grid thead th {
-  background: #f3f4ee;
+.mark {
+  border-radius: 50%;
 }
 .ribbon {
-  background: var(--toolbar);
+  box-shadow: inset 0 -1px #d7d3c8;
+}
+.rgroup {
+  padding-inline: 13px;
+}
+.rgroup__label {
+  letter-spacing: 0.07em;
+}
+.railsec__head,
+.panel__head {
+  border-bottom: 1px solid var(--border);
+}
+.railsec__head h2::before,
+.panel__head h3::before {
+  content: "◆";
+  margin-right: 5px;
+  color: var(--accent);
+  font-size: 6px;
+}
+.grid thead th {
+  background: #efeee8;
+  border-bottom: 2px solid #253129;
+}
+.grid tbody tr[data-active] td.c-tgt {
+  background: #fffef9;
+}
+.preview__doc {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Songti SC", serif;
+}
+.pvseg {
+  font-size: 13.5px;
+}
+.treeitem--folder > .treeitem__ico {
+  color: #b9802c;
+}
+.treechildren::before {
+  border-left-style: dotted;
 }
 .card,
 .issue {
+  border-radius: 2px;
   background: transparent;
-  border-color: var(--border-soft);
 }
 .card--match[data-best] {
   background: #edf5ef;
-  border-color: #9fc3ae;
 }
-.grid tbody tr[data-active] td.c-tgt {
-  background: #fffffb;
+.statusbar {
+  border-top: 2px solid #26322a;
 }
-.treeitem--folder > .treeitem__ico {
-  color: #b8862e;
-}
-.treechildren::before {
-  border-left-style: dashed;
-}
-.dialog,
-.palette,
-.menudrop,
-.findwidget {
-  border-color: #aeb8aa;
+@media (prefers-reduced-motion: no-preference) {
+  .rbtn .ic {
+    transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .rbtn:hover .ic {
+    transform: translateY(-2px);
+  }
 }
 
 </style>
@@ -2796,7 +2831,7 @@ tr[data-active] .rowmenu__btn,
 <body>
 <div id="root"></div>
 <script>
-const THEME_NAME = "moss";
+const THEME_NAME = "folio";
 </script>
 <script>
 /* ===== data.js — fixtures, identical across systems ===== */

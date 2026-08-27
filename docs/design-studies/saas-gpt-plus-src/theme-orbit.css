@@ -9,6 +9,7 @@
   --sunken: #222c38;
   --chrome: #0b0f15;
   --chrome-text: #edf5ff;
+  --toolbar: #10151d;
   --border: #2b3745;
   --border-soft: #202a35;
   --border-strong: #415064;
@@ -28,6 +29,10 @@
   --danger-soft: rgba(255, 117, 107, 0.15);
   --info: #a5bde2;
   --info-soft: rgba(165, 189, 226, 0.14);
+  --proof-translated: #dff1e7;
+  --proof-source: #fff0d8;
+  --proof-active: #ffffff;
+  --proof-border: #3b8c78;
   --font-ui: "Inter", "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
   --font-num: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
@@ -131,4 +136,9 @@
 .wincontrol--close:hover {
   background: var(--danger);
   color: #130604;
+}
+.pvseg,
+.pvseg[data-active],
+.pvseg[data-fallback] {
+  color: #17231f;
 }

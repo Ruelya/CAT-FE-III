@@ -393,7 +393,7 @@ const ISSUES = [
     rule: "qa.length-ratio",
     severity: "info",
     status: "waived",
-    message: "译文长度比 46%，超出 60%–140%",
+    message: "译文长度比 46%，超出 60%-140%",
     evidence: { source: [], target: [] },
     note: "中文正常压缩，本文档统一忽略",
   },

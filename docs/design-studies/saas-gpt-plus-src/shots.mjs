@@ -12,8 +12,18 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const studies = join(here, "..");
-const tmp = "/tmp/gpt-plus-shots";
-const THEMES = ["aperture", "moss", "orbit", "prism"];
+const tmp = "/tmp/gpt-tune-shots";
+const THEMES = [
+  "aperture",
+  "moss",
+  "orbit",
+  "prism",
+  "folio",
+  "relay",
+  "signal",
+  "nocturne",
+  "orbit-light",
+];
 const VIEW = { width: 1640, height: 1000 };
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -177,7 +187,7 @@ for (const theme of THEMES) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({
     viewport: VIEW,
-    deviceScaleFactor: 2,
+    deviceScaleFactor: 1,
     locale: "zh-CN",
   });
   const page = await ctx.newPage();

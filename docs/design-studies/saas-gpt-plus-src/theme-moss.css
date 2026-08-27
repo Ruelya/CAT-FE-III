@@ -8,6 +8,7 @@
   --sunken: #e4e7dd;
   --chrome: #ecefe7;
   --chrome-text: #1d2924;
+  --toolbar: #f9f7f2;
   --border: #cbd0c4;
   --border-soft: #e0e4da;
   --border-strong: #adb6a8;
@@ -82,7 +83,7 @@
   background: #f3f4ee;
 }
 .ribbon {
-  background: #f7f8f3;
+  background: var(--toolbar);
 }
 .card,
 .issue {
