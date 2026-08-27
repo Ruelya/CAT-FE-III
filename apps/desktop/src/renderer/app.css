@@ -963,6 +963,16 @@ button.app-statusbar__jump:hover {
   font-size: var(--tl-text-xs);
   color: var(--tl-color-text-faint);
 }
+/* Open-QA rollup on a folder: the same danger chip the dock tab wears, so
+   a closed folder still reports the findings inside it. */
+.document-list__dir-qa {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--tl-radius-sm);
+  font-size: var(--tl-text-xs);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+}
 .document-list__file-icon {
   flex: none;
   margin-right: var(--tl-space-2);

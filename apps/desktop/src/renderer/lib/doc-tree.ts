@@ -99,14 +99,20 @@ function addCounts(
  * Flattens the documents into the rows the explorer renders, in display
  * order: folders before files at each level, both alphabetical, with a
  * collapsed folder hiding everything beneath it.
+ *
+ * `prefixDocuments` is the list the shared prefix is measured on. A search
+ * passes the full document list here while rendering only the hits, so
+ * narrowing to one folder keeps that folder's row on screen instead of
+ * re-flattening the survivors to the root.
  */
 export function buildDocTree(
   documents: readonly Document[],
   progress: Readonly<Record<string, SegmentCounts>>,
   collapsed: ReadonlySet<string>,
+  prefixDocuments: readonly Document[] = documents,
 ): DocTreeNode[] {
   const root = emptyDir("", "");
-  const skip = sharedPrefixLength(documents);
+  const skip = sharedPrefixLength(prefixDocuments);
   for (const document of documents) {
     let dir = root;
     for (const segment of rawSegmentsOf(document).slice(skip)) {
@@ -175,10 +181,32 @@ function summarize(
   return { count, rollup };
 }
 
-/** Every directory key in the tree, for expand-all / collapse-all. */
-export function docTreeDirKeys(documents: readonly Document[]): string[] {
-  const keys = new Set<string>();
+/**
+ * What the explorer's search matches: the path exactly as the tree draws
+ * it — the folders that survive the shared-prefix strip, then the file
+ * name. Typing a visible folder name therefore narrows to that folder's
+ * contents, and the stripped prefix (the reader's home directory) can never
+ * produce a hit the tree has no row for.
+ */
+export function docTreeDisplayPaths(
+  documents: readonly Document[],
+): Map<string, string> {
   const skip = sharedPrefixLength(documents);
+  const paths = new Map<string, string>();
+  for (const document of documents) {
+    const segments = rawSegmentsOf(document).slice(skip);
+    paths.set(document.id, [...segments, document.name].join("/"));
+  }
+  return paths;
+}
+
+/** Every directory key in the tree, for expand-all / collapse-all. */
+export function docTreeDirKeys(
+  documents: readonly Document[],
+  prefixDocuments: readonly Document[] = documents,
+): string[] {
+  const keys = new Set<string>();
+  const skip = sharedPrefixLength(prefixDocuments);
   for (const document of documents) {
     let prefix = "";
     for (const segment of rawSegmentsOf(document).slice(skip)) {
