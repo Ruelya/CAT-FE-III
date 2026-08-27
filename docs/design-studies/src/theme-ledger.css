@@ -1,0 +1,188 @@
+/* LEDGER — achromatic Swiss data sheet, the densest of the three.
+   The neutral scale is strictly grey and the accent is ink, which leaves
+   hue itself unused. Every coloured pixel on this screen is therefore a
+   state: green confirmed, amber draft, red error. Nothing is tinted for
+   decoration, so a colour in the corner of your eye always means something. */
+
+:root {
+  --bg: #e6e6e6;
+  --surface: #f4f4f4;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --sunken: #ededed;
+  --chrome: #0a0a0a;
+  --chrome-text: #fafafa;
+
+  --border: #d2d2d2;
+  --border-soft: #e4e4e4;
+  --border-strong: #a6a6a6;
+
+  --text: #0a0a0a;
+  --text-muted: #545454;
+  --text-faint: #8c8c8c;
+
+  /* The accent is ink. Selection is weight and contrast, not colour. */
+  --accent: #0a0a0a;
+  --accent-strong: #000000;
+  --accent-soft: #cfcfcf;
+  --accent-faint: #efefef;
+  --on-accent: #ffffff;
+
+  --ok: #04713f;
+  --ok-soft: #d7ecdf;
+  --warn: #8a5800;
+  --warn-soft: #f6e7c8;
+  --danger: #c02718;
+  --danger-soft: #f8dcd8;
+  --info: #24509c;
+  --info-soft: #dee6f4;
+
+  --font-ui: "Nimbus Sans", "Helvetica Neue", Helvetica, "PingFang SC",
+    "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
+  --font-num: "Cascadia Mono", ui-monospace, monospace;
+  --font-mono: "Cascadia Mono", ui-monospace, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-lg: 14px;
+  --fs-xl: 18px;
+  --lh: 1.42;
+  --lh-tight: 1.28;
+
+  /* Tracked-out caps: the label layer is deliberately a different voice
+     from the data layer, so a heading is never mistaken for a value. */
+  --label-transform: uppercase;
+  --label-tracking: 0.075em;
+  --label-weight: 700;
+  --label-size: 9.5px;
+  --label-color: var(--text);
+  --strong-weight: 700;
+  --heading-tracking: -0.015em;
+
+  --u: 4px;
+  --titlebar-h: 28px;
+  --ribbon-h: 50px;
+  --status-h: 24px;
+  --tab-h: 27px;
+  --row-h: 26px;
+  --ctl-h: 24px;
+  --ctl-h-sm: 19px;
+  --rail-left: 244px;
+  --rail-right: 332px;
+  --brand-w: 122px;
+  --menu-item-w: 48px;
+  --cell-pad-y: 5px;
+  --cell-pad-x: 9px;
+
+  /* Nothing is rounded and nothing floats. */
+  --r-sm: 0px;
+  --r-md: 0px;
+  --r-lg: 0px;
+  --r-pill: 0px;
+
+  --shadow-1: none;
+  --shadow-2: 0 2px 0 rgba(10, 10, 10, 0.16);
+  --shadow-3: 0 18px 48px rgba(10, 10, 10, 0.3);
+  --focus: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent);
+  --scrim: rgba(10, 10, 10, 0.4);
+
+  --row-hover: #f4f4f4;
+  --row-active: #ececec;
+  --row-marker: var(--accent);
+  --row-marker-w: 3px;
+}
+
+/* Ruled in both directions — the grid is a table, so it looks like one. */
+.grid th,
+.grid td {
+  border-right: 1px solid var(--border-soft);
+}
+.grid th:last-child,
+.grid td:last-child {
+  border-right: 0;
+}
+.grid thead th {
+  border-bottom: 2px solid var(--accent);
+  background: var(--surface-2);
+}
+.grid tbody tr[data-active] td.c-n {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.grid tbody tr[data-active] .rowbar {
+  background: var(--accent);
+}
+
+/* Ink chrome top and bottom frames the data and keeps the white sheet
+   reading as the document rather than as the application. */
+.menubar__item,
+.titlebar__title,
+.wincontrol {
+  color: #9a9a9a;
+}
+.menubar__item:hover,
+.wincontrol:hover {
+  background: #1f1f1f;
+  color: #ffffff;
+}
+.menubar__item[data-open] {
+  background: #fafafa;
+  color: #0a0a0a;
+}
+.titlebar {
+  border-bottom: 0;
+}
+.mark {
+  background: #fafafa;
+  box-shadow: inset 0 0 0 3px #0a0a0a;
+}
+.statusbar {
+  color: #9a9a9a;
+  border-top: 0;
+}
+.statusbar .stat,
+.statusbar .stat .num,
+.statusbar .statusbar__msg {
+  color: #c4c4c4;
+}
+.statusbar .stat--jump:hover {
+  background: #1f1f1f;
+  color: #ffffff;
+}
+.statusbar .meter {
+  background: #333333;
+}
+.statusbar .stat--jump[data-tone="danger"] .num {
+  color: #ff8b7e;
+}
+
+/* Flat, square controls with a single hairline. */
+.btn {
+  border-color: var(--border-strong);
+}
+.btn--ghost {
+  border-color: transparent;
+}
+.btn--outline:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.chip--on .chip__x {
+  opacity: 0.9;
+}
+.card,
+.issue {
+  border-color: var(--border);
+}
+.panel__head {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--accent);
+}
+.docktabs [role="tab"][data-active] {
+  border-bottom-width: 3px;
+}
+.railsec__head h2 {
+  line-height: 1.4;
+}
