@@ -36,11 +36,22 @@ export function ThemePicker() {
                 title={item.id}
                 onClick={() => setThemeId(item.id)}
               >
-                {/* The swatch paints itself from the theme it selects, so a
-                    reader picks by the thing rather than by its name. */}
-                <span className="theme-picker__chip" aria-hidden="true">
+                {/* The preview carries the theme's own data-theme, so it is
+                    painted by the token block it selects — a reader picks by
+                    the thing rather than by its name. Only the preview is
+                    scoped: the caption below keeps the ambient theme's ink so
+                    a dark swatch stays readable in a light dialog. */}
+                <span
+                  className="theme-picker__chip"
+                  data-theme={item.id}
+                  aria-hidden="true"
+                >
                   <span className="theme-picker__chip-bar" />
-                  <span className="theme-picker__chip-accent" />
+                  <span className="theme-picker__chip-body">
+                    <span className="theme-picker__chip-accent" />
+                    <span className="theme-picker__chip-line" />
+                    <span className="theme-picker__chip-line" />
+                  </span>
                 </span>
                 <span className="theme-picker__name">{item.label}</span>
                 <span className="theme-picker__id">{item.id}</span>

@@ -617,24 +617,57 @@ button.app-statusbar__jump:hover {
    to [data-theme], so a preview attribute on the button is enough. */
 .theme-picker__chip {
   display: block;
-  height: 34px;
+  height: 44px;
   border-radius: var(--tl-radius-sm);
   border: 1px solid var(--tl-color-border);
   background: var(--tl-color-bg);
+  font-family: var(--tl-font-ui);
   overflow: hidden;
 }
 .theme-picker__chip-bar {
-  display: block;
-  height: 11px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 13px;
+  padding: 0 4px;
   background: var(--tl-color-chrome);
   border-bottom: 1px solid var(--tl-color-border);
 }
+.theme-picker__chip-bar::before,
+.theme-picker__chip-bar::after {
+  content: "";
+  width: 9px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--tl-color-accent);
+}
+.theme-picker__chip-bar::after {
+  width: 16px;
+  background: var(--tl-color-text-faint);
+}
+.theme-picker__chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 5px;
+  background: var(--tl-color-surface);
+}
 .theme-picker__chip-accent {
   display: block;
-  height: 6px;
-  margin: 5px 6px;
-  border-radius: 3px;
+  height: 5px;
+  width: 62%;
+  border-radius: var(--tl-radius-sm);
   background: var(--tl-color-accent);
+}
+.theme-picker__chip-line {
+  display: block;
+  height: 3px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-text-faint);
+  opacity: 0.6;
+}
+.theme-picker__chip-line:last-child {
+  width: 74%;
 }
 .theme-picker__name {
   font-size: var(--tl-text-sm);
