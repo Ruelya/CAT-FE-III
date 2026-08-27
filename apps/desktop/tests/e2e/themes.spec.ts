@@ -161,6 +161,17 @@ test("an effect the reader switches off stays off, per theme", async () => {
   expect(await fxAttr("scanlines")).toBe("off");
 });
 
+test("the native frame follows the theme's cast", async () => {
+  const source = () =>
+    app.evaluate(({ nativeTheme }) => nativeTheme.themeSource);
+
+  await page.locator('[data-theme-preview="dark"]').click();
+  await expect.poll(source).toBe("dark");
+
+  await page.locator('[data-theme-preview="quarry"]').click();
+  await expect.poll(source).toBe("light");
+});
+
 test("the choice survives a restart", async () => {
   await page.locator('[data-theme-preview="cobalt"]').click();
   expect(await themeAttr()).toBe("cobalt");
@@ -168,4 +179,8 @@ test("the choice survives a restart", async () => {
 
   await launch();
   expect(await themeAttr()).toBe("cobalt");
+  // The restored theme is dark, so the frame is dark before any interaction.
+  expect(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(
+    "dark",
+  );
 });

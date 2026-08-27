@@ -112,6 +112,9 @@ function apply(state: ThemeState): void {
     const on = state.fx[key] && !(cinematic && state.reducedMotion);
     root.setAttribute(`data-fx-${key}`, on ? "on" : "off");
   }
+  /* The OS frame cannot wear a theme, but it can stop contradicting one. In
+     unit tests window.tl is a partial stub, so this stays optional. */
+  window.tl?.setNativeScheme?.(state.theme.scheme);
 }
 
 function commit(): void {

@@ -9,6 +9,7 @@ import { IPC_CHANNELS } from "../shared/desktop-api.js";
 import type {
   DocxPreviewResponse,
   EngineInvokeResponse,
+  NativeScheme,
 } from "../shared/desktop-api.js";
 import { EngineRpcError, EngineSupervisor } from "./engine-supervisor.js";
 import { installApplicationMenu } from "./menu.js";
@@ -72,6 +73,19 @@ function createWindow(): void {
 }
 
 function registerIpc(): void {
+  // A dark theme under a light DWM caption bar is the seam the pinned light
+  // chrome was meant to avoid; now that the renderer has sixteen themes, it
+  // is the renderer that knows which way to pin. The window background moves
+  // with it so a resize does not flash the opposite cast.
+  ipcMain.on(IPC_CHANNELS.nativeScheme, (_event, raw: unknown) => {
+    const scheme: NativeScheme = raw === "dark" ? "dark" : "light";
+    nativeTheme.themeSource = scheme;
+    const background = scheme === "dark" ? "#14161a" : "#eef0f4";
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.setBackgroundColor(background);
+    }
+  });
+
   ipcMain.handle(
     IPC_CHANNELS.invoke,
     async (
@@ -313,9 +327,9 @@ function registerIpc(): void {
 void app.whenReady().then(() => {
   // The window keeps the OS-native frame: on Windows that means DWM caption
   // buttons, drag, double-click maximize, and Snap Layouts for free. The
-  // renderer ships a single light token set, so pin the native chrome
-  // (caption bar, menu bar) to light too — otherwise a dark-mode OS paints
-  // a dark title bar over a light workbench.
+  // frame is not themeable, so the most it can do is agree with the theme
+  // under it; the renderer reports that on IPC_CHANNELS.nativeScheme. Until
+  // it does, light is the cast of the default theme.
   nativeTheme.themeSource = "light";
   supervisor = new EngineSupervisor({
     binaryPath: resolveEngineBinary(),
