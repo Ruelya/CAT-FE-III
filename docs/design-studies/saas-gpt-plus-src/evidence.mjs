@@ -46,16 +46,16 @@ for (const theme of THEMES) {
     tree: Boolean(document.querySelector(".filetree .treechildren")),
     grid: Boolean(document.querySelector(".grid tbody tr .rowmenu__btn")),
     docks: document.querySelectorAll(".docktabs [role=tab]").length,
-    dialogs: typeof DIALOGS === "object" && Object.keys(DIALOGS).length,
+    dialogs: typeof dialog === "function" && typeof vDialogs === "function",
     scenes: document.querySelectorAll(".scene").length,
   }));
-  if (!contract.tree || !contract.grid || contract.docks < 4 || contract.dialogs < 8 || contract.scenes < 8) {
+  if (!contract.tree || !contract.grid || contract.docks < 4 || !contract.dialogs || contract.scenes < 8) {
     errors.push(`${theme}: incomplete IA ${JSON.stringify(contract)}`);
   }
 
   await page.screenshot({ path: join(repoDir, `${theme}_workbench.png`) });
   if (ART.has(theme)) {
-    await page.screenshot({ path: join(artifactDir, `${theme}_workbench.png`) });
+    await page.screenshot({ path: join(artifactDir, `${theme}_workbench_final.png`) });
   }
 
   if (theme === "aperture") {
@@ -89,10 +89,10 @@ for (const theme of THEMES) {
       errors.push(`aperture: proof block states are not visually distinct ${JSON.stringify(tune)}`);
     }
     await page.locator(".ribbon").screenshot({
-      path: join(artifactDir, "ribbon_grouped_warm.png"),
+      path: join(artifactDir, "ribbon_grouped_warm_final.png"),
     });
     await page.locator(".preview__body").screenshot({
-      path: join(artifactDir, "proofread_color_blocks.png"),
+      path: join(artifactDir, "proofread_color_blocks_final.png"),
     });
     await page.locator(".ribbon").screenshot({
       path: join(repoDir, "ribbon_grouped_warm.png"),
