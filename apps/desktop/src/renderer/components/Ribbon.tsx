@@ -8,19 +8,25 @@ import {
 import type { ReactNode, Ref } from "react";
 
 import {
+  IconArrowBackUp,
+  IconArrowDown,
+  IconArrowForwardUp,
   IconBolt,
   IconCheck,
+  IconClipboardCheck,
   IconDatabase,
+  IconDatabaseImport,
   IconDots,
+  IconEye,
   IconFileExport,
   IconFileImport,
-  IconFilter,
   IconFolders,
   IconListSearch,
   IconLock,
   IconLockOpen,
   IconReplace,
   IconSearch,
+  IconVocabulary,
 } from "@tabler/icons-react";
 
 /**
@@ -36,12 +42,20 @@ export interface RibbonProps {
   documentOpen: boolean;
   /** A long-running engine call is in flight; mutating commands lock. */
   busy: boolean;
+  /**
+   * A target editor textarea is mounted (the caret readout exists). The
+   * 撤销/重做 buttons drive that editor's own undo stack, so without an
+   * editor they disable — there is no application-level undo to fake.
+   */
+  editorActive: boolean;
   /** Live segment filter (the far-right search box, Ctrl+Shift+F). */
   filterQuery: string;
   filterInputRef: Ref<HTMLInputElement>;
   onFilterQueryChange: (value: string) => void;
   onCloseProject?: (() => void) | undefined;
   onOpenTmManage?: (() => void) | undefined;
+  onUndo: () => void;
+  onRedo: () => void;
   onImport: () => void;
   onExport: () => void;
   onConfirmSegment: () => void;
@@ -52,12 +66,21 @@ export interface RibbonProps {
    */
   activeSegmentLocked: boolean | null;
   onToggleLock: () => void;
+  /** Applies TM match #1 to the active segment (same path as Ctrl+1). */
+  onInsertTm: () => void;
+  /** Inserts the first non-forbidden term hit at the editor caret. */
+  onInsertTerm: () => void;
   onPretranslate: () => void;
   /** Summons the floating find widget (find row / replace row). */
   onOpenFind: () => void;
   onOpenReplace: () => void;
-  onFocusFilter: () => void;
+  /** Jumps to the next find match (same path as F4). */
+  onFindNext: () => void;
   onConcordance: () => void;
+  /** Runs document QA through the engine (same handler as the QA dock). */
+  onRunQa: () => void;
+  /** Toggles the bottom preview pane (same command as Ctrl+P). */
+  onTogglePreview: () => void;
 }
 
 interface RibbonItem {
@@ -91,21 +114,28 @@ function groupRuns(
 export function Ribbon({
   documentOpen,
   busy,
+  editorActive,
   filterQuery,
   filterInputRef,
   onFilterQueryChange,
   onCloseProject,
   onOpenTmManage,
+  onUndo,
+  onRedo,
   onImport,
   onExport,
   onConfirmSegment,
   activeSegmentLocked,
   onToggleLock,
+  onInsertTm,
+  onInsertTerm,
   onPretranslate,
   onOpenFind,
   onOpenReplace,
-  onFocusFilter,
+  onFindNext,
   onConcordance,
+  onRunQa,
+  onTogglePreview,
 }: RibbonProps) {
   const items: RibbonItem[] = [
     ...(onCloseProject
@@ -133,6 +163,24 @@ export function Ribbon({
         ]
       : []),
     {
+      id: "undo",
+      group: "历史",
+      label: "撤销",
+      title: "撤销（Ctrl+Z）",
+      icon: <IconArrowBackUp {...ICON_PROPS} />,
+      disabled: !editorActive,
+      onClick: onUndo,
+    },
+    {
+      id: "redo",
+      group: "历史",
+      label: "重做",
+      title: "重做（Ctrl+Y）",
+      icon: <IconArrowForwardUp {...ICON_PROPS} />,
+      disabled: !editorActive,
+      onClick: onRedo,
+    },
+    {
       id: "import",
       group: "文档",
       label: "导入",
@@ -152,7 +200,7 @@ export function Ribbon({
     },
     {
       id: "confirm",
-      group: "编辑",
+      group: "翻译",
       label: "确认句段",
       title: "确认句段（Ctrl+Enter）",
       icon: <IconCheck {...ICON_PROPS} />,
@@ -161,7 +209,7 @@ export function Ribbon({
     },
     {
       id: "lock",
-      group: "编辑",
+      group: "翻译",
       label: activeSegmentLocked ? "解锁句段" : "锁定句段",
       title: activeSegmentLocked ? "解锁句段（Ctrl+L）" : "锁定句段（Ctrl+L）",
       icon: activeSegmentLocked ? (
@@ -173,8 +221,26 @@ export function Ribbon({
       onClick: onToggleLock,
     },
     {
+      id: "insert-tm",
+      group: "翻译",
+      label: "插入记忆",
+      title: "插入记忆匹配（Ctrl+1…9）",
+      icon: <IconDatabaseImport {...ICON_PROPS} />,
+      disabled: !documentOpen || activeSegmentLocked !== false,
+      onClick: onInsertTm,
+    },
+    {
+      id: "insert-term",
+      group: "翻译",
+      label: "插入术语",
+      title: "插入术语",
+      icon: <IconVocabulary {...ICON_PROPS} />,
+      disabled: !documentOpen || activeSegmentLocked !== false,
+      onClick: onInsertTerm,
+    },
+    {
       id: "pretranslate",
-      group: "编辑",
+      group: "翻译",
       label: "预翻译",
       title: "预翻译",
       icon: <IconBolt {...ICON_PROPS} />,
@@ -191,6 +257,15 @@ export function Ribbon({
       onClick: onOpenFind,
     },
     {
+      id: "find-next",
+      group: "审校",
+      label: "查找下一个",
+      title: "查找下一个（F4）",
+      icon: <IconArrowDown {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onFindNext,
+    },
+    {
       id: "replace",
       group: "审校",
       label: "替换",
@@ -200,21 +275,30 @@ export function Ribbon({
       onClick: onOpenReplace,
     },
     {
-      id: "filter",
-      group: "审校",
-      label: "筛选",
-      title: "筛选（Ctrl+Shift+F）",
-      icon: <IconFilter {...ICON_PROPS} />,
-      disabled: !documentOpen,
-      onClick: onFocusFilter,
-    },
-    {
       id: "concordance",
       group: "审校",
       label: "检索",
       title: "检索（F3，取选中文本）",
       icon: <IconListSearch {...ICON_PROPS} />,
       onClick: onConcordance,
+    },
+    {
+      id: "run-qa",
+      group: "审校",
+      label: "运行 QA",
+      title: "对整篇文档运行质量检查",
+      icon: <IconClipboardCheck {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onRunQa,
+    },
+    {
+      id: "preview",
+      group: "审校",
+      label: "预览",
+      title: "预览面板（Ctrl+P）",
+      icon: <IconEye {...ICON_PROPS} />,
+      disabled: !documentOpen,
+      onClick: onTogglePreview,
     },
   ];
 
