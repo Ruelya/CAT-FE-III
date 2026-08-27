@@ -121,6 +121,27 @@ double-click resets, chevron collapses).
 - **项目详情**: 名称, 源语言, 目标语言, 创建时间, 文件数, 总句段, 已确认句段（n%）.
 - Empty states: `暂无文档`, `无匹配文件`.
 
+**Prototype deviation — the 文件 section is a tree, not a list.** The shipped app
+renders documents flat; every `saas-opus-*` study renders the same documents as an
+IDE file tree, folded from the directory each document was imported from. Nothing
+about the per-document data changes, only how it is arranged:
+
+| Element | Behaviour |
+| --- | --- |
+| Folder row | chevron toggles; folders sort before files, both alphabetical |
+| Indent guide | one hairline per ancestor level, drawn at every depth |
+| File icon | per format — `docx`, `md`, `json` each get their own glyph |
+| Folder rollup | descendant file count, plus an open-QA badge when any child has findings |
+| File badge | 已确认 `%` over a two-tone fill line; QA count badge when open > 0 |
+| Active file | row marker, accent icon, weight bump — distinct from "tab is open" |
+| Removal | unchanged: hover → 移除 → `确认移除` / `取消` |
+| Search | matches the full path (`docs/guides/onboarding-guide.docx`) and force-expands every folder |
+| Reset | a 场景 switch collapses `legal`, clears the search, re-activates `onboarding-guide.docx` |
+
+Fixture tree: `docs/guides/{onboarding-guide.docx, troubleshooting.docx}`,
+`docs/release-notes-4.2.docx`, `reference/api-reference.md`,
+`ui/strings/console-strings.json`, `legal/terms-of-service.docx`.
+
 ## 5. Center — document tabs, banners, toolbar
 
 - **Document tabs**: one tab per opened document, `×` closes the tab only (the document
