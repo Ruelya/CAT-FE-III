@@ -1,55 +1,60 @@
-# saas-gpt-plus — full-fidelity Workbench studies
+# saas-gpt-plus - full-fidelity Workbench studies
 
-Four self-contained Modern SaaS HTML studies share one renderer, fixture set, command
-dispatcher, keyboard map, dialog catalog, and scenario matrix. Open any `index.html`
-directly from disk.
+Nine self-contained studies share one renderer, fixture set, command dispatcher,
+keyboard map, dialog catalog, scenario matrix, grouped ribbon, VS Code-style tree,
+and Fable proofing blocks. Open any `index.html` directly from disk.
 
-| Study | Open | Density |
+| Study | Open | System |
 | --- | --- | --- |
-| Aperture | [`saas-gpt-plus-aperture/index.html`](saas-gpt-plus-aperture/index.html) | compact |
-| Moss | [`saas-gpt-plus-moss/index.html`](saas-gpt-plus-moss/index.html) | comfortable |
-| Orbit | [`saas-gpt-plus-orbit/index.html`](saas-gpt-plus-orbit/index.html) | compact dark |
-| Prism | [`saas-gpt-plus-prism/index.html`](saas-gpt-plus-prism/index.html) | balanced |
+| Aperture | [`saas-gpt-plus-aperture/index.html`](saas-gpt-plus-aperture/index.html) | cool daylight |
+| Moss | [`saas-gpt-plus-moss/index.html`](saas-gpt-plus-moss/index.html) | low-glare paper |
+| Orbit | [`saas-gpt-plus-orbit/index.html`](saas-gpt-plus-orbit/index.html) | graphite dark |
+| Prism | [`saas-gpt-plus-prism/index.html`](saas-gpt-plus-prism/index.html) | violet mist |
+| Folio | [`saas-gpt-plus-folio/index.html`](saas-gpt-plus-folio/index.html) | editorial paper |
+| Relay | [`saas-gpt-plus-relay/index.html`](saas-gpt-plus-relay/index.html) | refractive ice |
+| Signal | [`saas-gpt-plus-signal/index.html`](saas-gpt-plus-signal/index.html) | poster utility |
+| Nocturne | [`saas-gpt-plus-nocturne/index.html`](saas-gpt-plus-nocturne/index.html) | black satin |
+| Orbit Light | [`saas-gpt-plus-orbit-light/index.html`](saas-gpt-plus-orbit-light/index.html) | daylight sibling |
 
 Source of truth: [`FEATURE-INVENTORY.md`](FEATURE-INVENTORY.md), vendored unchanged from
 `cursor/gf-design-saas-opus-2398`.
 
-## Inventory checklist
+## Inventory
 
 - [x] 文件 / 编辑 / 视图 / 项目 / 翻译 / QA / 帮助 menus and accelerator hints
-- [x] Complete ribbon, overflow-safe grouping, segment search, command search
-- [x] `Ctrl+K` / `Ctrl+Shift+P` palette with commands, docks, and documents
-- [x] Status message, segment counts, draft and QA jumps, progress, caret, INS, engine identity
-- [x] VS Code-style nested workspace tree with folders, indent guides, search, progress, removal
-- [x] Multi-document tabs, state and proposed data filters, removable chips, visible/total count
-- [x] Segment origin, lock, QA count, token chips, editor, row menu, confirm navigation
-- [x] VS Code-shaped find/replace with next/previous, replace all, confirmed-row policy
-- [x] Memory and concordance, terminology and quick capture, grouped QA waive/fix, AI and Agent review
-- [x] Proofread and DOCX-layout preview modes with segment jump
-- [x] Empty projects, import, settings, TM management, termbase management, overwrite, QA gate, engine gate
-- [x] All eight scenarios: projects, grid, confirmed, locked, QA, AI unconfigured, Agent review, export gate
+- [x] Grouped icon-over-label ribbon with warm light toolbar and muted teal confirmation
+- [x] `Ctrl+K` / `Ctrl+Shift+P` palette, complete status strip, search, and replace
+- [x] VS Code-style nested workspace tree with folders, guides, search, progress, and removal
+- [x] Multi-document tabs, filters, origin, lock, QA, tokens, editor, row menu, and confirm navigation
+- [x] Memory, concordance, terminology, grouped QA waive/fix, AI, and Agent review docks
+- [x] Proofread and DOCX-layout preview with wrapped translated, source, and active color blocks
+- [x] Empty projects, import, settings, TM, termbase, overwrite, QA gate, and engine gate
+- [x] Projects, grid, confirmed, locked, QA, AI, Agent review, and export gate scenes
 
-## Design reads
+## Art-study design reads
 
-### Aperture
+### Folio
 
-Cool daylight surfaces, cobalt focus, compact Inter-scale typography, and restrained
-surface stepping. Best for mixed translation and review in bright offices.
+Archival paper, forest ink, sharp editorial rules, and serif document proofing. The
+grid stays sans and compact while the content layer gains a manuscript rhythm.
 
-### Moss
+### Relay
 
-Warm paper neutrals, pine focus, slightly larger rows, and dashed hierarchy guides.
-Best for long translation sessions where low glare matters.
+Ice-glass chrome, opaque reading surfaces, and teal refraction cues. Motion is limited
+to icon feedback so dense editing remains stable.
 
-### Orbit
+### Signal
 
-Graphite layers, cyan location cues, tinted state glass, and a focused editor outline.
-Best for dark workspaces and users who keep the CAT tool beside an IDE.
+Condensed poster typography, hard geometry, black rules, and a vermilion location
+signal. It treats every command group as explicit information architecture.
 
-### Prism
+### Nocturne
 
-Violet-grey chrome, controlled translucency, indigo focus, and a gradient selection
-marker. The grid stays opaque for stable reading contrast.
+Black satin surfaces, chartreuse position cues, and low-luminance depth. Bright
+proofing chips preserve the Fable translation states inside a dark control room.
+
+Orbit Light is the daylight sibling of Orbit, preserving its cyan focus, tight rows,
+and control-room geometry on pale graphite.
 
 ## Scenario URLs
 

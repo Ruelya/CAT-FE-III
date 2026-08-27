@@ -9,8 +9,18 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const studies = join(here, "..");
-const outDir = "/tmp/gpt-plus-video";
-const THEMES = ["aperture", "moss", "orbit", "prism"];
+const outDir = "/tmp/gpt-tune-video";
+const THEMES = [
+  "aperture",
+  "moss",
+  "orbit",
+  "prism",
+  "folio",
+  "relay",
+  "signal",
+  "nocturne",
+  "orbit-light",
+];
 const VIEW = { width: 1640, height: 1000 };
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

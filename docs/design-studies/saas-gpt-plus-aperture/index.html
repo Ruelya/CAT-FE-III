@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Translunar 工作台 — saas-gpt-plus / aperture</title>
+<title>Translunar 工作台 - saas-gpt-plus / aperture</title>
 <meta name="description" content="冷白工作室、蓝色焦点与紧凑分层，适合高频翻译。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
@@ -23,6 +23,7 @@
   --sunken: #e2e5eb;
   --chrome: #f7f8fa;
   --chrome-text: #1b202b;
+  --toolbar: #f9f7f2;
 
   /* Lines. `--hair` is the 1px rule used between rows and panels. */
   --border: #cdd2da;
@@ -42,6 +43,7 @@
   --accent-soft: #dbe3f7;
   --accent-faint: #edf1fb;
   --on-accent: #ffffff;
+  --confirm: #4f8b7e;
 
   /* Semantics. Never used decoratively. */
   --ok: #1e6f4c;
@@ -52,6 +54,10 @@
   --danger-soft: #f6e2e0;
   --info: #355070;
   --info-soft: #e6ebf2;
+  --proof-translated: #edf7f1;
+  --proof-source: #fff6e8;
+  --proof-active: #ffffff;
+  --proof-border: #3c8977;
 
   /* Faces. */
   --font-ui: system-ui, sans-serif;
@@ -438,7 +444,7 @@ kbd,
   align-items: stretch;
   gap: var(--s4);
   padding: 0 var(--s4);
-  background: var(--surface);
+  background: var(--toolbar);
   border-bottom: var(--hair-strong);
   overflow: hidden;
 }
@@ -491,11 +497,11 @@ kbd,
   background: var(--sunken);
 }
 .rbtn--primary {
-  color: var(--accent);
+  color: var(--confirm);
 }
 .rbtn--primary:hover:not(:disabled) {
-  background: var(--accent-faint);
-  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--confirm) 10%, transparent);
+  color: var(--confirm);
 }
 .ribbon__tail {
   margin-left: auto;
@@ -1618,37 +1624,54 @@ tr[data-active] .rowmenu__btn,
   padding-bottom: var(--s3);
 }
 .preview__doc {
-  max-width: 74ch;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
 .preview__block {
-  margin-bottom: var(--s3);
-  line-height: 1.8;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  line-height: 1.45;
 }
 .pvseg {
-  display: inline;
-  padding: 1px 2px;
-  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: max(4px, var(--r-sm));
   font-size: var(--fs-md);
   color: var(--text);
-  border-bottom: 2px solid transparent;
+  background: var(--proof-translated);
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .pvseg[data-state="confirmed"] {
-  border-bottom-color: var(--ok);
+  background: var(--proof-translated);
 }
 .pvseg[data-state="draft"] {
-  border-bottom-color: var(--warn);
+  background: color-mix(in srgb, var(--proof-translated) 72%, var(--proof-source));
 }
 .pvseg[data-fallback] {
-  color: var(--text-faint);
-  font-style: italic;
-  border-bottom-color: var(--border-strong);
+  color: var(--text-muted);
+  background: var(--proof-source);
 }
 .pvseg:hover {
-  background: var(--accent-faint);
+  border-color: color-mix(in srgb, var(--proof-border) 35%, transparent);
+  transform: translateY(-1px);
 }
 .pvseg[data-active] {
-  background: var(--accent-soft);
+  background: var(--proof-active);
   color: var(--text);
+  border-color: var(--proof-border);
+  box-shadow: inset 0 0 0 1px var(--proof-border);
 }
 .preview__page {
   max-width: 62ch;
@@ -2639,6 +2662,22 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .pvseg:hover,
+  .rbtn:hover .ic,
+  .docktabs button:hover .ic {
+    transform: none !important;
+  }
+}
+
 /* ===== theme-aperture.css — this visual system ===== */
 /* APERTURE — cool daylight studio. A crisp cobalt focus channel, compact
    geometry, and slightly stepped rails keep a dense workbench easy to scan. */
@@ -2650,6 +2689,7 @@ tr[data-active] .rowmenu__btn,
   --sunken: #e8edf4;
   --chrome: #f9fafc;
   --chrome-text: #172033;
+  --toolbar: #f9f7f2;
   --border: #cbd4e2;
   --border-soft: #e3e8f0;
   --border-strong: #aeb9ca;
@@ -2719,7 +2759,7 @@ tr[data-active] .rowmenu__btn,
   box-shadow: 0 1px 0 rgba(23, 32, 51, 0.03);
 }
 .ribbon {
-  background: #fbfcfe;
+  background: var(--toolbar);
 }
 .rail--left,
 .rail--right,
@@ -3155,7 +3195,7 @@ const ISSUES = [
     rule: "qa.length-ratio",
     severity: "info",
     status: "waived",
-    message: "译文长度比 46%，超出 60%–140%",
+    message: "译文长度比 46%，超出 60%-140%",
     evidence: { source: [], target: [] },
     note: "中文正常压缩，本文档统一忽略",
   },
@@ -4058,7 +4098,7 @@ function vTitlebar() {
   const title =
     S.scenario === "projects"
       ? "Translunar"
-      : `${PROJECT.name} — ${doc.name}（${PROJECT.source} → ${PROJECT.target}）`;
+      : `${PROJECT.name} - ${doc.name}（${PROJECT.source} → ${PROJECT.target}）`;
   return `
   <div class="titlebar">
     <div class="titlebar__brand"><span class="mark"></span>Translunar</div>
@@ -4401,7 +4441,7 @@ function vGrid() {
         <td class="c-tgt">${
           editing
             ? `<div class="editor"><textarea id="editor" aria-label="句段 ${s.n} 译文" rows="1">${esc(s.tgt)}</textarea></div>`
-            : `<span class="tgt">${tokens(s.tgt, danger[s.n]) || '<span class="tgt--empty">—</span>'}</span>`
+            : `<span class="tgt">${tokens(s.tgt, danger[s.n]) || '<span class="tgt--empty">-</span>'}</span>`
         }</td>
         <td class="c-st">
           <span class="statecell">
@@ -4994,7 +5034,7 @@ function vDialogs() {
         `<div class="row"><label class="field field--grow"><span>新术语库名称</span><input placeholder="Aster UI 术语"></label>
         <button class="btn btn--outline btn--sm">新建并挂载</button></div>`;
     return dialog(
-      `项目设置 — ${PROJECT.name}`,
+      `项目设置 - ${PROJECT.name}`,
       `<div class="dialog__split">
         <nav class="vtabs">${tabs
           .map(
@@ -5011,7 +5051,7 @@ function vDialogs() {
 
   if (S.dialog === "tm") {
     return dialog(
-      `记忆库管理 — ${PROJECT.name}`,
+      `记忆库管理 - ${PROJECT.name}`,
       `<section class="dsec">
         <h3>挂载的记忆库</h3>
         ${MEMORIES.map(
@@ -5077,7 +5117,7 @@ function vDialogs() {
 
   if (S.dialog === "term")
     return dialog(
-      "术语库管理 — Aster 产品术语",
+      "术语库管理 - Aster 产品术语",
       `<div class="row"><span class="pill"><span class="num">512</span> 条术语</span>
         <span class="grow"></span>
         <button class="btn btn--outline btn--sm">导入 CSV/TBX…</button>

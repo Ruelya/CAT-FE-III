@@ -579,7 +579,7 @@ function vTitlebar() {
   const title =
     S.scenario === "projects"
       ? "Translunar"
-      : `${PROJECT.name} — ${doc.name}（${PROJECT.source} → ${PROJECT.target}）`;
+      : `${PROJECT.name} - ${doc.name}（${PROJECT.source} → ${PROJECT.target}）`;
   return `
   <div class="titlebar">
     <div class="titlebar__brand"><span class="mark"></span>Translunar</div>
@@ -922,7 +922,7 @@ function vGrid() {
         <td class="c-tgt">${
           editing
             ? `<div class="editor"><textarea id="editor" aria-label="句段 ${s.n} 译文" rows="1">${esc(s.tgt)}</textarea></div>`
-            : `<span class="tgt">${tokens(s.tgt, danger[s.n]) || '<span class="tgt--empty">—</span>'}</span>`
+            : `<span class="tgt">${tokens(s.tgt, danger[s.n]) || '<span class="tgt--empty">-</span>'}</span>`
         }</td>
         <td class="c-st">
           <span class="statecell">
@@ -1515,7 +1515,7 @@ function vDialogs() {
         `<div class="row"><label class="field field--grow"><span>新术语库名称</span><input placeholder="Aster UI 术语"></label>
         <button class="btn btn--outline btn--sm">新建并挂载</button></div>`;
     return dialog(
-      `项目设置 — ${PROJECT.name}`,
+      `项目设置 - ${PROJECT.name}`,
       `<div class="dialog__split">
         <nav class="vtabs">${tabs
           .map(
@@ -1532,7 +1532,7 @@ function vDialogs() {
 
   if (S.dialog === "tm") {
     return dialog(
-      `记忆库管理 — ${PROJECT.name}`,
+      `记忆库管理 - ${PROJECT.name}`,
       `<section class="dsec">
         <h3>挂载的记忆库</h3>
         ${MEMORIES.map(
@@ -1598,7 +1598,7 @@ function vDialogs() {
 
   if (S.dialog === "term")
     return dialog(
-      "术语库管理 — Aster 产品术语",
+      "术语库管理 - Aster 产品术语",
       `<div class="row"><span class="pill"><span class="num">512</span> 条术语</span>
         <span class="grow"></span>
         <button class="btn btn--outline btn--sm">导入 CSV/TBX…</button>
