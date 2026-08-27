@@ -1,0 +1,129 @@
+/* SaaS Dark — 暗色专注。
+   Hanken Grotesk + JetBrains Mono，13px 界面字号，6px 圆角，
+   中性偏蓝的暗灰刻度，浮层靠亮度分层而不是重投影。
+   一个强调色（校准蓝 #3E7DE8 / 文本亮蓝 #7FB1F7）。 */
+
+:root {
+  color-scheme: dark;
+
+  --font-ui: "Hanken Grotesk", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --fs-ui: 13px;
+  --fs-grid: 13.5px;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry */
+  --r-ctl: 6px; --r-card: 8px; --r-dlg: 10px; --r-badge: 5px; --r-chip: 6px;
+  --h-menubar: 36px; --h-ribbon: 46px; --h-statusbar: 26px;
+  --h-ctl: 28px; --h-ctl-sm: 23px;
+  --h-gridbar: 36px; --h-previewbar: 34px; --preview-h: 210px;
+  --w-explorer: 260px; --w-dock: 330px; --w-staterow: 172px;
+  --pad-panel: 14px; --pad-cell-y: 8px;
+  --bar-h: 4px; --ic: 14px; --dtabs-pad: 6px;
+
+  /* neutrals — blue-cast dark grays, layered by luminance */
+  --bg-app: #121418;
+  --bg-chrome: #17191e;
+  --bg-panel: #15171c;
+  --bg-surface: #1a1d23;
+  --bg-card: #1e2128;
+  --bg-float: #1f232a;
+  --bg-inset: #14161b;
+  --bg-thead: #191c22;
+  --bg-hover: #232730;
+  --bg-active: #2a2f3a;
+  --bg-status: #17191e;
+
+  --border: #262a33;
+  --border-strong: #333947;
+  --border-float: #363d4c;
+  --row-border: #21252d;
+  --row-hover: #1e222a;
+  --row-active: rgba(88, 146, 245, 0.1);
+  --row-locked: #171a20;
+
+  --text: #e7eaf0;
+  --text-2: #a3abbc;
+  --text-3: #6b7385;
+
+  /* accent — one calibrated blue */
+  --accent: #3e7de8;
+  --accent-hover: #356fd2;
+  --on-accent: #ffffff;
+  --accent-text: #7fb1f7;
+  --accent-soft: rgba(88, 146, 245, 0.16);
+  --accent-soft-hover: rgba(88, 146, 245, 0.24);
+  --accent-tint: rgba(88, 146, 245, 0.1);
+  --accent-mid: rgba(88, 146, 245, 0.45);
+  --focus: #5892f5;
+  --focus-soft: rgba(88, 146, 245, 0.25);
+  --select-bg: rgba(88, 146, 245, 0.32);
+  --mark-bg: rgba(229, 181, 103, 0.36);
+
+  /* semantics */
+  --ok: #3fb960;
+  --ok-text: #74d495;
+  --ok-soft: rgba(63, 185, 96, 0.16);
+  --ok-tint: rgba(63, 185, 96, 0.1);
+  --warn-text: #e5b567;
+  --warn-soft: rgba(229, 181, 103, 0.15);
+  --warn-tint: rgba(229, 181, 103, 0.08);
+  --warn-mid: rgba(229, 181, 103, 0.4);
+  --danger: #d24d59;
+  --danger-hover: #ba414c;
+  --danger-text: #ef8790;
+  --danger-soft: rgba(224, 85, 97, 0.16);
+  --danger-mid: rgba(224, 85, 97, 0.45);
+  --danger-status: #ef8790;
+  --draft: #d9a740;
+  --draft-text: #dcb35f;
+  --ai-soft: rgba(45, 193, 178, 0.15);
+  --ai-text: #58cfc0;
+  --issue-open-edge: #d9a740;
+  --tok-bg: rgba(148, 163, 196, 0.12);
+  --tok-text: #a9b4cc;
+  --tok-border: rgba(148, 163, 196, 0.22);
+  --bar-track: #262a33;
+
+  /* chrome extras — tooltips invert to light for contrast */
+  --tip-bg: #e7eaf0;
+  --tip-text: #1a1d23;
+  --overlay-bg: rgba(6, 8, 12, 0.55);
+  --page-bg: #21242c;
+  --page-text: #dfe3ec;
+  --status-text: #8f97a9;
+  --status-text-strong: #e7eaf0;
+  --status-hover: #232730;
+  --scroll-thumb: #333947;
+  --scroll-thumb-hover: #414a5c;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 20px 52px rgba(0, 0, 0, 0.55), 0 3px 10px rgba(0, 0, 0, 0.35);
+  --card-best-glow: 0 0 0 1px rgba(88, 146, 245, 0.35);
+
+  /* demo strip */
+  --demo-bg: #0c0d10;
+  --demo-border: #1b1e24;
+  --demo-text: #8f97a9;
+  --demo-text-dim: #626a7c;
+  --demo-hover: rgba(255, 255, 255, 0.06);
+  --demo-on-bg: #e7eaf0;
+  --demo-on-text: #14161b;
+}
+
+/* dark chrome details */
+.btn--outline { background: transparent; }
+.rb--cmdk { background: var(--bg-inset); }
+kbd { background: var(--bg-active); border-color: var(--border-strong); color: var(--text-2); }
+
+/* dock tabs: filled soft-active */
+.dtab[data-active="true"] { background: var(--accent-soft); }
+
+/* floats separate by luminance; keep the border crisp */
+.menu, .find, .dialog, .palette, .gate { border-color: var(--border-float); }
+
+/* the layout preview page reads as a lit sheet on the dark desk */
+.preview__page { box-shadow: var(--shadow-2); }

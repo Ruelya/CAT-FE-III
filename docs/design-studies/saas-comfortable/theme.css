@@ -1,0 +1,142 @@
+/* SaaS Comfortable — 舒适光亮。
+   Figtree + Spline Sans Mono，13.5px 界面字号，8–12px 圆角，柔和投影，
+   中性偏灰绿的底色刻度。一个强调色（深青 #0B7A68），胶囊徽标与分段控件。 */
+
+:root {
+  color-scheme: light;
+
+  --font-ui: "Figtree", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Spline Sans Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --fs-ui: 13.5px;
+  --fs-grid: 14px;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry — comfortable */
+  --r-ctl: 7px; --r-card: 10px; --r-dlg: 12px; --r-badge: 999px; --r-chip: 999px;
+  --h-menubar: 40px; --h-ribbon: 50px; --h-statusbar: 28px;
+  --h-ctl: 30px; --h-ctl-sm: 25px;
+  --h-gridbar: 40px; --h-previewbar: 36px; --preview-h: 220px;
+  --w-explorer: 276px; --w-dock: 340px; --w-staterow: 176px;
+  --pad-panel: 16px; --pad-cell-y: 10px;
+  --bar-h: 5px; --ic: 15px; --dtabs-pad: 8px;
+
+  /* neutrals — quiet gray with a cool-green cast */
+  --bg-app: #f3f4f4;
+  --bg-chrome: #ffffff;
+  --bg-panel: #f8f9f9;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-float: #ffffff;
+  --bg-inset: #f1f2f2;
+  --bg-thead: #fbfcfb;
+  --bg-hover: #f0f2f1;
+  --bg-active: #e7eae8;
+  --bg-status: #ffffff;
+
+  --border: #e7e9e8;
+  --border-strong: #d8dcda;
+  --border-float: #e0e3e1;
+  --row-border: #f0f2f1;
+  --row-hover: #f6f8f7;
+  --row-active: #ecf7f4;
+  --row-locked: #f6f7f6;
+
+  --text: #1c2422;
+  --text-2: #4d5955;
+  --text-3: #8a948f;
+
+  /* accent — one deep teal */
+  --accent: #0b7a68;
+  --accent-hover: #096757;
+  --on-accent: #ffffff;
+  --accent-text: #0a6d5d;
+  --accent-soft: #e0f2ee;
+  --accent-soft-hover: #d2ece6;
+  --accent-tint: #ecf7f4;
+  --accent-mid: #93cfc2;
+  --focus: #0b7a68;
+  --focus-soft: rgba(11, 122, 104, 0.16);
+  --select-bg: rgba(11, 122, 104, 0.18);
+  --mark-bg: #fce9a8;
+
+  /* semantics */
+  --ok: #418a3c;
+  --ok-text: #34702f;
+  --ok-soft: #e6f3e2;
+  --ok-tint: #f0f8ee;
+  --warn-text: #94641a;
+  --warn-soft: #fbeed3;
+  --warn-tint: #fcf6e6;
+  --warn-mid: #eac97f;
+  --danger: #cf4436;
+  --danger-hover: #b53a2e;
+  --danger-text: #b13c30;
+  --danger-soft: #fbeae7;
+  --danger-mid: #efb1a8;
+  --danger-status: #bb3f33;
+  --draft: #e5bd66;
+  --draft-text: #99691c;
+  --ai-soft: #e3edfb;
+  --ai-text: #2f5fc0;
+  --issue-open-edge: #dfa73f;
+  --tok-bg: #eef1ef;
+  --tok-text: #5a6a62;
+  --tok-border: #dde3de;
+  --bar-track: #e7eae8;
+
+  /* chrome extras */
+  --tip-bg: #26302c;
+  --tip-text: #f3f6f4;
+  --overlay-bg: rgba(28, 36, 34, 0.34);
+  --page-bg: #ffffff;
+  --page-text: #262e2b;
+  --status-text: #5c6763;
+  --status-text-strong: #1c2422;
+  --status-hover: #eef1ef;
+  --scroll-thumb: #ced4d1;
+  --scroll-thumb-hover: #b6beba;
+
+  --shadow-1: 0 1px 2px rgba(24, 34, 30, 0.06);
+  --shadow-2: 0 6px 20px rgba(24, 34, 30, 0.1), 0 1px 3px rgba(24, 34, 30, 0.05);
+  --shadow-3: 0 20px 48px rgba(24, 34, 30, 0.16), 0 3px 10px rgba(24, 34, 30, 0.07);
+  --card-best-glow: 0 1px 3px rgba(11, 122, 104, 0.14);
+
+  /* demo strip */
+  --demo-bg: #22302c;
+  --demo-border: #22302c;
+  --demo-text: #b6c4be;
+  --demo-text-dim: #7f8d87;
+  --demo-hover: rgba(255, 255, 255, 0.08);
+  --demo-on-bg: #f2f5f3;
+  --demo-on-text: #22302c;
+}
+
+/* comfortable = surfaces lift with soft shadows */
+.card, .issue, .step, .ai__cand { box-shadow: var(--shadow-1); }
+.projects__item, .projects__toolbar { box-shadow: var(--shadow-1); }
+
+/* dock tabs: segmented control */
+.dtabs { gap: 4px; }
+.dtab { border: 1px solid transparent; }
+.dtab[data-active="true"] {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+/* document tabs: pills instead of trapezoid tabs */
+.tabs { padding: 6px 8px; gap: 4px; align-items: center; }
+.tabs__tab { border: 0; border-radius: var(--r-ctl); }
+.tabs__tab[data-active="true"] {
+  background: var(--accent-soft);
+  border: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  color: var(--accent-text);
+}
+.tabs__name { padding: 5px 4px 5px 11px; }
+
+/* roomier grid rows breathe on the source column */
+.grid td.grid__src { padding-right: var(--u4); }
