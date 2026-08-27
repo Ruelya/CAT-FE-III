@@ -633,7 +633,7 @@
 
   const openEngineGate = () => {
     const modalRoot = document.querySelector("#modal-root");
-    modalRoot.innerHTML = `<div class="backdrop" data-backdrop><section class="gate-card" role="alertdialog" aria-modal="true"><span class="gate-card__mark">${icon("warning")}</span><h2>翻译引擎已停止</h2><p>编辑已锁定。上次错误：engine process exited with code 1。</p><span class="badge badge--danger">engine: 已停止</span><div class="gate-actions"><button class="btn" data-close-dialog>关闭</button><button class="btn btn--primary" data-action="dialog-done">重新启动引擎</button></div></section></div>`;
+    modalRoot.innerHTML = `<div class="backdrop" data-backdrop><section class="gate-card" role="alertdialog" aria-modal="true" aria-label="翻译引擎已停止"><span class="gate-card__mark">${icon("warning")}</span><h2>翻译引擎已停止</h2><p>编辑已锁定。上次错误：engine process exited with code 1。</p><span class="badge badge--danger">engine: 已停止</span><div class="gate-actions"><button class="btn" data-close-dialog>关闭</button><button class="btn btn--primary" data-action="dialog-done">重新启动引擎</button></div></section></div>`;
     bindModalInteractions();
   };
 
@@ -828,6 +828,16 @@
     }));
   };
 
+  const closeMenusFromOutside = (event) => {
+    if (event.target.closest(".menu-wrap")) return;
+    document.querySelectorAll(".menu").forEach((menu) => {
+      menu.hidden = true;
+    });
+    document.querySelectorAll(".menu-trigger").forEach((trigger) => {
+      trigger.setAttribute("aria-expanded", "false");
+    });
+  };
+
   const bindInteractions = (scenario) => {
     document.querySelector("#scenario-select")?.addEventListener("change", (event) => renderApp(event.target.value));
     document.querySelectorAll(".menu-trigger").forEach((trigger) => trigger.addEventListener("click", (event) => {
@@ -839,12 +849,8 @@
       panel.hidden = !opening;
       trigger.setAttribute("aria-expanded", String(opening));
     }));
-    document.addEventListener("click", (event) => {
-      if (!event.target.closest(".menu-wrap")) {
-        document.querySelectorAll(".menu").forEach((menu) => { menu.hidden = true; });
-        document.querySelectorAll(".menu-trigger").forEach((trigger) => trigger.setAttribute("aria-expanded", "false"));
-      }
-    }, { once: true });
+    document.removeEventListener("click", closeMenusFromOutside);
+    document.addEventListener("click", closeMenusFromOutside);
     document.querySelectorAll("[data-command]").forEach((button) => button.addEventListener("click", () => executeCommand(button.dataset.command)));
     document.querySelectorAll("[data-action='toast']").forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -891,6 +897,7 @@
       const query = event.target.value.toLowerCase();
       document.querySelectorAll("[data-file]").forEach((file) => file.hidden = !file.dataset.file.toLowerCase().includes(query));
     });
+    document.removeEventListener("keydown", keyHandler);
     document.addEventListener("keydown", keyHandler);
   };
 
