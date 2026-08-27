@@ -1,7 +1,7 @@
 # Workbench 功能清单（FEATURE INVENTORY）
 
 来源：`cursor/gf-workbench-s3d-2398` 上的真实桌面端代码（`apps/desktop/src`）。
-本清单先于任何视觉稿完成，是三个 SaaS 设计稿（`saas-compact` / `saas-comfortable` / `saas-dark`）必须全量呈现的信息架构。逐文件核对对象：
+本清单先于任何视觉稿完成，是全部设计稿（`saas-compact` / `saas-comfortable` / `saas-dark` 及四个 `saas-fable-art-*`）必须全量呈现的信息架构。逐文件核对对象：
 `WorkbenchView` `SegmentGrid` `Ribbon` `FindWidget` `PreviewPane` `TmPanel` `ConcordancePanel` `TermPanel` `QaPanel` `AiPanel` `AgentPanel` `CommandPalette` `ImportDocumentDialog` `ProjectSettingsDialog` `TmManageDialog` `TermManagePanel` `ExportOverwriteConfirm` `ExportQaGateConfirm` `EngineGate` `ProjectsView` `App`（状态栏）`menu-template`（应用菜单）。
 
 ## 1. 命令与快捷键（应用菜单 / 功能区 / 命令面板共用一套 handler）
@@ -35,8 +35,8 @@
 ## 2. 左栏（项目资源）
 
 - 项目名、语言对（en-US → zh-CN）、项目总进度条（已确认/草稿分段着色 + 百分比）。
-- 文件搜索框（本地过滤）。
-- 文档列表：格式、`确认 x/y`、草稿数、QA 数、每文档进度条与百分比；点击打开标签页；两步移除（移除 → 确认移除/取消）。
+- 文件搜索框（本地过滤，过滤时目录强制展开）。
+- IDE 式文件树：嵌套目录（`docs/manual`、`app/locales`）、折叠 chevron、目录/文件类型图标（docx/json）、缩进导线、活动文件高亮、右对齐每文件确认百分比、QA 未解决数角标；`格式 · 确认 x/y · 草稿 · QA` 收进行 tooltip；点击打开标签页；两步移除（悬停 × → 确认移除/取消）。
 - 筛选 chips：未译 / 草稿 / 已确认 / QA / 锁定 / 有术语 / 有标签（可点选、可关闭，作用于句段格）。
 - 拖放导入区（虚线落区 + 选择文件按钮，同导入对话框一个入口）。
 - 项目详情：名称 / 源语言 / 目标语言 / 创建时间 / 文件数 / 总句段 / 已确认句段。

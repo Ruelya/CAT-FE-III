@@ -1,0 +1,190 @@
+/* Fable Art · Acid — 画廊酸性。
+   画廊灰白上的黑色硬线：卡片和浮层用 1.5px 实线描边加硬偏移投影，
+   零圆角。一个国际克莱因蓝（#0031AD）承担全部主动作，
+   酸性黄绿（#D9FF4D）只做选区与命中高亮。面板标题用 Unbounded，
+   按钮悬停位移 1px、投影加深——动效是版面的物理，不是装饰。
+   Familjen Grotesk + Space Mono。 */
+
+:root {
+  color-scheme: light;
+
+  --font-ui: "Familjen Grotesk", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Space Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --font-display: "Unbounded", "Noto Sans CJK SC", sans-serif;
+  --fs-ui: 12.5px;
+  --fs-grid: 13px;
+  --ease: cubic-bezier(0.3, 0.8, 0.3, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry — zero radius, hard edges */
+  --r-ctl: 0; --r-card: 0; --r-dlg: 0; --r-badge: 0; --r-chip: 0;
+  --h-menubar: 38px; --h-ribbon: 47px; --h-statusbar: 28px;
+  --h-ctl: 28px; --h-ctl-sm: 23px;
+  --h-gridbar: 37px; --h-previewbar: 35px; --preview-h: 212px;
+  --w-explorer: 260px; --w-dock: 332px; --w-staterow: 172px;
+  --pad-panel: 14px; --pad-cell-y: 7px;
+  --bar-h: 5px; --ic: 14px; --dtabs-pad: 5px;
+  --tree-row: 23px; --tree-folder: #0031ad;
+
+  /* gallery neutrals */
+  --bg-app: #f2f0e9;
+  --bg-chrome: #f6f4ee;
+  --bg-panel: #f2f0e9;
+  --bg-surface: #faf9f4;
+  --bg-card: #fdfcf8;
+  --bg-float: #fdfcf8;
+  --bg-inset: #eae7de;
+  --bg-thead: #f6f4ee;
+  --bg-hover: #e9e6dc;
+  --bg-active: #e0dcd0;
+  --bg-status: #16150f;
+
+  --border: #d4d0c2;
+  --border-strong: #17170f;
+  --border-float: #17170f;
+  --row-border: #e2dfd3;
+  --row-hover: #f7f5ef;
+  --row-active: rgba(217, 255, 77, 0.28);
+  --row-locked: #edeae1;
+
+  --text: #17170f;
+  --text-2: #55534a;
+  --text-3: #8a8779;
+
+  /* accent — International Klein Blue */
+  --accent: #0031ad;
+  --accent-hover: #002a93;
+  --on-accent: #ffffff;
+  --accent-text: #0031ad;
+  --accent-soft: rgba(0, 49, 173, 0.1);
+  --accent-soft-hover: rgba(0, 49, 173, 0.16);
+  --accent-tint: rgba(0, 49, 173, 0.06);
+  --accent-mid: rgba(0, 49, 173, 0.4);
+  --focus: #0031ad;
+  --focus-soft: rgba(0, 49, 173, 0.22);
+  --select-bg: rgba(217, 255, 77, 0.55);
+  --mark-bg: rgba(217, 255, 77, 0.65);
+
+  /* semantics */
+  --ok: #157f43;
+  --ok-text: #106736;
+  --ok-soft: rgba(21, 127, 67, 0.12);
+  --ok-tint: rgba(21, 127, 67, 0.07);
+  --warn-text: #8f6410;
+  --warn-soft: rgba(181, 130, 27, 0.14);
+  --warn-tint: rgba(181, 130, 27, 0.08);
+  --warn-mid: rgba(181, 130, 27, 0.4);
+  --danger: #d2232a;
+  --danger-hover: #b71e24;
+  --danger-text: #b71e24;
+  --danger-soft: rgba(210, 35, 42, 0.1);
+  --danger-mid: rgba(210, 35, 42, 0.4);
+  --danger-status: #ff8f94;
+  --draft: #b5821b;
+  --draft-text: #8f6410;
+  --ai-soft: rgba(11, 134, 141, 0.12);
+  --ai-text: #0b6d73;
+  --issue-open-edge: #b5821b;
+  --tok-bg: #edeae0;
+  --tok-text: #55534a;
+  --tok-border: #c9c5b5;
+  --bar-track: #dedacc;
+
+  --tip-bg: #17170f;
+  --tip-text: #f5f3ec;
+  --overlay-bg: rgba(23, 23, 15, 0.32);
+  --page-bg: #ffffff;
+  --page-text: #17170f;
+  --status-text: #b8b5a6;
+  --status-text-strong: #f5f3ec;
+  --status-hover: rgba(255, 255, 255, 0.12);
+  --scroll-thumb: #c9c5b5;
+  --scroll-thumb-hover: #a9a591;
+
+  /* hard offset shadows */
+  --shadow-1: 2px 2px 0 rgba(23, 23, 15, 0.14);
+  --shadow-2: 4px 4px 0 rgba(23, 23, 15, 0.85);
+  --shadow-3: 7px 7px 0 rgba(23, 23, 15, 0.9);
+  --card-best-glow: 0 0 0 1.5px #0031ad;
+
+  --demo-bg: #16150f;
+  --demo-border: #33321f;
+  --demo-text: #b8b5a6;
+  --demo-text-dim: #807d6c;
+  --demo-hover: rgba(255, 255, 255, 0.1);
+  --demo-on-bg: #d9ff4d;
+  --demo-on-text: #17170f;
+}
+
+/* display face on the chrome that names things */
+.menubar__app, .panel__head h3, .dialog__head h2, .gate__title, .projects__head h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.panel__head h3 { font-size: 10px; letter-spacing: 0.12em; }
+.ex__head h2 { font-weight: 700; letter-spacing: 0.14em; }
+
+/* hard-line floats */
+.menu, .find, .dialog, .palette, .gate, .toast {
+  border: 1.5px solid var(--border-float);
+  box-shadow: var(--shadow-2);
+}
+.dialog, .gate { box-shadow: var(--shadow-3); }
+.card, .issue { border: 1px solid var(--border); }
+.card--best { border: 1.5px solid var(--accent); }
+
+/* kinetic buttons: the plane shifts, the shadow stays put */
+.btn, .rb, .iconbtn, .chip, .dtab {
+  transition: transform 120ms var(--ease), box-shadow 120ms var(--ease),
+    background 120ms var(--ease), letter-spacing 160ms var(--ease);
+}
+.btn--primary, .btn--danger {
+  border: 1.5px solid var(--border-strong);
+  box-shadow: 2px 2px 0 var(--border-strong);
+}
+.btn--primary:hover:not(:disabled), .btn--danger:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--border-strong);
+}
+.btn--primary:active:not(:disabled), .btn--danger:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--border-strong);
+}
+.btn--outline { background: transparent; border-color: var(--border-strong); color: var(--text); }
+.btn--outline:hover:not(:disabled) { background: var(--text); color: var(--bg-surface); }
+
+/* ribbon verbs breathe a little wider under the cursor */
+.rb:hover:not(:disabled) { letter-spacing: 0.03em; }
+
+/* focus: Klein blue, square, unmistakable */
+:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 1px; box-shadow: none; }
+
+/* the acid marks: current row + hits, never buttons */
+.grid tr[data-active="true"] td:first-child { box-shadow: inset 4px 0 0 #d9ff4d, inset 5.5px 0 0 var(--border-strong); }
+mark { box-shadow: 0 1px 0 var(--border-strong); }
+
+/* dock tab: heavy black underline slides in */
+.dtab[data-active="true"] { background: transparent; color: var(--text); font-weight: 700; }
+.dtab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -1px;
+  height: 3px;
+  background: var(--border-strong);
+}
+
+/* status bar inverts to a black plinth */
+.statusbar { border-top: 1.5px solid var(--border-strong); }
+.statusbar .num { color: #d9ff4d; }
+
+kbd { background: var(--bg-inset); border-color: #c9c5b5; color: var(--text-2); box-shadow: 0 1px 0 #c9c5b5; }
+.rb--cmdk { background: var(--bg-inset); }
+.preview__page { border: 1.5px solid var(--border-strong); box-shadow: var(--shadow-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover, .rb:hover { transform: none; letter-spacing: inherit; }
+}

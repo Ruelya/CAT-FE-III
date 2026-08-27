@@ -1,0 +1,189 @@
+/* Fable Art · Aurora — 极光玻璃。
+   一块低分辨率 canvas 光场在窗外缓慢漂移，工作台是一整片磨砂玻璃：
+   面板靠透明度分层，浮层再加一次玻璃。Schibsted Grotesk + DM Mono，
+   一个薄荷强调色（#34E3B0），焦点环发光，卡片悬停有 1px 浮起。
+   prefers-reduced-motion 时光场静止为单帧。 */
+
+:root {
+  color-scheme: dark;
+
+  --font-ui: "Schibsted Grotesk", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "DM Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --fs-ui: 13px;
+  --fs-grid: 13.5px;
+  --ease: cubic-bezier(0.22, 0.9, 0.3, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry — round glass */
+  --r-ctl: 8px; --r-card: 10px; --r-dlg: 14px; --r-badge: 6px; --r-chip: 8px;
+  --h-menubar: 38px; --h-ribbon: 47px; --h-statusbar: 27px;
+  --h-ctl: 28px; --h-ctl-sm: 23px;
+  --h-gridbar: 37px; --h-previewbar: 34px; --preview-h: 212px;
+  --w-explorer: 262px; --w-dock: 332px; --w-staterow: 172px;
+  --pad-panel: 14px; --pad-cell-y: 8px;
+  --bar-h: 4px; --ic: 14px; --dtabs-pad: 6px;
+  --tree-row: 24px; --tree-folder: #7fd9c2;
+
+  /* glass neutrals — alpha layers over the light field */
+  --bg-app: transparent;
+  --bg-chrome: rgba(255, 255, 255, 0.028);
+  --bg-panel: rgba(255, 255, 255, 0.018);
+  --bg-surface: rgba(255, 255, 255, 0.038);
+  --bg-card: rgba(255, 255, 255, 0.055);
+  --bg-float: rgba(14, 21, 30, 0.86);
+  --bg-inset: rgba(2, 6, 10, 0.42);
+  --bg-thead: rgba(255, 255, 255, 0.035);
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --bg-active: rgba(255, 255, 255, 0.11);
+  --bg-status: rgba(255, 255, 255, 0.03);
+
+  --border: rgba(158, 196, 222, 0.13);
+  --border-strong: rgba(158, 196, 222, 0.24);
+  --border-float: rgba(158, 196, 222, 0.22);
+  --row-border: rgba(158, 196, 222, 0.09);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  --row-active: rgba(52, 227, 176, 0.1);
+  --row-locked: rgba(2, 6, 10, 0.28);
+
+  --text: #ecf5f5;
+  --text-2: #a4b8c2;
+  --text-3: #677c89;
+
+  /* accent — aurora mint */
+  --accent: #34e3b0;
+  --accent-hover: #2bcd9d;
+  --on-accent: #04281e;
+  --accent-text: #6ff0c8;
+  --accent-soft: rgba(52, 227, 176, 0.15);
+  --accent-soft-hover: rgba(52, 227, 176, 0.24);
+  --accent-tint: rgba(52, 227, 176, 0.09);
+  --accent-mid: rgba(52, 227, 176, 0.45);
+  --focus: #57f0c6;
+  --focus-soft: rgba(87, 240, 198, 0.28);
+  --select-bg: rgba(52, 227, 176, 0.3);
+  --mark-bg: rgba(255, 205, 118, 0.34);
+
+  /* semantics */
+  --ok: #3ecf82;
+  --ok-text: #7fe3ac;
+  --ok-soft: rgba(62, 207, 130, 0.16);
+  --ok-tint: rgba(62, 207, 130, 0.09);
+  --warn-text: #ffcf7d;
+  --warn-soft: rgba(255, 207, 125, 0.15);
+  --warn-tint: rgba(255, 207, 125, 0.08);
+  --warn-mid: rgba(255, 207, 125, 0.4);
+  --danger: #e75f6f;
+  --danger-hover: #d05263;
+  --danger-text: #ff97a1;
+  --danger-soft: rgba(231, 95, 111, 0.17);
+  --danger-mid: rgba(231, 95, 111, 0.45);
+  --danger-status: #ff97a1;
+  --draft: #e9b558;
+  --draft-text: #f0c477;
+  --ai-soft: rgba(89, 190, 255, 0.15);
+  --ai-text: #79ccff;
+  --issue-open-edge: #e9b558;
+  --tok-bg: rgba(158, 196, 222, 0.12);
+  --tok-text: #aec5d4;
+  --tok-border: rgba(158, 196, 222, 0.24);
+  --bar-track: rgba(158, 196, 222, 0.14);
+
+  --tip-bg: #eaf4f4;
+  --tip-text: #101820;
+  --overlay-bg: rgba(2, 5, 9, 0.5);
+  --page-bg: rgba(255, 255, 255, 0.06);
+  --page-text: #dfeaee;
+  --status-text: #8ba0ac;
+  --status-text-strong: #ecf5f5;
+  --status-hover: rgba(255, 255, 255, 0.07);
+  --scroll-thumb: rgba(158, 196, 222, 0.22);
+  --scroll-thumb-hover: rgba(158, 196, 222, 0.36);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-3: 0 26px 70px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --card-best-glow: 0 0 0 1px rgba(52, 227, 176, 0.4), 0 0 22px rgba(52, 227, 176, 0.14);
+
+  --demo-bg: #05080c;
+  --demo-border: rgba(158, 196, 222, 0.12);
+  --demo-text: #8ba0ac;
+  --demo-text-dim: #5b6f7c;
+  --demo-hover: rgba(255, 255, 255, 0.07);
+  --demo-on-bg: #ecf5f5;
+  --demo-on-text: #0a1218;
+}
+
+/* ---- the light field ---- */
+#aurora {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  image-rendering: auto;
+}
+#app { position: relative; z-index: 1; height: 100%; }
+body { background: #060a10; }
+
+/* one frosted sheet; interior layers are alpha tints over it */
+.shell {
+  background: rgba(8, 13, 20, 0.58);
+  backdrop-filter: blur(34px) saturate(1.45);
+  -webkit-backdrop-filter: blur(34px) saturate(1.45);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* floats are their own pane of glass above the sheet */
+.menu, .find, .dialog, .palette, .gate, .toast {
+  backdrop-filter: blur(26px) saturate(1.4);
+  -webkit-backdrop-filter: blur(26px) saturate(1.4);
+  background: rgba(13, 20, 29, 0.78);
+}
+.tip { backdrop-filter: none; }
+
+/* mint primary glows on hover; press sinks */
+.btn--primary {
+  background: linear-gradient(180deg, #43edbc, #2bd3a3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.btn--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #4df4c3, #33dcab);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 14px rgba(52, 227, 176, 0.35);
+}
+.btn--primary:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 4px rgba(0, 40, 28, 0.35); }
+
+/* glowing focus */
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; box-shadow: 0 0 0 4px var(--focus-soft); }
+
+/* cards float up a pixel under the cursor */
+.card, .issue {
+  transition: transform 160ms var(--ease), box-shadow 160ms var(--ease), border-color 160ms var(--ease);
+}
+.card:hover, .issue:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* chrome type: letterspaced heads, mono numerals get a faint glow */
+.panel__head h3, .ex__head h2 { letter-spacing: 0.09em; }
+.menubar__app { letter-spacing: 0.02em; }
+.statusbar .num { text-shadow: 0 0 12px rgba(111, 240, 200, 0.25); }
+
+kbd {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(158, 196, 222, 0.24);
+  color: var(--text-2);
+}
+.rb--cmdk { background: var(--bg-inset); }
+.btn--outline { background: transparent; }
+.dtab[data-active="true"] { background: var(--accent-soft); }
+.preview__page { box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4); }
+
+/* active grid row carries a thin aurora edge */
+.grid tr[data-active="true"] td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .card:hover, .issue:hover, .term:hover { transform: none; }
+}

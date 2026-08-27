@@ -1,0 +1,200 @@
+/* Fable Art · Blueprint — 蓝晒制图。
+   普鲁士蓝图纸上的白线制图：底纹是 6px/30px 双层坐标网格，
+   面板是同一张纸上的分区，主按钮是粉笔白反白，焦点环用 2px 虚线，
+   活动行有左侧双线批注。Bricolage Grotesque + Martian Mono，
+   圆角 2px，一切像用针管笔画出来的。 */
+
+:root {
+  color-scheme: dark;
+
+  --font-ui: "Bricolage Grotesque", "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Martian Mono", "Noto Sans Mono CJK SC", ui-monospace, monospace;
+  --fs-ui: 12.5px;
+  --fs-grid: 13px;
+  --ease: cubic-bezier(0.25, 0.7, 0.3, 1);
+
+  --u1: 4px; --u2: 8px; --u3: 12px; --u4: 16px; --u5: 20px; --u6: 24px;
+
+  /* geometry — drawn corners */
+  --r-ctl: 2px; --r-card: 2px; --r-dlg: 3px; --r-badge: 2px; --r-chip: 2px;
+  --h-menubar: 37px; --h-ribbon: 46px; --h-statusbar: 27px;
+  --h-ctl: 28px; --h-ctl-sm: 23px;
+  --h-gridbar: 36px; --h-previewbar: 34px; --preview-h: 210px;
+  --w-explorer: 258px; --w-dock: 330px; --w-staterow: 172px;
+  --pad-panel: 13px; --pad-cell-y: 7px;
+  --bar-h: 3px; --ic: 14px; --dtabs-pad: 5px;
+  --tree-row: 23px; --tree-folder: #8fb9e8;
+
+  /* prussian paper, layered by depth of blue */
+  --bg-app: #0d2440;
+  --bg-chrome: #0f2846;
+  --bg-panel: #0e2643;
+  --bg-surface: #122c4d;
+  --bg-card: #163457;
+  --bg-float: #123055;
+  --bg-inset: #0a1f38;
+  --bg-thead: #102a49;
+  --bg-hover: #1a3a61;
+  --bg-active: #21446f;
+  --bg-status: #0f2846;
+
+  --border: #2c4f7d;
+  --border-strong: #416a9e;
+  --border-float: #4d77ad;
+  --row-border: #24466f;
+  --row-hover: #123058;
+  --row-active: rgba(156, 203, 255, 0.12);
+  --row-locked: #0b2038;
+
+  --text: #e9f2fc;
+  --text-2: #accbe9;
+  --text-3: #7396bd;
+
+  /* accent — chalk on blueprint */
+  --accent: #f2f8ff;
+  --accent-hover: #d9e9fb;
+  --on-accent: #0d2440;
+  --accent-text: #cfe4ff;
+  --accent-soft: rgba(207, 228, 255, 0.14);
+  --accent-soft-hover: rgba(207, 228, 255, 0.22);
+  --accent-tint: rgba(207, 228, 255, 0.08);
+  --accent-mid: rgba(207, 228, 255, 0.45);
+  --focus: #ffffff;
+  --focus-soft: rgba(207, 228, 255, 0.25);
+  --select-bg: rgba(156, 203, 255, 0.34);
+  --mark-bg: rgba(255, 201, 77, 0.4);
+
+  /* semantics — marker inks */
+  --ok: #46c986;
+  --ok-text: #8ce4b4;
+  --ok-soft: rgba(70, 201, 134, 0.16);
+  --ok-tint: rgba(70, 201, 134, 0.09);
+  --warn-text: #ffd27a;
+  --warn-soft: rgba(255, 210, 122, 0.15);
+  --warn-tint: rgba(255, 210, 122, 0.08);
+  --warn-mid: rgba(255, 210, 122, 0.4);
+  --danger: #e56a75;
+  --danger-hover: #d15b67;
+  --danger-text: #ff9ba5;
+  --danger-soft: rgba(229, 106, 117, 0.18);
+  --danger-mid: rgba(229, 106, 117, 0.45);
+  --danger-status: #ff9ba5;
+  --draft: #ecb45c;
+  --draft-text: #f3c67d;
+  --ai-soft: rgba(127, 216, 255, 0.15);
+  --ai-text: #93ddff;
+  --issue-open-edge: #ecb45c;
+  --tok-bg: rgba(156, 203, 255, 0.12);
+  --tok-text: #b3d2f2;
+  --tok-border: rgba(156, 203, 255, 0.28);
+  --bar-track: #24466f;
+
+  --tip-bg: #eaf3fd;
+  --tip-text: #0d2440;
+  --overlay-bg: rgba(4, 14, 27, 0.6);
+  --page-bg: #133054;
+  --page-text: #dcebfb;
+  --status-text: #8fb0d4;
+  --status-text-strong: #e9f2fc;
+  --status-hover: #1a3a61;
+  --scroll-thumb: #2f5480;
+  --scroll-thumb-hover: #416a9e;
+
+  --shadow-1: 0 1px 2px rgba(3, 12, 24, 0.4);
+  --shadow-2: 0 8px 22px rgba(3, 12, 24, 0.5);
+  --shadow-3: 0 22px 56px rgba(3, 12, 24, 0.65);
+  --card-best-glow: 0 0 0 1px rgba(242, 248, 255, 0.5);
+
+  --demo-bg: #081a30;
+  --demo-border: #1c3c63;
+  --demo-text: #8fb0d4;
+  --demo-text-dim: #5f7fa5;
+  --demo-hover: rgba(207, 228, 255, 0.08);
+  --demo-on-bg: #eaf3fd;
+  --demo-on-text: #0d2440;
+}
+
+/* ---- the paper: two-layer coordinate grid ---- */
+body {
+  background:
+    repeating-linear-gradient(0deg, rgba(156, 203, 255, 0.055) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, rgba(156, 203, 255, 0.055) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(0deg, rgba(156, 203, 255, 0.022) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, rgba(156, 203, 255, 0.022) 0 1px, transparent 1px 6px),
+    var(--bg-app);
+}
+.shell { background: transparent; }
+.explorer, .dock, .center { background: color-mix(in srgb, var(--bg-panel) 82%, transparent); }
+
+/* headers read as drawing titles: caps, wide tracking, leading tick */
+.panel__head h3, .ex__head h2 {
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+.panel__head h3::before, .ex__head h2::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 1px;
+  background: var(--border-strong);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* drawn focus: dashed pen line */
+:focus-visible { outline: 2px dashed var(--focus); outline-offset: 1px; box-shadow: none; }
+
+/* chalk primary; outline buttons are pure line work */
+.btn--primary { box-shadow: inset 0 -1px 0 rgba(13, 36, 64, 0.25); font-weight: 600; }
+.btn--outline { background: transparent; border-style: solid; }
+.btn--outline:hover:not(:disabled) { border-color: var(--accent-text); color: var(--accent-text); }
+
+/* dashed material for import affordances and empty frames */
+.dropzone { border-style: dashed; border-width: 1.5px; }
+.dropzone:hover { border-color: var(--accent-text); color: var(--accent-text); background: var(--accent-tint); }
+
+/* table header carries a double rule like a drawing schedule */
+.grid thead th { border-bottom: 2px solid var(--border-strong); box-shadow: 0 2px 0 -1px var(--border); }
+
+/* the annotated row: double line in the margin */
+.grid tr[data-active="true"] td:first-child { box-shadow: inset 3px 0 0 var(--accent-text), inset 5px 0 0 var(--bg-app), inset 6px 0 0 var(--accent-text); }
+
+/* floats: sheet corners get tick marks */
+.dialog, .gate, .palette {
+  border: 1px solid var(--border-float);
+  background-image:
+    linear-gradient(var(--border-float), var(--border-float)),
+    linear-gradient(var(--border-float), var(--border-float)),
+    linear-gradient(var(--border-float), var(--border-float)),
+    linear-gradient(var(--border-float), var(--border-float));
+  background-repeat: no-repeat;
+  background-size: 14px 1px, 1px 14px, 14px 1px, 1px 14px;
+  background-position: 8px 8px, 8px 8px, calc(100% - 8px) calc(100% - 8px), calc(100% - 8px) calc(100% - 8px);
+}
+
+/* mono numerals everywhere read as measurements */
+.num { letter-spacing: 0.01em; }
+kbd { background: var(--bg-inset); border-color: var(--border-strong); color: var(--text-2); }
+.rb--cmdk { background: var(--bg-inset); }
+
+/* dock tab: underline drawn in */
+.dtab { position: relative; }
+.dtab[data-active="true"] { background: transparent; color: var(--accent-text); }
+.dtab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent-text);
+  animation: draw-in 220ms var(--ease);
+  transform-origin: left center;
+}
+@keyframes draw-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.preview__page { box-shadow: var(--shadow-2); border: 1px solid var(--border-strong); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dtab[data-active="true"]::after { animation: none; }
+}

@@ -104,9 +104,9 @@ window.TL_DATA = (() => {
   ];
 
   const documents = [
-    { id: "d1", name: "user-guide.docx", format: "docx", sourceWords: 214, segments: segsGuide },
-    { id: "d2", name: "release-notes-3.2.docx", format: "docx", sourceWords: 96, segments: segsNotes },
-    { id: "d3", name: "ui-strings.json", format: "json", sourceWords: 42, segments: segsStrings },
+    { id: "d1", name: "user-guide.docx", folder: "docs/manual", format: "docx", sourceWords: 214, segments: segsGuide },
+    { id: "d2", name: "release-notes-3.2.docx", folder: "docs", format: "docx", sourceWords: 96, segments: segsNotes },
+    { id: "d3", name: "ui-strings.json", folder: "app/locales", format: "json", sourceWords: 42, segments: segsStrings },
   ];
 
   // QA issues for d1. fix != null renders 修复为 + 应用修复.
