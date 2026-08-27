@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Translunar CAT Workbench — Linear Edition</title>
+  <style>
+    /* Linear Design System Tokens */
+    :root {
+      --bg-root: #0e1015;
+      --bg-surface: #14171f;
+      --bg-surface-hover: #1b1f2b;
+      --bg-surface-active: #222736;
+      --bg-sunken: #0b0d12;
+      --bg-card: #181c26;
+      --bg-card-hover: #1e2330;
+      --border-subtle: #232838;
+      --border-medium: #2e354a;
+      --border-focus: #5e6ad2;
+      --text-primary: #f2f5f8;
+      --text-secondary: #9aa4b2;
+      --text-tertiary: #626d7d;
+      --accent: #5e6ad2;
+      --accent-hover: #6e7be2;
+      --accent-soft: rgba(94, 106, 210, 0.15);
+      --accent-glow: rgba(94, 106, 210, 0.25);
+      --ok: #27a66f;
+      --ok-soft: rgba(39, 166, 111, 0.15);
+      --warn: #e59934;
+      --warn-soft: rgba(229, 153, 52, 0.15);
+      --danger: #eb5757;
+      --danger-soft: rgba(235, 87, 87, 0.15);
+      --font-ui: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --shadow-pop: 0 4px 20px rgba(0, 0, 0, 0.4);
+      --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.6);
+      --trans-fast: 120ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: var(--text-primary);
+      background-color: var(--bg-root);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Application Bar & Menu */
+    .app-header {
+      background: var(--bg-sunken);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .window-titlebar {
+      height: 30px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 11.5px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+    .window-brand {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.2px;
+    }
+    .window-brand-badge {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      background: linear-gradient(135deg, #5e6ad2, #8b5cf6);
+      display: inline-block;
+    }
+    .app-menu-bar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-left: 8px;
+    }
+    .menu-item {
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 12px;
+      transition: background var(--trans-fast), color var(--trans-fast);
+      position: relative;
+    }
+    .menu-item:hover {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+    .window-title {
+      margin-left: auto;
+      color: var(--text-tertiary);
+      font-size: 11.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .window-title-project {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* Action Ribbon Toolbar */
+    .ribbon-bar {
+      height: 44px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .ribbon-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding-right: 8px;
+      border-right: 1px solid var(--border-subtle);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all var(--trans-fast);
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) {
+      background: var(--bg-surface-hover);
+      color: var(--text-primary);
+      border-color: var(--border-subtle);
+    }
+    .btn:active:not(:disabled) {
+      background: var(--bg-surface-active);
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      color: #fff;
+    }
+    .btn-sm {
+      height: 24px;
+      padding: 0 7px;
+      font-size: 11px;
+    }
+    .btn-danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-color: rgba(235, 87, 87, 0.2);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: var(--danger);
+      color: #fff;
+    }
+    .btn-icon-only {
+      width: 28px;
+      padding: 0;
+    }
+    .btn kbd, .kbd-hint {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      color: var(--text-tertiary);
+      background: rgba(255, 255, 255, 0.06);
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 3px;
+    }
+    .ribbon-search {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+    .input-search {
+      height: 28px;
+      width: 180px;
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 0 28px 0 8px;
+      color: var(--text-primary);
+      font-size: 12px;
+      outline: none;
+      transition: border-color var(--trans-fast), width var(--trans-fast);
+    }
+    .input-search:focus {
+      border-color: var(--border-focus);
+      width: 240px;
+    }
+
+    /* App Workspace Split View */
+    .workbench-body {
+      display: grid;
+      grid-template-columns: 260px 1fr 340px;
+      flex: 1;
+      min-height: 0;
+      background: var(--bg-root);
+    }
+
+    /* Left Explorer Rail */
+    .sidebar-left {
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .sidebar-section {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .sidebar-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-tertiary);
+    }
+    .project-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px;
+    }
+    .project-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .lang-pair {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 1px 6px;
+      border-radius: 3px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+    .progress-track {
+      height: 4px;
+      background: var(--bg-sunken);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    /* Document List */
+    .doc-list-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 12px;
+    }
+    .doc-list {
+      list-style: none;
+      overflow-y: auto;
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .doc-item {
+      display: flex;
+      flex-direction: column;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all var(--trans-fast);
+      position: relative;
+    }
+    .doc-item:hover {
+      background: var(--bg-surface-hover);
+    }
+    .doc-item.active {
+      background: var(--bg-card);
+      border-color: var(--border-medium);
+    }
+    .doc-item-title {
+      font-weight: 500;
+      font-size: 12px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .doc-item-badge {
+      font-size: 10px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--bg-surface-active);
+      color: var(--text-tertiary);
+    }
+    .doc-item-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .doc-delete-btn {
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      opacity: 0;
+      background: var(--bg-surface-hover);
+      border: 1px solid var(--border-subtle);
+      border-radius: 3px;
+      color: var(--text-secondary);
+      padding: 2px 5px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: opacity var(--trans-fast);
+    }
+    .doc-item:hover .doc-delete-btn {
+      opacity: 1;
+    }
+
+    /* Center Grid Section */
+    .center-workbench {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+      background: var(--bg-root);
+    }
+    .doc-tabs-bar {
+      height: 32px;
+      background: var(--bg-sunken);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 4px;
+    }
+    .doc-tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .doc-tab.active {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border-color: var(--border-subtle);
+      font-weight: 500;
+    }
+    .doc-tab-close {
+      opacity: 0.5;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .doc-tab-close:hover {
+      opacity: 1;
+      color: var(--danger);
+    }
+
+    /* Grid Toolbar & Filter Chips */
+    .grid-filter-toolbar {
+      height: 34px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .filter-select {
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 11.5px;
+      padding: 2px 8px;
+      outline: none;
+    }
+    .filter-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .filter-chip.active {
+      background: var(--accent-soft);
+      border-color: rgba(94, 106, 210, 0.3);
+      color: var(--text-primary);
+    }
+    .filter-chip-close {
+      font-size: 12px;
+      opacity: 0.6;
+    }
+    .grid-stats-counter {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+    }
+
+    /* Segment Grid Table */
+    .segment-grid-container {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+    }
+    .segment-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .segment-table th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-medium);
+      padding: 6px 10px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      z-index: 10;
+    }
+    .th-ord { width: 44px; text-align: center; }
+    .th-src { width: 42%; }
+    .th-tgt { width: 42%; }
+    .th-state { width: 16%; }
+
+    .segment-row {
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background var(--trans-fast);
+      cursor: pointer;
+    }
+    .segment-row:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .segment-row.active {
+      background: rgba(94, 106, 210, 0.07);
+    }
+    .segment-row.locked {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .segment-cell {
+      padding: 10px 12px;
+      vertical-align: top;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .cell-ord {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+      padding-top: 12px;
+    }
+    .cell-src {
+      color: var(--text-primary);
+      border-right: 1px solid var(--border-subtle);
+    }
+    .cell-tgt {
+      color: var(--text-primary);
+      border-right: 1px solid var(--border-subtle);
+    }
+
+    /* Inline Tokens & Danger Tag Outlines */
+    .token-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #93c5fd;
+      border: 1px solid rgba(147, 197, 253, 0.2);
+      display: inline-block;
+      margin: 0 1px;
+    }
+    .token-tag.danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+      border-color: rgba(235, 87, 87, 0.4);
+    }
+
+    /* Target Cell Inline Editor */
+    .target-editor-box {
+      width: 100%;
+      min-height: 54px;
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-focus);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      color: var(--text-primary);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.5;
+      outline: none;
+      resize: vertical;
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* Status Badges & Origin Match Chips */
+    .cell-state-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      align-items: flex-start;
+      padding-top: 10px;
+    }
+    .state-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .state-untranslated { background: rgba(255, 255, 255, 0.05); color: var(--text-tertiary); }
+    .state-draft { background: var(--warn-soft); color: var(--warn); }
+    .state-confirmed { background: var(--ok-soft); color: var(--ok); }
+    .state-locked { background: rgba(255, 255, 255, 0.08); color: var(--text-secondary); }
+
+    .origin-badge {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--accent);
+    }
+    .qa-row-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10.5px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: var(--danger-soft);
+      color: var(--danger);
+      font-weight: 600;
+    }
+
+    /* Floating Find / Replace Widget */
+    .find-widget {
+      position: absolute;
+      top: 42px;
+      right: 24px;
+      width: 360px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-pop);
+      z-index: 50;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .find-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .find-input {
+      flex: 1;
+      height: 26px;
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      padding: 0 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    .find-input:focus {
+      border-color: var(--border-focus);
+    }
+    .find-count {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-family: var(--font-mono);
+    }
+
+    /* Bottom Collapsible Preview Drawer */
+    .preview-drawer {
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      height: 180px;
+      flex-shrink: 0;
+    }
+    .preview-header {
+      height: 28px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+      font-size: 11.5px;
+    }
+    .preview-modes {
+      display: flex;
+      gap: 4px;
+    }
+    .preview-mode-btn {
+      padding: 2px 8px;
+      border-radius: 3px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .preview-mode-btn.active {
+      background: var(--bg-surface);
+      border-color: var(--border-subtle);
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+    .preview-content {
+      flex: 1;
+      padding: 12px 16px;
+      overflow-y: auto;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .preview-content .preview-active-segment {
+      background: var(--accent-soft);
+      color: var(--text-primary);
+      border-left: 2px solid var(--accent);
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+
+    /* Right Dock Rail */
+    .sidebar-right {
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .dock-tabs-nav {
+      height: 36px;
+      display: flex;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-sunken);
+    }
+    .dock-tab-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all var(--trans-fast);
+    }
+    .dock-tab-btn:hover {
+      color: var(--text-primary);
+      background: var(--bg-surface);
+    }
+    .dock-tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: var(--bg-surface);
+    }
+    .dock-panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Cards in Right Dock (TM, QA, Term, AI) */
+    .dock-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .dock-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .match-pct-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .match-pct-badge.exact {
+      background: var(--ok-soft);
+      color: var(--ok);
+    }
+    .dock-card-tgt {
+      font-size: 13px;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+    .dock-card-src {
+      font-size: 11.5px;
+      color: var(--text-tertiary);
+    }
+
+    /* QA Issues List in Dock */
+    .qa-issue-item {
+      background: var(--bg-card);
+      border-left: 3px solid var(--danger);
+      border-top: 1px solid var(--border-subtle);
+      border-right: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .qa-issue-item.warn {
+      border-left-color: var(--warn);
+    }
+    .qa-issue-title {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .qa-issue-desc {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+    }
+    .qa-actions-row {
+      display: flex;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    /* Agent Autonomous Execution Card */
+    .agent-status-box {
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .agent-step-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .agent-step-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+    }
+    .agent-step-icon.done {
+      background: var(--ok-soft);
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+    .agent-step-icon.running {
+      border-color: var(--accent);
+      color: var(--accent);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    /* Bottom Instrument Status Bar */
+    .app-statusbar {
+      height: 24px;
+      background: var(--bg-sunken);
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      flex-shrink: 0;
+    }
+    .statusbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .statusbar-msg {
+      color: var(--text-secondary);
+    }
+    .statusbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--font-mono);
+    }
+    .statusbar-stat-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .statusbar-stat-btn:hover {
+      color: var(--text-primary);
+      text-decoration: underline;
+    }
+    .statusbar-stat-btn.danger {
+      color: var(--danger);
+    }
+    .engine-indicator {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--ok);
+    }
+    .engine-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+
+    /* Modal Dialogs Overlay */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-modal);
+      width: 520px;
+      max-width: 90vw;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .modal-body {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+    .modal-footer {
+      padding: 12px 18px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-sunken);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .form-label {
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .form-input, .form-select {
+      height: 32px;
+      background: var(--bg-sunken);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      padding: 0 10px;
+      font-size: 12.5px;
+      outline: none;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--border-focus);
+    }
+
+    /* Scenario Switcher for Visual Review */
+    .scenario-switcher-bar {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-medium);
+      border-radius: 20px;
+      box-shadow: var(--shadow-modal);
+      padding: 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      z-index: 9999;
+    }
+    .scenario-btn {
+      padding: 4px 10px;
+      border-radius: 14px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all var(--trans-fast);
+    }
+    .scenario-btn:hover {
+      color: var(--text-primary);
+      background: var(--bg-surface-hover);
+    }
+    .scenario-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Window Header & Menu -->
+  <header class="app-header">
+    <div class="window-titlebar">
+      <div class="window-brand">
+        <span class="window-brand-badge"></span>
+        <span>Translunar</span>
+      </div>
+      <nav class="app-menu-bar">
+        <div class="menu-item" onclick="openDialog('dialog-import')">文件 (F)</div>
+        <div class="menu-item">编辑 (E)</div>
+        <div class="menu-item">视图 (V)</div>
+        <div class="menu-item" onclick="openDialog('dialog-settings')">项目 (P)</div>
+        <div class="menu-item">翻译 (T)</div>
+        <div class="menu-item" onclick="switchDock('qa')">QA (Q)</div>
+        <div class="menu-item">帮助 (H)</div>
+      </nav>
+      <div class="window-title">
+        <span class="window-title-project" id="hdr-project-name">API Documentation v2</span> — 
+        <span id="hdr-doc-name">quickstart.md</span> 
+        <span class="lang-pair">en-US → zh-CN</span>
+      </div>
+    </div>
+
+    <!-- Ribbon Action Toolbar -->
+    <div class="ribbon-bar">
+      <div class="ribbon-group">
+        <button class="btn btn-sm" onclick="alert('返回项目列表')">项目列表</button>
+        <button class="btn btn-sm" onclick="openDialog('dialog-tm')">TM 管理</button>
+      </div>
+      <div class="ribbon-group">
+        <button class="btn btn-sm" onclick="openDialog('dialog-import')">导入文档 <kbd>Ctrl+O</kbd></button>
+        <button class="btn btn-sm" onclick="triggerExport()">导出译文 <kbd>Ctrl+E</kbd></button>
+      </div>
+      <div class="ribbon-group">
+        <button class="btn btn-sm btn-primary" onclick="confirmCurrentSegment()">确认 <kbd>Ctrl+Enter</kbd></button>
+        <button class="btn btn-sm" onclick="toggleLockCurrent()">锁定 <kbd>Ctrl+L</kbd></button>
+        <button class="btn btn-sm" onclick="pretranslate()">预翻译</button>
+      </div>
+      <div class="ribbon-group">
+        <button class="btn btn-sm" onclick="toggleFindWidget('find')">查找 <kbd>Ctrl+F</kbd></button>
+        <button class="btn btn-sm" onclick="toggleFindWidget('replace')">替换 <kbd>Ctrl+H</kbd></button>
+        <button class="btn btn-sm" onclick="switchDock('memory')">语料检索 <kbd>F3</kbd></button>
+      </div>
+      <div class="ribbon-group">
+        <button class="btn btn-sm" onclick="runQa()">运行 QA</button>
+        <button class="btn btn-sm" onclick="togglePreview()">预览 <kbd>Ctrl+P</kbd></button>
+        <button class="btn btn-sm" onclick="openCommandPalette()">命令搜索 <kbd>Ctrl+K</kbd></button>
+      </div>
+      <div class="ribbon-search">
+        <input type="text" class="input-search" placeholder="筛选句段 (Ctrl+Shift+F)..." id="ribbon-filter-input">
+      </div>
+    </div>
+  </header>
+
+  <!-- Workspace Body -->
+  <main class="workbench-body">
+
+    <!-- Left Rail: Project & Documents Explorer -->
+    <aside class="sidebar-left">
+      <div class="sidebar-section">
+        <div class="sidebar-header">
+          <span class="sidebar-title">项目概览</span>
+          <button class="btn btn-sm btn-icon-only" title="项目设置" onclick="openDialog('dialog-settings')">⚙</button>
+        </div>
+        <div class="project-card">
+          <div class="project-name">
+            <span>API Documentation v2</span>
+          </div>
+          <div class="lang-pair">en-US → zh-CN</div>
+          <div class="progress-track">
+            <div class="progress-fill" style="width: 68%;"></div>
+          </div>
+          <div class="progress-meta">
+            <span>已确认 18/25</span>
+            <span style="font-family: var(--font-mono);">68%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="doc-list-section">
+        <div class="sidebar-header">
+          <span class="sidebar-title">项目文件 (3)</span>
+          <button class="btn btn-sm btn-primary" style="height: 20px; padding: 0 6px; font-size: 10.5px;" onclick="openDialog('dialog-import')">+ 导入</button>
+        </div>
+        <input type="text" class="input-search" style="width: 100%; height: 24px; margin-bottom: 6px;" placeholder="搜索文件...">
+        <ul class="doc-list">
+          <li class="doc-item active" onclick="selectDoc(0)">
+            <div class="doc-item-title">
+              <span>quickstart.md</span>
+              <span class="doc-item-badge">md</span>
+            </div>
+            <div class="doc-item-meta">
+              <span>确认 5/8</span> · <span>草稿 2</span> · <span style="color: var(--danger);">QA 1</span>
+            </div>
+            <button class="doc-delete-btn" onclick="event.stopPropagation(); alert('移除文件 quickstart.md')">移除</button>
+          </li>
+          <li class="doc-item" onclick="selectDoc(1)">
+            <div class="doc-item-title">
+              <span>authentication.docx</span>
+              <span class="doc-item-badge">docx</span>
+            </div>
+            <div class="doc-item-meta">
+              <span>确认 10/12</span> · <span>草稿 0</span>
+            </div>
+            <button class="doc-delete-btn" onclick="event.stopPropagation(); alert('移除文件 authentication.docx')">移除</button>
+          </li>
+          <li class="doc-item" onclick="selectDoc(2)">
+            <div class="doc-item-title">
+              <span>billing-api.json</span>
+              <span class="doc-item-badge">json</span>
+            </div>
+            <div class="doc-item-meta">
+              <span>确认 3/5</span> · <span>草稿 1</span>
+            </div>
+            <button class="doc-delete-btn" onclick="event.stopPropagation(); alert('移除文件 billing-api.json')">移除</button>
+          </li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Center Working Grid -->
+    <section class="center-workbench">
+      <!-- Document Tabs -->
+      <div class="doc-tabs-bar">
+        <div class="doc-tab active">
+          <span>quickstart.md</span>
+          <span class="doc-tab-close" onclick="alert('关闭标签')">×</span>
+        </div>
+        <div class="doc-tab">
+          <span>authentication.docx</span>
+          <span class="doc-tab-close" onclick="alert('关闭标签')">×</span>
+        </div>
+      </div>
+
+      <!-- Grid Filter Chips Toolbar -->
+      <div class="grid-filter-toolbar">
+        <select class="filter-select" id="grid-filter-state" onchange="filterGridState(this.value)">
+          <option value="all">全部状态</option>
+          <option value="untranslated">未译</option>
+          <option value="draft">草稿</option>
+          <option value="confirmed">已确认</option>
+          <option value="qa">QA 问题</option>
+        </select>
+        <span class="filter-chip active" id="chip-status">
+          状态: 全部 <span class="filter-chip-close">×</span>
+        </span>
+        <span class="filter-chip" id="chip-term" style="display: none;">
+          有术语 <span class="filter-chip-close">×</span>
+        </span>
+        <span class="grid-stats-counter">可见句段 8 / 8</span>
+      </div>
+
+      <!-- Segment Grid Table -->
+      <div class="segment-grid-container">
+        <!-- Floating Find Widget -->
+        <div class="find-widget" id="find-widget" style="display: none;">
+          <div class="find-row">
+            <input type="text" class="find-input" placeholder="查找..." id="find-query" value="API key">
+            <span class="find-count">1/3</span>
+            <button class="btn btn-sm" onclick="findNext()">↓</button>
+            <button class="btn btn-sm" onclick="findPrev()">↑</button>
+            <button class="btn btn-sm" onclick="toggleFindReplaceRow()">⇄</button>
+            <button class="btn btn-sm btn-icon-only" onclick="toggleFindWidget()">×</button>
+          </div>
+          <div class="find-row" id="replace-row" style="display: none;">
+            <input type="text" class="find-input" placeholder="替换为..." id="replace-query" value="API 密钥">
+            <button class="btn btn-sm" onclick="replaceOne()">替换</button>
+            <button class="btn btn-sm" onclick="replaceAll()">全部</button>
+            <label style="font-size: 11px; color: var(--text-tertiary); display: flex; align-items: center; gap: 3px;">
+              <input type="checkbox" id="chk-inc-conf"> 含已确认
+            </label>
+          </div>
+        </div>
+
+        <table class="segment-table">
+          <thead>
+            <tr>
+              <th class="th-ord">#</th>
+              <th class="th-src">源文 <span style="font-family: var(--font-mono); color: var(--text-tertiary); font-weight: normal;">en-US</span></th>
+              <th class="th-tgt">译文 <span style="font-family: var(--font-mono); color: var(--text-tertiary); font-weight: normal;">zh-CN</span></th>
+              <th class="th-state">状态</th>
+            </tr>
+          </thead>
+          <tbody id="segment-grid-tbody">
+            <!-- Row 1: Confirmed with 100% TM -->
+            <tr class="segment-row" onclick="selectSegment(1)" id="seg-row-1">
+              <td class="segment-cell cell-ord">1</td>
+              <td class="segment-cell cell-src">Welcome to the <span class="token-tag">{{app_name}}</span> developer platform.</td>
+              <td class="segment-cell cell-tgt">欢迎使用 <span class="token-tag">{{app_name}}</span> 开发者平台。</td>
+              <td class="segment-cell cell-state-wrap">
+                <span class="state-badge state-confirmed">✓ 已确认</span>
+                <span class="origin-badge">100% TM</span>
+              </td>
+            </tr>
+            <!-- Row 2: Active Segment with 95% TM (Unedited Fuzzy QA Warning) -->
+            <tr class="segment-row active" onclick="selectSegment(2)" id="seg-row-2">
+              <td class="segment-cell cell-ord">2</td>
+              <td class="segment-cell cell-src">Please authenticate with your <span class="token-tag">&lt;api_token&gt;</span> before making requests.</td>
+              <td class="segment-cell cell-tgt">
+                <textarea class="target-editor-box" id="active-tgt-editor" oninput="updateCaret(this)">请在发起请求前使用您的 &lt;api_token&gt; 进行身份验证。</textarea>
+              </td>
+              <td class="segment-cell cell-state-wrap">
+                <span class="state-badge state-draft">✎ 草稿</span>
+                <span class="origin-badge">95% TM</span>
+                <span class="qa-row-badge">⚠ 1 QA</span>
+              </td>
+            </tr>
+            <!-- Row 3: Locked Segment -->
+            <tr class="segment-row locked" onclick="selectSegment(3)" id="seg-row-3">
+              <td class="segment-cell cell-ord">3</td>
+              <td class="segment-cell cell-src">Copyright &copy; 2026 Translunar Inc. All rights reserved.</td>
+              <td class="segment-cell cell-tgt">版权所有 &copy; 2026 Translunar Inc. 保留所有权利。</td>
+              <td class="segment-cell cell-state-wrap">
+                <span class="state-badge state-locked">🔒 已锁定</span>
+                <span class="origin-badge">ICE 101%</span>
+              </td>
+            </tr>
+            <!-- Row 4: Untranslated Segment -->
+            <tr class="segment-row" onclick="selectSegment(4)" id="seg-row-4">
+              <td class="segment-cell cell-ord">4</td>
+              <td class="segment-cell cell-src">Ensure your secret key is kept confidential and never exposed client-side.</td>
+              <td class="segment-cell cell-tgt" style="color: var(--text-tertiary);">（未翻译）</td>
+              <td class="segment-cell cell-state-wrap">
+                <span class="state-badge state-untranslated">· 未译</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Bottom Collapsible Preview Drawer -->
+      <div class="preview-drawer" id="preview-drawer">
+        <div class="preview-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600; color: var(--text-secondary);">实时预览</span>
+            <div class="preview-modes">
+              <button class="preview-mode-btn active" onclick="switchPreviewMode('proofread')">校对视图</button>
+              <button class="preview-mode-btn" onclick="switchPreviewMode('layout')">版式视图 (DOCX)</button>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-icon-only" onclick="togglePreview()">−</button>
+        </div>
+        <div class="preview-content">
+          <p style="margin-bottom: 8px;">欢迎使用 {{app_name}} 开发者平台。</p>
+          <p class="preview-active-segment" style="margin-bottom: 8px;">请在发起请求前使用您的 &lt;api_token&gt; 进行身份验证。</p>
+          <p style="margin-bottom: 8px; opacity: 0.6;">Copyright &copy; 2026 Translunar Inc. All rights reserved.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Dock Rail (4 Tabs) -->
+    <aside class="sidebar-right">
+      <nav class="dock-tabs-nav">
+        <div class="dock-tab-btn" id="dock-tab-memory" onclick="switchDock('memory')">记忆 (1)</div>
+        <div class="dock-tab-btn" id="dock-tab-term" onclick="switchDock('term')">术语 (2)</div>
+        <div class="dock-tab-btn active" id="dock-tab-qa" onclick="switchDock('qa')">QA (3)</div>
+        <div class="dock-tab-btn" id="dock-tab-ai" onclick="switchDock('ai')">AI (4)</div>
+      </nav>
+
+      <div class="dock-panel-body" id="dock-body-container">
+        <!-- QA Dock View (Active by default for unedited fuzzy) -->
+        <div id="dock-view-qa">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">未解决问题 (1)</span>
+            <button class="btn btn-sm btn-primary" onclick="runQa()">重新检查</button>
+          </div>
+
+          <div class="qa-issue-item warn">
+            <div class="qa-issue-title">
+              <span>⚠ qa.unedited-fuzzy</span>
+              <span style="font-size: 10px; color: var(--warn);">警告</span>
+            </div>
+            <div class="qa-issue-desc">
+              模糊匹配（95%）未修改即确认。请检查术语与标点是否与源文一致。
+            </div>
+            <div class="qa-actions-row">
+              <button class="btn btn-sm" onclick="alert('已忽略当前问题')">忽略</button>
+              <button class="btn btn-sm" onclick="alert('已忽略同类问题')">忽略同类</button>
+              <button class="btn btn-sm" onclick="alert('已忽略本句问题')">忽略本句</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TM Dock View (Hidden) -->
+        <div id="dock-view-memory" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">匹配结果 (2)</span>
+            <span class="match-pct-badge">最佳 95%</span>
+          </div>
+          <div class="dock-card">
+            <div class="dock-card-header">
+              <span class="match-pct-badge">95% 模糊</span>
+              <span style="font-size: 10.5px; color: var(--text-tertiary);">Core_TM_2026</span>
+              <button class="btn btn-sm btn-primary" onclick="applyTmMatch()">应用为草稿</button>
+            </div>
+            <div class="dock-card-tgt">请在发起请求前使用您的 &lt;api_token&gt; 进行身份验证。</div>
+            <div class="dock-card-src">源：Please authenticate with your &lt;api_token&gt; before sending requests.</div>
+          </div>
+        </div>
+
+        <!-- Term Dock View (Hidden) -->
+        <div id="dock-view-term" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">识别术语 (1)</span>
+          </div>
+          <div class="dock-card">
+            <div class="dock-card-header">
+              <strong style="color: var(--accent);">authenticate</strong>
+              <button class="btn btn-sm" onclick="insertTerm('身份验证')">插入译文</button>
+            </div>
+            <div class="dock-card-tgt">身份验证</div>
+            <div class="dock-card-src">术语库：Dev_Glossary_v1</div>
+          </div>
+          <div style="margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 10px;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--text-tertiary);">快速添加术语</span>
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+              <input type="text" class="form-input" style="height: 26px;" placeholder="源术语">
+              <input type="text" class="form-input" style="height: 26px;" placeholder="目标译文">
+              <button class="btn btn-sm btn-primary">添加至术语库</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Dock View (Hidden) -->
+        <div id="dock-view-ai" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">AI 辅助 & Agent</span>
+            <span class="doc-item-badge">GPT-4o</span>
+          </div>
+          <div class="dock-card">
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-primary" style="flex: 1;" onclick="aiTranslate()">AI 翻译</button>
+              <button class="btn btn-sm" style="flex: 1;" onclick="aiRefine()">润色优化</button>
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;" id="ai-candidate-text">
+              点击上方按钮获取 AI 候选译文...
+            </div>
+          </div>
+          <div class="agent-status-box" style="margin-top: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; font-size: 12px;">自主翻译 Agent</span>
+              <span class="state-badge state-draft" id="agent-status-pill">等待人工审核</span>
+            </div>
+            <div class="agent-step-item">
+              <span class="agent-step-icon done">✓</span> <span>1. 任务规划与语料分析</span>
+            </div>
+            <div class="agent-step-item">
+              <span class="agent-step-icon done">✓</span> <span>2. TM 记忆库预翻译 (2 句)</span>
+            </div>
+            <div class="agent-step-item">
+              <span class="agent-step-icon done">✓</span> <span>3. AI 起草 (4 句)</span>
+            </div>
+            <div class="agent-step-item">
+              <span class="agent-step-icon done">✓</span> <span>4. 自动 QA 质检与占位符验证</span>
+            </div>
+            <button class="btn btn-sm btn-primary" style="margin-top: 6px;" onclick="triggerExport()">前往审核与导出</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Instrument Status Bar -->
+  <footer class="app-statusbar">
+    <div class="statusbar-left">
+      <span class="statusbar-msg" id="statusbar-message">Translunar CAT 就绪 · 句段 #2 草稿已保存</span>
+    </div>
+    <div class="statusbar-right">
+      <span>句段 <strong style="color: var(--text-primary);">2/8</strong></span>
+      <span>已确认 <strong style="color: var(--text-primary);">5</strong></span>
+      <button class="statusbar-stat-btn" onclick="filterGridState('draft')">草稿 <strong style="color: var(--warn);">2</strong></button>
+      <span>剩余 <strong style="color: var(--text-primary);">1</strong></span>
+      <span>字数 <strong style="color: var(--text-primary);">148</strong></span>
+      <button class="statusbar-stat-btn danger" onclick="filterGridState('qa')">QA <strong style="color: var(--danger);">1</strong></button>
+      <span>进度 <strong style="color: var(--accent);">68%</strong></span>
+      <span>行列 <strong style="color: var(--text-primary);" id="caret-stat">1:28</strong></span>
+      <span style="color: var(--text-tertiary);">INS</span>
+      <span class="engine-indicator">
+        <span class="engine-dot"></span>
+        <span>engine 0.3.1 (pid 4192)</span>
+      </span>
+    </div>
+  </footer>
+
+  <!-- Modal Dialogs -->
+
+  <!-- 1. Import Dialog -->
+  <div class="modal-overlay" id="dialog-import">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">导入文档到项目</span>
+        <button class="btn btn-sm btn-icon-only" onclick="closeDialog('dialog-import')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">源文件路径</label>
+          <div style="display: flex; gap: 6px;">
+            <input type="text" class="form-input" style="flex: 1;" value="/docs/api/quickstart.md" readonly>
+            <button class="btn btn-sm">选择文件...</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">分句模式</label>
+          <select class="form-select">
+            <option value="sentence">句子模式 (SRX 标准分句规则)</option>
+            <option value="paragraph">段落模式 (以换行符为准)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">自定义 SRX 规则集（可选）</label>
+          <input type="text" class="form-input" placeholder="默认使用内置标准中文/英文规则集">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeDialog('dialog-import')">取消</button>
+        <button class="btn btn-sm btn-primary" onclick="closeDialog('dialog-import'); alert('文档导入成功！')">开始导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Project Settings Dialog -->
+  <div class="modal-overlay" id="dialog-settings">
+    <div class="modal-box" style="width: 580px;">
+      <div class="modal-header">
+        <span class="modal-title">项目设置 — API Documentation v2</span>
+        <button class="btn btn-sm btn-icon-only" onclick="closeDialog('dialog-settings')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">项目名称</label>
+          <input type="text" class="form-input" value="API Documentation v2">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group">
+            <label class="form-label">源语言 (只读)</label>
+            <input type="text" class="form-input" value="en-US" disabled>
+          </div>
+          <div class="form-group">
+            <label class="form-label">目标语言 (只读)</label>
+            <input type="text" class="form-input" value="zh-CN" disabled>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">挂载翻译记忆库</label>
+          <div style="background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 8px;">
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 4px;">
+              <span>Core_TM_2026.tmx (写入库)</span>
+              <span style="color: var(--ok);">已启用</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 11.5px;">
+              <span>Legacy_Glossary_TM.tmx (只读)</span>
+              <span style="color: var(--ok);">已启用</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeDialog('dialog-settings')">取消</button>
+        <button class="btn btn-sm btn-primary" onclick="closeDialog('dialog-settings')">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. TM Management Dialog -->
+  <div class="modal-overlay" id="dialog-tm">
+    <div class="modal-box" style="width: 640px;">
+      <div class="modal-header">
+        <span class="modal-title">翻译记忆库 (TM) 管理</span>
+        <button class="btn btn-sm btn-icon-only" onclick="closeDialog('dialog-tm')">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <input type="text" class="input-search" style="width: 240px;" placeholder="搜索记忆库条目...">
+          <button class="btn btn-sm btn-primary">导入 TMX / CSV</button>
+        </div>
+        <div style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 4px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 11.5px;">
+            <tr style="background: var(--bg-sunken); border-bottom: 1px solid var(--border-subtle);">
+              <th style="padding: 6px; text-align: left;">源文</th>
+              <th style="padding: 6px; text-align: left;">译文</th>
+              <th style="padding: 6px; width: 60px;">操作</th>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border-subtle);">
+              <td style="padding: 6px;">Welcome to the {{app_name}} developer platform.</td>
+              <td style="padding: 6px;">欢迎使用 {{app_name}} 开发者平台。</td>
+              <td style="padding: 6px;"><button class="btn btn-sm">编辑</button></td>
+            </tr>
+            <tr>
+              <td style="padding: 6px;">Copyright &copy; 2026 Translunar Inc.</td>
+              <td style="padding: 6px;">版权所有 &copy; 2026 Translunar Inc.</td>
+              <td style="padding: 6px;"><button class="btn btn-sm">编辑</button></td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeDialog('dialog-tm')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Export QA Gate Warning Alert Modal -->
+  <div class="modal-overlay" id="dialog-export-qa-gate">
+    <div class="modal-box" style="width: 440px;">
+      <div class="modal-header">
+        <span class="modal-title" style="color: var(--danger);">存在未解决的 QA 错误</span>
+        <button class="btn btn-sm btn-icon-only" onclick="closeDialog('dialog-export-qa-gate')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-secondary);">
+          文档中检测到 <strong>1 个 QA 错误/警告</strong>（<code>qa.unedited-fuzzy</code>）。直接导出可能会导致交付质量问题。
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeDialog('dialog-export-qa-gate')">返回修改</button>
+        <button class="btn btn-sm btn-danger" onclick="closeDialog('dialog-export-qa-gate'); alert('已强制导出译文！')">仍要导出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario Switcher -->
+  <div class="scenario-switcher-bar">
+    <span style="font-size: 11px; color: var(--text-tertiary); margin-right: 4px; font-weight: 600;">场景演示:</span>
+    <button class="scenario-btn active" onclick="setScenario('standard')">1. 标准工作区</button>
+    <button class="scenario-btn" onclick="setScenario('qa-alert')">2. QA 警告</button>
+    <button class="scenario-btn" onclick="setScenario('agent-audit')">3. Agent 待审核</button>
+    <button class="scenario-btn" onclick="setScenario('export-gate')">4. 导出闸门</button>
+    <button class="scenario-btn" onclick="setScenario('dialog-import')">5. 导入对话框</button>
+  </div>
+
+  <script>
+    function switchDock(tabId) {
+      document.querySelectorAll('.dock-tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('dock-tab-' + tabId).classList.add('active');
+      document.getElementById('dock-view-qa').style.display = tabId === 'qa' ? 'block' : 'none';
+      document.getElementById('dock-view-memory').style.display = tabId === 'memory' ? 'block' : 'none';
+      document.getElementById('dock-view-term').style.display = tabId === 'term' ? 'block' : 'none';
+      document.getElementById('dock-view-ai').style.display = tabId === 'ai' ? 'block' : 'none';
+    }
+
+    function toggleFindWidget(mode) {
+      const widget = document.getElementById('find-widget');
+      if (mode) {
+        widget.style.display = 'flex';
+        document.getElementById('replace-row').style.display = mode === 'replace' ? 'flex' : 'none';
+      } else {
+        widget.style.display = widget.style.display === 'none' ? 'flex' : 'none';
+      }
+    }
+
+    function toggleFindReplaceRow() {
+      const row = document.getElementById('replace-row');
+      row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    function togglePreview() {
+      const p = document.getElementById('preview-drawer');
+      p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    function openDialog(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeDialog(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    function triggerExport() {
+      openDialog('dialog-export-qa-gate');
+    }
+
+    function confirmCurrentSegment() {
+      const row = document.getElementById('seg-row-2');
+      const badge = row.querySelector('.state-badge');
+      badge.className = 'state-badge state-confirmed';
+      badge.innerHTML = '✓ 已确认';
+      document.getElementById('statusbar-message').innerText = '句段 #2 已确认并写入 TM';
+    }
+
+    function toggleLockCurrent() {
+      const row = document.getElementById('seg-row-2');
+      row.classList.toggle('locked');
+      const badge = row.querySelector('.state-badge');
+      if (row.classList.contains('locked')) {
+        badge.className = 'state-badge state-locked';
+        badge.innerHTML = '🔒 已锁定';
+      } else {
+        badge.className = 'state-badge state-draft';
+        badge.innerHTML = '✎ 草稿';
+      }
+    }
+
+    function updateCaret(textarea) {
+      const val = textarea.value.substr(0, textarea.selectionStart);
+      const lines = val.split("\n");
+      document.getElementById('caret-stat').innerText = lines.length + ':' + lines[lines.length - 1].length;
+      document.getElementById('statusbar-message').innerText = '句段 #2 正在编辑 (草稿自动暂存)';
+    }
+
+    function setScenario(sc) {
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+
+      if (sc === 'standard') {
+        switchDock('memory');
+      } else if (sc === 'qa-alert') {
+        switchDock('qa');
+      } else if (sc === 'agent-audit') {
+        switchDock('ai');
+      } else if (sc === 'export-gate') {
+        openDialog('dialog-export-qa-gate');
+      } else if (sc === 'dialog-import') {
+        openDialog('dialog-import');
+      }
+    }
+  </script>
+</body>
+</html>

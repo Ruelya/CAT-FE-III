@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Translunar CAT Workbench — Notion Workspace Edition</title>
+  <style>
+    /* Notion Workspace Design System Tokens */
+    :root {
+      --bg-page: #ffffff;
+      --bg-sidebar: #fbfbfa;
+      --bg-hover: #efefee;
+      --bg-active: #e8e8e7;
+      --bg-selected: #ebf5fe;
+      --border-main: #e9e9e8;
+      --border-dark: #d3d3d2;
+      --text-main: #37352f;
+      --text-muted: #787774;
+      --text-light: #9b9a97;
+      --notion-blue: #2383e2;
+      --notion-blue-soft: #ebf5fe;
+      --notion-brown: #9f6b53;
+      --notion-orange: #d9730d;
+      --notion-yellow: #cb912f;
+      --notion-green: #448361;
+      --notion-red: #d44c47;
+      --notion-red-soft: #fbe4e4;
+      --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+      --radius-sm: 3px;
+      --radius-md: 5px;
+      --shadow-pop: 0 1px 3px rgba(15, 15, 15, 0.1), 0 3px 6px rgba(15, 15, 15, 0.05);
+      --shadow-modal: 0 4px 16px rgba(15, 15, 15, 0.15), 0 0 0 1px rgba(15, 15, 15, 0.05);
+      --trans: 120ms ease-in;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: var(--text-main);
+      background-color: var(--bg-page);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Breadcrumbs & Menu Header */
+    .notion-topbar {
+      height: 44px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-main);
+      background: var(--bg-page);
+      flex-shrink: 0;
+    }
+    .notion-breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13.5px;
+    }
+    .notion-icon {
+      font-size: 15px;
+    }
+    .notion-tag {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-hover);
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12.5px;
+      color: var(--text-main);
+      background: transparent;
+      border: 1px solid var(--border-main);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--trans);
+    }
+    .btn:hover {
+      background: var(--bg-hover);
+    }
+    .btn-blue {
+      background: var(--notion-blue);
+      color: #ffffff;
+      border-color: var(--notion-blue);
+    }
+    .btn-blue:hover {
+      background: #1b6fc2;
+    }
+
+    /* Notion 3-Column Layout */
+    .notion-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr 340px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* Left Sidebar */
+    .sidebar-left {
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-main);
+      display: flex;
+      flex-direction: column;
+      padding: 12px 8px;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background var(--trans);
+    }
+    .sidebar-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-main);
+    }
+    .sidebar-item.active {
+      background: var(--bg-active);
+      color: var(--text-main);
+      font-weight: 500;
+    }
+    .sidebar-heading {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-light);
+      padding: 10px 8px 4px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Center Document & Grid */
+    .center-doc {
+      background: var(--bg-page);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .doc-page-header {
+      padding: 24px 36px 12px 36px;
+      border-bottom: 1px solid var(--border-main);
+    }
+    .doc-page-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .doc-page-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* Segment Table in Notion Style */
+    .grid-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 36px;
+    }
+    .notion-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .notion-table th {
+      border-bottom: 1px solid var(--border-main);
+      padding: 8px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-light);
+      text-align: left;
+    }
+    .notion-row {
+      border-bottom: 1px solid var(--border-main);
+      transition: background var(--trans);
+      cursor: pointer;
+    }
+    .notion-row:hover {
+      background: rgba(55, 53, 47, 0.03);
+    }
+    .notion-row.active {
+      background: var(--notion-blue-soft);
+    }
+    .notion-cell {
+      padding: 10px;
+      vertical-align: top;
+      font-size: 13.5px;
+    }
+    .cell-ord {
+      width: 36px;
+      text-align: center;
+      font-size: 11.5px;
+      color: var(--text-light);
+      font-family: var(--font-mono);
+    }
+    .cell-src { width: 42%; border-right: 1px solid var(--border-main); }
+    .cell-tgt { width: 42%; border-right: 1px solid var(--border-main); }
+    .cell-state { width: 16%; }
+
+    .token-bubble {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 1px 5px;
+      border-radius: var(--radius-sm);
+      background: #f7f6f3;
+      color: var(--notion-brown);
+      border: 1px solid #e3e2e0;
+      display: inline-block;
+    }
+
+    .notion-textarea {
+      width: 100%;
+      min-height: 54px;
+      padding: 6px 8px;
+      border: 1px solid var(--notion-blue);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-ui);
+      font-size: 13.5px;
+      color: var(--text-main);
+      outline: none;
+      resize: vertical;
+      background: #ffffff;
+      box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.15);
+    }
+
+    .notion-status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+    .chip-confirmed { background: #e3ede3; color: var(--notion-green); }
+    .chip-draft { background: #fbf3db; color: var(--notion-orange); }
+    .chip-untranslated { background: #f1f1ef; color: var(--text-muted); }
+    .chip-locked { background: #f1f1ef; color: var(--text-light); }
+
+    /* Right Sidebar Utility Dock */
+    .sidebar-right {
+      background: var(--bg-sidebar);
+      border-left: 1px solid var(--border-main);
+      display: flex;
+      flex-direction: column;
+    }
+    .right-tabs {
+      height: 38px;
+      display: flex;
+      border-bottom: 1px solid var(--border-main);
+      background: var(--bg-sidebar);
+    }
+    .right-tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all var(--trans);
+    }
+    .right-tab:hover {
+      color: var(--text-main);
+    }
+    .right-tab.active {
+      color: var(--notion-blue);
+      border-bottom-color: var(--notion-blue);
+      background: var(--bg-page);
+      font-weight: 500;
+    }
+    .right-body {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .notion-card {
+      background: var(--bg-page);
+      border: 1px solid var(--border-main);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      box-shadow: var(--shadow-pop);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Bottom Status Bar */
+    .notion-statusbar {
+      height: 24px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border-main);
+      background: var(--bg-sidebar);
+      font-size: 11.5px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* Modal Dialogs */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 15, 15, 0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-box {
+      background: #ffffff;
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-modal);
+      width: 480px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-main);
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+    }
+    .modal-body {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .modal-footer {
+      padding: 10px 18px;
+      border-top: 1px solid var(--border-main);
+      background: var(--bg-sidebar);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* Scenario Switcher */
+    .scenario-bar {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ffffff;
+      border: 1px solid var(--border-dark);
+      border-radius: 20px;
+      box-shadow: var(--shadow-modal);
+      padding: 4px 8px;
+      display: flex;
+      gap: 4px;
+      z-index: 9999;
+    }
+    .scenario-btn {
+      padding: 4px 10px;
+      border-radius: 14px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .scenario-btn.active {
+      background: var(--text-main);
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Topbar Navigation -->
+  <header class="notion-topbar">
+    <div class="notion-breadcrumbs">
+      <span class="notion-icon">📖</span>
+      <span>Translunar</span> / 
+      <span>Product Knowledge Base</span> / 
+      <strong style="color: var(--text-main);">onboarding-guide.docx</strong>
+      <span class="notion-tag">en-US → zh-CN</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn" onclick="openModal('modal-settings')">⚙ 项目设置</button>
+      <button class="btn btn-blue" onclick="openModal('modal-qa-gate')">导出译文</button>
+    </div>
+  </header>
+
+  <!-- 3-Column Layout -->
+  <main class="notion-layout">
+
+    <!-- Left Sidebar -->
+    <aside class="sidebar-left">
+      <div class="sidebar-heading">项目文件 (2)</div>
+      <div class="sidebar-item active">
+        <span>📄</span>
+        <span>onboarding-guide.docx</span>
+      </div>
+      <div class="sidebar-item">
+        <span>📄</span>
+        <span>release-notes.md</span>
+      </div>
+
+      <div class="sidebar-heading" style="margin-top: 12px;">快捷动作</div>
+      <div class="sidebar-item" onclick="openModal('modal-import')">
+        <span>📥</span>
+        <span>导入新文档</span>
+      </div>
+      <div class="sidebar-item" onclick="alert('TM 管理')">
+        <span>🗄️</span>
+        <span>记忆库管理</span>
+      </div>
+    </aside>
+
+    <!-- Center Document View -->
+    <section class="center-doc">
+      <div class="doc-page-header">
+        <div class="doc-page-title">
+          <span>📄</span>
+          <span>onboarding-guide.docx</span>
+        </div>
+        <div class="doc-page-meta">
+          <span>已确认 1/3 (33%)</span> · 
+          <span>总字数 54 字</span> · 
+          <span style="color: var(--notion-red);">1 个 QA 问题</span>
+        </div>
+      </div>
+
+      <div class="grid-container">
+        <table class="notion-table">
+          <thead>
+            <tr>
+              <th style="width: 36px; text-align: center;">#</th>
+              <th>源文 (en-US)</th>
+              <th>译文 (zh-CN)</th>
+              <th style="width: 120px;">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1: Confirmed -->
+            <tr class="notion-row">
+              <td class="notion-cell cell-ord">1</td>
+              <td class="notion-cell cell-src">Welcome to the workspace! Click <span class="token-bubble">{start_tour}</span> to begin.</td>
+              <td class="notion-cell cell-tgt">欢迎来到工作区！点击 <span class="token-bubble">{start_tour}</span> 开始导览。</td>
+              <td class="notion-cell cell-state">
+                <span class="notion-status-chip chip-confirmed">✓ 已确认</span>
+              </td>
+            </tr>
+            <!-- Row 2: Active Draft with QA Alert -->
+            <tr class="notion-row active">
+              <td class="notion-cell cell-ord">2</td>
+              <td class="notion-cell cell-src">Customize your settings in the sidebar menu under Workspace Preferences.</td>
+              <td class="notion-cell cell-tgt">
+                <textarea class="notion-textarea">在侧边栏菜单的工作区偏好设置中自定义您的设置。</textarea>
+              </td>
+              <td class="notion-cell cell-state">
+                <span class="notion-status-chip chip-draft">✎ 草稿</span>
+                <div style="font-size: 11px; color: var(--notion-red); margin-top: 4px;">⚠ 1 QA</div>
+              </td>
+            </tr>
+            <!-- Row 3: Locked -->
+            <tr class="notion-row">
+              <td class="notion-cell cell-ord">3</td>
+              <td class="notion-cell cell-src">Translunar Workspace &copy; 2026.</td>
+              <td class="notion-cell cell-tgt">Translunar Workspace &copy; 2026.</td>
+              <td class="notion-cell cell-state">
+                <span class="notion-status-chip chip-locked">🔒 已锁定</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right Sidebar Dock -->
+    <aside class="sidebar-right">
+      <nav class="right-tabs">
+        <div class="right-tab" id="tab-memory" onclick="switchTab('memory')">记忆库</div>
+        <div class="right-tab" id="tab-term" onclick="switchTab('term')">术语</div>
+        <div class="right-tab active" id="tab-qa" onclick="switchTab('qa')">QA 质检</div>
+        <div class="right-tab" id="tab-ai" onclick="switchTab('ai')">AI</div>
+      </nav>
+
+      <div class="right-body">
+        <!-- QA View -->
+        <div id="view-qa">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong style="font-size: 12.5px;">未解决问题 (1)</strong>
+            <button class="btn" style="height: 22px; font-size: 11px;">重新检查</button>
+          </div>
+          <div class="notion-card" style="border-left: 3px solid var(--notion-red);">
+            <strong style="color: var(--notion-red); font-size: 12px;">qa.unedited-fuzzy</strong>
+            <p style="font-size: 12px; color: var(--text-muted);">
+              模糊匹配（85%）未修改即确认。请核对 Workspace Preferences 专有名词。
+            </p>
+            <div style="display: flex; gap: 4px; margin-top: 6px;">
+              <button class="btn" style="height: 22px; font-size: 11px;" onclick="alert('已忽略')">忽略</button>
+              <button class="btn" style="height: 22px; font-size: 11px;" onclick="alert('已忽略同类')">忽略同类</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TM View (Hidden) -->
+        <div id="view-memory" style="display: none;">
+          <div class="notion-card">
+            <span class="notion-tag">90% 匹配</span>
+            <strong style="font-size: 12.5px;">在侧边栏菜单中自定义您的工作区偏好设置。</strong>
+            <p style="font-size: 11.5px; color: var(--text-light);">源：Customize settings in sidebar under Workspace Preferences.</p>
+            <button class="btn btn-blue" style="margin-top: 4px;" onclick="alert('已应用')">应用为草稿</button>
+          </div>
+        </div>
+
+        <!-- Term View (Hidden) -->
+        <div id="view-term" style="display: none;">
+          <div class="notion-card">
+            <strong style="color: var(--notion-blue);">Workspace Preferences</strong>
+            <p style="font-size: 12px; color: var(--text-muted);">工作区偏好设置 (UI 术语)</p>
+            <button class="btn" style="margin-top: 4px;" onclick="alert('已插入')">插入译文</button>
+          </div>
+        </div>
+
+        <!-- AI View (Hidden) -->
+        <div id="view-ai" style="display: none;">
+          <div class="notion-card">
+            <strong>自主翻译 Agent</strong>
+            <span class="notion-status-chip chip-draft">等待人工审核</span>
+            <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+              全文档 AI 起草与占位符验证已完成。
+            </p>
+            <button class="btn btn-blue" style="margin-top: 6px;" onclick="openModal('modal-qa-gate')">前往审核与导出</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Bottom Status Bar -->
+  <footer class="notion-statusbar">
+    <div>Translunar CAT 就绪 · 句段 #2 草稿已保存</div>
+    <div style="display: flex; gap: 12px; font-family: var(--font-mono);">
+      <span>句段 2/3</span>
+      <span style="color: var(--notion-red);">QA 1</span>
+      <span>● Engine 0.3.1</span>
+    </div>
+  </footer>
+
+  <!-- Modals -->
+  <div class="modal-overlay" id="modal-import">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>导入文档到工作区</span>
+        <button class="btn" onclick="closeModal('modal-import')">×</button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label style="font-size: 11.5px; font-weight: 600;">文件路径</label>
+          <input type="text" style="width: 100%; height: 30px; border: 1px solid var(--border-main); border-radius: 3px; padding: 0 8px;" value="/docs/onboarding.docx" readonly>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-import')">取消</button>
+        <button class="btn btn-blue" onclick="closeModal('modal-import'); alert('导入成功！')">导入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>项目设置</span>
+        <button class="btn" onclick="closeModal('modal-settings')">×</button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label style="font-size: 11.5px; font-weight: 600;">项目名称</label>
+          <input type="text" style="width: 100%; height: 30px; border: 1px solid var(--border-main); border-radius: 3px; padding: 0 8px;" value="Product Knowledge Base">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-settings')">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-qa-gate">
+    <div class="modal-box" style="width: 400px;">
+      <div class="modal-header" style="color: var(--notion-red);">
+        <span>QA 质量门禁拦截</span>
+        <button class="btn" onclick="closeModal('modal-qa-gate')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-muted);">存在未解决的 QA 模糊匹配未修改警告。确定要继续导出吗？</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal('modal-qa-gate')">返回</button>
+        <button class="btn" style="background: var(--notion-red); color: #fff; border-color: var(--notion-red);" onclick="closeModal('modal-qa-gate'); alert('已强制导出')">仍要导出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario Switcher -->
+  <div class="scenario-bar">
+    <span style="font-size: 11px; color: var(--text-light); margin-right: 4px;">场景:</span>
+    <button class="scenario-btn active" onclick="setScenario('standard')">1. 标准工作区</button>
+    <button class="scenario-btn" onclick="setScenario('qa')">2. QA 警告</button>
+    <button class="scenario-btn" onclick="setScenario('agent')">3. Agent 审核</button>
+    <button class="scenario-btn" onclick="setScenario('gate')">4. 导出闸门</button>
+  </div>
+
+  <script>
+    function switchTab(tab) {
+      document.querySelectorAll('.right-tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + tab).classList.add('active');
+      document.getElementById('view-qa').style.display = tab === 'qa' ? 'block' : 'none';
+      document.getElementById('view-memory').style.display = tab === 'memory' ? 'block' : 'none';
+      document.getElementById('view-term').style.display = tab === 'term' ? 'block' : 'none';
+      document.getElementById('view-ai').style.display = tab === 'ai' ? 'block' : 'none';
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    function setScenario(sc) {
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      closeModal('modal-qa-gate');
+      closeModal('modal-import');
+      closeModal('modal-settings');
+
+      if (sc === 'standard') {
+        switchTab('memory');
+      } else if (sc === 'qa') {
+        switchTab('qa');
+      } else if (sc === 'agent') {
+        switchTab('ai');
+      } else if (sc === 'gate') {
+        openModal('modal-qa-gate');
+      }
+    }
+  </script>
+</body>
+</html>
