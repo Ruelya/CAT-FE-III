@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Translunar Workbench — Carbon</title>
+    <link rel="stylesheet" href="../saas-gpt-shared/prototype.css" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --ui: "Segoe UI Variable", "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+        --display: "Segoe UI Variable Display", "HarmonyOS Sans SC", "PingFang SC", sans-serif;
+        --mono: "Berkeley Mono", "Cascadia Code", "SFMono-Regular", monospace;
+        --bg: #141819;
+        --panel: #1c2122;
+        --panel-2: #181d1e;
+        --panel-3: #252c2d;
+        --line: #2d3536;
+        --line-strong: #3c4748;
+        --text: #e5eae8;
+        --muted: #9da8a5;
+        --faint: #747f7d;
+        --accent: #69c6aa;
+        --accent-2: #9adbc7;
+        --accent-soft: #203a34;
+        --selection: #21332f;
+        --good: #6cc39d;
+        --good-soft: #20372e;
+        --warn: #e1ae61;
+        --warn-soft: #3b3020;
+        --danger: #ed777d;
+        --danger-soft: #3d2528;
+        --info: #82b9ca;
+        --info-soft: #23353b;
+        --shadow: 0 24px 70px rgb(0 0 0 / 48%);
+        --shadow-sm: 0 12px 34px rgb(0 0 0 / 42%);
+        --radius: 8px;
+        --radius-sm: 5px;
+        --control-h: 30px;
+        --left-w: 238px;
+        --right-w: 346px;
+        --grid-row: 78px;
+      }
+
+      .topbar,
+      .statusbar {
+        background: #171b1c;
+      }
+
+      .brand {
+        letter-spacing: 0.05em;
+      }
+
+      .brand__mark {
+        border: 0;
+        border-radius: 5px;
+        background: var(--accent);
+        color: #10231e;
+        box-shadow: 0 0 0 1px rgb(255 255 255 / 7%);
+      }
+
+      .ribbon {
+        background: #1b2021;
+      }
+
+      .ribbon__button--primary {
+        color: var(--accent-2);
+      }
+
+      .grid thead {
+        box-shadow: 0 1px 0 #0e1112;
+      }
+
+      .grid tr[data-active="true"] td {
+        background: #20312d;
+      }
+
+      .target-editor {
+        background: #17201f;
+        box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%), 0 0 0 1px rgb(105 198 170 / 9%);
+      }
+
+      .btn--primary {
+        color: #10231e;
+      }
+
+      .state-glyph,
+      .match,
+      .issue,
+      .file-search input,
+      .field input,
+      .field select,
+      .field textarea {
+        background: #1a2021;
+      }
+
+      .switch::after {
+        background: #dce3e0;
+      }
+
+      .dock-tab[data-active="true"]::after {
+        right: 24px;
+        left: 24px;
+        box-shadow: 0 0 8px rgb(105 198 170 / 35%);
+      }
+
+      mark {
+        background: #66532b;
+        color: #f4dc9c;
+      }
+
+      .backdrop {
+        background: rgb(5 8 9 / 68%);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="prototype"></div>
+    <script src="../saas-gpt-shared/prototype.js"></script>
+  </body>
+</html>

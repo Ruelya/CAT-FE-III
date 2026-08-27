@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Translunar Workbench — Ochre</title>
+    <link rel="stylesheet" href="../saas-gpt-shared/prototype.css" />
+    <style>
+      :root {
+        color-scheme: light;
+        --ui: "Avenir Next", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        --display: "Iowan Old Style", "Noto Serif SC", "Songti SC", Georgia, serif;
+        --mono: "IBM Plex Mono", "Cascadia Mono", monospace;
+        --bg: #f2efe9;
+        --panel: #fffdf9;
+        --panel-2: #f8f4ed;
+        --panel-3: #eee8de;
+        --line: #e2dbd0;
+        --line-strong: #cbbfb0;
+        --text: #302b26;
+        --muted: #746b61;
+        --faint: #978d82;
+        --accent: #9b532e;
+        --accent-2: #73391f;
+        --accent-soft: #f5e5d9;
+        --selection: #fbf0e6;
+        --good: #497358;
+        --good-soft: #e9f0e8;
+        --warn: #a06a16;
+        --warn-soft: #fbefd4;
+        --danger: #b3443e;
+        --danger-soft: #f9e9e6;
+        --info: #536f7b;
+        --info-soft: #e8eff1;
+        --radius: 3px;
+        --radius-sm: 2px;
+        --control-h: 31px;
+        --left-w: 252px;
+        --right-w: 354px;
+        --grid-row: 86px;
+        --shadow: 0 22px 60px rgb(65 50 37 / 18%);
+        --shadow-sm: 0 9px 26px rgb(65 50 37 / 13%);
+      }
+
+      .brand {
+        font-family: var(--display);
+        font-size: 13px;
+      }
+
+      .brand__mark {
+        border-radius: 50% 50% 50% 2px;
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        font-family: var(--display);
+      }
+
+      .topbar {
+        border-bottom-color: var(--line-strong);
+      }
+
+      .ribbon {
+        box-shadow: 0 1px 0 rgb(255 255 255 / 80%);
+      }
+
+      .ribbon__button--primary::after {
+        height: 1px;
+      }
+
+      .eyebrow,
+      .section-title,
+      .grid th,
+      .preview__title {
+        letter-spacing: 0.11em;
+      }
+
+      .grid td {
+        line-height: 1.6;
+      }
+
+      .grid tr[data-active="true"] td:first-child {
+        box-shadow: inset 2px 0 var(--accent);
+      }
+
+      .chip,
+      .badge {
+        border-radius: 3px;
+      }
+
+      .dock-tab[data-active="true"] {
+        font-family: var(--display);
+        font-size: 12px;
+      }
+
+      .dock-tab[data-active="true"]::after {
+        right: 9px;
+        left: 9px;
+        height: 1px;
+      }
+
+      .project-title,
+      .panel__title,
+      .dialog__title {
+        font-weight: 650;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="prototype"></div>
+    <script src="../saas-gpt-shared/prototype.js"></script>
+  </body>
+</html>
