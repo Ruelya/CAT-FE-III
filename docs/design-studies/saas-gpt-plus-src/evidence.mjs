@@ -68,7 +68,7 @@ for (const theme of THEMES) {
   }
   ribbonColors.add(contract.ribbon);
   await page.locator(".ribbon").screenshot({
-    path: join(artifactDir, `${theme}_ribbon.png`),
+    path: join(artifactDir, `${theme}_ribbon_final.png`),
   });
   await page.close();
 }
@@ -80,7 +80,7 @@ if (ribbonColors.size !== THEMES.length) {
 const matrix = await context.newPage();
 await matrix.setViewportSize({ width: 1640, height: 900 });
 const rows = THEMES.map((theme) => {
-  const png = readFileSync(join(artifactDir, `${theme}_ribbon.png`)).toString("base64");
+  const png = readFileSync(join(artifactDir, `${theme}_ribbon_final.png`)).toString("base64");
   return `<section><strong>${theme}</strong><img alt="${theme} ribbon" src="data:image/png;base64,${png}"></section>`;
 }).join("");
 await matrix.setContent(`<style>
