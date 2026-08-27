@@ -47,7 +47,7 @@ describe("filterSegments", () => {
   it("filters by segment state", () => {
     const result = filterSegments(
       SEGMENTS,
-      { state: "untranslated", query: "" },
+      { ...EMPTY_FILTER, state: "untranslated" },
       new Set(),
     );
     expect(result.map((s) => s.id)).toEqual(["s3"]);
@@ -56,7 +56,7 @@ describe("filterSegments", () => {
   it("keeps only open-QA segments for the qa pseudo-state", () => {
     const result = filterSegments(
       SEGMENTS,
-      { state: "qa", query: "" },
+      { ...EMPTY_FILTER, state: "qa" },
       new Set(["s2"]),
     );
     expect(result.map((s) => s.id)).toEqual(["s2"]);
@@ -64,25 +64,110 @@ describe("filterSegments", () => {
 
   it("matches query case-insensitively across source and target", () => {
     expect(
-      filterSegments(SEGMENTS, { state: "all", query: "RETENTION" }, new Set()),
+      filterSegments(
+        SEGMENTS,
+        { ...EMPTY_FILTER, query: "RETENTION" },
+        new Set(),
+      ),
     ).toHaveLength(1);
     expect(
-      filterSegments(SEGMENTS, { state: "all", query: "世界" }, new Set()),
+      filterSegments(SEGMENTS, { ...EMPTY_FILTER, query: "世界" }, new Set()),
     ).toHaveLength(1);
     expect(
-      filterSegments(SEGMENTS, { state: "all", query: "missing" }, new Set()),
+      filterSegments(
+        SEGMENTS,
+        { ...EMPTY_FILTER, query: "missing" },
+        new Set(),
+      ),
     ).toHaveLength(0);
   });
 
   it("combines state and query", () => {
     const result = filterSegments(
       SEGMENTS,
-      { state: "draft", query: "30" },
+      { ...EMPTY_FILTER, state: "draft", query: "30" },
       new Set(),
     );
     expect(result.map((s) => s.id)).toEqual(["s2"]);
     expect(
-      filterSegments(SEGMENTS, { state: "confirmed", query: "30" }, new Set()),
+      filterSegments(
+        SEGMENTS,
+        { ...EMPTY_FILTER, state: "confirmed", query: "30" },
+        new Set(),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("keeps only locked segments on the 锁定 channel", () => {
+    const locked = { ...segment("s4", 3, "Locked row.", "锁定行。"), locked: true };
+    const rows = [...SEGMENTS, locked];
+    const result = filterSegments(
+      rows,
+      { ...EMPTY_FILTER, locked: true },
+      new Set(),
+    );
+    expect(result.map((s) => s.id)).toEqual(["s4"]);
+    expect(isFilterActive({ ...EMPTY_FILTER, locked: true })).toBe(true);
+  });
+
+  it("keeps only token-carrying segments on the 有标签 channel", () => {
+    const tagged = [
+      segment("t1", 0, "Choose {mode} to continue.", "选择 {mode}。", "draft"),
+      segment("t2", 1, "Plain text.", "纯文本。", "draft"),
+      segment("t3", 2, "Plain source.", "译文有 %s 标签。", "draft"),
+    ];
+    const result = filterSegments(
+      tagged,
+      { ...EMPTY_FILTER, hasTags: true },
+      new Set(),
+    );
+    // Both sides count: a token only in the target is still a tag row.
+    expect(result.map((s) => s.id)).toEqual(["t1", "t3"]);
+    expect(isFilterActive({ ...EMPTY_FILTER, hasTags: true })).toBe(true);
+  });
+
+  it("keeps only engine-confirmed term hits on the 有术语 channel", () => {
+    const result = filterSegments(
+      SEGMENTS,
+      { ...EMPTY_FILTER, hasTerms: true },
+      new Set(),
+      new Set(["s2"]),
+    );
+    expect(result.map((s) => s.id)).toEqual(["s2"]);
+    expect(isFilterActive({ ...EMPTY_FILTER, hasTerms: true })).toBe(true);
+  });
+
+  it("hides nothing on 有术语 while the lookup set is still null", () => {
+    // Lookups in flight: the channel waits for the engine instead of
+    // guessing; rows narrow only once the set exists.
+    const result = filterSegments(
+      SEGMENTS,
+      { ...EMPTY_FILTER, hasTerms: true },
+      new Set(),
+      null,
+    );
+    expect(result).toHaveLength(3);
+  });
+
+  it("ANDs the new channels with state and query", () => {
+    const locked = {
+      ...segment("s5", 4, "Locked {tag} row.", "锁定 {tag} 行。"),
+      locked: true,
+    };
+    const rows = [...SEGMENTS, locked];
+    expect(
+      filterSegments(
+        rows,
+        { ...EMPTY_FILTER, locked: true, hasTags: true },
+        new Set(),
+      ).map((s) => s.id),
+    ).toEqual(["s5"]);
+    expect(
+      filterSegments(
+        rows,
+        { ...EMPTY_FILTER, locked: true, hasTags: true, query: "missing" },
+        new Set(),
+      ),
     ).toHaveLength(0);
   });
 });
