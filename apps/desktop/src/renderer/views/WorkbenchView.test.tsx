@@ -812,6 +812,42 @@ describe("WorkbenchView application menu commands", () => {
       bridge.invoke.mock.calls.some(([method]) => method === "ai.assist.start"),
     ).toBe(false);
   });
+
+  it("write commands on a locked segment report instead of firing a doomed RPC", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [{ ...SEGMENT, locked: true }],
+    });
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    // Locked row: no editor mounts; the ribbon offers 解锁 instead.
+    await screen.findByRole("button", { name: "解锁句段" });
+    for (const command of [
+      "insert-tm",
+      "insert-term",
+      "copy-source",
+      "clear-target",
+    ] as const) {
+      act(() => {
+        bridge.emitMenuCommand(command);
+      });
+      expect(onStatusMessage).toHaveBeenLastCalledWith("句段 #1 已锁定");
+    }
+    // The engine's lock shield was never provoked: nothing was written and
+    // no on-demand term lookup ran.
+    expect(
+      bridge.invoke.mock.calls.some(
+        ([method]) => method === "segment.update" || method === "term.lookup",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("WorkbenchView command palette", () => {
@@ -871,6 +907,102 @@ describe("WorkbenchView command palette", () => {
     expect(
       screen.getByRole("dialog", { name: "命令面板" }),
     ).toBeInTheDocument();
+  });
+
+  it("lists the translate/QA verbs with enablement read from live state", async () => {
+    const handlers = baseHandlers();
+    handlers["qa.profile.get"] = () => ({
+      baseProfileId: "default",
+      severityOverrides: {},
+      settings: {},
+      blockExportOnError: false,
+      revision: 3,
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    // Write verbs enable on the unlocked active row.
+    expect(
+      screen.getByRole("option", { name: "插入记忆匹配" }),
+    ).not.toHaveAttribute("aria-disabled");
+    expect(
+      screen.getByRole("option", { name: "复制源文到译文" }),
+    ).not.toHaveAttribute("aria-disabled");
+    // QA verbs stay honest: the row has no finding, so they disable.
+    expect(
+      screen.getByRole("option", { name: "忽略当前问题" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("option", { name: "恢复为未解决" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("option", { name: "应用引擎修复" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("option", { name: "归档项目" }),
+    ).not.toHaveAttribute("aria-disabled");
+    // The gate row names the direction it flips toward (stored: off).
+    expect(
+      await screen.findByRole("option", { name: "有错误时阻止导出（开启）" }),
+    ).toBeInTheDocument();
+  });
+
+  it("disables the write verbs on a locked row like the ribbon buttons", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [{ ...SEGMENT, locked: true }],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByRole("button", { name: "解锁句段" });
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    for (const label of [
+      "插入记忆匹配",
+      "插入术语",
+      "复制源文到译文",
+      "清空译文",
+    ]) {
+      expect(screen.getByRole("option", { name: label })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    }
+  });
+
+  it("折叠左栏 becomes 展开左栏 once the rail actually collapses", async () => {
+    installBridge(baseHandlers());
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const explorer = document.querySelector(
+      ".workbench__explorer",
+    ) as HTMLElement;
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    await userEvent.click(screen.getByRole("option", { name: "折叠左栏" }));
+    expect(explorer).toHaveAttribute("data-collapsed");
+    // Reopened, the same command reads the live rail state and offers 展开;
+    // running it restores the rail (same round trip as the chevron).
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    await userEvent.click(screen.getByRole("option", { name: "展开左栏" }));
+    expect(explorer).not.toHaveAttribute("data-collapsed");
   });
 });
 
@@ -2032,7 +2164,7 @@ describe("WorkbenchView boolean filter chips", () => {
   }
 
   function termLookupCalls(bridge: Bridge): unknown[] {
-    return bridge.invoke.mock.calls
+    return (bridge.invoke.mock.calls as [string, unknown][])
       .filter(([method]) => method === "term.lookup")
       .map(([, params]) => params);
   }
@@ -2104,9 +2236,7 @@ describe("WorkbenchView boolean filter chips", () => {
     await userEvent.click(toggle);
     // s1 and s4 share the hit sourceText; s2/s3 miss.
     await waitFor(() => {
-      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent(
-        "2/4",
-      );
+      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("2/4");
     });
     // Four segments, three distinct source texts — the duplicate is served
     // from the cache, never re-asked.
@@ -2134,9 +2264,7 @@ describe("WorkbenchView boolean filter chips", () => {
     await screen.findByLabelText("句段 1 译文");
     await userEvent.click(screen.getByRole("button", { name: "有术语" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent(
-        "0/4",
-      );
+      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("0/4");
     });
     expect(screen.getByText("没有符合筛选条件的句段")).toBeInTheDocument();
   });
@@ -3099,7 +3227,7 @@ describe("WorkbenchView ribbon", () => {
   it("撤销/重做 drive the mounted editor's undo stack and disable without one", async () => {
     installBridge(baseHandlers());
     const execCommand = vi.fn(() => true);
-    document.execCommand = execCommand as never;
+    document.execCommand = execCommand;
     render(
       <WorkbenchView
         project={PROJECT}
@@ -3604,9 +3732,10 @@ describe("WorkbenchView project explorer", () => {
     expect(files.queryByText("terms.txt")).not.toBeInTheDocument();
     // The searched folder is force-open so the hit is visible, and its
     // chevron reports that fact.
-    expect(
-      files.getByRole("treeitem", { name: /guides/ }),
-    ).toHaveAttribute("aria-expanded", "true");
+    expect(files.getByRole("treeitem", { name: /guides/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     // The stripped shared prefix (`/w`) is not searchable: it has no row.
     await userEvent.clear(files.getByLabelText("搜索文件"));
     await userEvent.type(files.getByLabelText("搜索文件"), "/w");
@@ -3661,9 +3790,9 @@ describe("WorkbenchView project explorer", () => {
     // `legal` holds terms.txt's 3 open findings; `docs` is clean and wears
     // no badge — a zero would be noise, not information.
     const legalDir = files.getByRole("treeitem", { name: /legal/ });
-    expect(
-      within(legalDir).getByTitle("未解决 QA 问题 3"),
-    ).toHaveTextContent("3");
+    expect(within(legalDir).getByTitle("未解决 QA 问题 3")).toHaveTextContent(
+      "3",
+    );
     const docsDir = files.getByRole("treeitem", { name: /docs/ });
     expect(
       within(docsDir).queryByTitle(/未解决 QA 问题/),

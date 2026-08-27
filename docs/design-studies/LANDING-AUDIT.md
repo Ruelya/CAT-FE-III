@@ -216,6 +216,8 @@ landing-fix 轮修复 §4 全部 8 条后：HAVE 59 / PARTIAL 0 / MISSING 0。**
 
 仍刻意不做（与 §3 一致）：8 场景切换器、云图标/云同步、评论/成员/协作、fixture 术语名单与假数据——引擎没有的能力不进产品。
 
+Phase 2 补全：命令面板收齐全部工作台 MenuCommand（翻译/QA/视图/项目动词，enablement 读锁定行、当前 finding、持久化 QA 门等实况），锁定句段上的插入/复制/清空菜单命令改为短状态上报而非发出注定被锁盾拒绝的 RPC。
+
 ---
 
 ## 5. 验证记录
@@ -229,6 +231,6 @@ landing-fix 轮修复 §4 全部 8 条后：HAVE 59 / PARTIAL 0 / MISSING 0。**
 
 landing-fix 轮（`cursor/gf-landing-fix-2398`）：
 
-- 单元测试：**26 文件 371 用例全过**（新增筛选三通道、ribbon 新按钮、菜单新命令、树外观、帮助对话框、focusCreate、AiPanel 菜单请求用例）。
+- 单元测试：**26 文件 375 用例全过**（新增筛选三通道、ribbon 新按钮、菜单新命令、树外观、帮助对话框、focusCreate、AiPanel 菜单请求、命令面板补全与锁定守卫用例）。
 - 类型检查：四个 tsconfig 全过。
 - 端到端：**20 用例全过**（vertical.spec 同步了 7 顶层菜单断言与 运行 QA 的 dock scope）。

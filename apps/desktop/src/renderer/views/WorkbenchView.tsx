@@ -199,13 +199,12 @@ const STATE_FILTER_LABEL = new Map<SegmentStateFilter, string>(
 );
 
 /** The three boolean AND channels next to the state select (PRD §3.6). */
-const BOOL_FILTER_CHANNELS: Array<
-  ["locked" | "hasTerms" | "hasTags", string]
-> = [
-  ["locked", "锁定"],
-  ["hasTerms", "有术语"],
-  ["hasTags", "有标签"],
-];
+const BOOL_FILTER_CHANNELS: Array<["locked" | "hasTerms" | "hasTags", string]> =
+  [
+    ["locked", "锁定"],
+    ["hasTerms", "有术语"],
+    ["hasTags", "有标签"],
+  ];
 
 const FILE_ICON_PROPS = {
   size: 13,
@@ -382,9 +381,8 @@ export function WorkbenchView({
   // 有术语 filter channel: segment ids whose sourceText has engine
   // terminology hits. Null while lookups are in flight (the channel hides
   // nothing yet) or while the chip is off.
-  const [termSegmentIds, setTermSegmentIds] = useState<ReadonlySet<
-    string
-  > | null>(null);
+  const [termSegmentIds, setTermSegmentIds] =
+    useState<ReadonlySet<string> | null>(null);
   // term.lookup results per sourceText — repeated sources ask the engine
   // once. Lives only while the chip is on; turning it off drops the cache
   // so the next activation sees terms added in between.
@@ -2147,6 +2145,20 @@ export function WorkbenchView({
         setTab(dockTab);
         return;
       }
+      // Commands that write the active segment share one honest gate: a
+      // missing selection or a locked row reports instead of firing a
+      // segment.update the engine's lock shield would reject anyway.
+      const editableActive = (): Segment | null => {
+        if (!activeSegment) {
+          onStatusMessage("没有选中的句段");
+          return null;
+        }
+        if (activeSegment.locked) {
+          onStatusMessage(`句段 #${activeSegment.ordinal + 1} 已锁定`);
+          return null;
+        }
+        return activeSegment;
+      };
       switch (command) {
         case "import-document":
           if (!busy) {
@@ -2225,37 +2237,33 @@ export function WorkbenchView({
             setArchiveConfirmOpen(true);
           }
           break;
-        case "copy-source":
-          if (activeSegment) {
-            copySourceToTarget(activeSegment);
-          } else {
-            onStatusMessage("没有选中的句段");
+        case "copy-source": {
+          const segment = editableActive();
+          if (segment) {
+            copySourceToTarget(segment);
           }
           break;
-        case "clear-target":
-          if (activeSegment) {
-            clearTargetText(activeSegment);
-          } else {
-            onStatusMessage("没有选中的句段");
+        }
+        case "clear-target": {
+          const segment = editableActive();
+          if (segment) {
+            clearTargetText(segment);
           }
           break;
+        }
         case "pretranslate":
           if (activeDocument && !busy) {
             void pretranslate();
           }
           break;
         case "insert-tm":
-          if (activeSegment) {
+          if (editableActive()) {
             insertFirstTmMatch();
-          } else {
-            onStatusMessage("没有选中的句段");
           }
           break;
         case "insert-term":
-          if (activeSegment) {
+          if (editableActive()) {
             void insertFirstTerm();
-          } else {
-            onStatusMessage("没有选中的句段");
           }
           break;
         case "ai-translate":
@@ -2374,11 +2382,13 @@ export function WorkbenchView({
     });
   }, []);
 
-  // The command palette catalog: every MenuCommand (workbench commands go
+  // The command palette catalog: every workbench-owned MenuCommand goes
   // through handleMenuCommand — the same dispatch the menu uses; shell
-  // commands run the props the shell handed down), plus dock switches
-  // (already MenuCommands) and one jump per project document. Labels and
-  // shortcuts mirror the application menu.
+  // commands run the props the shell handed down. Dock switches (already
+  // MenuCommands) and one jump per project document round it out. Labels
+  // and shortcuts mirror the application menu; enablement reads the live
+  // workbench state (locked row, open finding, stored gate) so a disabled
+  // row is always telling the truth.
   const paletteEntries = useMemo<PaletteEntry[]>(() => {
     /* Themes and their effect switches are palette commands too: a reader
        who lives in Ctrl+K should not have to find a dialog to turn the
@@ -2410,6 +2420,11 @@ export function WorkbenchView({
       })),
     ];
     const documentOpen = activeDocument !== null;
+    // 插入/复制/清空 write the active segment; a locked row disables them
+    // here exactly like the ribbon buttons (the dispatch guard is the
+    // same, so a stale click still only reports).
+    const editableActive =
+      documentOpen && activeSegment !== null && activeSegment.locked !== true;
     const command = (
       id: MenuCommand,
       label: string,
@@ -2436,6 +2451,13 @@ export function WorkbenchView({
             },
           ]
         : []),
+      ...(onOpenTmManage
+        ? [command("open-tm-manage", "记忆库管理…", true)]
+        : []),
+      ...(onOpenSettings
+        ? [command("open-term-manage", "术语库管理…", true)]
+        : []),
+      command("archive-project", "归档项目", project.lifecycle !== "archived"),
       ...(onCloseProject
         ? [
             {
@@ -2465,7 +2487,37 @@ export function WorkbenchView({
         documentOpen && activeSegment !== null,
         "Ctrl+L",
       ),
+      command("copy-source", "复制源文到译文", editableActive),
+      command("clear-target", "清空译文", editableActive),
+      command("pretranslate", "预翻译（TM）", documentOpen && !busy),
+      command("insert-tm", "插入记忆匹配", editableActive),
+      command("insert-term", "插入术语", editableActive),
+      command("ai-translate", "AI 翻译当前句段", documentOpen),
+      command("ai-refine", "AI 润色当前句段", documentOpen),
+      command("run-qa", "运行 QA", documentOpen),
+      // The QA verbs enable off the live finding on the active segment —
+      // richer than the menu's document-level enablement, same dispatch.
+      command("waive", "忽略当前问题", activeOpenIssue !== null),
+      command("waive-rule", "忽略同类问题", activeOpenIssue !== null),
+      command("waive-segment", "忽略本句问题", activeOpenIssue !== null),
+      command("restore", "恢复为未解决", activeWaivedIssue !== null),
+      command("apply-fix", "应用引擎修复", activeFix !== null),
+      command(
+        "toggle-gate",
+        `有错误时阻止导出（${qaProfile?.blockExportOnError ? "关闭" : "开启"}）`,
+        qaProfile !== null,
+      ),
       command("toggle-preview", "预览面板", documentOpen, "Ctrl+P"),
+      command(
+        "toggle-left",
+        layout.leftCollapsed ? "展开左栏" : "折叠左栏",
+        true,
+      ),
+      command(
+        "toggle-right",
+        layout.rightCollapsed ? "展开右栏" : "折叠右栏",
+        true,
+      ),
       command("open-find", "查找…", documentOpen, "Ctrl+F"),
       command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
@@ -2491,14 +2543,22 @@ export function WorkbenchView({
   }, [
     activeDocument,
     activeSegment,
+    activeOpenIssue,
+    activeWaivedIssue,
+    activeFix,
     busy,
     documents,
     handleMenuCommand,
+    layout.leftCollapsed,
+    layout.rightCollapsed,
     onOpenAppearance,
+    project.lifecycle,
+    qaProfile,
     themeState,
     loadDocument,
     onCloseProject,
     onOpenSettings,
+    onOpenTmManage,
     onStatusMessage,
   ]);
 

@@ -334,12 +334,18 @@ Collapsible bottom pane (Ctrl+P), height persisted, splitter with double-click r
 Ctrl+K or Ctrl+Shift+P. `搜索命令` input, substring filter with match highlight,
 `↑`/`↓`/`Enter`/`Esc`, disabled rows render but never run, `没有匹配的命令` when empty.
 
-Catalog: 导入文档… (Ctrl+O), 导出译文… (Ctrl+E), 项目设置… (Ctrl+,), 返回项目列表,
-确认当前句段 (Ctrl+Enter), 确认并到下一句段 (Ctrl+Alt+Enter), 确认并停留
-(Ctrl+Alt+Shift+Enter), 锁定/解锁当前句段 (Ctrl+L), 预览面板 (Ctrl+P), 查找… (Ctrl+F),
-替换… (Ctrl+H), 查找下一个 (F4), 查找上一个 (Shift+F4), 筛选句段 (Ctrl+Shift+F),
-检索（取选中文本） (F3), 记忆面板 (Ctrl+1), 术语面板 (Ctrl+2), QA 面板 (Ctrl+3),
-AI 面板 (Ctrl+4), and one `打开文档：<name>` per project document.
+Catalog: 导入文档… (Ctrl+O), 导出译文… (Ctrl+E), 项目设置… (Ctrl+,), 记忆库管理…,
+术语库管理…, 归档项目, 返回项目列表, 确认当前句段 (Ctrl+Enter), 确认并到下一句段
+(Ctrl+Alt+Enter), 确认并停留 (Ctrl+Alt+Shift+Enter), 锁定/解锁当前句段 (Ctrl+L),
+复制源文到译文, 清空译文, 预翻译（TM）, 插入记忆匹配, 插入术语, AI 翻译当前句段,
+AI 润色当前句段, 运行 QA, 忽略当前问题/同类/本句, 恢复为未解决, 应用引擎修复,
+有错误时阻止导出（开启/关闭）, 预览面板 (Ctrl+P), 折叠/展开左栏, 折叠/展开右栏,
+查找… (Ctrl+F), 替换… (Ctrl+H), 查找下一个 (F4), 查找上一个 (Shift+F4),
+筛选句段 (Ctrl+Shift+F), 检索（取选中文本） (F3), 记忆面板 (Ctrl+1), 术语面板 (Ctrl+2),
+QA 面板 (Ctrl+3), AI 面板 (Ctrl+4), and one `打开文档：<name>` per project document.
+Enablement reads live workbench state: write verbs disable on a locked row,
+QA verbs on the active segment's actual findings, the gate row on the stored
+`qa.profile`.
 
 ## 12. Dialogs and blocking surfaces
 
