@@ -15,17 +15,17 @@
 
   /* geometry — comfortable */
   --r-ctl: 7px; --r-card: 10px; --r-dlg: 12px; --r-badge: 999px; --r-chip: 999px;
-  --h-menubar: 40px; --h-ribbon: 50px; --h-statusbar: 28px;
+  --h-menubar: 40px; --h-ribbon: 70px; --h-statusbar: 28px;
   --h-ctl: 30px; --h-ctl-sm: 25px;
   --h-gridbar: 40px; --h-previewbar: 36px; --preview-h: 220px;
   --w-explorer: 276px; --w-dock: 340px; --w-staterow: 176px;
   --pad-panel: 16px; --pad-cell-y: 10px;
   --bar-h: 5px; --ic: 15px; --dtabs-pad: 8px;
-  --tree-row: 26px; --tree-folder: #7fae9f;
+  --confirm-ic: #338d7d; --tree-row: 26px; --tree-folder: #7fae9f;
 
   /* neutrals — quiet gray with a cool-green cast */
   --bg-app: #f3f4f4;
-  --bg-chrome: #ffffff;
+  --bg-chrome: #f9f7f2;
   --bg-panel: #f8f9f9;
   --bg-surface: #ffffff;
   --bg-card: #ffffff;
@@ -34,7 +34,7 @@
   --bg-thead: #fbfcfb;
   --bg-hover: #f0f2f1;
   --bg-active: #e7eae8;
-  --bg-status: #ffffff;
+  --bg-status: #f9f7f2;
 
   --border: #e7e9e8;
   --border-strong: #d8dcda;

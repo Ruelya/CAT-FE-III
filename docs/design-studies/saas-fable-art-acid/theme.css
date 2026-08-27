@@ -19,13 +19,13 @@
 
   /* geometry — zero radius, hard edges */
   --r-ctl: 0; --r-card: 0; --r-dlg: 0; --r-badge: 0; --r-chip: 0;
-  --h-menubar: 38px; --h-ribbon: 47px; --h-statusbar: 28px;
+  --h-menubar: 38px; --h-ribbon: 67px; --h-statusbar: 28px;
   --h-ctl: 28px; --h-ctl-sm: 23px;
   --h-gridbar: 37px; --h-previewbar: 35px; --preview-h: 212px;
   --w-explorer: 260px; --w-dock: 332px; --w-staterow: 172px;
   --pad-panel: 14px; --pad-cell-y: 7px;
   --bar-h: 5px; --ic: 14px; --dtabs-pad: 5px;
-  --tree-row: 23px; --tree-folder: #0031ad;
+  --confirm-ic: #0f8a72; --tree-row: 23px; --tree-folder: #0031ad;
 
   /* gallery neutrals */
   --bg-app: #f2f0e9;

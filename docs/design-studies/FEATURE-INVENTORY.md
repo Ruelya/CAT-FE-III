@@ -1,7 +1,7 @@
 # Workbench 功能清单（FEATURE INVENTORY）
 
 来源：`cursor/gf-workbench-s3d-2398` 上的真实桌面端代码（`apps/desktop/src`）。
-本清单先于任何视觉稿完成，是全部设计稿（`saas-compact` / `saas-comfortable` / `saas-dark` 及四个 `saas-fable-art-*`）必须全量呈现的信息架构。逐文件核对对象：
+本清单先于任何视觉稿完成，是全部设计稿（`saas-compact` / `saas-comfortable` / `saas-dark` 及五个 `saas-fable-art-*`）必须全量呈现的信息架构。功能区为图标在上、文字在下的堆叠布局，按 历史 / 文档 / 翻译 / 审校 四组排布，组间竖发丝线、组名居中于组底，确认图标用弱化青色。逐文件核对对象：
 `WorkbenchView` `SegmentGrid` `Ribbon` `FindWidget` `PreviewPane` `TmPanel` `ConcordancePanel` `TermPanel` `QaPanel` `AiPanel` `AgentPanel` `CommandPalette` `ImportDocumentDialog` `ProjectSettingsDialog` `TmManageDialog` `TermManagePanel` `ExportOverwriteConfirm` `ExportQaGateConfirm` `EngineGate` `ProjectsView` `App`（状态栏）`menu-template`（应用菜单）。
 
 ## 1. 命令与快捷键（应用菜单 / 功能区 / 命令面板共用一套 handler）
@@ -108,7 +108,7 @@
 ## 10. 完整性检查表（三稿逐项自查）
 
 - [x] 菜单条 文件/编辑/视图/项目/翻译/QA/帮助（真实命令分组）
-- [x] 功能区 撤销/重做/查找/查找下一个/确认/锁定/插入记忆/插入术语/运行QA/预览/导出/命令搜索（+导入/预翻译/替换/检索/筛选）
+- [x] 功能区（历史/文档/翻译/审校 四组堆叠布局）撤销/重做/导入/导出/确认/锁定/插入记忆/插入术语/预翻译/查找/查找下一个/替换/检索/运行QA/预览 + 筛选框 + 命令搜索
 - [x] 命令面板（命令 + 面板跳转 + 文档跳转，禁用行如实渲染）
 - [x] 状态栏（进度/字数/草稿跳转/QA 跳转/行列/INS/引擎）
 - [x] 左栏（项目/语言对/每文档进度/文件搜索/文档列表/筛选 chips/拖放导入）

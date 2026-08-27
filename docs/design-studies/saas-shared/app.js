@@ -760,35 +760,33 @@
     const seg = activeSeg();
     const open = docOpen();
     const b = (cmd, label, ic, opts = {}) =>
-      `<button class="rb${opts.primary ? " rb--primary" : ""}" data-action="cmd" data-arg="${cmd}" ${opts.disabled ? "disabled" : ""} ${opts.tip ? `data-tip="${esc(opts.tip)}"` : ""}>
+      `<button class="rb${opts.cls ? ` ${opts.cls}` : ""}" data-action="cmd" data-arg="${cmd}" ${opts.disabled ? "disabled" : ""} ${opts.tip ? `data-tip="${esc(opts.tip)}"` : ""}>
         ${icon(ic)}<span class="rb__label">${label}</span>
       </button>`;
+    const g = (cap, inner) => `<div class="ribbon__group" role="group" aria-label="${cap}">
+      <div class="ribbon__btns">${inner}</div>
+      <span class="ribbon__cap">${cap}</span>
+    </div>`;
     return `<div class="ribbon" role="toolbar" aria-label="工具栏">
-      <div class="ribbon__group">
-        ${b("import", "导入", "import", { tip: "导入文档 Ctrl+O" })}
-        ${b("export", "导出译文", "export", { disabled: !open, tip: "导出译文 Ctrl+E" })}
-      </div>
-      <div class="ribbon__group">
-        ${b("undo", "撤销", "undo", { disabled: S.undoStack.length === 0, tip: "撤销 Ctrl+Z" })}
-        ${b("redo", "重做", "redo", { disabled: S.redoStack.length === 0, tip: "重做 Ctrl+Y" })}
-      </div>
-      <div class="ribbon__group">
-        ${b("confirm", "确认", "check", { primary: true, disabled: !open, tip: "确认 Ctrl+Enter · 确认并到下一句 Ctrl+Alt+Enter · 确认并停留 Ctrl+Alt+Shift+Enter" })}
-        ${b("lock", seg && seg.locked ? "解锁句段" : "锁定句段", seg && seg.locked ? "unlock" : "lock", { disabled: !seg, tip: "锁定/解锁 Ctrl+L" })}
-        ${b("insert-tm", "插入记忆", "db", { disabled: !seg || segTm(S.activeSegId).length === 0, tip: "应用最佳记忆匹配为草稿 Ctrl+1..9" })}
-        ${b("insert-term", "插入术语", "book", { disabled: !seg || segTerms(S.activeSegId).length === 0, tip: "插入首选术语到光标处" })}
-        ${b("pretranslate", "预翻译", "bolt", { disabled: !open, tip: "用 TM 填充未译句段" })}
-      </div>
-      <div class="ribbon__group">
-        ${b("find", "查找", "search", { disabled: !open, tip: "查找 Ctrl+F" })}
-        ${b("find-next", "查找下一个", "next", { disabled: !open, tip: "查找下一个 F4 · 上一个 Shift+F4" })}
-        ${b("replace", "替换", "replace", { disabled: !open, tip: "替换 Ctrl+H" })}
-        ${b("concordance", "检索", "list", { tip: "检索选中文本 F3" })}
-        ${b("run-qa", "运行 QA", "clip", { disabled: !open, tip: "运行质量检查" })}
-      </div>
-      <div class="ribbon__group">
-        ${b("preview", "预览", "eye", { disabled: !open, tip: "预览面板 Ctrl+P" })}
-      </div>
+      ${g("历史",
+        b("undo", "撤销", "undo", { disabled: S.undoStack.length === 0, tip: "撤销 Ctrl+Z" }) +
+        b("redo", "重做", "redo", { disabled: S.redoStack.length === 0, tip: "重做 Ctrl+Y" }))}
+      ${g("文档",
+        b("import", "导入", "import", { tip: "导入文档 Ctrl+O" }) +
+        b("export", "导出", "export", { disabled: !open, tip: "导出译文 Ctrl+E" }))}
+      ${g("翻译",
+        b("confirm", "确认", "check", { cls: "rb--confirm", disabled: !open, tip: "确认 Ctrl+Enter · 确认并到下一句 Ctrl+Alt+Enter · 确认并停留 Ctrl+Alt+Shift+Enter" }) +
+        b("lock", seg && seg.locked ? "解锁" : "锁定", seg && seg.locked ? "unlock" : "lock", { disabled: !seg, tip: "锁定/解锁句段 Ctrl+L" }) +
+        b("insert-tm", "插入记忆", "db", { disabled: !seg || segTm(S.activeSegId).length === 0, tip: "应用最佳记忆匹配为草稿 Ctrl+1..9" }) +
+        b("insert-term", "插入术语", "book", { disabled: !seg || segTerms(S.activeSegId).length === 0, tip: "插入首选术语到光标处" }) +
+        b("pretranslate", "预翻译", "bolt", { disabled: !open, tip: "用 TM 填充未译句段" }))}
+      ${g("审校",
+        b("find", "查找", "search", { disabled: !open, tip: "查找 Ctrl+F" }) +
+        b("find-next", "查找下一个", "next", { disabled: !open, tip: "查找下一个 F4 · 上一个 Shift+F4" }) +
+        b("replace", "替换", "replace", { disabled: !open, tip: "替换 Ctrl+H" }) +
+        b("concordance", "检索", "list", { tip: "检索选中文本 F3" }) +
+        b("run-qa", "运行 QA", "clip", { disabled: !open, tip: "运行质量检查" }) +
+        b("preview", "预览", "eye", { disabled: !open, tip: "预览面板 Ctrl+P" }))}
       <span class="ribbon__spacer"></span>
       <span class="ribbon__search">
         ${icon("search", "ic--dim")}

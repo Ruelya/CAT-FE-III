@@ -16,17 +16,17 @@
 
   /* geometry — compact */
   --r-ctl: 4px; --r-card: 6px; --r-dlg: 8px; --r-badge: 4px; --r-chip: 4px;
-  --h-menubar: 34px; --h-ribbon: 42px; --h-statusbar: 24px;
+  --h-menubar: 34px; --h-ribbon: 62px; --h-statusbar: 24px;
   --h-ctl: 26px; --h-ctl-sm: 22px;
   --h-gridbar: 34px; --h-previewbar: 32px; --preview-h: 200px;
   --w-explorer: 248px; --w-dock: 320px; --w-staterow: 168px;
   --pad-panel: 12px; --pad-cell-y: 6px;
   --bar-h: 4px; --ic: 14px; --dtabs-pad: 4px;
-  --tree-row: 22px; --tree-folder: #8fa0c4;
+  --confirm-ic: #2f8f7a; --tree-row: 22px; --tree-folder: #8fa0c4;
 
   /* neutrals — cool gray scale */
   --bg-app: #f4f5f7;
-  --bg-chrome: #fafbfc;
+  --bg-chrome: #f9f7f2;
   --bg-panel: #f7f8fa;
   --bg-surface: #ffffff;
   --bg-card: #ffffff;
@@ -35,7 +35,7 @@
   --bg-thead: #fafbfc;
   --bg-hover: #eef0f3;
   --bg-active: #e6e9ee;
-  --bg-status: #fafbfc;
+  --bg-status: #f9f7f2;
 
   --border: #e4e7ec;
   --border-strong: #d5dae2;
@@ -126,9 +126,6 @@
   border-radius: 1px;
   background: var(--accent);
 }
-
-/* hairline detail: the ribbon primary keeps a crisp edge instead of a shadow */
-.rb--primary { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06); }
 
 /* compact grid: number column tightens */
 .grid th.grid__n, .grid td.grid__n { padding-right: 6px; }

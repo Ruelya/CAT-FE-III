@@ -19,13 +19,13 @@
 
   /* geometry — thumbed clay */
   --r-ctl: 10px; --r-card: 12px; --r-dlg: 18px; --r-badge: 7px; --r-chip: 999px;
-  --h-menubar: 40px; --h-ribbon: 50px; --h-statusbar: 28px;
+  --h-menubar: 40px; --h-ribbon: 70px; --h-statusbar: 28px;
   --h-ctl: 30px; --h-ctl-sm: 24px;
   --h-gridbar: 38px; --h-previewbar: 36px; --preview-h: 216px;
   --w-explorer: 264px; --w-dock: 336px; --w-staterow: 176px;
   --pad-panel: 15px; --pad-cell-y: 9px;
   --bar-h: 5px; --ic: 15px; --dtabs-pad: 6px;
-  --tree-row: 25px; --tree-folder: #9a8f77;
+  --confirm-ic: #3f8f7c; --tree-row: 25px; --tree-folder: #9a8f77;
 
   /* mineral neutrals — stone, not paper */
   --bg-app: #e6e3da;
