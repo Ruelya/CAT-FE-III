@@ -1,24 +1,46 @@
-/* VITRINE — glass over daylight.
+/* VITRINE — liquid glass.
    A cold light field drifts behind the window (art-vitrine.js) and every
-   piece of chrome is a frosted pane floating over it: blurred, saturated,
-   with a lit top edge and a shadow that proves the gap. One rule keeps it
-   usable — glass is for chrome only. The segment grid is the single opaque
-   sheet in the composition, so the text a translator reads all day never
-   sits on moving colour. */
+   surface in front of it is the same material, differing only in how much
+   light it holds back. Chrome is thin glass; the segment sheet and the dock
+   are thick glass. Nothing is a flat slab, and nothing is so transparent
+   that the field moves under running text.
+
+   Three rules hold the material together:
+   1. One glass, four densities — 0.24 chrome, 0.34 rails, 0.50 dock cards,
+      0.74 the reading sheet. Depth is density, never a different substance.
+   2. Every pane carries the same specular signature: a bright top stroke, a
+      dimmer bottom one, a hairline ring, and a shadow that proves the gap.
+   3. Radii are concentric — a pane's children are rounded by the parent
+      radius minus their inset, so nested corners stay parallel. */
 
 :root {
-  --bg: #e8eef3;
-  --glass: rgba(255, 255, 255, 0.42);
-  --glass-2: rgba(255, 255, 255, 0.3);
-  --glass-edge: rgba(255, 255, 255, 0.92);
-  --blur: saturate(1.6) blur(22px);
+  --bg: #dce8ef;
 
-  --surface: var(--glass);
-  --surface-2: rgba(255, 255, 255, 0.66);
-  --surface-3: rgba(255, 255, 255, 0.78);
-  --sunken: rgba(9, 42, 58, 0.06);
-  --chrome: rgba(255, 255, 255, 0.5);
-  --chrome-text: #10333f;
+  /* The glass scale. Everything visible is one of these four densities. */
+  --glass-thin: rgba(255, 255, 255, 0.3);
+  --glass-rail: rgba(255, 255, 255, 0.34);
+  --glass-card: rgba(255, 255, 255, 0.5);
+  --glass-sheet: rgba(255, 255, 255, 0.74);
+  --glass-over: rgba(255, 255, 255, 0.66);
+
+  --blur-thin: saturate(1.8) blur(20px);
+  --blur-card: saturate(1.9) blur(26px);
+  --blur-sheet: saturate(1.7) blur(44px);
+  --blur-over: saturate(2) blur(48px);
+
+  /* The specular signature, applied to every pane at every density. */
+  --spec: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  --ring: 0 0 0 0.5px rgba(11, 58, 76, 0.12);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+
+  --surface: var(--glass-card);
+  --surface-2: rgba(255, 255, 255, 0.62);
+  --surface-3: rgba(255, 255, 255, 0.74);
+  --sunken: rgba(9, 42, 58, 0.055);
+  --chrome: var(--glass-thin);
+  --chrome-text: #0f3542;
 
   --border: rgba(9, 52, 70, 0.16);
   --border-soft: rgba(9, 52, 70, 0.09);
@@ -26,9 +48,12 @@
   --hair: 1px solid var(--border-soft);
   --hair-strong: 1px solid var(--border);
 
-  --text: #0c2a35;
-  --text-muted: #416069;
-  --text-faint: #77949e;
+  /* Thin glass lets a lot of field through, so secondary text is set darker
+     than a solid theme would need it — measured at 4.5:1 or better on the
+     lightest pane in the composition. */
+  --text: #08242e;
+  --text-muted: #2f4d57;
+  --text-faint: #446570;
 
   --accent: #0a7f96;
   --accent-strong: #075d6f;
@@ -36,14 +61,16 @@
   --accent-faint: rgba(10, 127, 150, 0.07);
   --on-accent: #ffffff;
 
-  --ok: #0f8a5f;
-  --ok-soft: rgba(15, 138, 95, 0.14);
-  --warn: #b06a10;
-  --warn-soft: rgba(176, 106, 16, 0.14);
-  --danger: #c53a3a;
-  --danger-soft: rgba(197, 58, 58, 0.13);
-  --info: #2a6fb0;
-  --info-soft: rgba(42, 111, 176, 0.13);
+  /* Held to one cool family with a single warm exception, so state colour
+     reads as part of the glass rather than as stickers on top of it. */
+  --ok: #0d8467;
+  --ok-soft: rgba(13, 132, 103, 0.16);
+  --warn: #a86a12;
+  --warn-soft: rgba(200, 132, 40, 0.2);
+  --danger: #c03c48;
+  --danger-soft: rgba(192, 60, 72, 0.14);
+  --info: #2f6ea8;
+  --info-soft: rgba(47, 110, 168, 0.14);
 
   --font-ui: "Inter", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
     sans-serif;
@@ -84,16 +111,17 @@
   --cell-pad-y: 8px;
   --cell-pad-x: 13px;
 
-  --r-sm: 5px;
-  --r-md: 9px;
-  --r-lg: 15px;
+  /* Continuous-corner scale: generous, and concentric where panes nest. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 22px;
   --r-pill: 999px;
 
-  --shadow-1: 0 1px 2px rgba(9, 42, 58, 0.07);
-  --shadow-2: 0 18px 44px -14px rgba(9, 42, 58, 0.4);
-  --shadow-3: 0 48px 110px -24px rgba(9, 42, 58, 0.55);
-  --focus: 0 0 0 3px rgba(10, 127, 150, 0.3);
-  --scrim: rgba(196, 214, 224, 0.5);
+  --shadow-1: 0 1px 3px rgba(9, 42, 58, 0.08);
+  --shadow-2: 0 20px 50px -16px rgba(9, 42, 58, 0.34);
+  --shadow-3: 0 50px 120px -28px rgba(9, 42, 58, 0.48);
+  --focus: 0 0 0 4px rgba(10, 127, 150, 0.26);
+  --scrim: rgba(150, 184, 200, 0.34);
 
   --row-hover: rgba(10, 127, 150, 0.05);
   --row-active: rgba(10, 127, 150, 0.1);
@@ -123,78 +151,95 @@ body {
 
 /* ------------------------------------------------------------- panes */
 
+/* Thin glass: the window furniture, which should disappear into the light. */
 .titlebar,
 .ribbon,
-.rail--left,
-.rail--right,
-.statusbar,
-.doctabs,
-.docktabs,
-.gridbar,
-.preview {
-  background: var(--glass);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  border-color: var(--border-soft);
+.statusbar {
+  background: var(--glass-thin);
+  -webkit-backdrop-filter: var(--blur-thin);
+  backdrop-filter: var(--blur-thin);
+  border-color: transparent;
 }
 .titlebar {
-  background: rgba(255, 255, 255, 0.32);
   box-shadow: inset 0 1px 0 var(--glass-edge);
 }
-.ribbon {
-  background: rgba(255, 255, 255, 0.24);
+.statusbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Two floating panes of the same material: the reading sheet and the dock.
+   Both are inset from the window so the field is visible around them, both
+   are rounded on the same continuous scale, both carry the same specular
+   signature. The dock is thinner because it is scanned; the sheet is
+   thicker because it is read. */
+.center,
+.rail--right,
+.rail--left {
+  border-radius: var(--r-lg);
+  border: 0;
+  overflow: hidden;
+}
+.center {
+  margin: var(--s3);
+  background: var(--glass-sheet);
+  -webkit-backdrop-filter: var(--blur-sheet);
+  backdrop-filter: var(--blur-sheet);
+  box-shadow:
+    var(--spec),
+    var(--ring),
+    0 26px 60px -26px rgba(9, 42, 58, 0.42);
 }
 .rail--left,
 .rail--right {
-  background: rgba(255, 255, 255, 0.34);
-}
-.statusbar {
-  background: rgba(255, 255, 255, 0.38);
-  box-shadow: inset 0 1px 0 var(--glass-edge);
-}
-
-/* The object in the case: the work sheet floats clear of the chrome on all
-   four sides so the light behind it is visible around the edge. It is the
-   densest glass in the composition — near-solid, because this is the one
-   surface someone reads for hours. */
-.center {
-  margin: var(--s3) var(--s3) var(--s3) 0;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.93);
-  -webkit-backdrop-filter: saturate(1.5) blur(30px);
-  backdrop-filter: saturate(1.5) blur(30px);
+  background: var(--glass-rail);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 1px rgba(9, 52, 70, 0.08),
-    0 30px 64px -28px rgba(9, 42, 58, 0.5);
+    var(--spec),
+    var(--ring),
+    0 18px 44px -24px rgba(9, 42, 58, 0.34);
 }
 .rail--left {
-  margin-right: var(--s3);
-  border-right: 0;
+  margin: var(--s3) 0 var(--s3) var(--s3);
 }
 .rail--right {
-  border-left: 0;
+  margin: var(--s3) var(--s3) var(--s3) 0;
 }
+
+/* Inside a pane nothing is filled again — the sub-bars are the sheet itself,
+   separated by a hairline, so the editor reads as one piece of glass. */
 .doctabs,
 .gridbar,
-.preview {
-  background: rgba(255, 255, 255, 0.4);
+.preview,
+.docktabs {
+  background: rgba(255, 255, 255, 0.16);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  border-color: var(--border-soft);
 }
 .grid thead th {
-  background: rgba(252, 253, 254, 0.97);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.62);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--border-soft);
 }
-#grid {
+#grid,
+.dockbody,
+.railbody {
   background: transparent;
 }
 .preview__page {
-  background: #fff;
-  box-shadow: var(--shadow-1);
+  background: rgba(255, 255, 255, 0.72);
+  border: 0;
+  border-radius: var(--r-md);
+  box-shadow:
+    var(--spec),
+    var(--shadow-1);
+}
+/* Concentric: a rail section sits var(--s3) inside a var(--r-lg) pane. */
+.railsec,
+.panel {
+  border-color: var(--border-soft);
 }
 
 .mark {
@@ -265,10 +310,13 @@ body {
 }
 .btn--outline,
 .btn--ghost {
-  background: rgba(255, 255, 255, 0.6);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
 }
 .btn--ghost {
   background: transparent;
@@ -287,27 +335,41 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+/* Ribbon verbs pick up a glass lozenge under the pointer rather than a
+   painted rectangle: the material comes forward, the button does not. */
 .rbtn {
   border-radius: var(--r-md);
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .rbtn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: var(--shadow-1);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
   transform: translateY(-1px);
 }
 .rgroup {
   border-right: 1px solid var(--border-soft);
 }
 
+/* Inputs are the one place the material is pushed in rather than lifted. */
 .field input,
 .field select,
 .field textarea,
 .searchbox,
 .railsearch,
 .findwidget__input {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--border);
-  box-shadow: inset 0 1px 2px rgba(9, 42, 58, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  box-shadow:
+    inset 0 1px 3px rgba(9, 42, 58, 0.09),
+    inset 0 0 0 1px rgba(11, 58, 76, 0.09);
 }
 .editor textarea {
   background: #fff;
@@ -318,10 +380,13 @@ body {
 }
 
 .chip {
-  background: rgba(255, 255, 255, 0.62);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: saturate(1.6) blur(12px);
+  backdrop-filter: saturate(1.6) blur(12px);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--ring);
 }
 .chip--on {
   background: linear-gradient(178deg, #16a2bc, #0a7f96);
@@ -332,48 +397,55 @@ body {
     0 4px 12px -5px rgba(10, 127, 150, 0.7);
 }
 
+/* Dock cards are the same glass one density thinner than the sheet, so the
+   right rail reads as layered material instead of opaque cards on a pane. */
 .card,
 .issue,
 .agentsum {
-  background: rgba(255, 255, 255, 0.66);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border-color: var(--border-soft);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-md);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 2px 8px -4px rgba(9, 42, 58, 0.22);
+    var(--spec),
+    var(--ring),
+    0 4px 12px -8px rgba(9, 42, 58, 0.28);
   transition:
     transform var(--dur) var(--ease),
-    box-shadow var(--dur) var(--ease);
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .card--match:hover,
 .issue:hover {
+  background: rgba(255, 255, 255, 0.62);
   transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 8px 20px -8px rgba(9, 42, 58, 0.3);
+    var(--spec),
+    var(--ring),
+    0 12px 26px -12px rgba(9, 42, 58, 0.32);
 }
 .card--match[data-best] {
-  border-color: rgba(15, 138, 95, 0.4);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 6px 18px -8px rgba(15, 138, 95, 0.45);
+    var(--spec),
+    0 0 0 1px rgba(13, 132, 103, 0.4),
+    0 10px 24px -12px rgba(13, 132, 103, 0.42);
 }
 
 .docktabs [role="tab"][data-active] {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.6);
   border-bottom-color: var(--accent);
   color: var(--accent-strong);
 }
 .doctab[data-active] {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.5);
 }
 .tree__row--dir .tree__name {
   letter-spacing: -0.01em;
 }
 .tree__filerow[data-active] .tree__row {
-  background: linear-gradient(90deg, rgba(10, 127, 150, 0.14), rgba(10, 127, 150, 0.03));
-  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: linear-gradient(90deg, rgba(10, 127, 150, 0.16), rgba(10, 127, 150, 0.03));
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
 }
 
 /* --------------------------------------------------------- overlays */
@@ -388,14 +460,20 @@ body {
 .menudrop,
 .rowmenu,
 .findwidget {
-  background: rgba(255, 255, 255, 0.82);
-  -webkit-backdrop-filter: saturate(1.8) blur(34px);
-  backdrop-filter: saturate(1.8) blur(34px);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: var(--glass-over);
+  -webkit-backdrop-filter: var(--blur-over);
+  backdrop-filter: var(--blur-over);
+  border: 0;
+  border-radius: var(--r-lg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 1px rgba(9, 52, 70, 0.09),
+    var(--spec),
+    var(--ring),
     var(--shadow-3);
+}
+.menudrop,
+.rowmenu,
+.findwidget {
+  border-radius: var(--r-md);
 }
 .dialog__head,
 .dialog__foot,
@@ -456,30 +534,37 @@ body {
 
 .banner {
   border: 0;
-  border-bottom: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.72);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow: var(--shadow-1);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  box-shadow:
+    inset 0 -1px 0 rgba(11, 58, 76, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .banner[data-tone="danger"] .banner__title {
   color: var(--danger);
 }
 .bigempty {
-  background: rgba(255, 255, 255, 0.5);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: var(--glass-rail);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-lg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--spec),
+    var(--ring),
     var(--shadow-2);
 }
 .projects__toolbar {
-  background: rgba(255, 255, 255, 0.7);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: var(--shadow-2);
+  background: var(--glass-card);
+  -webkit-backdrop-filter: var(--blur-card);
+  backdrop-filter: var(--blur-card);
+  border: 0;
+  border-radius: var(--r-lg);
+  box-shadow:
+    var(--spec),
+    var(--ring),
+    var(--shadow-2);
 }
 .meter {
   background: rgba(9, 52, 70, 0.1);

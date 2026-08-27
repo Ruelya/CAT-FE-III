@@ -23,14 +23,14 @@
      so it reads as a reflection off something outside the frame. Painted
      normally, not additively — additive blending over a pale ground clips
      straight to white and the field disappears. */
-  const GROUND = "#cddfe9";
+  const GROUND = "#dbe8ef";
   const LIGHTS = [
-    { hue: "56,180,205", a: 0.62, r: 0.6, px: 0.16, py: 0.2, sx: 0.26, sy: 0.15, tx: 41, ty: 67 },
-    { hue: "96,138,200", a: 0.5, r: 0.68, px: 0.8, py: 0.16, sx: 0.2, sy: 0.19, tx: 59, ty: 47 },
-    { hue: "126,222,196", a: 0.55, r: 0.54, px: 0.5, py: 0.9, sx: 0.24, sy: 0.12, tx: 73, ty: 53 },
-    { hue: "255,166,110", a: 0.6, r: 0.33, px: 0.93, py: 0.76, sx: 0.14, sy: 0.16, tx: 97, ty: 83 },
-    { hue: "255,255,255", a: 0.34, r: 0.3, px: 0.35, py: 0.52, sx: 0.3, sy: 0.22, tx: 113, ty: 71 },
-    { hue: "168,224,236", a: 0.5, r: 0.5, px: 0.06, py: 0.62, sx: 0.16, sy: 0.2, tx: 87, ty: 61 },
+    { hue: "92,190,208", a: 0.4, r: 0.6, px: 0.16, py: 0.2, sx: 0.26, sy: 0.15, tx: 41, ty: 67 },
+    { hue: "126,160,206", a: 0.34, r: 0.68, px: 0.8, py: 0.16, sx: 0.2, sy: 0.19, tx: 59, ty: 47 },
+    { hue: "142,214,198", a: 0.32, r: 0.54, px: 0.5, py: 0.9, sx: 0.24, sy: 0.12, tx: 73, ty: 53 },
+    { hue: "247,180,138", a: 0.38, r: 0.33, px: 0.93, py: 0.76, sx: 0.14, sy: 0.16, tx: 97, ty: 83 },
+    { hue: "255,255,255", a: 0.44, r: 0.34, px: 0.35, py: 0.52, sx: 0.3, sy: 0.22, tx: 113, ty: 71 },
+    { hue: "176,220,232", a: 0.32, r: 0.5, px: 0.06, py: 0.62, sx: 0.16, sy: 0.2, tx: 87, ty: 61 },
   ];
 
   const start = () => {

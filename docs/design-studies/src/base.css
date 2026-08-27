@@ -113,6 +113,20 @@
 
   --dur: 120ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Proofreading chip contract. Each segment state gets a fill and an
+     optional outline; a study retints by restating these. Defaults route
+     through the semantic tokens, so a theme that only sets --ok-soft and
+     friends already gets a coherent proofreading view. */
+  --pv-done: var(--ok-soft);
+  --pv-done-line: transparent;
+  --pv-todo: var(--warn-soft);
+  --pv-todo-line: transparent;
+  --pv-lock: var(--info-soft);
+  --pv-lock-line: transparent;
+  --pv-none: var(--sunken);
+  --pv-none-line: var(--border);
+  --pv-radius: var(--r-md);
 }
 
 /* -------------------------------------------------------------- resets */
@@ -1517,20 +1531,28 @@ tr[data-active] .rowmenu__btn,
   align-items: center;
   gap: 4px;
 }
+/* The legend swatch is a miniature of the chip it stands for, fill and
+   border both, so the key and the text below it are the same object. */
 .lg::before {
   content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+  width: 13px;
+  height: 10px;
+  border-radius: var(--pv-radius, var(--r-md));
+  border: 1px solid transparent;
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
 }
 .lg[data-state="confirmed"]::before {
-  background: var(--ok);
+  background: var(--pv-done);
+  border-color: var(--pv-done-line);
 }
 .lg[data-state="draft"]::before {
-  background: var(--warn);
+  background: var(--pv-todo);
+  border-color: var(--pv-todo-line);
 }
-.lg[data-state="untranslated"]::before {
-  background: var(--border-strong);
+.lg[data-state="locked"]::before {
+  background: var(--pv-lock);
+  border-color: var(--pv-lock-line);
 }
 .preview__body {
   overflow-y: auto;
@@ -1542,38 +1564,67 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
   padding-bottom: var(--s3);
 }
+/* Proofreading reads as blocks of colour, not as decorated running text.
+   Each segment is its own filled chip and a paragraph is a wrapping row of
+   them, so the shape of the document survives while every boundary and
+   every state is legible at a glance. Themes retint by overriding the --pv-*
+   contract below; nothing here underlines or strikes through. */
 .preview__doc {
-  max-width: 74ch;
+  max-width: 78ch;
 }
 .preview__block {
-  margin-bottom: var(--s3);
-  line-height: 1.8;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 5px;
+  margin-bottom: var(--s4);
 }
 .pvseg {
-  display: inline;
-  padding: 1px 2px;
-  border-radius: var(--r-sm);
+  display: block;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius);
   font-size: var(--fs-md);
+  line-height: 1.55;
   color: var(--text);
-  border-bottom: 2px solid transparent;
+  white-space: normal;
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 .pvseg[data-state="confirmed"] {
-  border-bottom-color: var(--ok);
+  background: var(--pv-done);
+  border-color: var(--pv-done-line);
 }
 .pvseg[data-state="draft"] {
-  border-bottom-color: var(--warn);
+  background: var(--pv-todo);
+  border-color: var(--pv-todo-line);
 }
+.pvseg[data-state="locked"] {
+  background: var(--pv-lock);
+  border-color: var(--pv-lock-line);
+}
+/* No target yet, so the chip carries the source yet still reads as a gap. */
 .pvseg[data-fallback] {
   color: var(--text-faint);
-  font-style: italic;
-  border-bottom-color: var(--border-strong);
+  background: var(--pv-none);
+  border-color: var(--pv-none-line);
+  border-style: dashed;
 }
 .pvseg:hover {
-  background: var(--accent-faint);
+  border-color: var(--accent);
 }
 .pvseg[data-active] {
-  background: var(--accent-soft);
+  background: var(--surface);
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent);
   color: var(--text);
+  font-weight: var(--strong-weight);
 }
 .preview__page {
   max-width: 62ch;

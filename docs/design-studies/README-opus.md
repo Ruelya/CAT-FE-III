@@ -1,6 +1,6 @@
 # saas-opus — full-fidelity Workbench prototypes
 
-Seven visual systems for the Translunar CAT Workbench, built for visual
+Nine visual systems for the Translunar CAT Workbench, built for visual
 selection. They share one information architecture, byte for byte: the same
 fixtures, the same renderer, the same keymap, the same twenty-six reachable
 states. Only the stylesheet differs — plus, for the art studies, one small
@@ -22,7 +22,14 @@ here is therefore a preference about visual language and nothing else.
 | riso | two-ink risograph on newsprint | [`saas-opus-art-riso/index.html`](saas-opus-art-riso/index.html) |
 | atelier | night gallery, serif and brass | [`saas-opus-art-atelier/index.html`](saas-opus-art-atelier/index.html) |
 | phosphor | CRT tube, all-monospace | [`saas-opus-art-phosphor/index.html`](saas-opus-art-phosphor/index.html) |
-| vitrine | frosted glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html) |
+| vitrine | liquid glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html) |
+| atelier-light | the same gallery in daylight | [`saas-opus-art-atelier-light/index.html`](saas-opus-art-atelier-light/index.html) |
+| phosphor-light | the same terminal, reflective | [`saas-opus-art-phosphor-light/index.html`](saas-opus-art-phosphor-light/index.html) |
+
+The two light studies are built as override layers: `art-atelier-light.css`
+loads after `art-atelier.css` and restates only what the change of light
+requires. Type, spacing, motion and every interaction are inherited, so a
+sibling pair cannot drift apart.
 
 Each `index.html` is self-contained — no server, no build step, no network.
 Open it from disk and click.
@@ -157,7 +164,7 @@ effect, the text is the product.
 
 Pick phosphor if the operator wants the machine to feel like a machine.
 
-### vitrine — the case
+### vitrine — liquid glass
 
 Ice daylight, a deep teal accent, one warm rim. Inter pushed to its optical
 extremes — 9.5px labels at 0.19em against headings at −0.026em. 15px radii,
@@ -169,15 +176,58 @@ source moves least. It is drawn at an eighth resolution and blown back up,
 which is both cheap and exactly the softness wanted, because every pane in
 front of it is frosted anyway.
 
-One rule keeps the study usable: **glass is chrome only.** Rails, ribbon,
-titlebar, status bar and every overlay are translucent and blurred, so the
-light reads across the whole frame. The segment grid is the single near-solid
-object in the composition, floated clear of the chrome on all four sides with
-a rounded edge and a long shadow — the thing in the case. Text a translator
-reads for six hours never sits on moving colour. Buttons take a specular band
-that crosses on hover; cards lift a pixel and deepen their shadow.
+**One material, four densities.** Everything in front of the field is the same
+glass and differs only in how much light it holds back: `0.30` for window
+furniture, `0.34` for the two rails, `0.50` for dock cards and ribbon
+lozenges, `0.74` for the reading sheet. Depth is density, never a different
+substance — there is no opaque slab anywhere in the composition, and nothing
+so transparent that the field moves under running text. Every pane carries the
+same specular signature (a bright top stroke, a dimmer bottom one, a hairline
+ring, a shadow that proves the gap), and radii are concentric, so nested
+corners stay parallel.
+
+The editor and the right dock are full participants: the segment sheet is
+thick glass rather than a white card, the dock cards are one density thinner
+than the sheet, and the sub-bars inside a pane are not filled again — they are
+the same pane, separated by a hairline. Controls lift a glass lozenge under
+the pointer instead of painting a rectangle; inputs are the one place the
+material is pushed in rather than out.
+
+Readability is measured, not asserted. Secondary and tertiary text were
+darkened until the worst case across all six pane densities cleared AA for
+small text — 6.2:1 for `--text-muted` and 4.3:1 for `--text-faint` on the
+thinnest chrome, 8.2:1 and 5.7:1 on the reading sheet. The light field was
+pulled to one cool family with a single warm rim so state colour reads as part
+of the glass rather than as stickers on top of it.
 
 Pick vitrine if the product wants to look like light.
+
+### atelier-light — the day gallery
+
+The same room with the shutters open. Every decision that gives atelier its
+character is inherited unchanged — P052 display serif over C059, the pressed
+metal, the plate framing the work area, the light that tracks the pointer.
+Only the physics of the light change: plaster walls instead of charcoal,
+antique brass instead of lit brass, and a sun patch rather than a lamp, so
+corners fall into shade instead of into black. Debossing inverts to a grey
+inset with a white lip below it, which is what pressed material looks like
+from above rather than from within.
+
+Pick atelier-light if the gallery is right but the room should be a daytime
+one.
+
+### phosphor-light — the daylight terminal
+
+A reflective panel instead of an emissive tube: the same all-monospace
+setting, the same zero radii, the same caret block, convergence split and
+tear. What inverts is the physics. Glow becomes ghosting — ink bleeds a little
+into the glass rather than out of it. The scanline comb multiplies down
+instead of screening up, the refresh pass reads as a shadow crossing the
+panel, and the grain layer flips blend mode from the sheet (`--crt-noise-blend`),
+so the art layer is shared with the dark sibling rather than forked. The amber
+gun becomes ochre, which is the same signal absorbed rather than emitted.
+
+Pick phosphor-light if the machine feeling is right but the room has windows.
 
 ## What every study contains
 
@@ -216,7 +266,16 @@ of them can be entered directly, or by URL: `index.html?scene=qa`.
   form, 辅助 with a candidate diff, Agent run with a step log including a
   failure, and an explicit human review gate; an unconfigured provider says so).
 - **Bottom** — collapsible preview with 校对视图 and 版式视图（DOCX）, and
-  click-to-jump back to the segment.
+  click-to-jump back to the segment. 校对视图 states segment status as
+  **colour, not decoration**: every segment is a filled rounded chip and a
+  paragraph is a wrapping row of them, so the shape of the document survives
+  while every boundary and every state stays legible without being read.
+  Four fills — 已确认, 草稿, 锁定, and 未译 (which carries the source, muted,
+  behind a dashed edge) — plus the active chip, which drops to the pane colour
+  and takes a solid accent outline. Nothing underlines and nothing strikes
+  through. Studies retint by restating the `--pv-*` contract on `:root`;
+  `shots.mjs` fails the run if a study leaves two states the same colour or
+  lets a line decoration back onto a chip.
 - **Dialogs** — 新建项目, 导入（句/段/SRX）, 项目设置 (信息 · 导入默认 ·
   质量检查 with 有错误时阻止导出 · 生命周期/归档 · 翻译记忆 with explicit
   import/export target selection · 术语库), 记忆库管理 (挂载 启用 可写 重命名
@@ -246,20 +305,26 @@ cd docs/design-studies
 node src/build.mjs                       # src/* -> saas-opus-*/index.html
 
 export PW=$(npm root -g)/playwright/index.mjs
-node src/shots.mjs                       # 26 states x 7 systems -> /tmp/opus-shots
+node src/shots.mjs                       # 27 states x 9 systems -> /tmp/opus-shots
 node src/walk.mjs                        # walkthrough recordings  -> /tmp/opus-video
 bash src/publish.sh                      # -> <study>/shots + /opt/cursor/artifacts
 ```
 
 `src/shots.mjs` doubles as the smoke test: it drives every scenario and dialog
 through real clicks and fails the run on any console error, page exception,
-missing shell region, or a file tree that has lost its nesting, its chevrons or
-its active-file marker.
+missing shell region, a file tree that has lost its nesting, its chevrons or
+its active-file marker, or a proofreading view whose four segment states do not
+resolve to four distinct fills.
 
 Sources: `src/data.js` (fixtures), `src/app.js` (state, dispatcher, markup,
 keymap), `src/base.css` (structure and the variable contract),
 `src/theme-*.css` and `src/art-*.css` (one visual system each), `src/art-*.js`
 (art layers).
+
+A study's `css` field in `src/build.mjs` may be a list, in which case the
+sheets are concatenated in order. That is how the light siblings are built —
+`["art-atelier.css", "art-atelier-light.css"]` — so an override layer states
+only its difference and inherits everything else by construction.
 
 An art layer is a plain script appended after `app.js`. It may only touch
 `<body>` and `<html>` — never `#root`, which the renderer replaces wholesale on

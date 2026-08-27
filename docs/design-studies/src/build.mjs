@@ -63,7 +63,23 @@ const STUDIES = [
     family: "saas-opus-art",
     css: "art-vitrine.css",
     js: "art-vitrine.js",
-    blurb: "玻璃与光：磨砂层叠、镜面高光、漂移光场。",
+    blurb: "液态玻璃：连续圆角、镜面描边、编辑区与右栏同为厚玻璃。",
+  },
+  {
+    slug: "atelier-light",
+    dir: "saas-opus-art-atelier-light",
+    family: "saas-opus-art",
+    css: ["art-atelier.css", "art-atelier-light.css"],
+    js: "art-atelier.js",
+    blurb: "白昼画廊：同一字体与交互，灰泥墙与古铜。",
+  },
+  {
+    slug: "phosphor-light",
+    dir: "saas-opus-art-phosphor-light",
+    family: "saas-opus-art",
+    css: ["art-phosphor.css", "art-phosphor-light.css"],
+    js: "art-phosphor.js",
+    blurb: "日光终端：同一等宽排版，反射式液晶而非发光管。",
   },
 ];
 
@@ -73,7 +89,12 @@ const data = read("data.js");
 const app = read("app.js");
 
 for (const s of STUDIES) {
-  const theme = read(s.css);
+  /* A study may be a base sheet plus an override layer. The light siblings
+     are built that way on purpose: whatever they do not restate, they
+     inherit, so type, spacing and interaction cannot drift from the study
+     they are a sibling of. */
+  const sheets = Array.isArray(s.css) ? s.css : [s.css];
+  const theme = sheets.map((f) => `/* --- ${f} --- */\n${read(f)}`).join("\n");
   const artJs = s.js && existsSync(join(here, s.js)) ? read(s.js) : null;
   const html = `<!doctype html>
 <html lang="zh-CN">
@@ -85,7 +106,7 @@ for (const s of STUDIES) {
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 ${base}
-/* ===== ${s.css} — this visual system ===== */
+/* ===== ${sheets.join(" + ")} — this visual system ===== */
 ${theme}
 </style>
 </head>

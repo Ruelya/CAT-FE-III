@@ -10,11 +10,12 @@ set -euo pipefail
 SRC_SHOTS=/tmp/opus-shots
 SRC_VIDEO=/tmp/opus-video
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-ART=/opt/cursor/artifacts/design-opus-plus
+ART=/opt/cursor/artifacts/design-opus-tune
 
 STUDIES=(saas-opus-quarry saas-opus-cobalt saas-opus-ledger
          saas-opus-art-riso saas-opus-art-atelier saas-opus-art-phosphor
-         saas-opus-art-vitrine)
+         saas-opus-art-vitrine saas-opus-art-atelier-light
+         saas-opus-art-phosphor-light)
 
 rm -rf "$ART"
 mkdir -p "$ART"
@@ -44,7 +45,7 @@ for s in "${STUDIES[@]}"; do
     -i "$SRC_SHOTS/$s/01-grid-imported.png" \
     -i "$SRC_SHOTS/$s/04-qa-unedited-fuzzy.png" \
     -i "$SRC_SHOTS/$s/06-agent-awaiting-review.png" \
-    -i "$SRC_SHOTS/$s/25-file-tree-expanded.png" \
+    -i "$SRC_SHOTS/$s/27-proofread-chips.png" \
     -filter_complex \
       "[0]scale=820:-1[a];[1]scale=820:-1[b];[2]scale=820:-1[c];[3]scale=820:-1[d];\
        [a][b]hstack[t];[c][d]hstack[u];[t][u]vstack" \
