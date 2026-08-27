@@ -8,7 +8,6 @@
   --sunken: #e8e8f1;
   --chrome: rgba(246, 246, 252, 0.91);
   --chrome-text: #222039;
-  --toolbar: #f9f7f2;
   --border: #cbc9dc;
   --border-soft: #e4e2ef;
   --border-strong: #adaac4;
@@ -88,7 +87,7 @@ body {
   backdrop-filter: blur(15px) saturate(1.15);
 }
 .ribbon {
-  background: var(--toolbar);
+  background: rgba(250, 250, 255, 0.86);
 }
 .rail--left,
 .rail--right {

@@ -23,7 +23,6 @@
   --sunken: #e2e5eb;
   --chrome: #f7f8fa;
   --chrome-text: #1b202b;
-  --toolbar: #f9f7f2;
 
   /* Lines. `--hair` is the 1px rule used between rows and panels. */
   --border: #cdd2da;
@@ -43,7 +42,6 @@
   --accent-soft: #dbe3f7;
   --accent-faint: #edf1fb;
   --on-accent: #ffffff;
-  --confirm: #4f8b7e;
 
   /* Semantics. Never used decoratively. */
   --ok: #1e6f4c;
@@ -444,7 +442,7 @@ kbd,
   align-items: stretch;
   gap: var(--s4);
   padding: 0 var(--s4);
-  background: var(--toolbar);
+  background: var(--surface);
   border-bottom: var(--hair-strong);
   overflow: hidden;
 }
@@ -497,11 +495,11 @@ kbd,
   background: var(--sunken);
 }
 .rbtn--primary {
-  color: var(--confirm);
+  color: var(--accent);
 }
 .rbtn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--confirm) 10%, transparent);
-  color: var(--confirm);
+  background: var(--accent-faint);
+  color: var(--accent-strong);
 }
 .ribbon__tail {
   margin-left: auto;
@@ -2689,7 +2687,6 @@ tr[data-active] .rowmenu__btn,
   --sunken: #e4e7dd;
   --chrome: #ecefe7;
   --chrome-text: #1d2924;
-  --toolbar: #f9f7f2;
   --border: #cbd0c4;
   --border-soft: #e0e4da;
   --border-strong: #adb6a8;
@@ -2764,7 +2761,7 @@ tr[data-active] .rowmenu__btn,
   background: #f3f4ee;
 }
 .ribbon {
-  background: var(--toolbar);
+  background: #f7f8f3;
 }
 .card,
 .issue {
