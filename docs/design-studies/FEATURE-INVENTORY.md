@@ -364,6 +364,9 @@ QA verbs on the active segment's actual findings, the gate row on the stored
 Full-bleed working surface, not a centered card. Create toolbar (项目名称 / 源语言 /
 目标语言 / 创建项目) over a hairline list. `项目（n）` caption,
 `显示已归档项目（n）` toggle (only when archived projects exist), `已归档` badge per row.
+`继续「name」` chip in the head for the last-opened project (localStorage
+`translunar.last-project`) — rendered only while that id still exists in
+`project.list`, never a fabricated recents list.
 Empties: `还没有项目`, `没有进行中的项目`. Errors surface verbatim.
 
 ### 12.2 导入文档 (`ImportDocumentDialog.tsx`)
@@ -384,7 +387,7 @@ failed defaults-save keeps the dialog open and says so without pretending.
 | --- | --- |
 | 项目信息 | 项目名称 / 源语言 / 目标语言 → 保存项目信息 (engine refuses a locale change once the project holds content; refusal shown verbatim) |
 | 导入默认 | 默认分段方式; 选择默认 SRX 规则… + basename + 清除, else `内置规则（locale）`; 保存导入默认 |
-| 质量检查 | `有错误时阻止导出` checkbox → `qa.profile.update` with the stored revision |
+| 质量检查 | read-only `基础配置：<baseProfileId>`; `有错误时阻止导出` checkbox; 规则参数 knobs (`CJK 标点` / `CJK 间距` / `句末标点` checkboxes, `最短比（%）` / `最长比（%）` / `字数上限` numbers, 保存规则参数 / 恢复默认 = `clearSettings`); 严重度 grid — one `默认/错误/警告/提示` select per published static ruleId, written as the wholesale `severityOverrides` table (`{}` clears all). Every write rides the stored revision; a conflict rebases on a refetch and retries once |
 | 生命周期 | `进行中` / `已归档` + badge + `归档项目` / `恢复项目` |
 | 翻译记忆 | 记忆库 picker (`（可写）` suffix, defaults to the writable mount) + `导入外部 TM…` / `导出 TM…`; without mounts: `未挂载记忆库，无法导入或导出。请先在 TM 管理中挂载。` |
 | 术语库 | per mounted termbase: `管理术语` / `收起术语` (inline `TermManagePanel`), `导入 CSV/TBX…`, `导出…`, `卸载`; unmounted termbases get `挂载`; `新术语库名称` + `新建并挂载` |
