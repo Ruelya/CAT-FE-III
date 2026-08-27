@@ -157,4 +157,38 @@ describe("ProjectsView", () => {
       expect.objectContaining({ id: "archived-open" }),
     );
   });
+
+  it("focusCreate lands the keyboard in the create form's name field once", async () => {
+    installListBridge([project({ id: "p", name: "现有项目" })]);
+    const onCreateConsumed = vi.fn();
+    const view = render(
+      <ProjectsView
+        engineState="ready"
+        onOpenProject={vi.fn()}
+        onStatusMessage={vi.fn()}
+        focusCreate={false}
+        onCreateConsumed={onCreateConsumed}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("现有项目")).toBeInTheDocument();
+    });
+    const name = screen.getByLabelText("项目名称");
+    expect(document.activeElement).not.toBe(name);
+    expect(onCreateConsumed).not.toHaveBeenCalled();
+
+    // 文件 ▸ 新建项目… raises the flag; the existing create form's name
+    // field gets focus and the flag is consumed.
+    view.rerender(
+      <ProjectsView
+        engineState="ready"
+        onOpenProject={vi.fn()}
+        onStatusMessage={vi.fn()}
+        focusCreate={true}
+        onCreateConsumed={onCreateConsumed}
+      />,
+    );
+    expect(document.activeElement).toBe(name);
+    expect(onCreateConsumed).toHaveBeenCalledTimes(1);
+  });
 });

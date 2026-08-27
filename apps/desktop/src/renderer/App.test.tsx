@@ -2,21 +2,31 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { DesktopApi, EngineStatusPayload } from "../shared/desktop-api.js";
+import type {
+  DesktopApi,
+  EngineStatusPayload,
+  MenuCommand,
+} from "../shared/desktop-api.js";
+
+import packageJson from "../../package.json";
 
 import { App } from "./App.js";
 
 interface Bridge {
   relaunchEngine: ReturnType<typeof vi.fn>;
+  setMenuContext: ReturnType<typeof vi.fn>;
   emitStatus: (status: EngineStatusPayload) => void;
+  emitMenuCommand: (command: MenuCommand) => void;
 }
 
 function installBridge(initial: EngineStatusPayload): Bridge {
   let listener: ((status: EngineStatusPayload) => void) | null = null;
+  let menuListener: ((command: MenuCommand) => void) | null = null;
   const relaunchEngine = vi.fn().mockResolvedValue({
     state: "starting",
     restarts: 0,
   } satisfies EngineStatusPayload);
+  const setMenuContext = vi.fn();
   const api: Partial<DesktopApi> = {
     engineStatus: vi.fn().mockResolvedValue(initial),
     onEngineStatus: (next) => {
@@ -29,9 +39,14 @@ function installBridge(initial: EngineStatusPayload): Bridge {
     // ProjectsView mounts underneath the gate and lists projects.
     invoke: vi.fn().mockResolvedValue({ ok: true, result: { projects: [] } }),
     // App is the single writer of the menu context and subscribes to menu
-    // commands; the gate tests only need inert stubs for both.
-    setMenuContext: vi.fn(),
-    onMenuCommand: () => () => {},
+    // commands.
+    setMenuContext,
+    onMenuCommand: (next) => {
+      menuListener = next;
+      return () => {
+        menuListener = null;
+      };
+    },
   };
   Object.defineProperty(window, "tl", {
     value: api,
@@ -40,8 +55,12 @@ function installBridge(initial: EngineStatusPayload): Bridge {
   });
   return {
     relaunchEngine,
+    setMenuContext,
     emitStatus: (status) => {
       act(() => listener?.(status));
+    },
+    emitMenuCommand: (command) => {
+      act(() => menuListener?.(command));
     },
   };
 }
@@ -136,5 +155,66 @@ describe("App engine gate", () => {
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
     expect(mainSurface()).not.toHaveAttribute("inert");
+  });
+});
+
+describe("App shell menu commands", () => {
+  const READY: EngineStatusPayload = {
+    state: "ready",
+    restarts: 0,
+    pid: 41,
+    engineVersion: "0.1.0",
+  };
+
+  it("opens the 键盘快捷键 dialog with real chords, and 关于 with the package version", async () => {
+    const bridge = installBridge(READY);
+    render(<App />);
+    await waitFor(() => {
+      expect(mainSurface()).not.toHaveAttribute("inert");
+    });
+
+    bridge.emitMenuCommand("help-keys");
+    const keys = screen.getByRole("dialog", { name: "键盘快捷键" });
+    // Rows are real product chords, straight from the inventory.
+    expect(keys).toHaveTextContent("确认当前句段");
+    expect(keys).toHaveTextContent("Ctrl+Enter");
+    expect(keys).toHaveTextContent("命令面板");
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(
+      screen.queryByRole("dialog", { name: "键盘快捷键" }),
+    ).not.toBeInTheDocument();
+
+    bridge.emitMenuCommand("about");
+    const about = screen.getByRole("dialog", { name: "关于" });
+    // The version is the packaged one — never a hardcoded string.
+    expect(about).toHaveTextContent(`Translunar CAT ${packageJson.version}`);
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(
+      screen.queryByRole("dialog", { name: "关于" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("new-project lands the keyboard in the list's create form", async () => {
+    const bridge = installBridge(READY);
+    render(<App />);
+    await waitFor(() => {
+      expect(mainSurface()).not.toHaveAttribute("inert");
+    });
+    const name = screen.getByLabelText("项目名称");
+    expect(document.activeElement).not.toBe(name);
+    bridge.emitMenuCommand("new-project");
+    expect(document.activeElement).toBe(name);
+  });
+
+  it("reports exportGate in the menu context alongside the open states", async () => {
+    const bridge = installBridge(READY);
+    render(<App />);
+    await waitFor(() => {
+      expect(bridge.setMenuContext).toHaveBeenCalledWith({
+        projectOpen: false,
+        documentOpen: false,
+        exportGate: false,
+      });
+    });
   });
 });

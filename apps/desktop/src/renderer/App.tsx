@@ -7,9 +7,11 @@ import type {
   EngineLifecycleState,
   EngineStatusPayload,
 } from "../shared/desktop-api.js";
+import { AboutDialog } from "./components/AboutDialog.js";
 import { AppearanceDialog } from "./components/AppearanceDialog.js";
 import { EngineGate } from "./components/EngineGate.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
+import { ShortcutsDialog } from "./components/ShortcutsDialog.js";
 import { TmManageDialog } from "./components/TmManageDialog.js";
 import { useTheme } from "./lib/theme.js";
 import { ProjectsView } from "./views/ProjectsView.js";
@@ -58,6 +60,14 @@ export function App() {
   const [documentOpen, setDocumentOpen] = useState(false);
   const [tmManageOpen, setTmManageOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  // 帮助 dialogs are shell chrome: they open with or without a project.
+  const [helpDialog, setHelpDialog] = useState<"keys" | "about" | null>(null);
+  // The stored QA export gate, reported by the workbench (and by the
+  // settings dialog's checkbox) so the menu checkbox mirrors reality.
+  const [exportGate, setExportGate] = useState(false);
+  // 文件 ▸ 新建项目… returns to the list with the create form focused; the
+  // flag is consumed by ProjectsView exactly once.
+  const [focusCreate, setFocusCreate] = useState(false);
   const { theme } = useTheme();
   const [statusMessage, setStatusMessage] =
     useState<string>("Translunar CAT 就绪");
@@ -99,8 +109,9 @@ export function App() {
     window.tl.setMenuContext({
       projectOpen: project !== null,
       documentOpen: project !== null && documentOpen,
+      exportGate: project !== null && exportGate,
     });
-  }, [project, documentOpen]);
+  }, [project, documentOpen, exportGate]);
 
   // Window title reports the working object: project — document — langs.
   // Real data only: the project in memory and the workbench-reported
@@ -130,6 +141,17 @@ export function App() {
       } else if (command === "close-project") {
         setSettingsOpen(false);
         setProject(null);
+      } else if (command === "new-project") {
+        // Back to the list with the create form's name field focused —
+        // the list's own form is the only create UI.
+        setSettingsOpen(false);
+        setTmManageOpen(false);
+        setProject(null);
+        setFocusCreate(true);
+      } else if (command === "help-keys") {
+        setHelpDialog("keys");
+      } else if (command === "about") {
+        setHelpDialog("about");
       }
     });
   }, [project]);
@@ -181,12 +203,15 @@ export function App() {
             onOpenAppearance={handleOpenAppearance}
             onOpenTmManage={handleOpenTmManage}
             onCloseProject={handleCloseProject}
+            onExportGateChange={setExportGate}
           />
         ) : (
           <ProjectsView
             engineState={engineState}
             onOpenProject={setProject}
             onStatusMessage={handleStatusMessage}
+            focusCreate={focusCreate}
+            onCreateConsumed={() => setFocusCreate(false)}
           />
         )}
 
@@ -196,6 +221,7 @@ export function App() {
             project={project}
             onClose={() => setSettingsOpen(false)}
             onProjectUpdated={setProject}
+            onExportGateChange={setExportGate}
           />
         ) : null}
         {project ? (
@@ -328,6 +354,15 @@ export function App() {
       <AppearanceDialog
         open={appearanceOpen}
         onClose={() => setAppearanceOpen(false)}
+      />
+
+      <ShortcutsDialog
+        open={helpDialog === "keys"}
+        onClose={() => setHelpDialog(null)}
+      />
+      <AboutDialog
+        open={helpDialog === "about"}
+        onClose={() => setHelpDialog(null)}
       />
 
       {engineReady ? null : (
