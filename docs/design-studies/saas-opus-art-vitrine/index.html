@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Translunar 工作台 — saas-opus / ledger</title>
-<meta name="description" content="无彩瑞士数据表，最紧密度，颜色只表示状态。">
+<title>Translunar 工作台 — saas-opus-art / vitrine</title>
+<meta name="description" content="玻璃与光：磨砂层叠、镜面高光、漂移光场。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 /* Structural layer shared by every visual system.
@@ -2573,194 +2573,499 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
 }
 
-/* ===== theme-ledger.css — this visual system ===== */
-/* LEDGER — achromatic Swiss data sheet, the densest of the three.
-   The neutral scale is strictly grey and the accent is ink, which leaves
-   hue itself unused. Every coloured pixel on this screen is therefore a
-   state: green confirmed, amber draft, red error. Nothing is tinted for
-   decoration, so a colour in the corner of your eye always means something. */
+/* ===== art-vitrine.css — this visual system ===== */
+/* VITRINE — glass over daylight.
+   A cold light field drifts behind the window (art-vitrine.js) and every
+   piece of chrome is a frosted pane floating over it: blurred, saturated,
+   with a lit top edge and a shadow that proves the gap. One rule keeps it
+   usable — glass is for chrome only. The segment grid is the single opaque
+   sheet in the composition, so the text a translator reads all day never
+   sits on moving colour. */
 
 :root {
-  --bg: #e6e6e6;
-  --surface: #f4f4f4;
-  --surface-2: #ffffff;
-  --surface-3: #ffffff;
-  --sunken: #ededed;
-  --chrome: #0a0a0a;
-  --chrome-text: #fafafa;
+  --bg: #e8eef3;
+  --glass: rgba(255, 255, 255, 0.42);
+  --glass-2: rgba(255, 255, 255, 0.3);
+  --glass-edge: rgba(255, 255, 255, 0.92);
+  --blur: saturate(1.6) blur(22px);
 
-  --border: #d2d2d2;
-  --border-soft: #e4e4e4;
-  --border-strong: #a6a6a6;
+  --surface: var(--glass);
+  --surface-2: rgba(255, 255, 255, 0.66);
+  --surface-3: rgba(255, 255, 255, 0.78);
+  --sunken: rgba(9, 42, 58, 0.06);
+  --chrome: rgba(255, 255, 255, 0.5);
+  --chrome-text: #10333f;
 
-  --text: #0a0a0a;
-  --text-muted: #545454;
-  --text-faint: #8c8c8c;
+  --border: rgba(9, 52, 70, 0.16);
+  --border-soft: rgba(9, 52, 70, 0.09);
+  --border-strong: rgba(9, 52, 70, 0.3);
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
 
-  /* The accent is ink. Selection is weight and contrast, not colour. */
-  --accent: #0a0a0a;
-  --accent-strong: #000000;
-  --accent-soft: #cfcfcf;
-  --accent-faint: #efefef;
+  --text: #0c2a35;
+  --text-muted: #416069;
+  --text-faint: #77949e;
+
+  --accent: #0a7f96;
+  --accent-strong: #075d6f;
+  --accent-soft: rgba(10, 127, 150, 0.16);
+  --accent-faint: rgba(10, 127, 150, 0.07);
   --on-accent: #ffffff;
 
-  --ok: #04713f;
-  --ok-soft: #d7ecdf;
-  --warn: #8a5800;
-  --warn-soft: #f6e7c8;
-  --danger: #c02718;
-  --danger-soft: #f8dcd8;
-  --info: #24509c;
-  --info-soft: #dee6f4;
+  --ok: #0f8a5f;
+  --ok-soft: rgba(15, 138, 95, 0.14);
+  --warn: #b06a10;
+  --warn-soft: rgba(176, 106, 16, 0.14);
+  --danger: #c53a3a;
+  --danger-soft: rgba(197, 58, 58, 0.13);
+  --info: #2a6fb0;
+  --info-soft: rgba(42, 111, 176, 0.13);
 
-  --font-ui: "Nimbus Sans", "Helvetica Neue", Helvetica, "PingFang SC",
-    "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
-  --font-num: "Cascadia Mono", ui-monospace, monospace;
-  --font-mono: "Cascadia Mono", ui-monospace, monospace;
+  --font-ui: "Inter", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    sans-serif;
+  --font-display: "Inter", sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --fs-xs: 10px;
-  --fs-sm: 11px;
-  --fs-md: 12px;
-  --fs-lg: 14px;
-  --fs-xl: 18px;
-  --lh: 1.42;
-  --lh-tight: 1.28;
+  --fs-xs: 10.5px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 24px;
+  --lh: 1.55;
+  --lh-tight: 1.3;
 
-  /* Tracked-out caps: the label layer is deliberately a different voice
-     from the data layer, so a heading is never mistaken for a value. */
+  /* Extreme optical contrast: labels are tiny and wide, headings are large
+     and tight. The gap between them is the whole typographic idea. */
   --label-transform: uppercase;
-  --label-tracking: 0.075em;
-  --label-weight: 700;
+  --label-tracking: 0.19em;
+  --label-weight: 650;
   --label-size: 9.5px;
-  --label-color: var(--text);
-  --strong-weight: 700;
-  --heading-tracking: -0.015em;
+  --label-color: var(--text-faint);
+  --strong-weight: 620;
+  --heading-tracking: -0.026em;
 
   --u: 4px;
-  --titlebar-h: 28px;
-  --ribbon-h: 50px;
-  --status-h: 24px;
-  --tab-h: 27px;
-  --row-h: 26px;
-  --ctl-h: 24px;
-  --ctl-h-sm: 19px;
-  --rail-left: 244px;
-  --rail-right: 332px;
-  --brand-w: 122px;
-  --menu-item-w: 48px;
-  --cell-pad-y: 5px;
-  --cell-pad-x: 9px;
+  --titlebar-h: 34px;
+  --ribbon-h: 60px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 33px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --rail-left: 264px;
+  --rail-right: 348px;
+  --brand-w: 132px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 13px;
 
-  /* Nothing is rounded and nothing floats. */
-  --r-sm: 0px;
-  --r-md: 0px;
-  --r-lg: 0px;
-  --r-pill: 0px;
+  --r-sm: 5px;
+  --r-md: 9px;
+  --r-lg: 15px;
+  --r-pill: 999px;
 
-  --shadow-1: none;
-  --shadow-2: 0 2px 0 rgba(10, 10, 10, 0.16);
-  --shadow-3: 0 18px 48px rgba(10, 10, 10, 0.3);
-  --focus: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent);
-  --scrim: rgba(10, 10, 10, 0.4);
+  --shadow-1: 0 1px 2px rgba(9, 42, 58, 0.07);
+  --shadow-2: 0 18px 44px -14px rgba(9, 42, 58, 0.4);
+  --shadow-3: 0 48px 110px -24px rgba(9, 42, 58, 0.55);
+  --focus: 0 0 0 3px rgba(10, 127, 150, 0.3);
+  --scrim: rgba(196, 214, 224, 0.5);
 
-  --row-hover: #f4f4f4;
-  --row-active: #ececec;
+  --row-hover: rgba(10, 127, 150, 0.05);
+  --row-active: rgba(10, 127, 150, 0.1);
   --row-marker: var(--accent);
   --row-marker-w: 3px;
+
+  --tree-guide: rgba(9, 52, 70, 0.12);
+
+  --dur: 260ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --px: 0px;
+  --py: 0px;
 }
 
-/* Ruled in both directions — the grid is a table, so it looks like one. */
-.grid th,
-.grid td {
-  border-right: 1px solid var(--border-soft);
+body {
+  background: var(--bg);
 }
-.grid th:last-child,
-.grid td:last-child {
-  border-right: 0;
-}
-.grid thead th {
-  border-bottom: 2px solid var(--accent);
-  background: var(--surface-2);
-}
-.grid tbody tr[data-active] td.c-n {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.grid tbody tr[data-active] .rowbar {
-  background: var(--accent);
+/* The light field canvas is injected here by the art layer, at z-index 0. */
+
+/* The whole app stack is see-through down to the light behind the window;
+   base.css paints --bg on .app and .body, which would seal it off. */
+.app,
+.body {
+  background: transparent;
 }
 
-/* Ink chrome top and bottom frames the data and keeps the white sheet
-   reading as the document rather than as the application. */
-.menubar__item,
-.titlebar__title,
-.wincontrol {
-  color: #9a9a9a;
-}
-.menubar__item:hover,
-.wincontrol:hover {
-  background: #1f1f1f;
-  color: #ffffff;
-}
-.menubar__item[data-open] {
-  background: #fafafa;
-  color: #0a0a0a;
+/* ------------------------------------------------------------- panes */
+
+.titlebar,
+.ribbon,
+.rail--left,
+.rail--right,
+.statusbar,
+.doctabs,
+.docktabs,
+.gridbar,
+.preview {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-color: var(--border-soft);
 }
 .titlebar {
-  border-bottom: 0;
+  background: rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
 }
-.mark {
-  background: #fafafa;
-  box-shadow: inset 0 0 0 3px #0a0a0a;
+.ribbon {
+  background: rgba(255, 255, 255, 0.24);
+}
+.rail--left,
+.rail--right {
+  background: rgba(255, 255, 255, 0.34);
 }
 .statusbar {
-  color: #9a9a9a;
-  border-top: 0;
-}
-.statusbar .stat,
-.statusbar .stat .num,
-.statusbar .statusbar__msg {
-  color: #c4c4c4;
-}
-.statusbar .stat--jump:hover {
-  background: #1f1f1f;
-  color: #ffffff;
-}
-.statusbar .meter {
-  background: #333333;
-}
-.statusbar .stat--jump[data-tone="danger"] .num {
-  color: #ff8b7e;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
 }
 
-/* Flat, square controls with a single hairline. */
+/* The object in the case: the work sheet floats clear of the chrome on all
+   four sides so the light behind it is visible around the edge. It is the
+   densest glass in the composition — near-solid, because this is the one
+   surface someone reads for hours. */
+.center {
+  margin: var(--s3) var(--s3) var(--s3) 0;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.93);
+  -webkit-backdrop-filter: saturate(1.5) blur(30px);
+  backdrop-filter: saturate(1.5) blur(30px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 1px rgba(9, 52, 70, 0.08),
+    0 30px 64px -28px rgba(9, 42, 58, 0.5);
+}
+.rail--left {
+  margin-right: var(--s3);
+  border-right: 0;
+}
+.rail--right {
+  border-left: 0;
+}
+.doctabs,
+.gridbar,
+.preview {
+  background: rgba(255, 255, 255, 0.4);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.grid thead th {
+  background: rgba(252, 253, 254, 0.97);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+}
+#grid {
+  background: transparent;
+}
+.preview__page {
+  background: #fff;
+  box-shadow: var(--shadow-1);
+}
+
+.mark {
+  border-radius: 7px;
+  background: linear-gradient(150deg, #24c3d6, #0a7f96 55%, #075d6f);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 3px 10px -2px rgba(10, 127, 150, 0.6);
+}
+.titlebar__brand {
+  letter-spacing: -0.02em;
+  font-weight: 680;
+}
+.proj__name,
+.dialog__head h2,
+.projects__head h2,
+.bigempty__title,
+.gatecard__title {
+  letter-spacing: var(--heading-tracking);
+  font-weight: 660;
+}
+
+/* --------------------------------------------------------- controls */
+
 .btn {
-  border-color: var(--border-strong);
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+/* A specular band crosses the button as the pointer passes it. */
+.btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.55) 48%,
+    transparent 66%
+  );
+  transform: translateX(-120%);
+  transition: transform 620ms var(--ease);
+  pointer-events: none;
+}
+.btn:hover:not(:disabled)::before {
+  transform: translateX(120%);
+}
+.btn--primary {
+  background: linear-gradient(178deg, #16a2bc, #0a7f96 60%, #076b80);
+  border-color: rgba(7, 93, 111, 0.7);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 6px 16px -6px rgba(10, 127, 150, 0.75);
+}
+.btn--primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 22px -6px rgba(10, 127, 150, 0.8);
+}
+.btn--primary:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.985);
+}
+.btn--outline,
+.btn--ghost {
+  background: rgba(255, 255, 255, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 .btn--ghost {
+  background: transparent;
+  box-shadow: none;
   border-color: transparent;
 }
 .btn--outline:hover:not(:disabled) {
-  background: var(--accent);
+  background: rgba(255, 255, 255, 0.9);
   border-color: var(--accent);
-  color: var(--on-accent);
+  color: var(--accent-strong);
 }
-.chip--on .chip__x {
-  opacity: 0.9;
+.btn--danger {
+  background: linear-gradient(178deg, #dc5252, #b32d2d);
+  border-color: rgba(140, 32, 32, 0.7);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
+
+.rbtn {
+  border-radius: var(--r-md);
+}
+.rbtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: var(--shadow-1);
+  transform: translateY(-1px);
+}
+.rgroup {
+  border-right: 1px solid var(--border-soft);
+}
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 2px rgba(9, 42, 58, 0.06);
+}
+.editor textarea {
+  background: #fff;
+  outline: 2px solid var(--accent);
+  box-shadow:
+    0 0 0 5px rgba(10, 127, 150, 0.14),
+    0 10px 26px -12px rgba(9, 42, 58, 0.5);
+}
+
+.chip {
+  background: rgba(255, 255, 255, 0.62);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+.chip--on {
+  background: linear-gradient(178deg, #16a2bc, #0a7f96);
+  border-color: rgba(7, 93, 111, 0.6);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 4px 12px -5px rgba(10, 127, 150, 0.7);
+}
+
 .card,
-.issue {
-  border-color: var(--border);
+.issue,
+.agentsum {
+  background: rgba(255, 255, 255, 0.66);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-color: var(--border-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 8px -4px rgba(9, 42, 58, 0.22);
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.panel__head {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--accent);
+.card--match:hover,
+.issue:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 8px 20px -8px rgba(9, 42, 58, 0.3);
 }
+.card--match[data-best] {
+  border-color: rgba(15, 138, 95, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 6px 18px -8px rgba(15, 138, 95, 0.45);
+}
+
 .docktabs [role="tab"][data-active] {
-  border-bottom-width: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom-color: var(--accent);
+  color: var(--accent-strong);
 }
-.railsec__head h2 {
-  line-height: 1.4;
+.doctab[data-active] {
+  background: rgba(255, 255, 255, 0.85);
+}
+.tree__row--dir .tree__name {
+  letter-spacing: -0.01em;
+}
+.tree__filerow[data-active] .tree__row {
+  background: linear-gradient(90deg, rgba(10, 127, 150, 0.14), rgba(10, 127, 150, 0.03));
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+}
+
+/* --------------------------------------------------------- overlays */
+
+.overlay {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: saturate(1.8) blur(34px);
+  backdrop-filter: saturate(1.8) blur(34px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 1px rgba(9, 52, 70, 0.09),
+    var(--shadow-3);
+}
+.dialog__head,
+.dialog__foot,
+.palette__inputwrap,
+.palette__foot {
+  border-color: var(--border-soft);
+  background: transparent;
+}
+.palette__item[data-sel] {
+  background: linear-gradient(90deg, rgba(10, 127, 150, 0.16), rgba(10, 127, 150, 0.04));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: rgba(10, 127, 150, 0.12);
+  color: var(--accent-strong);
+}
+.vtabs button[data-active] {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    var(--shadow-1);
+  color: var(--accent-strong);
+}
+.gatecard {
+  border-top: 3px solid var(--danger);
+}
+
+/* Panes arrive by settling out of the light rather than popping. */
+@keyframes vit-settle {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+    -webkit-backdrop-filter: saturate(1) blur(0px);
+    backdrop-filter: saturate(1) blur(0px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes vit-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+[data-enter] .dialog,
+[data-enter] .palette,
+[data-enter] .gatecard {
+  animation: vit-settle 380ms var(--ease) both;
+}
+[data-enter] {
+  animation: vit-fade 220ms linear both;
+}
+
+.banner {
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-1);
+}
+.banner[data-tone="danger"] .banner__title {
+  color: var(--danger);
+}
+.bigempty {
+  background: rgba(255, 255, 255, 0.5);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-2);
+}
+.projects__toolbar {
+  background: rgba(255, 255, 255, 0.7);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-2);
+}
+.meter {
+  background: rgba(9, 52, 70, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 </style>
@@ -2768,8 +3073,8 @@ tr[data-active] .rowmenu__btn,
 <body>
 <div id="root"></div>
 <script>
-const THEME_NAME = "ledger";
-const THEME_FAMILY = "saas-opus";
+const THEME_NAME = "vitrine";
+const THEME_FAMILY = "saas-opus-art";
 </script>
 <script>
 /* ===== data.js — fixtures, identical across systems ===== */
@@ -5640,6 +5945,105 @@ function boot() {
 document.addEventListener("DOMContentLoaded", boot);
 
 </script>
+<script>
+/* ===== art-vitrine.js — art layer, lives outside #root ===== */
+/* VITRINE art layer — the light behind the glass.
+   Four large soft sources drift on slow, mutually prime periods and parallax
+   against the pointer. Drawn at an eighth of the window and blown back up,
+   which is both cheap and exactly the softness wanted — the panes are frosted,
+   so resolution here would be thrown away anyway. Sits at z-index 0 under
+   #root, on <body>, untouched by re-renders. */
 
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("aria-hidden", "true");
+  Object.assign(canvas.style, {
+    position: "fixed",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    zIndex: "0",
+    pointerEvents: "none",
+  });
+
+  /* Cold daylight, one warm rim. Warmth is the smallest and slowest source,
+     so it reads as a reflection off something outside the frame. Painted
+     normally, not additively — additive blending over a pale ground clips
+     straight to white and the field disappears. */
+  const GROUND = "#cddfe9";
+  const LIGHTS = [
+    { hue: "56,180,205", a: 0.62, r: 0.6, px: 0.16, py: 0.2, sx: 0.26, sy: 0.15, tx: 41, ty: 67 },
+    { hue: "96,138,200", a: 0.5, r: 0.68, px: 0.8, py: 0.16, sx: 0.2, sy: 0.19, tx: 59, ty: 47 },
+    { hue: "126,222,196", a: 0.55, r: 0.54, px: 0.5, py: 0.9, sx: 0.24, sy: 0.12, tx: 73, ty: 53 },
+    { hue: "255,166,110", a: 0.6, r: 0.33, px: 0.93, py: 0.76, sx: 0.14, sy: 0.16, tx: 97, ty: 83 },
+    { hue: "255,255,255", a: 0.7, r: 0.42, px: 0.35, py: 0.5, sx: 0.3, sy: 0.22, tx: 113, ty: 71 },
+  ];
+
+  const start = () => {
+    document.body.prepend(canvas);
+    const g = canvas.getContext("2d");
+    let w = 0;
+    let h = 0;
+    let mx = 0.5;
+    let my = 0.5;
+    let cx = 0.5;
+    let cy = 0.5;
+
+    const size = () => {
+      w = canvas.width = Math.max(2, Math.ceil(innerWidth / 8));
+      h = canvas.height = Math.max(2, Math.ceil(innerHeight / 8));
+    };
+    size();
+    addEventListener("resize", size, { passive: true });
+    addEventListener(
+      "pointermove",
+      (e) => {
+        mx = e.clientX / innerWidth;
+        my = e.clientY / innerHeight;
+      },
+      { passive: true },
+    );
+
+    const paint = (t) => {
+      cx += (mx - cx) * 0.04;
+      cy += (my - cy) * 0.04;
+
+      g.fillStyle = GROUND;
+      g.fillRect(0, 0, w, h);
+
+      const d = Math.max(w, h);
+      LIGHTS.forEach((L, i) => {
+        /* Parallax depth: the wider a source, the further away it reads, so
+           it moves least when the pointer travels. */
+        const depth = 0.06 - i * 0.009;
+        const x =
+          (L.px + Math.sin(t / (L.tx * 1000)) * L.sx + (cx - 0.5) * depth * 4) * w;
+        const y =
+          (L.py + Math.cos(t / (L.ty * 1000)) * L.sy + (cy - 0.5) * depth * 4) * h;
+        const r = L.r * d * (0.9 + Math.sin(t / (L.tx * 1700)) * 0.12);
+        const grad = g.createRadialGradient(x, y, 0, x, y, r);
+        grad.addColorStop(0, `rgba(${L.hue},${L.a})`);
+        grad.addColorStop(0.55, `rgba(${L.hue},${L.a * 0.4})`);
+        grad.addColorStop(1, `rgba(${L.hue},0)`);
+        g.fillStyle = grad;
+        g.beginPath();
+        g.arc(x, y, r, 0, Math.PI * 2);
+        g.fill();
+      });
+      if (!reduce) requestAnimationFrame(paint);
+    };
+    requestAnimationFrame(paint);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+})();
+
+</script>
 </body>
 </html>

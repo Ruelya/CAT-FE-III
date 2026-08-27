@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Translunar 工作台 — saas-opus / ledger</title>
-<meta name="description" content="无彩瑞士数据表，最紧密度，颜色只表示状态。">
+<title>Translunar 工作台 — saas-opus-art / phosphor</title>
+<meta name="description" content="CRT 荧光终端：扫描线、辉光、色散。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 /* Structural layer shared by every visual system.
@@ -2573,194 +2573,487 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
 }
 
-/* ===== theme-ledger.css — this visual system ===== */
-/* LEDGER — achromatic Swiss data sheet, the densest of the three.
-   The neutral scale is strictly grey and the accent is ink, which leaves
-   hue itself unused. Every coloured pixel on this screen is therefore a
-   state: green confirmed, amber draft, red error. Nothing is tinted for
-   decoration, so a colour in the corner of your eye always means something. */
+/* ===== art-phosphor.css — this visual system ===== */
+/* PHOSPHOR — a CRT translation terminal.
+   Nothing here is printed or lit from behind; it is emitted. Glyphs bloom
+   into the glass, the tube has a refresh bar rolling down it, and the live
+   row splits into red and cyan the way a mistuned gun does. Everything is
+   monospaced — WenQuanYi Micro Hei Mono carries the Chinese — so source and
+   target land on the same cell grid. Glow is kept under the legibility
+   threshold: the tube is an effect, the text is the product. */
 
 :root {
-  --bg: #e6e6e6;
-  --surface: #f4f4f4;
-  --surface-2: #ffffff;
-  --surface-3: #ffffff;
-  --sunken: #ededed;
-  --chrome: #0a0a0a;
-  --chrome-text: #fafafa;
+  --bg: #04060a;
+  --surface: #070b10;
+  --surface-2: #0a1017;
+  --surface-3: #0e151d;
+  --sunken: #020407;
+  --chrome: #020407;
+  --chrome-text: #cfe3d6;
 
-  --border: #d2d2d2;
-  --border-soft: #e4e4e4;
-  --border-strong: #a6a6a6;
+  --border: #1d2c33;
+  --border-soft: #131e24;
+  --border-strong: #2f4750;
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
 
-  --text: #0a0a0a;
-  --text-muted: #545454;
-  --text-faint: #8c8c8c;
+  --text: #cfe3d6;
+  --text-muted: #8ba79a;
+  --text-faint: #5b7269;
 
-  /* The accent is ink. Selection is weight and contrast, not colour. */
-  --accent: #0a0a0a;
-  --accent-strong: #000000;
-  --accent-soft: #cfcfcf;
-  --accent-faint: #efefef;
-  --on-accent: #ffffff;
+  /* Amber gun for "you are here", cyan gun for reference. */
+  --accent: #ffb340;
+  --accent-strong: #ffcd7a;
+  --accent-soft: rgba(255, 179, 64, 0.2);
+  --accent-faint: rgba(255, 179, 64, 0.08);
+  --on-accent: #140c02;
 
-  --ok: #04713f;
-  --ok-soft: #d7ecdf;
-  --warn: #8a5800;
-  --warn-soft: #f6e7c8;
-  --danger: #c02718;
-  --danger-soft: #f8dcd8;
-  --info: #24509c;
-  --info-soft: #dee6f4;
+  --ok: #3ee08f;
+  --ok-soft: rgba(62, 224, 143, 0.13);
+  --warn: #ffd166;
+  --warn-soft: rgba(255, 209, 102, 0.13);
+  --danger: #ff5f56;
+  --danger-soft: rgba(255, 95, 86, 0.14);
+  --info: #5ad1e6;
+  --info-soft: rgba(90, 209, 230, 0.13);
 
-  --font-ui: "Nimbus Sans", "Helvetica Neue", Helvetica, "PingFang SC",
-    "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
-  --font-num: "Cascadia Mono", ui-monospace, monospace;
-  --font-mono: "Cascadia Mono", ui-monospace, monospace;
+  --font-ui: "JetBrains Mono", "Cascadia Mono", "WenQuanYi Micro Hei Mono",
+    ui-monospace, monospace;
+  --font-display: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
 
   --fs-xs: 10px;
-  --fs-sm: 11px;
-  --fs-md: 12px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
   --fs-lg: 14px;
   --fs-xl: 18px;
-  --lh: 1.42;
-  --lh-tight: 1.28;
+  --lh: 1.52;
+  --lh-tight: 1.36;
 
-  /* Tracked-out caps: the label layer is deliberately a different voice
-     from the data layer, so a heading is never mistaken for a value. */
   --label-transform: uppercase;
-  --label-tracking: 0.075em;
-  --label-weight: 700;
+  --label-tracking: 0.22em;
+  --label-weight: 500;
   --label-size: 9.5px;
-  --label-color: var(--text);
-  --strong-weight: 700;
-  --heading-tracking: -0.015em;
+  --label-color: var(--accent);
+  --strong-weight: 600;
+  --heading-tracking: 0.06em;
 
   --u: 4px;
   --titlebar-h: 28px;
-  --ribbon-h: 50px;
+  --ribbon-h: 52px;
   --status-h: 24px;
-  --tab-h: 27px;
-  --row-h: 26px;
+  --tab-h: 28px;
+  --row-h: 30px;
   --ctl-h: 24px;
-  --ctl-h-sm: 19px;
-  --rail-left: 244px;
-  --rail-right: 332px;
-  --brand-w: 122px;
-  --menu-item-w: 48px;
-  --cell-pad-y: 5px;
-  --cell-pad-x: 9px;
+  --ctl-h-sm: 20px;
+  --rail-left: 272px;
+  --rail-right: 340px;
+  --brand-w: 128px;
+  --menu-item-w: 50px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 10px;
 
-  /* Nothing is rounded and nothing floats. */
   --r-sm: 0px;
   --r-md: 0px;
   --r-lg: 0px;
   --r-pill: 0px;
 
   --shadow-1: none;
-  --shadow-2: 0 2px 0 rgba(10, 10, 10, 0.16);
-  --shadow-3: 0 18px 48px rgba(10, 10, 10, 0.3);
-  --focus: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent);
-  --scrim: rgba(10, 10, 10, 0.4);
+  --shadow-2: 0 0 0 1px rgba(90, 209, 230, 0.16), 0 14px 44px rgba(0, 0, 0, 0.86);
+  --shadow-3: 0 0 0 1px rgba(90, 209, 230, 0.22), 0 34px 90px rgba(0, 0, 0, 0.92);
+  --focus: 0 0 0 1px var(--accent), 0 0 12px rgba(255, 179, 64, 0.55);
+  --scrim: rgba(2, 4, 7, 0.8);
 
-  --row-hover: #f4f4f4;
-  --row-active: #ececec;
+  --row-hover: rgba(90, 209, 230, 0.06);
+  --row-active: rgba(255, 179, 64, 0.1);
   --row-marker: var(--accent);
-  --row-marker-w: 3px;
+  --row-marker-w: 2px;
+
+  --tree-guide: rgba(90, 209, 230, 0.15);
+
+  --dur: 70ms;
+  --ease: steps(4, end);
+
+  --glow: 0 0 5px;
 }
 
-/* Ruled in both directions — the grid is a table, so it looks like one. */
-.grid th,
-.grid td {
-  border-right: 1px solid var(--border-soft);
-}
-.grid th:last-child,
-.grid td:last-child {
-  border-right: 0;
-}
-.grid thead th {
-  border-bottom: 2px solid var(--accent);
-  background: var(--surface-2);
-}
-.grid tbody tr[data-active] td.c-n {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.grid tbody tr[data-active] .rowbar {
-  background: var(--accent);
+body {
+  background: var(--bg);
 }
 
-/* Ink chrome top and bottom frames the data and keeps the white sheet
-   reading as the document rather than as the application. */
-.menubar__item,
-.titlebar__title,
-.wincontrol {
-  color: #9a9a9a;
+/* The tube. Scanlines, a slow refresh bar, and a vignette that curves the
+   corners away. Fixed to the window, so a re-render never interrupts it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.3) 0px,
+    rgba(0, 0, 0, 0.3) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.4;
+  mix-blend-mode: multiply;
 }
-.menubar__item:hover,
-.wincontrol:hover {
-  background: #1f1f1f;
-  color: #ffffff;
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20% -6%;
+  z-index: 9998;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(160, 255, 220, 0.045) 46%,
+      rgba(160, 255, 220, 0.075) 50%,
+      rgba(160, 255, 220, 0.045) 54%,
+      transparent 100%
+    ),
+    radial-gradient(118% 104% at 50% 48%, transparent 68%, rgba(0, 0, 0, 0.5) 100%);
+  background-size:
+    100% 34%,
+    100% 100%;
+  background-repeat: no-repeat;
+  background-position:
+    0 -34%,
+    0 0;
+  animation: crt-roll 7.5s linear infinite;
 }
-.menubar__item[data-open] {
-  background: #fafafa;
-  color: #0a0a0a;
+@keyframes crt-roll {
+  from {
+    background-position:
+      0 -40%,
+      0 0;
+  }
+  to {
+    background-position:
+      0 140%,
+      0 0;
+  }
 }
-.titlebar {
-  border-bottom: 0;
+
+/* Emission: everything that carries meaning bleeds a little into the glass. */
+.app,
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu {
+  text-shadow: 0 0 6px rgba(160, 220, 190, 0.28);
+}
+.titlebar__brand,
+.railsec__head h2,
+.panel__head h3,
+.rgroup__label,
+.gridbar__label,
+.docktabs [role="tab"][data-active],
+.statechip,
+.pill,
+.score,
+.origin,
+.tree__qa {
+  text-shadow: var(--glow) currentColor;
 }
 .mark {
-  background: #fafafa;
-  box-shadow: inset 0 0 0 3px #0a0a0a;
-}
-.statusbar {
-  color: #9a9a9a;
-  border-top: 0;
-}
-.statusbar .stat,
-.statusbar .stat .num,
-.statusbar .statusbar__msg {
-  color: #c4c4c4;
-}
-.statusbar .stat--jump:hover {
-  background: #1f1f1f;
-  color: #ffffff;
-}
-.statusbar .meter {
-  background: #333333;
-}
-.statusbar .stat--jump[data-tone="danger"] .num {
-  color: #ff8b7e;
+  border-radius: 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
 }
 
-/* Flat, square controls with a single hairline. */
-.btn {
-  border-color: var(--border-strong);
-}
-.btn--ghost {
-  border-color: transparent;
-}
-.btn--outline:hover:not(:disabled) {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-.chip--on .chip__x {
-  opacity: 0.9;
-}
-.card,
-.issue {
+.titlebar,
+.statusbar {
+  background: var(--chrome);
   border-color: var(--border);
 }
-.panel__head {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--accent);
+.titlebar__brand {
+  color: var(--accent);
+  letter-spacing: 0.16em;
+}
+
+/* Chrome is drawn, not filled: single hairlines in cyan at low alpha. */
+.ribbon,
+.gridbar,
+.doctabs,
+.docktabs,
+.railsec,
+.panel,
+.preview,
+.rail--left,
+.rail--right {
+  border-color: var(--border);
+}
+.panel__head,
+.grid thead th {
+  background: #060a0e;
+  border-bottom: 1px solid var(--border);
+}
+.grid tbody tr {
+  border-bottom: 1px solid rgba(90, 209, 230, 0.055);
+}
+
+/* The gun is slightly out of convergence on the row you are working. */
+.grid tbody tr[data-active] td.c-src,
+.grid tbody tr[data-active] td.c-tgt .tgtcell__text {
+  text-shadow:
+    -0.7px 0 rgba(255, 60, 90, 0.5),
+    0.7px 0 rgba(60, 230, 255, 0.45),
+    0 0 8px rgba(255, 179, 64, 0.28);
+}
+.grid tbody tr[data-active] {
+  background: var(--row-active);
+  box-shadow: inset 0 0 26px rgba(255, 179, 64, 0.09);
+}
+.grid tbody tr[data-active] td.c-n {
+  color: var(--accent);
+}
+/* The caret block a terminal would leave at the head of the live line. */
+.grid tbody tr[data-active] td.c-n::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 5px;
+  vertical-align: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: crt-caret 1.05s steps(2, end) infinite;
+}
+@keyframes crt-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.editor textarea {
+  background: #02050a;
+  outline: 1px solid var(--accent);
+  box-shadow:
+    inset 0 0 22px rgba(255, 179, 64, 0.11),
+    0 0 18px rgba(255, 179, 64, 0.24);
+  caret-color: var(--accent);
+}
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: #02050a;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.field select {
+  color-scheme: dark;
+}
+.check input {
+  accent-color: var(--accent);
+  color-scheme: dark;
+}
+
+.btn {
+  border-radius: 0;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.btn--primary {
+  background: rgba(255, 179, 64, 0.14);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  text-shadow: var(--glow) var(--accent);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+  text-shadow: none;
+  box-shadow: 0 0 18px rgba(255, 179, 64, 0.5);
+}
+.btn--outline:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(90, 209, 230, 0.09);
+  border-color: var(--info);
+  color: var(--info);
+}
+.btn--danger {
+  background: rgba(255, 95, 86, 0.16);
+  border-color: var(--danger);
+  color: #ffb3ae;
+}
+.rbtn:hover:not(:disabled) {
+  background: rgba(90, 209, 230, 0.08);
+  color: var(--info);
+}
+.rbtn--primary {
+  color: var(--accent);
+}
+.rgroup {
+  border-right: 1px solid var(--border);
+}
+
+/* Chips are bracketed the way a status line brackets a field. */
+.chip {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.chip--on {
+  background: rgba(255, 179, 64, 0.16);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.statechip,
+.origin,
+.pill {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+.tree__qa {
+  border-radius: 0;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+.tree__row--dir .tree__name {
+  letter-spacing: 0.1em;
+  color: var(--info);
+}
+.tree__icon {
+  color: var(--text-faint);
+}
+.tree__filerow[data-active] .tree__icon {
+  color: var(--accent);
+}
+
+.card,
+.issue,
+.agentsum {
+  background: rgba(90, 209, 230, 0.028);
+  border-color: var(--border);
+}
+.card--match[data-best] {
+  border-color: var(--ok);
+  box-shadow: inset 0 0 22px rgba(62, 224, 143, 0.08);
 }
 .docktabs [role="tab"][data-active] {
-  border-bottom-width: 3px;
+  background: rgba(255, 179, 64, 0.09);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
-.railsec__head h2 {
-  line-height: 1.4;
+.doctab[data-active]::after {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+}
+
+/* --------------------------------------------------------- overlays */
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: #060a10;
+  border: 1px solid var(--info);
+  border-radius: 0;
+}
+.dialog__head,
+.dialog__foot,
+.palette__inputwrap,
+.palette__foot {
+  border-color: var(--border);
+  background: #04070c;
+}
+.palette__item[data-sel],
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+  text-shadow: none;
+}
+.vtabs button[data-active] {
+  background: rgba(255, 179, 64, 0.1);
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.gatecard {
+  border-color: var(--danger);
+  box-shadow:
+    0 0 0 1px rgba(255, 95, 86, 0.3),
+    0 0 60px rgba(255, 95, 86, 0.16),
+    var(--shadow-3);
+}
+
+/* A surface arriving is the tube being driven: it overscans, then locks. */
+@keyframes crt-on {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.006) scaleX(1.04);
+    filter: brightness(3.5);
+  }
+  38% {
+    opacity: 1;
+    transform: scaleY(0.02) scaleX(1);
+    filter: brightness(2.6);
+  }
+  62% {
+    transform: scaleY(1.03);
+    filter: brightness(1.5);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+[data-enter] .dialog,
+[data-enter] .palette,
+[data-enter] .gatecard {
+  animation: crt-on 200ms linear both;
+}
+[data-enter].banner {
+  animation: crt-on 150ms linear both;
+}
+.banner {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: rgba(255, 95, 86, 0.08);
+}
+.banner[data-tone="warn"] {
+  background: rgba(255, 209, 102, 0.08);
+}
+.bigempty {
+  border: 1px dashed var(--border-strong);
+}
+.preview__page {
+  background: #050a0d;
+  border: 1px solid var(--border);
+}
+.meter {
+  border-radius: 0;
+}
+.meter__confirmed {
+  box-shadow: 0 0 7px var(--ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  body::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 </style>
@@ -2768,8 +3061,8 @@ tr[data-active] .rowmenu__btn,
 <body>
 <div id="root"></div>
 <script>
-const THEME_NAME = "ledger";
-const THEME_FAMILY = "saas-opus";
+const THEME_NAME = "phosphor";
+const THEME_FAMILY = "saas-opus-art";
 </script>
 <script>
 /* ===== data.js — fixtures, identical across systems ===== */
@@ -5640,6 +5933,102 @@ function boot() {
 document.addEventListener("DOMContentLoaded", boot);
 
 </script>
+<script>
+/* ===== art-phosphor.js — art layer, lives outside #root ===== */
+/* PHOSPHOR art layer — the signal.
+   A screen-blended noise field over the whole tube, redrawn at 12fps from a
+   handful of pre-baked tiles rather than per-frame, plus an occasional
+   horizontal tear. Alpha is deliberately tiny: this has to read as a tube
+   under load, not as texture over the text. Lives on <body>, so #root can
+   re-render as often as it likes. */
 
+(() => {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const TILE = 128;
+  const TILES = 4;
+
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("aria-hidden", "true");
+  Object.assign(canvas.style, {
+    position: "fixed",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    zIndex: "9996",
+    pointerEvents: "none",
+    mixBlendMode: "screen",
+    opacity: "0.05",
+  });
+
+  const bake = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = TILE;
+    const g = c.getContext("2d");
+    const img = g.createImageData(TILE, TILE);
+    for (let i = 0; i < TILE * TILE; i++) {
+      const v = Math.random() < 0.5 ? 0 : Math.random() * 255;
+      img.data[i * 4] = v * 0.75;
+      img.data[i * 4 + 1] = v;
+      img.data[i * 4 + 2] = v * 0.85;
+      img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  };
+
+  const start = () => {
+    document.body.appendChild(canvas);
+    const g = canvas.getContext("2d");
+    const tiles = Array.from({ length: TILES }, bake);
+    let tear = null;
+    let last = 0;
+    let frame = 0;
+
+    const size = () => {
+      canvas.width = Math.ceil(innerWidth / 2);
+      canvas.height = Math.ceil(innerHeight / 2);
+      g.imageSmoothingEnabled = false;
+    };
+    size();
+    addEventListener("resize", size, { passive: true });
+
+    const draw = (t) => {
+      requestAnimationFrame(draw);
+      if (t - last < 82) return;
+      last = t;
+      frame++;
+
+      const pat = g.createPattern(tiles[frame % TILES], "repeat");
+      g.globalAlpha = 1;
+      g.fillStyle = pat;
+      g.setTransform(1, 0, 0, 1, (frame * 13) % TILE, (frame * 7) % TILE);
+      g.fillRect(-TILE, -TILE, canvas.width + TILE * 2, canvas.height + TILE * 2);
+      g.setTransform(1, 0, 0, 1, 0, 0);
+
+      /* Tears are rare and short: a band of the raster arriving displaced. */
+      if (!tear && Math.random() < 0.014) {
+        tear = { y: Math.random() * canvas.height, h: 4 + Math.random() * 26, left: 12 };
+      }
+      if (tear) {
+        g.globalAlpha = 0.5;
+        g.fillStyle = "#9fffe0";
+        g.fillRect(0, tear.y, canvas.width, 1);
+        g.globalAlpha = 0.22;
+        g.fillRect(20, tear.y, canvas.width, tear.h);
+        if (--tear.left <= 0) tear = null;
+      }
+    };
+    requestAnimationFrame(draw);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+})();
+
+</script>
 </body>
 </html>

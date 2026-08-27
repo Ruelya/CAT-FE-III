@@ -20,10 +20,13 @@ const PROJECTS = [
   { name: "Aster 3.9 文档（归档）", pair: "en-US → zh-CN", archived: true },
 ];
 
+/* `dir` is the folder path the file sits in; the left rail derives its tree
+   from these, so adding a document is enough to grow the tree. */
 const DOCUMENTS = [
   {
     id: "doc-onboarding",
     name: "onboarding-guide.docx",
+    dir: "docs/guides",
     format: "docx",
     total: 26,
     confirmed: 14,
@@ -32,8 +35,20 @@ const DOCUMENTS = [
     words: 612,
   },
   {
+    id: "doc-trouble",
+    name: "troubleshooting.docx",
+    dir: "docs/guides",
+    format: "docx",
+    total: 32,
+    confirmed: 0,
+    draft: 0,
+    open: 0,
+    words: 741,
+  },
+  {
     id: "doc-release",
     name: "release-notes-4.2.docx",
+    dir: "docs",
     format: "docx",
     total: 41,
     confirmed: 41,
@@ -44,12 +59,35 @@ const DOCUMENTS = [
   {
     id: "doc-api",
     name: "api-reference.md",
+    dir: "reference",
     format: "markdown",
     total: 118,
     confirmed: 32,
     draft: 11,
     open: 4,
     words: 2417,
+  },
+  {
+    id: "doc-strings",
+    name: "console-strings.json",
+    dir: "ui/strings",
+    format: "json",
+    total: 204,
+    confirmed: 61,
+    draft: 18,
+    open: 2,
+    words: 1180,
+  },
+  {
+    id: "doc-terms",
+    name: "terms-of-service.docx",
+    dir: "legal",
+    format: "docx",
+    total: 57,
+    confirmed: 57,
+    draft: 0,
+    open: 0,
+    words: 1642,
   },
 ];
 
@@ -583,9 +621,12 @@ const PALETTE = [
   { g: "面板", label: "术语面板", key: "Ctrl+2", cmd: "show-dock-term" },
   { g: "面板", label: "QA 面板", key: "Ctrl+3", cmd: "show-dock-qa" },
   { g: "面板", label: "AI 面板", key: "Ctrl+4", cmd: "show-dock-ai" },
-  { g: "文档", label: "打开文档：onboarding-guide.docx", key: "", cmd: "open-doc-onboarding" },
-  { g: "文档", label: "打开文档：release-notes-4.2.docx", key: "", cmd: "open-doc-release" },
-  { g: "文档", label: "打开文档：api-reference.md", key: "", cmd: "open-doc-api", disabled: false },
+  { g: "文档", label: "打开文档：docs/guides/onboarding-guide.docx", key: "", cmd: "open-doc-onboarding" },
+  { g: "文档", label: "打开文档：docs/guides/troubleshooting.docx", key: "", cmd: "open-doc-trouble" },
+  { g: "文档", label: "打开文档：docs/release-notes-4.2.docx", key: "", cmd: "open-doc-release" },
+  { g: "文档", label: "打开文档：reference/api-reference.md", key: "", cmd: "open-doc-api" },
+  { g: "文档", label: "打开文档：ui/strings/console-strings.json", key: "", cmd: "open-doc-strings" },
+  { g: "文档", label: "打开文档：legal/terms-of-service.docx", key: "", cmd: "open-doc-terms" },
 ];
 
 /* Ribbon rows. `verb` ids reuse the menu command ids so one dispatcher

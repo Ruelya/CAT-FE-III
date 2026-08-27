@@ -54,6 +54,12 @@ const ICONS = {
   file: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
   plus: "M12 5v14M5 12h14",
   trash: "M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13",
+  folderOpen: "M4 8a2 2 0 0 1 2-2h3.6l1.8 2H17a2 2 0 0 1 2 2v1|M3.4 12.2A1 1 0 0 1 4.4 11h15.7a1 1 0 0 1 1 1.2l-1.3 5.6a2 2 0 0 1-2 1.6H6.6a2 2 0 0 1-1.9-1.6z",
+  folderShut:
+    "M4 7a2 2 0 0 1 2-2h3.6l1.8 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z",
+  fileDoc: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M8 13h8M8 17h5",
+  fileMd: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M7.5 18v-5l2.2 2.6L11.9 13v5|M14.6 13v3.4m0 0 1.5-1.6m-1.5 1.6L13 14.8",
+  fileJson: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M10 12.5c-1.2 0-1.2 1.6-1.2 2.2 0 .7 0 2.2 1.2 2.2|M14.6 12.5c1.2 0 1.2 1.6 1.2 2.2 0 .7 0 2.2-1.2 2.2",
   cmd: "M9 9h6v6H9z|M9 9V7a2 2 0 1 0-2 2h2zm0 6v2a2 2 0 1 1-2-2h2zm6-6V7a2 2 0 1 1 2 2h-2zm0 6v2a2 2 0 1 0 2-2h-2z",
   agent: "M9 4h6a2 2 0 0 1 2 2v2h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1V6a2 2 0 0 1 2-2z|M9 14h.01|M15 14h.01",
 };
@@ -63,6 +69,16 @@ function ic(name, size) {
   if (!d) return "";
   const paths = d.split("|").map((p) => `<path d="${p}"/>`).join("");
   return `<svg class="ic" width="${size || 16}" height="${size || 16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+/* The view is re-rendered wholesale on every state change, so an entrance
+   animation keyed on markup alone would replay on every keystroke. Overlays
+   ask here instead and are only marked on the render where they appear. */
+const ENTERED = {};
+function entering(key, value) {
+  const fresh = ENTERED[key] !== value;
+  ENTERED[key] = value;
+  return fresh && value ? ' data-enter="1"' : "";
 }
 
 const kbd = (k) =>
@@ -107,7 +123,44 @@ const S = {
   removeArmed: null,
   settingsTab: "info",
   cascade: false,
+  collapsedDirs: ["legal"],
 };
+
+/* ------------------------------------------------------------ file tree */
+
+const FILE_ICON = { docx: "fileDoc", markdown: "fileMd", json: "fileJson" };
+
+/** Folds the flat document list into the nested shape the rail draws. */
+function fileTree(docs) {
+  const root = { dirs: new Map(), files: [] };
+  docs.forEach((d) => {
+    let node = root;
+    let path = "";
+    (d.dir ? d.dir.split("/") : []).forEach((part) => {
+      path = path ? `${path}/${part}` : part;
+      if (!node.dirs.has(part)) node.dirs.set(part, { name: part, path, dirs: new Map(), files: [] });
+      node = node.dirs.get(part);
+    });
+    node.files.push(d);
+  });
+  return root;
+}
+
+/** Aggregate progress for a folder, so a collapsed folder still reports. */
+function dirRollup(node) {
+  const acc = { total: 0, confirmed: 0, open: 0, files: 0 };
+  const walk = (n) => {
+    n.files.forEach((f) => {
+      acc.total += f.total;
+      acc.confirmed += f.confirmed;
+      acc.open += f.open;
+      acc.files += 1;
+    });
+    n.dirs.forEach(walk);
+  };
+  walk(node);
+  return acc;
+}
 
 const FILTER_DEFS = [
   { id: "untranslated", label: "未译" },
@@ -175,6 +228,11 @@ function applyScenario(id) {
   S.engine = "ready";
   S.filters = [];
   S.query = "";
+  S.fileQuery = "";
+  S.collapsedDirs = ["legal"];
+  S.activeDoc = "doc-onboarding";
+  S.openDocs = ["doc-onboarding", "doc-release"];
+  S.removeArmed = null;
   S.editing = true;
   S.dock = "memory";
   S.preview.open = true;
@@ -656,8 +714,11 @@ function vRibbon() {
 function vLeft() {
   const c = counts();
   const pct = Math.round((c.confirmed / c.total) * 100);
+  /* Search matches the whole path, so typing a folder name narrows to its
+     contents the way it does in an editor. */
+  const q = S.fileQuery.trim().toLowerCase();
   const docs = DOCUMENTS.filter((d) =>
-    d.name.toLowerCase().includes(S.fileQuery.trim().toLowerCase()),
+    `${d.dir ? d.dir + "/" : ""}${d.name}`.toLowerCase().includes(q),
   );
   const totals = DOCUMENTS.reduce(
     (t, d) => ({ total: t.total + d.total, confirmed: t.confirmed + d.confirmed }),
@@ -692,24 +753,7 @@ function vLeft() {
       ${
         docs.length === 0
           ? `<p class="empty">无匹配文件</p>`
-          : `<div class="doclist">${docs
-              .map((d) => {
-                const p = Math.round((d.confirmed / d.total) * 100);
-                const armed = S.removeArmed === d.id;
-                return `<div class="doclist__row"${d.id === S.activeDoc ? ' data-active="1"' : ""}>
-            <button class="doclist__open" data-cmd="open-doc-${d.id.replace("doc-", "")}">
-              <span class="doclist__name">${ic("file", 14)}${esc(d.name)}</span>
-              <span class="doclist__meta"><span class="num">${d.format}</span> · 确认 <span class="num">${d.confirmed}/${d.total}</span>${d.draft ? ` · 草稿 <span class="num">${d.draft}</span>` : ""}${d.open ? ` · QA <span class="num">${d.open}</span>` : ""}</span>
-              <span class="doclist__bar"><span class="meter"><span class="meter__confirmed" style="width:${p}%"></span></span><span class="num">${p}%</span></span>
-            </button>
-            ${
-              armed
-                ? `<span class="doclist__confirm"><button class="btn btn--danger btn--xs" data-act="remove-yes">确认移除</button><button class="btn btn--ghost btn--xs" data-act="remove-no">取消</button></span>`
-                : `<button class="doclist__remove btn btn--ghost btn--xs" data-act="remove-arm" data-doc="${d.id}">移除</button>`
-            }
-          </div>`;
-              })
-              .join("")}</div>`
+          : `<div class="tree" role="tree">${vTreeNodes(fileTree(docs), 0, !!S.fileQuery.trim())}</div>`
       }
     </section>
 
@@ -729,6 +773,64 @@ function vLeft() {
   </aside>`;
 }
 
+const indent = (d) => `<span class="tree__indent">${'<i></i>'.repeat(d)}</span>`;
+
+/* Folders first, then files, each alphabetical — the ordering an IDE uses.
+   A search forces every folder open so a hit is never hidden behind a
+   collapsed chevron. */
+function vTreeNodes(node, depth, forceOpen) {
+  let out = "";
+  [...node.dirs.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((dir) => {
+      const open = forceOpen || !S.collapsedDirs.includes(dir.path);
+      const roll = dirRollup(dir);
+      const pct = roll.total ? Math.round((roll.confirmed / roll.total) * 100) : 0;
+      out += `<button class="tree__row tree__row--dir" role="treeitem" aria-expanded="${open}"
+        data-dir="${esc(dir.path)}" style="--depth:${depth}" title="${esc(dir.path)} — ${roll.files} 个文件，已确认 ${pct}%">
+        ${indent(depth)}
+        <span class="tree__chev" data-open="${open ? 1 : 0}">${ic("right", 12)}</span>
+        <span class="tree__icon">${ic(open ? "folderOpen" : "folderShut", 15)}</span>
+        <span class="tree__name">${esc(dir.name)}</span>
+        <span class="tree__tail">
+          ${roll.open ? `<span class="tree__qa" data-tone="danger">${roll.open}</span>` : ""}
+          <span class="tree__count num">${roll.files}</span>
+        </span>
+      </button>`;
+      if (open) out += vTreeNodes(dir, depth + 1, forceOpen);
+    });
+
+  [...node.files]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((d) => {
+      const pct = Math.round((d.confirmed / d.total) * 100);
+      const armed = S.removeArmed === d.id;
+      const active = d.id === S.activeDoc;
+      const openTab = S.openDocs.includes(d.id);
+      out += `<div class="tree__filerow"${active ? ' data-active="1"' : ""}${openTab ? ' data-opentab="1"' : ""}>
+        <button class="tree__row tree__row--file" role="treeitem" style="--depth:${depth}"
+          data-cmd="open-doc-${d.id.replace("doc-", "")}"
+          title="${esc((d.dir ? d.dir + "/" : "") + d.name)}&#10;已确认 ${d.confirmed}/${d.total}（${pct}%）${d.draft ? `，草稿 ${d.draft}` : ""}${d.open ? `，QA 未解决 ${d.open}` : ""}">
+          ${indent(depth)}
+          <span class="tree__chev"></span>
+          <span class="tree__icon" data-fmt="${d.format}">${ic(FILE_ICON[d.format] || "fileDoc", 15)}</span>
+          <span class="tree__name">${esc(d.name)}</span>
+          <span class="tree__tail">
+            ${d.open ? `<span class="tree__qa" data-tone="danger">${d.open}</span>` : ""}
+            <span class="tree__prog" data-done="${pct === 100 ? 1 : 0}" data-none="${pct === 0 ? 1 : 0}"
+              style="--pct:${pct}%"><span class="num">${pct}</span></span>
+          </span>
+        </button>
+        ${
+          armed
+            ? `<span class="tree__confirm"><button class="btn btn--danger btn--xs" data-act="remove-yes" data-doc="${d.id}">确认移除</button><button class="btn btn--ghost btn--xs" data-act="remove-no">取消</button></span>`
+            : `<button class="tree__remove iconbtn" data-act="remove-arm" data-doc="${d.id}" aria-label="从项目移除 ${esc(d.name)}">${ic("trash", 13)}</button>`
+        }
+      </div>`;
+    });
+  return out;
+}
+
 function vDocTabs() {
   return `<div class="doctabs" role="tablist">
     ${S.openDocs
@@ -746,9 +848,11 @@ function vDocTabs() {
 
 function vBanners() {
   let out = "";
+  if (S.banner !== "gate") ENTERED["banner-gate"] = false;
+  if (S.banner !== "overwrite") ENTERED["banner-over"] = false;
   if (S.banner === "gate") {
     const errs = S.issues.filter((i) => i.status === "open" && i.severity === "error");
-    out += `<div class="banner" data-tone="danger" role="alertdialog">
+    out += `<div class="banner" data-tone="danger" role="alertdialog"${entering("banner-gate", true)}>
       <span class="banner__icon">⛔</span>
       <span class="banner__text"><b>存在 QA 错误，仍要导出吗？</b>
         <span class="banner__sub"><span class="num">${errs.length}</span> 个错误未解决：${errs.map((e) => `<code>${e.rule}</code>`).join("、")}</span></span>
@@ -758,7 +862,7 @@ function vBanners() {
       </span></div>`;
   }
   if (S.banner === "overwrite") {
-    out += `<div class="banner" data-tone="warn" role="alertdialog">
+    out += `<div class="banner" data-tone="warn" role="alertdialog"${entering("banner-over", true)}>
       <span class="banner__icon">⚠</span>
       <span class="banner__text"><b>目标已存在，要覆盖吗？</b>
         <span class="banner__sub"><code>/Users/lin/exports/onboarding-guide-translated.docx</code></span></span>
@@ -1337,11 +1441,14 @@ function vStatus() {
 /* ------------------------------------------------------------- overlays */
 
 function vPalette() {
-  if (!S.palette.open) return "";
+  if (!S.palette.open) {
+    ENTERED.palette = false;
+    return "";
+  }
   const q = S.palette.q.trim().toLowerCase();
   const items = PALETTE.filter((p) => p.label.toLowerCase().includes(q));
   let last = null;
-  return `<div class="overlay overlay--palette" data-act="close-palette">
+  return `<div class="overlay overlay--palette" data-act="close-palette"${entering("palette", true)}>
     <div class="palette" role="dialog" aria-modal="true" aria-label="命令面板">
       <div class="palette__inputwrap">${ic("search", 15)}
         <input id="paletteq" placeholder="输入命令名称、面板或文档" aria-label="搜索命令" value="${esc(S.palette.q)}">
@@ -1370,7 +1477,7 @@ function vPalette() {
 }
 
 function dialog(title, body, foot, wide) {
-  return `<div class="overlay" data-act="close-dialog">
+  return `<div class="overlay" data-act="close-dialog"${entering("dialog", S.dialog)}>
     <div class="dialog${wide ? " dialog--wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <header class="dialog__head"><h2>${esc(title)}</h2>
         <button class="iconbtn" data-act="close-dialog" aria-label="关闭">${ic("x", 15)}</button></header>
@@ -1380,7 +1487,10 @@ function dialog(title, body, foot, wide) {
 }
 
 function vDialogs() {
-  if (!S.dialog) return "";
+  if (!S.dialog) {
+    ENTERED.dialog = null;
+    return "";
+  }
   if (S.dialog === "newproject")
     return dialog(
       "新建项目",
@@ -1587,9 +1697,12 @@ function vDialogs() {
 }
 
 function vEngineGate() {
-  if (S.engine === "ready") return "";
+  if (S.engine === "ready") {
+    ENTERED.gate = null;
+    return "";
+  }
   const down = S.engine === "down";
-  return `<div class="overlay overlay--gate">
+  return `<div class="overlay overlay--gate"${entering("gate", S.engine)}>
     <div class="gatecard" role="alertdialog" aria-modal="true">
       <p class="gatecard__title"><span class="dot" data-state="${down ? "down" : "busy"}"></span>
         ${down ? "翻译引擎已停止" : "翻译引擎正在自动重启"}</p>
@@ -1636,7 +1749,7 @@ function view() {
   const work = S.scenario !== "projects";
   return `
   <div class="proto">
-    <span class="proto__brand">saas-opus · <b>${THEME_NAME}</b></span>
+    <span class="proto__brand">${THEME_FAMILY} · <b>${THEME_NAME}</b></span>
     <span class="proto__label">场景</span>
     <div class="proto__scenes">
       ${SCENARIOS.map(
@@ -1724,7 +1837,9 @@ function render() {
 }
 
 function onClick(e) {
-  const t = e.target.closest("[data-scene],[data-cmd],[data-act],[data-filter],[data-dock],[data-jump],[data-menu],[data-settab],[data-row]");
+  const t = e.target.closest(
+    "[data-scene],[data-cmd],[data-act],[data-filter],[data-dock],[data-jump],[data-menu],[data-settab],[data-dir],[data-row]",
+  );
   if (!t) {
     if (S.menu !== null || S.rowMenu !== null) {
       S.menu = null;
@@ -1743,6 +1858,13 @@ function onClick(e) {
   }
   if (t.dataset.settab) {
     S.settingsTab = t.dataset.settab;
+    return render();
+  }
+  if (t.dataset.dir) {
+    const p = t.dataset.dir;
+    S.collapsedDirs = S.collapsedDirs.includes(p)
+      ? S.collapsedDirs.filter((x) => x !== p)
+      : S.collapsedDirs.concat(p);
     return render();
   }
   if (t.dataset.dock) {
@@ -1819,10 +1941,15 @@ function onClick(e) {
       case "remove-no":
         S.removeArmed = null;
         break;
-      case "remove-yes":
-        status("已移除「api-reference.md」：删除 118 个句段、4 条 QA 记录");
+      case "remove-yes": {
+        const d = DOCUMENTS.find((x) => x.id === t.dataset.doc);
+        if (d)
+          status(
+            `已移除「${d.name}」：删除 ${d.total} 个句段${d.open ? `、${d.open} 条 QA 记录` : ""}`,
+          );
         S.removeArmed = null;
         break;
+      }
       case "dismiss-unacked":
         S.unacked = false;
         break;

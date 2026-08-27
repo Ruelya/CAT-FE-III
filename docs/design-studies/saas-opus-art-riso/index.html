@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Translunar 工作台 — saas-opus / ledger</title>
-<meta name="description" content="无彩瑞士数据表，最紧密度，颜色只表示状态。">
+<title>Translunar 工作台 — saas-opus-art / riso</title>
+<meta name="description" content="双色孔版印刷：纸纹、网点、套印偏移。">
 <style>
 /* ===== base.css — structure shared by every visual system ===== */
 /* Structural layer shared by every visual system.
@@ -2573,194 +2573,588 @@ tr[data-active] .rowmenu__btn,
   color: var(--text-faint);
 }
 
-/* ===== theme-ledger.css — this visual system ===== */
-/* LEDGER — achromatic Swiss data sheet, the densest of the three.
-   The neutral scale is strictly grey and the accent is ink, which leaves
-   hue itself unused. Every coloured pixel on this screen is therefore a
-   state: green confirmed, amber draft, red error. Nothing is tinted for
-   decoration, so a colour in the corner of your eye always means something. */
+/* ===== art-riso.css — this visual system ===== */
+/* RISO — two-ink risograph print on newsprint.
+   The premise: this is a proof pulled off a duplicator, so the interface is
+   made of ink laid on paper rather than of pixels lit from behind. Fills are
+   halftone, not flat. Ink sits slightly out of register when a surface is
+   live. The paper grain is real (generated once, in art-riso.js) and every
+   ink multiplies into it, so nothing on screen is brighter than the sheet. */
 
 :root {
-  --bg: #e6e6e6;
-  --surface: #f4f4f4;
-  --surface-2: #ffffff;
-  --surface-3: #ffffff;
-  --sunken: #ededed;
-  --chrome: #0a0a0a;
-  --chrome-text: #fafafa;
+  /* The sheet. */
+  --paper: #f3ece0;
+  --paper-2: #f8f3e9;
+  --paper-shade: #e5dcca;
 
-  --border: #d2d2d2;
-  --border-soft: #e4e4e4;
-  --border-strong: #a6a6a6;
+  /* Two inks, in the order they run through the drum. */
+  --ink: #16234f;
+  --ink-b: #f2542d;
 
-  --text: #0a0a0a;
-  --text-muted: #545454;
-  --text-faint: #8c8c8c;
+  --bg: #ddd3bf;
+  --surface: var(--paper);
+  --surface-2: var(--paper-2);
+  --surface-3: var(--paper-2);
+  --sunken: var(--paper-shade);
+  --chrome: #16234f;
+  --chrome-text: #f8f3e9;
 
-  /* The accent is ink. Selection is weight and contrast, not colour. */
-  --accent: #0a0a0a;
-  --accent-strong: #000000;
-  --accent-soft: #cfcfcf;
-  --accent-faint: #efefef;
-  --on-accent: #ffffff;
+  --border: #b9ad93;
+  --border-soft: #d3c8b1;
+  --border-strong: #16234f;
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
 
-  --ok: #04713f;
-  --ok-soft: #d7ecdf;
-  --warn: #8a5800;
-  --warn-soft: #f6e7c8;
-  --danger: #c02718;
-  --danger-soft: #f8dcd8;
-  --info: #24509c;
-  --info-soft: #dee6f4;
+  --text: #16234f;
+  --text-muted: #4a5273;
+  --text-faint: #8a8397;
 
-  --font-ui: "Nimbus Sans", "Helvetica Neue", Helvetica, "PingFang SC",
-    "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
-  --font-num: "Cascadia Mono", ui-monospace, monospace;
-  --font-mono: "Cascadia Mono", ui-monospace, monospace;
+  --accent: #16234f;
+  --accent-strong: #0c1636;
+  --accent-soft: #c3c9dd;
+  --accent-faint: #e4e2e6;
+  --on-accent: #f8f3e9;
 
-  --fs-xs: 10px;
-  --fs-sm: 11px;
-  --fs-md: 12px;
-  --fs-lg: 14px;
-  --fs-xl: 18px;
-  --lh: 1.42;
-  --lh-tight: 1.28;
+  /* Spot inks. Risograph has no process colour, so each state is its own
+     drum: green, orange, red, blue. */
+  --ok: #10795a;
+  --ok-soft: #cfe3d4;
+  --warn: #b8560d;
+  --warn-soft: #f5e0c6;
+  --danger: #cf2e39;
+  --danger-soft: #f6d6d2;
+  --info: #2a5ea8;
+  --info-soft: #d5dced;
 
-  /* Tracked-out caps: the label layer is deliberately a different voice
-     from the data layer, so a heading is never mistaken for a value. */
+  --font-ui: "Public Sans", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    sans-serif;
+  --font-display: "URW Gothic", "Century Gothic", "Public Sans", sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --fs-xs: 10.5px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 21px;
+  --lh: 1.5;
+  --lh-tight: 1.34;
+
   --label-transform: uppercase;
-  --label-tracking: 0.075em;
+  --label-tracking: 0.16em;
   --label-weight: 700;
-  --label-size: 9.5px;
-  --label-color: var(--text);
+  --label-size: 10px;
+  --label-color: var(--ink);
   --strong-weight: 700;
-  --heading-tracking: -0.015em;
+  --heading-tracking: 0.01em;
 
   --u: 4px;
-  --titlebar-h: 28px;
-  --ribbon-h: 50px;
-  --status-h: 24px;
-  --tab-h: 27px;
-  --row-h: 26px;
-  --ctl-h: 24px;
-  --ctl-h-sm: 19px;
-  --rail-left: 244px;
-  --rail-right: 332px;
-  --brand-w: 122px;
-  --menu-item-w: 48px;
-  --cell-pad-y: 5px;
-  --cell-pad-x: 9px;
+  --titlebar-h: 30px;
+  --ribbon-h: 56px;
+  --status-h: 25px;
+  --tab-h: 30px;
+  --row-h: 32px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 21px;
+  --rail-left: 258px;
+  --rail-right: 342px;
+  --brand-w: 130px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 11px;
 
-  /* Nothing is rounded and nothing floats. */
   --r-sm: 0px;
   --r-md: 0px;
   --r-lg: 0px;
-  --r-pill: 0px;
+  --r-pill: 999px;
 
   --shadow-1: none;
-  --shadow-2: 0 2px 0 rgba(10, 10, 10, 0.16);
-  --shadow-3: 0 18px 48px rgba(10, 10, 10, 0.3);
-  --focus: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--accent);
-  --scrim: rgba(10, 10, 10, 0.4);
+  --shadow-2: 3px 3px 0 rgba(22, 35, 79, 0.9);
+  --shadow-3: 8px 8px 0 rgba(22, 35, 79, 0.9);
+  --focus: 0 0 0 2px var(--paper), 0 0 0 4px var(--ink-b);
+  --scrim: rgba(22, 35, 79, 0.42);
 
-  --row-hover: #f4f4f4;
-  --row-active: #ececec;
-  --row-marker: var(--accent);
-  --row-marker-w: 3px;
-}
+  --row-hover: rgba(242, 84, 45, 0.09);
+  --row-active: rgba(242, 84, 45, 0.16);
+  --row-marker: var(--ink-b);
+  --row-marker-w: 4px;
 
-/* Ruled in both directions — the grid is a table, so it looks like one. */
-.grid th,
-.grid td {
-  border-right: 1px solid var(--border-soft);
-}
-.grid th:last-child,
-.grid td:last-child {
-  border-right: 0;
-}
-.grid thead th {
-  border-bottom: 2px solid var(--accent);
-  background: var(--surface-2);
-}
-.grid tbody tr[data-active] td.c-n {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.grid tbody tr[data-active] .rowbar {
-  background: var(--accent);
+  --tree-guide: #cabda2;
+
+  --dur: 90ms;
+  --ease: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  /* Halftone: a 45° dot screen used wherever a fill would otherwise be flat.
+     Two offset gradients make the staggered rows a real dot screen has. */
+  --screen: radial-gradient(circle at 50% 50%, rgba(22, 35, 79, 0.3) 0.9px, transparent 1.1px),
+    radial-gradient(circle at 50% 50%, rgba(22, 35, 79, 0.3) 0.9px, transparent 1.1px);
+  --screen-size: 4px 4px;
+  --screen-pos: 0 0, 2px 2px;
+  --screen-b: radial-gradient(circle at 50% 50%, rgba(242, 84, 45, 0.45) 1px, transparent 1.2px),
+    radial-gradient(circle at 50% 50%, rgba(242, 84, 45, 0.45) 1px, transparent 1.2px);
 }
 
-/* Ink chrome top and bottom frames the data and keeps the white sheet
-   reading as the document rather than as the application. */
+body {
+  background: var(--bg);
+}
+
+/* The sheet itself: fibre noise painted once by the art layer, multiplied
+   over everything so no ink ever looks laser-clean. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background-image: var(--paper-grain, none);
+  background-size: 220px 220px;
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+/* Registration targets in the trim, where a duplicator puts them. */
+.app::before,
+.app::after {
+  content: "";
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  pointer-events: none;
+  z-index: 70;
+  opacity: 0.6;
+  border-radius: 50%;
+  border: 1px solid var(--ink-b);
+  background:
+    linear-gradient(var(--ink) 0 0) center / 100% 1px no-repeat,
+    linear-gradient(var(--ink) 0 0) center / 1px 100% no-repeat;
+}
+.app::before {
+  left: 5px;
+  bottom: calc(var(--status-h) + 5px);
+}
+.app::after {
+  right: 5px;
+  bottom: calc(var(--status-h) + 5px);
+}
+
+/* -------------------------------------------------------------- ink */
+
+.titlebar,
+.statusbar {
+  background: var(--chrome);
+  color: var(--chrome-text);
+  border: 0;
+}
+.titlebar {
+  background-image: var(--screen);
+  background-size: var(--screen-size);
+  background-position: var(--screen-pos);
+  background-position: var(--screen-pos);
+}
 .menubar__item,
 .titlebar__title,
 .wincontrol {
-  color: #9a9a9a;
+  color: rgba(248, 243, 233, 0.62);
 }
 .menubar__item:hover,
 .wincontrol:hover {
-  background: #1f1f1f;
-  color: #ffffff;
+  background: var(--ink-b);
+  color: var(--paper);
 }
 .menubar__item[data-open] {
-  background: #fafafa;
-  color: #0a0a0a;
+  background: var(--ink-b);
+  color: var(--paper);
 }
-.titlebar {
-  border-bottom: 0;
-}
-.mark {
-  background: #fafafa;
-  box-shadow: inset 0 0 0 3px #0a0a0a;
-}
-.statusbar {
-  color: #9a9a9a;
-  border-top: 0;
-}
+.statusbar,
 .statusbar .stat,
 .statusbar .stat .num,
 .statusbar .statusbar__msg {
-  color: #c4c4c4;
+  color: rgba(248, 243, 233, 0.78);
 }
 .statusbar .stat--jump:hover {
-  background: #1f1f1f;
-  color: #ffffff;
+  background: var(--ink-b);
+  color: var(--paper);
 }
 .statusbar .meter {
-  background: #333333;
+  background: rgba(248, 243, 233, 0.22);
 }
-.statusbar .stat--jump[data-tone="danger"] .num {
-  color: #ff8b7e;
+.mark {
+  background: var(--ink-b);
+  box-shadow: none;
+  border-radius: 999px;
 }
 
-/* Flat, square controls with a single hairline. */
+.titlebar__brand,
+.dialog__head h2,
+.projects__head h2,
+.bigempty__title,
+.preview__page h3,
+.gatecard__title {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* Section headings are set as poster type and printed twice: the second
+   pull, in the other ink, is one pixel out of register. */
+.railsec__head h2,
+.panel__head h3,
+.rgroup__label,
+.gridbar__label,
+.dsec h3 {
+  font-family: var(--font-display);
+  position: relative;
+}
+.railsec__head h2::after,
+.panel__head h3::after {
+  content: attr(data-echo);
+}
+
+.railsec,
+.panel,
+.gridbar,
+.doctabs,
+.docktabs {
+  border-color: var(--border);
+}
+.railsec__head {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: var(--s2);
+}
+.panel__head {
+  background: var(--paper);
+  border-bottom: 2px solid var(--ink);
+  background-image: var(--screen);
+  background-size: var(--screen-size);
+  background-position: var(--screen-pos);
+  background-position: var(--screen-pos);
+}
+
+/* --------------------------------------------------------- controls */
+
 .btn {
-  border-color: var(--border-strong);
+  border: 1.5px solid var(--ink);
+  border-radius: 0;
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.btn--primary {
+  background: var(--ink-b);
+  border-color: var(--ink);
+  color: var(--paper-2);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--ink-b);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.btn--primary:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 0 0 0 var(--ink);
+}
+.btn--outline {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.btn--outline:hover:not(:disabled) {
+  background: var(--ink-b);
+  border-color: var(--ink);
+  color: var(--paper-2);
 }
 .btn--ghost {
   border-color: transparent;
+  color: var(--text-muted);
 }
-.btn--outline:hover:not(:disabled) {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+.btn--ghost:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink-b);
+  border-color: var(--ink-b);
 }
-.chip--on .chip__x {
-  opacity: 0.9;
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--ink);
+  color: var(--paper-2);
+  box-shadow: 2px 2px 0 var(--ink);
 }
-.card,
-.issue {
-  border-color: var(--border);
+
+.rbtn {
+  border: 1.5px solid transparent;
 }
-.panel__head {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--accent);
+.rbtn:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
 }
-.docktabs [role="tab"][data-active] {
-  border-bottom-width: 3px;
+.rbtn--primary {
+  color: var(--ink-b);
+}
+.rbtn--primary:hover:not(:disabled) {
+  background: var(--ink-b);
+  border-color: var(--ink);
+  color: var(--paper-2);
+}
+.rgroup {
+  border-right: 1px dashed var(--border);
+}
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: var(--paper-2);
+  border: 1.5px solid var(--ink);
+  border-radius: 0;
+}
+
+.chip {
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+  background: transparent;
+}
+.chip--on {
+  background: var(--ink-b);
+  border-color: var(--ink);
+  color: var(--paper-2);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+/* Every tinted block is screened, so a "fill" is dots rather than paint. */
+.statechip,
+.pill,
+.score,
+.dchip,
+.origin,
+.tree__qa,
+.issue__ev,
+.fix,
+.agentsum,
+.gate,
+.diff {
+  background-image: var(--screen);
+  background-size: var(--screen-size);
+  background-position: var(--screen-pos);
+  background-position: var(--screen-pos);
+}
+
+.statechip {
+  border: 1.5px solid currentColor;
+}
+.origin {
+  border-width: 1.5px;
+}
+.origin[data-grade="ai"] {
+  color: var(--ink-b);
+  border-color: var(--ink-b);
+  background-color: rgba(242, 84, 45, 0.13);
+}
+
+/* ------------------------------------------------------------- grid */
+
+/* Numerals run on the second drum: the count column, the match scores and
+   the status readouts are all orange, which threads ink B through the
+   whole sheet instead of leaving it on the active row alone. */
+.grid td.c-n,
+.statusbar .num,
+.tree__prog,
+.gridbar .num {
+  color: var(--ink-b);
+}
+.statusbar .num {
+  color: #ff9273;
+}
+
+.grid thead th {
+  background: var(--paper);
+  border-bottom: 3px solid var(--ink);
+  font-family: var(--font-display);
+}
+.ribbon {
+  border-bottom: 3px solid var(--ink-b);
+}
+/* Poster setting for the one line that names the job. */
+.proj__name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
 }
 .railsec__head h2 {
-  line-height: 1.4;
+  position: relative;
+}
+.railsec__head h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: calc(var(--s2) * -1 - 2px);
+  width: 26px;
+  height: 3px;
+  background: var(--ink-b);
+}
+.grid tbody tr {
+  border-bottom: 1px solid var(--border-soft);
+}
+/* The live row is the second ink pull, offset from the first. */
+.grid tbody tr[data-active] {
+  background: var(--row-active);
+  background-image: var(--screen);
+  background-size: var(--screen-size);
+  background-position: var(--screen-pos);
+  background-position: var(--screen-pos);
+}
+.grid tbody tr[data-active] td.c-n {
+  color: var(--ink-b);
+}
+.grid tbody tr[data-active] td.c-src {
+  text-shadow: 1px 0 0 rgba(242, 84, 45, 0.34);
+}
+.editor textarea {
+  background: var(--paper-2);
+  outline: 2px solid var(--ink-b);
+  box-shadow: 3px 3px 0 rgba(22, 35, 79, 0.85);
+}
+.tok {
+  border: 1px solid var(--info);
+  background: transparent;
+}
+.tok[data-danger] {
+  background-color: rgba(207, 46, 57, 0.16);
+}
+
+.tree__row--dir .tree__name {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+}
+.tree__filerow[data-active] .tree__row {
+  background: var(--row-active);
+  box-shadow: inset var(--row-marker-w) 0 0 var(--ink-b);
+}
+.tree__icon {
+  color: var(--text-muted);
+}
+.tree__filerow[data-active] .tree__icon {
+  color: var(--ink-b);
+}
+
+.card,
+.issue {
+  background: transparent;
+  border: 1.5px solid var(--ink);
+}
+.card--match[data-best] {
+  border-color: var(--ok);
+  box-shadow: 3px 3px 0 rgba(16, 121, 90, 0.55);
+}
+.issue[data-severity="error"][data-status="open"] {
+  border-left: 5px solid var(--danger);
+}
+.issue[data-severity="warning"][data-status="open"] {
+  border-left: 5px solid var(--warn);
+}
+.issue[data-severity="info"][data-status="open"] {
+  border-left: 5px solid var(--info);
+}
+
+.docktabs [role="tab"][data-active] {
+  background: var(--paper-2);
+  border-bottom: 3px solid var(--ink-b);
+  color: var(--ink);
+}
+.doctab[data-active]::after {
+  height: 3px;
+  background: var(--ink-b);
+}
+
+/* --------------------------------------------------------- overlays */
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper-2);
+}
+.dialog__head,
+.palette__inputwrap {
+  border-bottom: 2px solid var(--ink);
+}
+.dialog__foot,
+.palette__foot {
+  border-top: 2px solid var(--ink);
+  background: var(--paper);
+}
+.palette__item[data-sel] {
+  background: var(--ink-b);
+  color: var(--paper-2);
+}
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled),
+.vtabs button[data-active] {
+  background: var(--ink-b);
+  color: var(--paper-2);
+}
+.vtabs button[data-active] {
+  box-shadow: inset 4px 0 0 var(--ink);
+}
+.gatecard {
+  border-top: 6px solid var(--danger);
+}
+
+/* The print pass: a surface arrives by sliding off the drum, and the ink
+   settles a beat after the paper stops. */
+@keyframes riso-pull {
+  0% {
+    opacity: 0;
+    transform: translate(-10px, -6px) rotate(-0.5deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translate(2px, 1px) rotate(0.12deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+[data-enter] .dialog,
+[data-enter] .palette,
+[data-enter] .gatecard,
+[data-enter].banner {
+  animation: riso-pull 260ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+.banner {
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  background-image: var(--screen);
+  background-size: var(--screen-size);
+  background-position: var(--screen-pos);
+  background-position: var(--screen-pos);
+}
+
+.bigempty {
+  border: 2px dashed var(--ink);
+}
+.projects__toolbar {
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 rgba(22, 35, 79, 0.85);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 </style>
@@ -2768,8 +3162,8 @@ tr[data-active] .rowmenu__btn,
 <body>
 <div id="root"></div>
 <script>
-const THEME_NAME = "ledger";
-const THEME_FAMILY = "saas-opus";
+const THEME_NAME = "riso";
+const THEME_FAMILY = "saas-opus-art";
 </script>
 <script>
 /* ===== data.js — fixtures, identical across systems ===== */
@@ -5640,6 +6034,77 @@ function boot() {
 document.addEventListener("DOMContentLoaded", boot);
 
 </script>
+<script>
+/* ===== art-riso.js — art layer, lives outside #root ===== */
+/* RISO art layer — the paper.
+   Paints one tile of newsprint fibre and hands it to CSS as a repeating
+   background. Generated rather than shipped so the grain is real noise with
+   fibre structure, not a lossy photo of some other sheet. Runs once; it
+   lives on <body>, so a re-render of #root never disturbs it. */
 
+(() => {
+  const SIZE = 220;
+
+  function paperTile() {
+    const c = document.createElement("canvas");
+    c.width = c.height = SIZE;
+    const g = c.getContext("2d");
+    const img = g.createImageData(SIZE, SIZE);
+    const d = img.data;
+
+    /* Base speckle: uncoated stock is mostly light with dark flecks. */
+    for (let i = 0; i < SIZE * SIZE; i++) {
+      const n = Math.random();
+      const v = 236 + (n < 0.94 ? n * 20 : -70 * (n - 0.94) * 16);
+      const k = Math.max(150, Math.min(255, v));
+      d[i * 4] = k;
+      d[i * 4 + 1] = k - 3;
+      d[i * 4 + 2] = k - 10;
+      d[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+
+    /* Fibres: short pale strokes at shallow random angles. */
+    g.globalAlpha = 0.16;
+    for (let i = 0; i < 900; i++) {
+      const x = Math.random() * SIZE;
+      const y = Math.random() * SIZE;
+      const a = Math.random() * Math.PI;
+      const len = 3 + Math.random() * 11;
+      g.strokeStyle = Math.random() > 0.45 ? "#ffffff" : "#a9a08a";
+      g.lineWidth = Math.random() * 0.9 + 0.25;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    return c.toDataURL("image/png");
+  }
+
+  const apply = () => {
+    document.documentElement.style.setProperty("--paper-grain", `url(${paperTile()})`);
+
+    /* Set the second-pull echo used by the heading misregistration rule. */
+    const echo = () => {
+      document.querySelectorAll(".railsec__head h2, .panel__head h3").forEach((h) => {
+        if (!h.dataset.echo) h.dataset.echo = "";
+      });
+    };
+    echo();
+    new MutationObserver(echo).observe(document.getElementById("root"), {
+      childList: true,
+      subtree: true,
+    });
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", apply);
+  } else {
+    apply();
+  }
+})();
+
+</script>
 </body>
 </html>
