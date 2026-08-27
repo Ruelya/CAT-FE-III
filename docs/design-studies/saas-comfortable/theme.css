@@ -21,6 +21,7 @@
   --w-explorer: 276px; --w-dock: 340px; --w-staterow: 176px;
   --pad-panel: 16px; --pad-cell-y: 10px;
   --bar-h: 5px; --ic: 15px; --dtabs-pad: 8px;
+  --tree-row: 26px; --tree-folder: #7fae9f;
 
   /* neutrals — quiet gray with a cool-green cast */
   --bg-app: #f3f4f4;

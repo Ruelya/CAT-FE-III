@@ -22,6 +22,7 @@
   --w-explorer: 260px; --w-dock: 330px; --w-staterow: 172px;
   --pad-panel: 14px; --pad-cell-y: 8px;
   --bar-h: 4px; --ic: 14px; --dtabs-pad: 6px;
+  --tree-row: 24px; --tree-folder: #7d8db0;
 
   /* neutrals — blue-cast dark grays, layered by luminance */
   --bg-app: #121418;

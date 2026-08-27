@@ -489,38 +489,87 @@ mark {
 .ex__search input::placeholder { color: var(--text-3); }
 .ex__search input:focus-visible { outline: none; }
 
-.doclist { display: flex; flex-direction: column; gap: 2px; }
-.doclist__item {
-  position: relative;
-  border-radius: var(--r-card);
+/* IDE-style file tree */
+.tree { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--u1)); }
+.tree__group { display: flex; flex-direction: column; }
+.tree__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: var(--tree-row, 24px);
+  padding: 2px var(--u1) 2px 5px;
+  border-radius: var(--r-ctl);
+  text-align: left;
+  color: var(--text-2);
+  font-size: calc(var(--fs-ui) - 0.5px);
+  white-space: nowrap;
 }
-.doclist__item:hover { background: var(--bg-hover); }
-.doclist__item[data-active="true"] { background: var(--accent-soft); }
-.doclist__main {
+.tree__row:hover { background: var(--bg-hover); color: var(--text); }
+.tree__row--folder { font-weight: 500; }
+.tree__chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-3);
+  transition: transform 130ms var(--ease);
+}
+.tree__chevron .ic { width: 11px; height: 11px; }
+.tree__chevron[data-open="true"] { transform: rotate(90deg); }
+.tree__fic { flex: none; width: 13px; height: 13px; color: var(--text-3); }
+.tree__fic--folder { color: var(--tree-folder, var(--text-3)); }
+.tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree__count { font-size: 10px; color: var(--text-3); }
+.tree__pct { font-size: 10px; color: var(--text-3); }
+.tree__qa {
+  font-size: 9.5px;
+  font-weight: 600;
+  min-width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.tree__children {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  padding: var(--u2);
-  text-align: left;
-  border-radius: var(--r-card);
+  margin-left: 12px;
+  padding-left: 5px;
+  border-left: 1px solid var(--border);
 }
-.doclist__name { font-weight: 500; font-size: calc(var(--fs-ui) - 0.5px); word-break: break-all; }
-.doclist__item[data-active="true"] .doclist__name { color: var(--accent-text); }
-.doclist__meta { font-size: 11px; color: var(--text-3); }
-.doclist__bar { display: flex; align-items: center; gap: var(--u2); font-size: 10.5px; color: var(--text-3); }
-.doclist__remove {
+.tree__item { position: relative; display: flex; flex-direction: column; }
+.tree__item > .tree__row { padding-left: 21px; }
+.tree__item[data-active="true"] > .tree__row {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.tree__item[data-active="true"] .tree__fic { color: var(--accent-text); }
+.tree__item[data-active="true"] .tree__pct { color: var(--accent-text); }
+.tree__remove {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
   opacity: 0;
 }
-.doclist__item:hover .doclist__remove,
-.doclist__remove:focus-visible { opacity: 1; }
-.doclist__confirm {
+.tree__remove .ic { width: 10px; height: 10px; }
+.tree__item:hover .tree__remove, .tree__remove:focus-visible { opacity: 1; }
+.tree__item:hover .tree__pct, .tree__item:hover .tree__qa { opacity: 0; }
+.tree__item:has(.tree__confirm) .tree__pct { opacity: 0; }
+.tree__confirm {
   display: flex;
   gap: 6px;
-  padding: 0 var(--u2) var(--u2);
+  padding: 4px 0 4px 21px;
 }
 
 .dropzone {

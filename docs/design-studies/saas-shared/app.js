@@ -61,6 +61,9 @@
     gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.5-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.4-2.6a7 7 0 0 0 2-1.2l2.5 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z",
     list: "M9 6h11M9 12h11M9 18h11M5 6v.01M5 12v.01M5 18v.01",
     folders: "M9 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-9L9 4z",
+    folderOpen: "M5 19l2.2-7.5a1 1 0 0 1 1-.7H22l-2.4 7.9a1 1 0 0 1-1 .7H5zM5 19V5a1 1 0 0 1 1-1h5l2 3h7a1 1 0 0 1 1 1v2.8",
+    fileDoc: "M14 3v4a1 1 0 0 0 1 1h4M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2zM9 13h6M9 17h4",
+    braces: "M8 4H7.5A1.5 1.5 0 0 0 6 5.5v4A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5v4A1.5 1.5 0 0 0 7.5 20H8M16 4h.5A1.5 1.5 0 0 1 18 5.5v4a2.5 2.5 0 0 0 2.5 2.5A2.5 2.5 0 0 0 18 14.5v4a1.5 1.5 0 0 1-1.5 1.5H16",
     plus: "M12 5v14M5 12h14",
     warn: "M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
   };
@@ -91,6 +94,7 @@
       chips: [], // active filter chips: untranslated draft confirmed qa locked term tag
       query: "",
       fileQuery: "",
+      collapsed: [], // collapsed folder paths in the file tree
 
       dock: "memory",
       concordance: "",
@@ -822,25 +826,7 @@
       <section class="ex__sec ex__sec--files">
         <header class="ex__head"><h2>文件</h2><span class="ex__count num">${S.documents.length}</span></header>
         <span class="ex__search">${icon("search", "ic--dim")}<input data-refocus="files" data-input="fileQuery" type="search" placeholder="搜索文件" aria-label="搜索文件" value="${esc(S.fileQuery)}"></span>
-        <div class="doclist">
-          ${docs.map((d) => {
-            const k = counts(d.id);
-            const dpct = k.total ? Math.round((k.confirmed / k.total) * 100) : 0;
-            return `<div class="doclist__item" data-active="${d.id === S.activeDocId}">
-              <button class="doclist__main" data-action="cmd" data-arg="open-doc:${d.id}">
-                <span class="doclist__name">${esc(d.name)}</span>
-                <span class="doclist__meta">${d.format} · 确认 ${k.confirmed}/${k.total}${k.draft ? ` · 草稿 ${k.draft}` : ""}${k.openIssues ? ` · QA ${k.openIssues}` : ""}</span>
-                <span class="doclist__bar"><span class="bar"><span class="bar__ok" style="width:${dpct}%"></span><span class="bar__draft" style="width:${k.total ? (k.draft / k.total) * 100 : 0}%"></span></span><span class="num">${dpct}%</span></span>
-              </button>
-              ${S.pendingRemoveId === d.id
-                ? `<span class="doclist__confirm">
-                     <button class="btn btn--danger btn--sm" data-action="remove-doc" data-arg="${d.id}">确认移除</button>
-                     <button class="btn btn--ghost btn--sm" data-action="remove-cancel">取消</button>
-                   </span>`
-                : `<button class="btn btn--ghost btn--sm doclist__remove" data-action="remove-arm" data-arg="${d.id}">移除</button>`}
-            </div>`;
-          }).join("")}
-        </div>
+        <div class="tree" role="tree" aria-label="项目文件">${rTree(docs, fq.length > 0)}</div>
         <button class="dropzone" data-action="cmd" data-arg="import" data-tip="导入文档 Ctrl+O">
           ${icon("import")}<span>拖放文件导入，或点击选择</span>
         </button>
@@ -866,6 +852,63 @@
         </dl>
       </section>
     </aside>`;
+  }
+
+  function rTree(docs, forceOpen) {
+    const root = { folders: new Map(), files: [] };
+    for (const d of docs) {
+      const parts = (d.folder || "").split("/").filter(Boolean);
+      let node = root;
+      let path = "";
+      for (const part of parts) {
+        path = path ? `${path}/${part}` : part;
+        if (!node.folders.has(part)) node.folders.set(part, { name: part, path, folders: new Map(), files: [] });
+        node = node.folders.get(part);
+      }
+      node.files.push(d);
+    }
+    const fileCount = (node) =>
+      node.files.length + [...node.folders.values()].reduce((n, f) => n + fileCount(f), 0);
+    const fileRow = (d) => {
+      const k = counts(d.id);
+      const dpct = k.total ? Math.round((k.confirmed / k.total) * 100) : 0;
+      const active = d.id === S.activeDocId;
+      return `<div class="tree__item" data-active="${active}" role="none">
+        <button class="tree__row tree__row--file" role="treeitem" aria-selected="${active}" data-action="cmd" data-arg="open-doc:${d.id}"
+          data-tip="${d.format} · 确认 ${k.confirmed}/${k.total}${k.draft ? ` · 草稿 ${k.draft}` : ""}${k.openIssues ? ` · QA ${k.openIssues}` : ""}">
+          ${icon(d.format === "json" ? "braces" : "fileDoc", "tree__fic")}
+          <span class="tree__name">${esc(d.name)}</span>
+          ${k.openIssues ? `<span class="tree__qa num" aria-label="${k.openIssues} 个 QA 问题">${k.openIssues}</span>` : ""}
+          <span class="tree__pct num">${dpct}%</span>
+        </button>
+        <button class="iconbtn tree__remove" data-action="remove-arm" data-arg="${d.id}" aria-label="移除 ${esc(d.name)}" data-tip="移除文档">${icon("x")}</button>
+        ${S.pendingRemoveId === d.id ? `<span class="tree__confirm">
+            <button class="btn btn--danger btn--sm" data-action="remove-doc" data-arg="${d.id}">确认移除</button>
+            <button class="btn btn--ghost btn--sm" data-action="remove-cancel">取消</button>
+          </span>` : ""}
+      </div>`;
+    };
+    const renderNode = (node) => {
+      const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name));
+      const files = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+      return [
+        ...folders.map((f) => {
+          const open = forceOpen || !S.collapsed.includes(f.path);
+          return `<div class="tree__group" role="none">
+            <button class="tree__row tree__row--folder" role="treeitem" aria-expanded="${open}" data-action="folder-toggle" data-arg="${esc(f.path)}">
+              <span class="tree__chevron" data-open="${open}">${icon("chevR")}</span>
+              ${icon(open ? "folderOpen" : "folders", "tree__fic tree__fic--folder")}
+              <span class="tree__name">${esc(f.name)}</span>
+              <span class="tree__count num">${fileCount(f)}</span>
+            </button>
+            ${open ? `<div class="tree__children" role="group">${renderNode(f)}</div>` : ""}
+          </div>`;
+        }),
+        ...files.map(fileRow),
+      ].join("");
+    };
+    if (!docs.length) return `<div class="empty">${S.fileQuery.trim() ? "没有匹配的文件" : "拖放或导入文档"}</div>`;
+    return renderNode(root);
   }
 
   const STATE_GLYPH = { untranslated: "○", draft: "✎", confirmed: "✓" };
@@ -1686,6 +1729,10 @@
         render(); return;
       }
       case "chips-clear": S.chips = []; S.query = ""; say("已清除筛选"); render(); return;
+      case "folder-toggle": {
+        S.collapsed = S.collapsed.includes(arg) ? S.collapsed.filter((p) => p !== arg) : [...S.collapsed, arg];
+        render(); return;
+      }
       case "query-clear": S.query = ""; render(); return;
       case "remove-arm": S.pendingRemoveId = arg; render(); return;
       case "remove-cancel": S.pendingRemoveId = null; render(); return;
@@ -1787,7 +1834,7 @@
           "Changing the selection never deletes remote files.",
           "Admins can enforce a default selection for new devices.",
         ];
-        S.documents.push({ id, name: "chapter-2.docx", format: "docx", sourceWords: 74,
+        S.documents.push({ id, name: "chapter-2.docx", folder: "docs/manual", format: "docx", sourceWords: 74,
           segments: sources.map((s, i) => ({ id: `${id}s${i + 1}`, ordinal: i, source: s, target: "", state: "untranslated", locked: false, origin: null })) });
         S.openDocIds.push(id);
         S.activeDocId = id;
