@@ -59,7 +59,11 @@ import type {
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
 import { CommandPalette } from "../components/CommandPalette.js";
-import { buildDocTree, docTreeDirKeys } from "../lib/doc-tree.js";
+import {
+  buildDocTree,
+  docTreeDirKeys,
+  docTreeDisplayPaths,
+} from "../lib/doc-tree.js";
 import { useTheme } from "../lib/theme.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
 import { FindWidget } from "../components/FindWidget.js";
@@ -1342,14 +1346,19 @@ export function WorkbenchView({
       ? Math.round((projectTotals.confirmed / projectTotals.total) * 100)
       : null;
 
-  // Explorer file list under the local search box; name substring only.
+  // Explorer file list under the local search box. Matches the path as the
+  // tree displays it (visible folders + file name), so typing a folder name
+  // narrows to that folder's contents instead of hiding them — a hit behind
+  // a folder is still a hit. The paths come from the full list, so the
+  // shared-prefix strip cannot shift while the reader types.
   const visibleDocuments = useMemo(() => {
     const query = fileQuery.trim().toLowerCase();
     if (query.length === 0) {
       return documents;
     }
+    const paths = docTreeDisplayPaths(documents);
     return documents.filter((document) =>
-      document.name.toLowerCase().includes(query),
+      (paths.get(document.id) ?? document.name).toLowerCase().includes(query),
     );
   }, [documents, fileQuery]);
 
@@ -1371,8 +1380,8 @@ export function WorkbenchView({
   }, []);
   const searching = fileQuery.trim().length > 0;
   const dirKeys = useMemo(
-    () => docTreeDirKeys(visibleDocuments),
-    [visibleDocuments],
+    () => docTreeDirKeys(visibleDocuments, documents),
+    [visibleDocuments, documents],
   );
   const allCollapsed =
     dirKeys.length > 0 && dirKeys.every((key) => collapsedDirs.has(key));
@@ -1385,8 +1394,9 @@ export function WorkbenchView({
         visibleDocuments,
         documentProgress,
         searching ? new Set<string>() : collapsedDirs,
+        documents,
       ),
-    [visibleDocuments, documentProgress, searching, collapsedDirs],
+    [visibleDocuments, documentProgress, searching, collapsedDirs, documents],
   );
 
   // Feed the shell status bar. Cleared on unmount (project close) so stale
@@ -2173,7 +2183,10 @@ export function WorkbenchView({
               <div className="document-list" role="tree" aria-label="文件树">
                 {docTree.map((node) => {
                   if (node.kind === "dir") {
-                    const open = !collapsedDirs.has(node.key);
+                    // A search force-opens every folder (the tree builder
+                    // already ignores the collapse set), so the chevron
+                    // must report the same fact.
+                    const open = searching || !collapsedDirs.has(node.key);
                     return (
                       <button
                         key={node.key}
@@ -2200,7 +2213,16 @@ export function WorkbenchView({
                           {node.name}
                         </span>
                         {/* Rolled up from every document beneath, so a closed
-                            folder still reports the work left inside it. */}
+                            folder still reports the work left inside it —
+                            including the open QA findings. */}
+                        {node.rollup && node.rollup.openIssues > 0 ? (
+                          <span
+                            className="tl-num document-list__dir-qa"
+                            title={`未解决 QA 问题 ${node.rollup.openIssues}`}
+                          >
+                            {node.rollup.openIssues}
+                          </span>
+                        ) : null}
                         {node.rollup && node.rollup.total > 0 ? (
                           <span className="tl-num document-list__dir-count">
                             {node.rollup.confirmed}/{node.rollup.total}

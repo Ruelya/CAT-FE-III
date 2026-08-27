@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { Document, SegmentCounts } from "@translunar/contracts";
 
-import { buildDocTree, docTreeDirKeys } from "./doc-tree.js";
+import {
+  buildDocTree,
+  docTreeDirKeys,
+  docTreeDisplayPaths,
+} from "./doc-tree.js";
 
 function doc(id: string, relativePath: string, name?: string): Document {
   /* Document carries an index signature, so the literal is the whole type. */
@@ -13,7 +17,7 @@ function doc(id: string, relativePath: string, name?: string): Document {
     format: "docx",
     id,
     importedAtMs: 0,
-    name: name ?? relativePath.split("/").pop() ?? relativePath,
+    name: name ?? relativePath.split(/[/\\]/).pop() ?? relativePath,
     projectId: "p1",
     relativePath,
     revision: 1,
@@ -171,5 +175,45 @@ describe("buildDocTree", () => {
         doc("c", "/w/top.docx"),
       ]).sort(),
     ).toEqual(["docs", "docs/guides"]);
+  });
+});
+
+describe("docTreeDisplayPaths", () => {
+  // The search box matches these, so they must be exactly what the tree
+  // draws: visible folders plus the name, never the stripped prefix.
+  it("joins the visible folders with the file name", () => {
+    const paths = docTreeDisplayPaths([
+      doc("a", "/w/docs/guides/one.docx"),
+      doc("b", "/w/docs/two.docx"),
+      doc("c", "/w/top.docx"),
+    ]);
+    expect(paths.get("a")).toBe("docs/guides/one.docx");
+    expect(paths.get("b")).toBe("docs/two.docx");
+    expect(paths.get("c")).toBe("top.docx");
+  });
+
+  it("omits the shared prefix a search could otherwise hit", () => {
+    const paths = docTreeDisplayPaths([
+      doc("a", "/home/lin/work/site/docs/one.docx"),
+      doc("b", "/home/lin/work/site/legal/two.docx"),
+    ]);
+    expect(paths.get("a")).toBe("docs/one.docx");
+    expect(paths.get("b")).toBe("legal/two.docx");
+  });
+
+  it("reduces a lone document to its bare name", () => {
+    const paths = docTreeDisplayPaths([
+      doc("a", "/home/lin/deep/nested/one.docx"),
+    ]);
+    expect(paths.get("a")).toBe("one.docx");
+  });
+
+  it("tolerates windows separators", () => {
+    const paths = docTreeDisplayPaths([
+      doc("a", "C:\\work\\docs\\ui\\one.docx"),
+      doc("b", "C:\\work\\top.docx"),
+    ]);
+    expect(paths.get("a")).toBe("docs/ui/one.docx");
+    expect(paths.get("b")).toBe("top.docx");
   });
 });

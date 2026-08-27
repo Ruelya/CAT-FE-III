@@ -2992,6 +2992,103 @@ describe("WorkbenchView project explorer", () => {
     ).length;
     expect(listCallsAfter).toBe(listCallsBefore);
   });
+
+  it("matches the 搜索文件 query against the visible folder path", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [
+        { ...DOCUMENT, relativePath: "/w/docs/guides/guide.txt" },
+        {
+          ...DOCUMENT,
+          id: "d2",
+          name: "terms.txt",
+          relativePath: "/w/legal/terms.txt",
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    // A folder name is a hit for everything inside the folder — the tree
+    // draws `docs/guides/guide.txt`, so typing `guides` must not answer
+    // 无匹配文件 while the folder row sits on screen.
+    await userEvent.type(files.getByLabelText("搜索文件"), "guides");
+    expect(files.getByText("guide.txt")).toBeInTheDocument();
+    expect(files.queryByText("terms.txt")).not.toBeInTheDocument();
+    // The searched folder is force-open so the hit is visible, and its
+    // chevron reports that fact.
+    expect(
+      files.getByRole("treeitem", { name: /guides/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+    // The stripped shared prefix (`/w`) is not searchable: it has no row.
+    await userEvent.clear(files.getByLabelText("搜索文件"));
+    await userEvent.type(files.getByLabelText("搜索文件"), "/w");
+    expect(files.getByText("无匹配文件")).toBeInTheDocument();
+  });
+
+  it("rolls open QA findings up onto the folder row", async () => {
+    const handlers = baseHandlers();
+    handlers["document.list"] = () => ({
+      documents: [
+        { ...DOCUMENT, relativePath: "/w/docs/guides/guide.txt" },
+        {
+          ...DOCUMENT,
+          id: "d2",
+          name: "terms.txt",
+          relativePath: "/w/legal/terms.txt",
+        },
+      ],
+      progress: [
+        {
+          documentId: "d1",
+          counts: {
+            total: 4,
+            untranslated: 1,
+            draft: 1,
+            confirmed: 2,
+            openIssues: 0,
+          },
+        },
+        {
+          documentId: "d2",
+          counts: {
+            total: 2,
+            untranslated: 0,
+            draft: 0,
+            confirmed: 2,
+            openIssues: 3,
+          },
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const files = within(screen.getByRole("region", { name: "文件" }));
+    // `legal` holds terms.txt's 3 open findings; `docs` is clean and wears
+    // no badge — a zero would be noise, not information.
+    const legalDir = files.getByRole("treeitem", { name: /legal/ });
+    expect(
+      within(legalDir).getByTitle("未解决 QA 问题 3"),
+    ).toHaveTextContent("3");
+    const docsDir = files.getByRole("treeitem", { name: /docs/ });
+    expect(
+      within(docsDir).queryByTitle(/未解决 QA 问题/),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("WorkbenchView segment intel", () => {
