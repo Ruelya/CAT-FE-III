@@ -1,17 +1,45 @@
 import type { Segment, SegmentState } from "@translunar/contracts";
 
+import { lexPlaceholderTokens } from "./tokens.js";
+
 export type SegmentStateFilter = "all" | SegmentState | "qa";
 
 export interface SegmentFilterSpec {
   state: SegmentStateFilter;
   /** Case-insensitive substring matched against source and target text. */
   query: string;
+  /** Keeps only segments with `Segment.locked === true`. */
+  locked: boolean;
+  /**
+   * Keeps only segments whose source text has terminology hits. The hits
+   * come from the engine's `term.lookup` (callers pass the matching ids in
+   * `termSegmentIds`); this channel never re-matches terms client-side.
+   */
+  hasTerms: boolean;
+  /**
+   * Keeps only segments whose source or target contains a placeholder
+   * token run — the same lexer (`lexPlaceholderTokens`) that TokenText
+   * renders and the engine's QA placeholder rules count.
+   */
+  hasTags: boolean;
 }
 
-export const EMPTY_FILTER: SegmentFilterSpec = { state: "all", query: "" };
+export const EMPTY_FILTER: SegmentFilterSpec = {
+  state: "all",
+  query: "",
+  locked: false,
+  hasTerms: false,
+  hasTags: false,
+};
 
 export function isFilterActive(filter: SegmentFilterSpec): boolean {
-  return filter.state !== "all" || filter.query.trim().length > 0;
+  return (
+    filter.state !== "all" ||
+    filter.query.trim().length > 0 ||
+    filter.locked ||
+    filter.hasTerms ||
+    filter.hasTags
+  );
 }
 
 /** Case-insensitive substring match against source and target text. */
@@ -21,14 +49,27 @@ function matchesQuery(segment: Segment, lowerQuery: string): boolean {
     .includes(lowerQuery);
 }
 
+/** True when source or target carries at least one placeholder token. */
+function hasPlaceholderTokens(segment: Segment): boolean {
+  return (
+    lexPlaceholderTokens(segment.sourceText).some((run) => run.token) ||
+    lexPlaceholderTokens(segment.targetText).some((run) => run.token)
+  );
+}
+
 /**
- * Applies the grid filter. `qa` keeps only segments carried in
- * `qaSegmentIds` (open issues); other states match `segment.state`.
+ * Applies the grid filter. All channels AND together. `qa` keeps only
+ * segments carried in `qaSegmentIds` (open issues); other states match
+ * `segment.state`. `hasTerms` keeps only segments in `termSegmentIds`
+ * (engine `term.lookup` hits, resolved by the caller); while that set is
+ * still null (lookups in flight) the channel hides nothing yet — rows
+ * narrow when the engine has answered, never on a client-side guess.
  */
 export function filterSegments(
   segments: readonly Segment[],
   filter: SegmentFilterSpec,
   qaSegmentIds: ReadonlySet<string>,
+  termSegmentIds: ReadonlySet<string> | null = null,
 ): Segment[] {
   const query = filter.query.trim().toLowerCase();
   return segments.filter((segment) => {
@@ -37,6 +78,15 @@ export function filterSegments(
         return false;
       }
     } else if (filter.state !== "all" && segment.state !== filter.state) {
+      return false;
+    }
+    if (filter.locked && segment.locked !== true) {
+      return false;
+    }
+    if (filter.hasTerms && termSegmentIds && !termSegmentIds.has(segment.id)) {
+      return false;
+    }
+    if (filter.hasTags && !hasPlaceholderTokens(segment)) {
       return false;
     }
     if (query.length > 0 && !matchesQuery(segment, query)) {

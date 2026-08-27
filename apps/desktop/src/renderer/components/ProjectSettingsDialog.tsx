@@ -27,6 +27,11 @@ export interface ProjectSettingsDialogProps {
   onClose: () => void;
   /** Called with the stored project after project.update / project.archive. */
   onProjectUpdated?: (project: Project) => void;
+  /**
+   * Reports the stored QA export gate whenever this dialog learns it
+   * (fetch on open, toggle), so the shell's menu checkbox stays current.
+   */
+  onExportGateChange?: (gate: boolean) => void;
 }
 
 /**
@@ -65,6 +70,7 @@ export function ProjectSettingsDialog({
   project,
   onClose,
   onProjectUpdated,
+  onExportGateChange,
 }: ProjectSettingsDialogProps) {
   const [termbases, setTermbases] = useState<TermbaseListResult | null>(null);
   const [newTermbaseName, setNewTermbaseName] = useState("");
@@ -161,6 +167,14 @@ export function ProjectSettingsDialog({
         setError(describeError(profileError));
       });
   }, [open, project, refreshTermbases, refreshMemories]);
+
+  // Every stored view of the gate (open fetch, toggle, conflict refetch)
+  // goes up to the shell so the QA menu checkbox never trails this dialog.
+  useEffect(() => {
+    if (qaProfile) {
+      onExportGateChange?.(qaProfile.blockExportOnError);
+    }
+  }, [qaProfile, onExportGateChange]);
 
   // Toggle the QA export gate through qa.profile.update. The stored view's
   // revision is the optimistic-concurrency base; the result replaces the

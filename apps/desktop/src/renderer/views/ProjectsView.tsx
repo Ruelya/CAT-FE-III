@@ -10,12 +10,21 @@ export interface ProjectsViewProps {
   engineState: EngineLifecycleState;
   onOpenProject: (project: Project) => void;
   onStatusMessage: (message: string) => void;
+  /**
+   * 文件 ▸ 新建项目…: focus the create form's name field once. The list's
+   * toolbar form is the only create UI; the menu just lands the keyboard
+   * in it. Consumed through onCreateConsumed.
+   */
+  focusCreate?: boolean;
+  onCreateConsumed?: () => void;
 }
 
 export function ProjectsView({
   engineState,
   onOpenProject,
   onStatusMessage,
+  focusCreate,
+  onCreateConsumed,
 }: ProjectsViewProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
@@ -41,6 +50,21 @@ export function ProjectsView({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Menu 新建项目…: land the keyboard in the name field of the existing
+  // create form (never a second create surface), then consume the flag.
+  const createFormRef = useRef<HTMLFormElement | null>(null);
+  useEffect(() => {
+    if (!focusCreate) {
+      return;
+    }
+    const input = createFormRef.current?.elements.namedItem("project-name");
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+      input.select();
+    }
+    onCreateConsumed?.();
+  }, [focusCreate, onCreateConsumed]);
 
   // If the initial list load happened against a dead engine, refetch when
   // the engine comes back instead of showing a stale empty list.
@@ -92,6 +116,7 @@ export function ProjectsView({
   return (
     <main className="projects-view">
       <form
+        ref={createFormRef}
         className="projects-view__toolbar"
         aria-label="新建项目"
         onSubmit={(event) => {
@@ -101,6 +126,7 @@ export function ProjectsView({
       >
         <TextField
           label="项目名称"
+          name="project-name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           required

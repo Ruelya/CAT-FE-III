@@ -73,6 +73,9 @@ export function buildMenuTemplate(
   const fileMenu: MenuItemConstructorOptions = {
     label: "文件",
     submenu: [
+      // Always enabled: creating a project needs no open project — from
+      // inside one it returns to the list with the create form focused.
+      commandItem("新建项目…", "new-project", true),
       commandItem(
         "导入文档…",
         "import-document",
@@ -108,107 +111,6 @@ export function buildMenuTemplate(
       { role: "paste", label: "粘贴" },
       { role: "selectAll", label: "全选" },
       SEPARATOR,
-      // Studio confirm chord family. Same commands as the grid editor's
-      // chords; display-only accelerators so the textarea handler stays
-      // the owner. All three run the same segment.confirm — only the
-      // navigation afterwards differs.
-      commandItem(
-        "确认当前句段",
-        "confirm-segment",
-        context.documentOpen,
-        "CmdOrCtrl+Enter",
-        true,
-      ),
-      commandItem(
-        "确认并到下一句段",
-        "confirm-segment-any",
-        context.documentOpen,
-        "CmdOrCtrl+Alt+Enter",
-        true,
-      ),
-      commandItem(
-        "确认并停留",
-        "confirm-segment-stay",
-        context.documentOpen,
-        "CmdOrCtrl+Alt+Shift+Enter",
-        true,
-      ),
-      SEPARATOR,
-      // Studio's Ctrl+L. Menu-owned: no renderer keydown handler exists for
-      // it, and it must fire even while the target editor has focus.
-      commandItem(
-        "锁定/解锁句段",
-        "toggle-lock-segment",
-        context.documentOpen,
-        "CmdOrCtrl+L",
-      ),
-    ],
-  };
-
-  const viewMenu: MenuItemConstructorOptions = {
-    label: "视图",
-    submenu: [
-      // Renderer-owned Ctrl+Shift+P (with Ctrl+K as a synonym chord the
-      // renderer also listens for) summons the command palette.
-      commandItem(
-        "命令面板",
-        "open-command-palette",
-        context.projectOpen,
-        "CmdOrCtrl+Shift+P",
-        true,
-      ),
-      SEPARATOR,
-      // Toggles the collapsible bottom preview pane (PRD §7.4).
-      commandItem(
-        "预览面板",
-        "toggle-preview",
-        context.documentOpen,
-        "CmdOrCtrl+P",
-      ),
-      SEPARATOR,
-      // Four dock groups (记忆/术语/QA/AI). Renderer-owned chords: while
-      // the grid editor has focus, Ctrl+数字 applies the numbered TM match
-      // instead (memoQ semantics), so the renderer must see the raw keys.
-      commandItem(
-        "记忆面板",
-        "show-dock-memory",
-        context.projectOpen,
-        "CmdOrCtrl+1",
-        true,
-      ),
-      commandItem(
-        "术语面板",
-        "show-dock-term",
-        context.projectOpen,
-        "CmdOrCtrl+2",
-        true,
-      ),
-      commandItem(
-        "QA 面板",
-        "show-dock-qa",
-        context.projectOpen,
-        "CmdOrCtrl+3",
-        true,
-      ),
-      commandItem(
-        "AI 面板",
-        "show-dock-ai",
-        context.projectOpen,
-        "CmdOrCtrl+4",
-        true,
-      ),
-      SEPARATOR,
-      { role: "resetZoom", label: "实际大小" },
-      { role: "zoomIn", label: "放大" },
-      { role: "zoomOut", label: "缩小" },
-      SEPARATOR,
-      { role: "togglefullscreen", label: "切换全屏" },
-    ],
-  };
-
-  const navigationMenu: MenuItemConstructorOptions = {
-    label: "导航",
-    submenu: [
       // Renderer-owned Ctrl+F summons the floating find widget (find row);
       // Ctrl+H summons it with the replace row revealed. Find jumps the
       // selection and never hides rows — hiding is the filter channel.
@@ -256,11 +158,176 @@ export function buildMenuTemplate(
     ],
   };
 
+  const viewMenu: MenuItemConstructorOptions = {
+    label: "视图",
+    submenu: [
+      // Renderer-owned Ctrl+Shift+P (with Ctrl+K as a synonym chord the
+      // renderer also listens for) summons the command palette.
+      commandItem(
+        "命令面板",
+        "open-command-palette",
+        context.projectOpen,
+        "CmdOrCtrl+Shift+P",
+        true,
+      ),
+      SEPARATOR,
+      // Toggles the collapsible bottom preview pane (PRD §7.4).
+      commandItem(
+        "预览面板",
+        "toggle-preview",
+        context.documentOpen,
+        "CmdOrCtrl+P",
+      ),
+      // Same layout bits the splitter chevrons flip, persisted per project.
+      commandItem("折叠左栏", "toggle-left", context.projectOpen),
+      commandItem("折叠右栏", "toggle-right", context.projectOpen),
+      SEPARATOR,
+      // Four dock groups (记忆/术语/QA/AI). Renderer-owned chords: while
+      // the grid editor has focus, Ctrl+数字 applies the numbered TM match
+      // instead (memoQ semantics), so the renderer must see the raw keys.
+      commandItem(
+        "记忆面板",
+        "show-dock-memory",
+        context.projectOpen,
+        "CmdOrCtrl+1",
+        true,
+      ),
+      commandItem(
+        "术语面板",
+        "show-dock-term",
+        context.projectOpen,
+        "CmdOrCtrl+2",
+        true,
+      ),
+      commandItem(
+        "QA 面板",
+        "show-dock-qa",
+        context.projectOpen,
+        "CmdOrCtrl+3",
+        true,
+      ),
+      commandItem(
+        "AI 面板",
+        "show-dock-ai",
+        context.projectOpen,
+        "CmdOrCtrl+4",
+        true,
+      ),
+      SEPARATOR,
+      { role: "resetZoom", label: "实际大小" },
+      { role: "zoomIn", label: "放大" },
+      { role: "zoomOut", label: "缩小" },
+      SEPARATOR,
+      { role: "togglefullscreen", label: "切换全屏" },
+    ],
+  };
+
+  // Project-scoped resources. 项目设置/导入/返回列表 also live in 文件 —
+  // deliberate duplicates (prototype IA); the accelerator stays on the
+  // 文件 instance so each chord keeps a single owner.
+  const projectMenu: MenuItemConstructorOptions = {
+    label: "项目",
+    submenu: [
+      commandItem("项目设置…", "open-project-settings", context.projectOpen),
+      commandItem("记忆库管理…", "open-tm-manage", context.projectOpen),
+      commandItem("术语库管理…", "open-term-manage", context.projectOpen),
+      SEPARATOR,
+      commandItem("导入文档…", "import-document", context.projectOpen),
+      commandItem("归档项目", "archive-project", context.projectOpen),
+      SEPARATOR,
+      commandItem("返回项目列表", "close-project", context.projectOpen),
+    ],
+  };
+
+  const translateMenu: MenuItemConstructorOptions = {
+    label: "翻译",
+    submenu: [
+      // Studio confirm chord family. Same commands as the grid editor's
+      // chords; display-only accelerators so the textarea handler stays
+      // the owner. All three run the same segment.confirm — only the
+      // navigation afterwards differs.
+      commandItem(
+        "确认当前句段",
+        "confirm-segment",
+        context.documentOpen,
+        "CmdOrCtrl+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并到下一句段",
+        "confirm-segment-any",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Enter",
+        true,
+      ),
+      commandItem(
+        "确认并停留",
+        "confirm-segment-stay",
+        context.documentOpen,
+        "CmdOrCtrl+Alt+Shift+Enter",
+        true,
+      ),
+      SEPARATOR,
+      // Studio's Ctrl+L. Menu-owned: no renderer keydown handler exists for
+      // it, and it must fire even while the target editor has focus.
+      commandItem(
+        "锁定/解锁句段",
+        "toggle-lock-segment",
+        context.documentOpen,
+        "CmdOrCtrl+L",
+      ),
+      commandItem("复制源文到译文", "copy-source", context.documentOpen),
+      commandItem("清空译文", "clear-target", context.documentOpen),
+      SEPARATOR,
+      commandItem("预翻译（TM）", "pretranslate", context.documentOpen),
+      // The editor's Ctrl+1…9 family applies numbered matches; the menu
+      // item applies match #1 and shows no accelerator (a chord range is
+      // not one accelerator, and Ctrl+1 already belongs to the dock).
+      commandItem("插入记忆匹配", "insert-tm", context.documentOpen),
+      commandItem("插入术语", "insert-term", context.documentOpen),
+      SEPARATOR,
+      commandItem("AI 翻译当前句段", "ai-translate", context.documentOpen),
+      commandItem("AI 润色当前句段", "ai-refine", context.documentOpen),
+      commandItem("Agent 模式…", "show-dock-ai", context.projectOpen),
+    ],
+  };
+
+  const qaMenu: MenuItemConstructorOptions = {
+    label: "QA",
+    submenu: [
+      commandItem("运行 QA", "run-qa", context.documentOpen),
+      commandItem("QA 面板", "show-dock-qa", context.projectOpen),
+      SEPARATOR,
+      commandItem("忽略当前问题", "waive", context.documentOpen),
+      commandItem("忽略同类问题", "waive-rule", context.documentOpen),
+      commandItem("忽略本句问题", "waive-segment", context.documentOpen),
+      commandItem("恢复为未解决", "restore", context.documentOpen),
+      SEPARATOR,
+      commandItem("应用引擎修复", "apply-fix", context.documentOpen),
+      // Checkbox mirrors the stored qa.profile gate; clicking toggles the
+      // real setting through the same RPC as project settings.
+      {
+        label: "有错误时阻止导出",
+        type: "checkbox",
+        checked: context.exportGate,
+        enabled: context.projectOpen,
+        click: () => onCommand("toggle-gate"),
+      },
+    ],
+  };
+
   const helpMenu: MenuItemConstructorOptions = {
     label: "帮助",
     submenu: [
+      commandItem("键盘快捷键…", "help-keys", true),
+      SEPARATOR,
       { role: "reload", label: "重新加载窗口" },
       { role: "toggleDevTools", label: "开发者工具" },
+      // macOS keeps the native About in the app menu; elsewhere the help
+      // menu opens the in-app dialog.
+      ...(isMac
+        ? []
+        : [SEPARATOR, commandItem(`关于 ${appName}`, "about", true)]),
     ],
   };
 
@@ -278,7 +345,9 @@ export function buildMenuTemplate(
     fileMenu,
     editMenu,
     viewMenu,
-    navigationMenu,
+    projectMenu,
+    translateMenu,
+    qaMenu,
     helpMenu,
   ];
 }

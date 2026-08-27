@@ -8,8 +8,15 @@ import {
   IconClipboardCheck,
   IconDatabase,
   IconFileText,
+  IconFileTypeDocx,
+  IconFileTypeHtml,
+  IconFileTypePpt,
+  IconFileTypeTxt,
+  IconFileTypeXls,
+  IconFileTypeXml,
   IconFolder,
   IconFolderOpen,
+  IconMarkdown,
   IconSettings,
   IconSparkles,
   IconVocabulary,
@@ -21,6 +28,7 @@ import type {
   Project,
   QaFix,
   QaIssue,
+  QaProfileView,
   Segment,
   SegmentCounts,
   SegmentOrigin,
@@ -28,6 +36,7 @@ import type {
 } from "@translunar/contracts";
 import {
   Button,
+  Dialog,
   EmptyState,
   SegmentProgress,
   THEME_FX_LABELS,
@@ -117,6 +126,12 @@ export interface WorkbenchViewProps {
   onOpenTmManage?: () => void;
   /** Returns to the projects list (same path as the menu command). */
   onCloseProject?: () => void;
+  /**
+   * Reports the stored QA export gate (`qa.profile.get`'s
+   * blockExportOnError) so the shell can mirror it into the menu's
+   * checkbox; called again whenever the gate is toggled here.
+   */
+  onExportGateChange?: (gate: boolean) => void;
 }
 
 /** Status-bar readouts that jump to a grid filter (PRD §3.8). */
@@ -183,6 +198,64 @@ const STATE_FILTER_LABEL = new Map<SegmentStateFilter, string>(
   STATE_FILTER_OPTIONS,
 );
 
+/** The three boolean AND channels next to the state select (PRD §3.6). */
+const BOOL_FILTER_CHANNELS: Array<["locked" | "hasTerms" | "hasTags", string]> =
+  [
+    ["locked", "锁定"],
+    ["hasTerms", "有术语"],
+    ["hasTags", "有标签"],
+  ];
+
+const FILE_ICON_PROPS = {
+  size: 13,
+  stroke: 1.6,
+  className: "document-list__file-icon",
+  "aria-hidden": true,
+} as const;
+
+/**
+ * Format-specific explorer glyphs, keyed by the engine's own
+ * `Document.format` ids (tl-filter-*); anything unmapped keeps the plain
+ * file glyph rather than inventing a format the engine never reported.
+ */
+function documentFormatIcon(format: string) {
+  switch (format) {
+    case "docx":
+      return <IconFileTypeDocx {...FILE_ICON_PROPS} />;
+    case "markdown":
+      return <IconMarkdown {...FILE_ICON_PROPS} />;
+    case "txt":
+      return <IconFileTypeTxt {...FILE_ICON_PROPS} />;
+    case "html":
+      return <IconFileTypeHtml {...FILE_ICON_PROPS} />;
+    case "pptx":
+      return <IconFileTypePpt {...FILE_ICON_PROPS} />;
+    case "xlsx":
+    case "bilingual-xlsx":
+      return <IconFileTypeXls {...FILE_ICON_PROPS} />;
+    default:
+      return format.startsWith("xliff") ? (
+        <IconFileTypeXml {...FILE_ICON_PROPS} />
+      ) : (
+        <IconFileText {...FILE_ICON_PROPS} />
+      );
+  }
+}
+
+/** Per-ancestor indent guides for one explorer tree row. */
+function IndentGuides({ depth }: { depth: number }) {
+  if (depth === 0) {
+    return null;
+  }
+  return (
+    <span className="document-list__guides" aria-hidden="true">
+      {Array.from({ length: depth }, (_, index) => (
+        <span key={index} className="document-list__guide" />
+      ))}
+    </span>
+  );
+}
+
 function readTextSelection(): string {
   const active = document.activeElement;
   if (
@@ -213,6 +286,7 @@ export function WorkbenchView({
   onOpenAppearance,
   onOpenTmManage,
   onCloseProject,
+  onExportGateChange,
 }: WorkbenchViewProps) {
   const themeState = useTheme();
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -292,6 +366,27 @@ export function WorkbenchView({
     openErrors: number;
     ruleIds: string[];
   } | null>(null);
+  // 归档项目 (menu) waits for this explicit confirm; nothing archives on
+  // the menu click alone.
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  // Menu-driven AI assist (翻译 ▸ AI 翻译/润色当前句段): the AI dock panel
+  // consumes each token once and runs the exact assist its buttons run.
+  const [aiRequest, setAiRequest] = useState<{
+    action: "translate" | "refine";
+    token: number;
+  } | null>(null);
+  // The stored QA profile; its blockExportOnError feeds the menu checkbox
+  // through onExportGateChange and is toggled by the QA menu item.
+  const [qaProfile, setQaProfile] = useState<QaProfileView | null>(null);
+  // 有术语 filter channel: segment ids whose sourceText has engine
+  // terminology hits. Null while lookups are in flight (the channel hides
+  // nothing yet) or while the chip is off.
+  const [termSegmentIds, setTermSegmentIds] =
+    useState<ReadonlySet<string> | null>(null);
+  // term.lookup results per sourceText — repeated sources ask the engine
+  // once. Lives only while the chip is on; turning it off drops the cache
+  // so the next activation sees terms added in between.
+  const termHitCacheRef = useRef(new Map<string, boolean>());
 
   // Latest engine-acked copy of every loaded segment, kept fresh
   // synchronously (outside React state) so queued writes always send the
@@ -372,6 +467,85 @@ export function WorkbenchView({
       cancelled = true;
     };
   }, [project.id, activeSegment]);
+
+  // The stored QA export gate, fetched once per project. A failed fetch
+  // leaves the menu checkbox off — the toggle refetches before writing, so
+  // it can never update against a stale revision.
+  useEffect(() => {
+    let cancelled = false;
+    callEngine("qa.profile.get", { projectId: project.id })
+      .then((profile) => {
+        if (!cancelled) {
+          setQaProfile(profile);
+        }
+      })
+      .catch(() => {
+        // The menu checkbox simply stays unchecked until a later fetch.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
+
+  useEffect(() => {
+    onExportGateChange?.(qaProfile?.blockExportOnError ?? false);
+  }, [qaProfile, onExportGateChange]);
+  useEffect(() => {
+    return () => {
+      onExportGateChange?.(false);
+    };
+  }, [onExportGateChange]);
+
+  // 有术语 chip: resolve terminology hits through the engine's own
+  // term.lookup — one call per distinct sourceText, cached while the chip
+  // stays on. The channel narrows only after the engine has answered;
+  // no client-side matcher ever guesses.
+  useEffect(() => {
+    if (!filter.hasTerms) {
+      setTermSegmentIds(null);
+      termHitCacheRef.current.clear();
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const cache = termHitCacheRef.current;
+      const pending = new Set<string>();
+      for (const segment of segments) {
+        if (!cache.has(segment.sourceText)) {
+          pending.add(segment.sourceText);
+        }
+      }
+      for (const sourceText of pending) {
+        const result = await callEngine("term.lookup", {
+          projectId: project.id,
+          sourceText,
+        });
+        if (cancelled) {
+          return;
+        }
+        cache.set(sourceText, result.matches.length > 0);
+      }
+      const ids = new Set<string>();
+      for (const segment of segments) {
+        if (cache.get(segment.sourceText) === true) {
+          ids.add(segment.id);
+        }
+      }
+      if (!cancelled) {
+        setTermSegmentIds(ids);
+      }
+    })().catch((error: unknown) => {
+      if (!cancelled) {
+        // The lookup failed: report and drop the channel instead of
+        // filtering on a half-answered set.
+        onStatusMessage(`术语筛选失败：${describeError(error)}`);
+        setFilter((current) => ({ ...current, hasTerms: false }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filter.hasTerms, segments, project.id, onStatusMessage]);
 
   const refreshDocuments = useCallback(async () => {
     const result = await callEngine("document.list", { projectId: project.id });
@@ -762,8 +936,8 @@ export function WorkbenchView({
   }, [issues]);
 
   const filteredSegments = useMemo(
-    () => filterSegments(segments, filter, openIssueSegmentIds),
-    [segments, filter, openIssueSegmentIds],
+    () => filterSegments(segments, filter, openIssueSegmentIds, termSegmentIds),
+    [segments, filter, openIssueSegmentIds, termSegmentIds],
   );
 
   // Trados-style flow: after a confirm, the selection steps to the next
@@ -1251,6 +1425,135 @@ export function WorkbenchView({
     [applySegments, onStatusMessage],
   );
 
+  // Ribbon 撤销/重做 drive the focused target editor's own undo stack via
+  // execCommand — an application-level undo store does not exist, so the
+  // buttons disable whenever no editor is mounted instead of pretending.
+  const execEditorHistory = useCallback((command: "undo" | "redo") => {
+    if (gridRef.current?.focusActive()) {
+      document.execCommand(command);
+    }
+  }, []);
+
+  // 插入记忆 (ribbon/menu): apply TM match #1 to the active segment — the
+  // exact path the editor's Ctrl+1 chord takes, including the honest miss.
+  const insertFirstTmMatch = useCallback(() => {
+    const match = tmMatches[0];
+    if (!match) {
+      onStatusMessage("没有第 1 条记忆匹配");
+      return;
+    }
+    applyTmMatchToActive(match);
+    onStatusMessage(`已应用第 1 条记忆匹配（${match.score}%）为草稿`);
+  }, [tmMatches, applyTmMatchToActive, onStatusMessage]);
+
+  // 插入术语 (ribbon/menu): on-demand term.lookup on the active segment;
+  // the first non-forbidden translation lands at the caret through the
+  // same insert path as the dock's 插入 button. A miss switches to the
+  // 术语 dock and says so — nothing is ever fake-inserted.
+  const insertFirstTerm = useCallback(async () => {
+    if (!activeSegment) {
+      return;
+    }
+    try {
+      const result = await callEngine("term.lookup", {
+        projectId: project.id,
+        sourceText: activeSegment.sourceText,
+      });
+      const translation = result.matches
+        .flatMap((match) => match.translations)
+        .find((item) => !item.forbidden);
+      if (!translation) {
+        setTab("term");
+        onStatusMessage("当前句段无术语命中");
+        return;
+      }
+      insertTermToActive(translation.term);
+      onStatusMessage(`已插入术语「${translation.term}」`);
+    } catch (error) {
+      onStatusMessage(`术语查询失败：${describeError(error)}`);
+    }
+  }, [activeSegment, project.id, insertTermToActive, onStatusMessage]);
+
+  // 确认归档: the same project.archive RPC the settings dialog runs.
+  const archiveProject = useCallback(async () => {
+    setBusy(true);
+    try {
+      const updated = await callEngine("project.archive", {
+        projectId: project.id,
+        archived: true,
+      });
+      onProjectUpdated?.(updated);
+      onStatusMessage("项目已归档");
+    } catch (error) {
+      onStatusMessage(`归档失败：${describeError(error)}`);
+    } finally {
+      setArchiveConfirmOpen(false);
+      setBusy(false);
+    }
+  }, [project.id, onProjectUpdated, onStatusMessage]);
+
+  // QA menu 有错误时阻止导出: flips the stored qa.profile gate through the
+  // same RPC pair as project settings. Refetches first so the write is
+  // always based on the persisted revision, never a stale local view.
+  const toggleExportGate = useCallback(async () => {
+    try {
+      const profile = await callEngine("qa.profile.get", {
+        projectId: project.id,
+      });
+      const updated = await callEngine("qa.profile.update", {
+        projectId: project.id,
+        baseRevision: profile.revision,
+        blockExportOnError: !profile.blockExportOnError,
+      });
+      setQaProfile(updated);
+      onStatusMessage(
+        updated.blockExportOnError
+          ? "已开启导出前 QA 检查"
+          : "已关闭导出前 QA 检查",
+      );
+    } catch (error) {
+      onStatusMessage(`设置失败：${describeError(error)}`);
+    }
+  }, [project.id, onStatusMessage]);
+
+  // The QA menu's waive/restore/apply-fix act on the active segment's
+  // first matching finding; with none, the command reports instead of
+  // pretending anything happened.
+  const activeOpenIssue = useMemo(
+    () =>
+      activeSegmentId
+        ? (issues.find(
+            (issue) =>
+              issue.segmentId === activeSegmentId && issue.status === "open",
+          ) ?? null)
+        : null,
+    [issues, activeSegmentId],
+  );
+  const activeWaivedIssue = useMemo(
+    () =>
+      activeSegmentId
+        ? (issues.find(
+            (issue) =>
+              issue.segmentId === activeSegmentId && issue.status === "waived",
+          ) ?? null)
+        : null,
+    [issues, activeSegmentId],
+  );
+  const activeFix = useMemo(() => {
+    if (!activeSegmentId) {
+      return null;
+    }
+    const openIds = new Set(
+      issues
+        .filter(
+          (issue) =>
+            issue.segmentId === activeSegmentId && issue.status === "open",
+        )
+        .map((issue) => issue.id),
+    );
+    return fixes.find((fix) => openIds.has(fix.issueId)) ?? null;
+  }, [fixes, issues, activeSegmentId]);
+
   // Engine results arrive best-first; the top hit drives the TM tab chip
   // and the active row's match badge.
   const bestTmMatch = tmMatches[0] ?? null;
@@ -1551,7 +1854,7 @@ export function WorkbenchView({
     }
     return filterSegments(
       filteredSegments,
-      { state: "all", query },
+      { ...EMPTY_FILTER, query },
       openIssueSegmentIds,
     ).length;
   }, [filteredSegments, findQuery, openIssueSegmentIds]);
@@ -1842,6 +2145,20 @@ export function WorkbenchView({
         setTab(dockTab);
         return;
       }
+      // Commands that write the active segment share one honest gate: a
+      // missing selection or a locked row reports instead of firing a
+      // segment.update the engine's lock shield would reject anyway.
+      const editableActive = (): Segment | null => {
+        if (!activeSegment) {
+          onStatusMessage("没有选中的句段");
+          return null;
+        }
+        if (activeSegment.locked) {
+          onStatusMessage(`句段 #${activeSegment.ordinal + 1} 已锁定`);
+          return null;
+        }
+        return activeSegment;
+      };
       switch (command) {
         case "import-document":
           if (!busy) {
@@ -1899,6 +2216,121 @@ export function WorkbenchView({
             onStatusMessage("没有选中的句段，无法锁定");
           }
           break;
+        case "toggle-left":
+          updateLayout({ leftCollapsed: !layout.leftCollapsed });
+          break;
+        case "toggle-right":
+          updateLayout({ rightCollapsed: !layout.rightCollapsed });
+          break;
+        case "open-tm-manage":
+          onOpenTmManage?.();
+          break;
+        case "open-term-manage":
+          // Termbase management lives in the settings dialog's 术语库
+          // section — the menu opens that same surface.
+          onOpenSettings?.();
+          break;
+        case "archive-project":
+          if (project.lifecycle === "archived") {
+            onStatusMessage("项目已归档");
+          } else {
+            setArchiveConfirmOpen(true);
+          }
+          break;
+        case "copy-source": {
+          const segment = editableActive();
+          if (segment) {
+            copySourceToTarget(segment);
+          }
+          break;
+        }
+        case "clear-target": {
+          const segment = editableActive();
+          if (segment) {
+            clearTargetText(segment);
+          }
+          break;
+        }
+        case "pretranslate":
+          if (activeDocument && !busy) {
+            void pretranslate();
+          }
+          break;
+        case "insert-tm":
+          if (editableActive()) {
+            insertFirstTmMatch();
+          }
+          break;
+        case "insert-term":
+          if (editableActive()) {
+            void insertFirstTerm();
+          }
+          break;
+        case "ai-translate":
+        case "ai-refine":
+          setTab("ai");
+          setAiRequest((current) => ({
+            action: command === "ai-translate" ? "translate" : "refine",
+            token: (current?.token ?? 0) + 1,
+          }));
+          break;
+        case "run-qa":
+          void runQa();
+          break;
+        case "waive":
+          if (activeOpenIssue) {
+            void waiveIssues(
+              { issueId: activeOpenIssue.id },
+              true,
+              activeOpenIssue.id,
+            );
+          } else {
+            onStatusMessage("当前句段没有未解决的 QA 问题");
+          }
+          break;
+        case "waive-rule":
+          if (activeOpenIssue && activeDocumentId) {
+            void waiveIssues(
+              { ruleId: activeOpenIssue.ruleId, documentId: activeDocumentId },
+              true,
+              `rule:${activeOpenIssue.ruleId}`,
+            );
+          } else {
+            onStatusMessage("当前句段没有未解决的 QA 问题");
+          }
+          break;
+        case "waive-segment":
+          if (activeOpenIssue) {
+            void waiveIssues(
+              { segmentId: activeOpenIssue.segmentId },
+              true,
+              `segment:${activeOpenIssue.segmentId}`,
+            );
+          } else {
+            onStatusMessage("当前句段没有未解决的 QA 问题");
+          }
+          break;
+        case "restore":
+          if (activeWaivedIssue) {
+            void waiveIssues(
+              { issueId: activeWaivedIssue.id },
+              false,
+              activeWaivedIssue.id,
+            );
+          } else {
+            onStatusMessage("当前句段没有已忽略的 QA 问题");
+          }
+          break;
+        case "apply-fix":
+          if (activeFix) {
+            void applyFix(activeFix);
+          } else {
+            onStatusMessage("当前句段没有可应用的修复");
+          }
+          break;
+        case "toggle-gate":
+          void toggleExportGate();
+          break;
         default:
           break;
       }
@@ -1907,6 +2339,7 @@ export function WorkbenchView({
       busy,
       exportDocument,
       activeDocument,
+      activeDocumentId,
       activeSegment,
       toggleLockSegment,
       openConcordance,
@@ -1915,7 +2348,24 @@ export function WorkbenchView({
       findMatch,
       confirmActiveSegment,
       layout.previewOpen,
+      layout.leftCollapsed,
+      layout.rightCollapsed,
       updateLayout,
+      onOpenTmManage,
+      onOpenSettings,
+      project.lifecycle,
+      copySourceToTarget,
+      clearTargetText,
+      pretranslate,
+      insertFirstTmMatch,
+      insertFirstTerm,
+      runQa,
+      waiveIssues,
+      activeOpenIssue,
+      activeWaivedIssue,
+      activeFix,
+      applyFix,
+      toggleExportGate,
       onStatusMessage,
     ],
   );
@@ -1932,11 +2382,13 @@ export function WorkbenchView({
     });
   }, []);
 
-  // The command palette catalog: every MenuCommand (workbench commands go
+  // The command palette catalog: every workbench-owned MenuCommand goes
   // through handleMenuCommand — the same dispatch the menu uses; shell
-  // commands run the props the shell handed down), plus dock switches
-  // (already MenuCommands) and one jump per project document. Labels and
-  // shortcuts mirror the application menu.
+  // commands run the props the shell handed down. Dock switches (already
+  // MenuCommands) and one jump per project document round it out. Labels
+  // and shortcuts mirror the application menu; enablement reads the live
+  // workbench state (locked row, open finding, stored gate) so a disabled
+  // row is always telling the truth.
   const paletteEntries = useMemo<PaletteEntry[]>(() => {
     /* Themes and their effect switches are palette commands too: a reader
        who lives in Ctrl+K should not have to find a dialog to turn the
@@ -1968,6 +2420,11 @@ export function WorkbenchView({
       })),
     ];
     const documentOpen = activeDocument !== null;
+    // 插入/复制/清空 write the active segment; a locked row disables them
+    // here exactly like the ribbon buttons (the dispatch guard is the
+    // same, so a stale click still only reports).
+    const editableActive =
+      documentOpen && activeSegment !== null && activeSegment.locked !== true;
     const command = (
       id: MenuCommand,
       label: string,
@@ -1994,6 +2451,13 @@ export function WorkbenchView({
             },
           ]
         : []),
+      ...(onOpenTmManage
+        ? [command("open-tm-manage", "记忆库管理…", true)]
+        : []),
+      ...(onOpenSettings
+        ? [command("open-term-manage", "术语库管理…", true)]
+        : []),
+      command("archive-project", "归档项目", project.lifecycle !== "archived"),
       ...(onCloseProject
         ? [
             {
@@ -2023,7 +2487,37 @@ export function WorkbenchView({
         documentOpen && activeSegment !== null,
         "Ctrl+L",
       ),
+      command("copy-source", "复制源文到译文", editableActive),
+      command("clear-target", "清空译文", editableActive),
+      command("pretranslate", "预翻译（TM）", documentOpen && !busy),
+      command("insert-tm", "插入记忆匹配", editableActive),
+      command("insert-term", "插入术语", editableActive),
+      command("ai-translate", "AI 翻译当前句段", documentOpen),
+      command("ai-refine", "AI 润色当前句段", documentOpen),
+      command("run-qa", "运行 QA", documentOpen),
+      // The QA verbs enable off the live finding on the active segment —
+      // richer than the menu's document-level enablement, same dispatch.
+      command("waive", "忽略当前问题", activeOpenIssue !== null),
+      command("waive-rule", "忽略同类问题", activeOpenIssue !== null),
+      command("waive-segment", "忽略本句问题", activeOpenIssue !== null),
+      command("restore", "恢复为未解决", activeWaivedIssue !== null),
+      command("apply-fix", "应用引擎修复", activeFix !== null),
+      command(
+        "toggle-gate",
+        `有错误时阻止导出（${qaProfile?.blockExportOnError ? "关闭" : "开启"}）`,
+        qaProfile !== null,
+      ),
       command("toggle-preview", "预览面板", documentOpen, "Ctrl+P"),
+      command(
+        "toggle-left",
+        layout.leftCollapsed ? "展开左栏" : "折叠左栏",
+        true,
+      ),
+      command(
+        "toggle-right",
+        layout.rightCollapsed ? "展开右栏" : "折叠右栏",
+        true,
+      ),
       command("open-find", "查找…", documentOpen, "Ctrl+F"),
       command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
@@ -2049,14 +2543,22 @@ export function WorkbenchView({
   }, [
     activeDocument,
     activeSegment,
+    activeOpenIssue,
+    activeWaivedIssue,
+    activeFix,
     busy,
     documents,
     handleMenuCommand,
+    layout.leftCollapsed,
+    layout.rightCollapsed,
     onOpenAppearance,
+    project.lifecycle,
+    qaProfile,
     themeState,
     loadDocument,
     onCloseProject,
     onOpenSettings,
+    onOpenTmManage,
     onStatusMessage,
   ]);
 
@@ -2071,6 +2573,7 @@ export function WorkbenchView({
         <Ribbon
           documentOpen={activeDocument !== null}
           busy={busy}
+          editorActive={caret !== null}
           filterQuery={filter.query}
           filterInputRef={filterInputRef}
           onFilterQueryChange={(value) =>
@@ -2078,6 +2581,8 @@ export function WorkbenchView({
           }
           onCloseProject={onCloseProject}
           onOpenTmManage={onOpenTmManage}
+          onUndo={() => execEditorHistory("undo")}
+          onRedo={() => execEditorHistory("redo")}
           onImport={() => setImportOpen(true)}
           onExport={() => void exportDocument()}
           onConfirmSegment={() => confirmActiveSegment()}
@@ -2089,11 +2594,19 @@ export function WorkbenchView({
               void toggleLockSegment(activeSegment);
             }
           }}
+          onInsertTm={insertFirstTmMatch}
+          onInsertTerm={() => void insertFirstTerm()}
           onPretranslate={() => void pretranslate()}
           onOpenFind={() => openFind("find")}
           onOpenReplace={() => openFind("replace")}
-          onFocusFilter={() => focusFilter()}
+          onFindNext={() => findMatch("next")}
           onConcordance={openConcordance}
+          onRunQa={() => void runQa()}
+          onTogglePreview={() => {
+            if (activeDocument) {
+              updateLayout({ previewOpen: !layout.previewOpen });
+            }
+          }}
         />
 
         <aside
@@ -2194,9 +2707,9 @@ export function WorkbenchView({
                         role="treeitem"
                         aria-expanded={open}
                         className="document-list__dir"
-                        style={{ paddingLeft: `${6 + node.depth * 12}px` }}
                         onClick={() => toggleDir(node.key)}
                       >
+                        <IndentGuides depth={node.depth} />
                         <IconChevronRight
                           size={13}
                           stroke={2}
@@ -2243,21 +2756,24 @@ export function WorkbenchView({
                       role="treeitem"
                       aria-selected={document.id === activeDocumentId}
                       className="document-list__item"
-                      style={{ paddingLeft: `${node.depth * 12}px` }}
                       data-active={document.id === activeDocumentId}
+                      // Open in a tab but showing behind another document —
+                      // weaker than active, stronger than closed.
+                      data-open={
+                        document.id !== activeDocumentId &&
+                        openDocumentIds.includes(document.id)
+                          ? true
+                          : undefined
+                      }
                     >
+                      <IndentGuides depth={node.depth} />
                       <button
                         type="button"
                         className="document-list__select"
                         onClick={() => void loadDocument(document.id)}
                       >
                         <span className="document-list__name">
-                          <IconFileText
-                            size={13}
-                            stroke={1.6}
-                            className="document-list__file-icon"
-                            aria-hidden
-                          />
+                          {documentFormatIcon(document.format)}
                           {document.name}
                         </span>
                         <span className="document-list__meta">
@@ -2486,6 +3002,24 @@ export function WorkbenchView({
                     </option>
                   ))}
                 </select>
+                {/* Boolean AND channels beside the state select; each one
+                    also shows as a removable chip while active. */}
+                {BOOL_FILTER_CHANNELS.map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="grid-toolbar__toggle"
+                    aria-pressed={filter[key]}
+                    onClick={() =>
+                      setFilter((current) => ({
+                        ...current,
+                        [key]: !current[key],
+                      }))
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
                 {/* Active filters as removable chips (PRD §3.6): one per
                     channel, × clears just that channel; Esc clears all. */}
                 {filter.state !== "all" ? (
@@ -2518,6 +3052,24 @@ export function WorkbenchView({
                     </span>
                   </button>
                 ) : null}
+                {BOOL_FILTER_CHANNELS.filter(([key]) => filter[key]).map(
+                  ([key, label]) => (
+                    <button
+                      key={`chip-${key}`}
+                      type="button"
+                      className="filter-chip"
+                      aria-label={`清除筛选：${label}`}
+                      onClick={() =>
+                        setFilter((current) => ({ ...current, [key]: false }))
+                      }
+                    >
+                      {label}
+                      <span className="filter-chip__x" aria-hidden="true">
+                        ×
+                      </span>
+                    </button>
+                  ),
+                )}
                 <span className="grid-toolbar__spacer" />
                 <span
                   className="grid-toolbar__count tl-num"
@@ -2737,6 +3289,8 @@ export function WorkbenchView({
                   activeSegment={activeSegment}
                   onApplyDraft={applyAiDraftToActive}
                   onStatusMessage={onStatusMessage}
+                  request={aiRequest}
+                  onRequestConsumed={() => setAiRequest(null)}
                 />
                 <AgentPanel
                   documentId={activeDocumentId}
@@ -2765,6 +3319,34 @@ export function WorkbenchView({
           onImported={(result) => void handleImported(result)}
           onProjectUpdated={onProjectUpdated}
         />
+
+        {/* 归档项目 (menu) archives only after this explicit confirm; the
+            RPC and the reversible lifecycle are the settings dialog's. */}
+        <Dialog
+          title="归档项目"
+          open={archiveConfirmOpen}
+          onClose={() => setArchiveConfirmOpen(false)}
+          footer={
+            <>
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() => void archiveProject()}
+              >
+                确认归档
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setArchiveConfirmOpen(false)}
+              >
+                取消
+              </Button>
+            </>
+          }
+        >
+          <p className="archive-confirm__name">归档「{project.name}」。</p>
+        </Dialog>
       </main>
     </AiStatusProvider>
   );

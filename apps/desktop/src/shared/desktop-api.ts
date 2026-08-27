@@ -40,12 +40,15 @@ export type DocxPreviewResponse =
  * the menu never grows behavior of its own.
  */
 export type MenuCommand =
+  | "new-project"
   | "import-document"
   | "export-document"
   | "open-project-settings"
   | "close-project"
   | "open-command-palette"
   | "toggle-preview"
+  | "toggle-left"
+  | "toggle-right"
   | "open-concordance"
   | "focus-filter"
   | "open-find"
@@ -56,6 +59,25 @@ export type MenuCommand =
   | "confirm-segment-any"
   | "confirm-segment-stay"
   | "toggle-lock-segment"
+  | "copy-source"
+  | "clear-target"
+  | "pretranslate"
+  | "insert-tm"
+  | "insert-term"
+  | "ai-translate"
+  | "ai-refine"
+  | "open-tm-manage"
+  | "open-term-manage"
+  | "archive-project"
+  | "run-qa"
+  | "waive"
+  | "waive-rule"
+  | "waive-segment"
+  | "restore"
+  | "apply-fix"
+  | "toggle-gate"
+  | "help-keys"
+  | "about"
   | "show-dock-memory"
   | "show-dock-term"
   | "show-dock-qa"
@@ -68,6 +90,12 @@ export type MenuCommand =
 export interface MenuContext {
   projectOpen: boolean;
   documentOpen: boolean;
+  /**
+   * The open project's stored QA export gate (`qa.profile.get`'s
+   * `blockExportOnError`); the QA menu's 有错误时阻止导出 checkbox mirrors
+   * this persisted value. False whenever no project is open.
+   */
+  exportGate: boolean;
 }
 
 /**

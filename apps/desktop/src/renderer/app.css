@@ -929,6 +929,7 @@ button.app-statusbar__jump:hover {
   gap: var(--tl-space-2);
   width: 100%;
   height: var(--tl-row-h-list);
+  padding-left: 6px;
   padding-right: var(--tl-space-2);
   background: none;
   border: none;
@@ -937,6 +938,19 @@ button.app-statusbar__jump:hover {
   font-size: var(--tl-text-sm);
   color: var(--tl-color-text-muted);
   text-align: left;
+}
+
+/* Indent guides: one hairline per ancestor level (VS Code style), full row
+   height, drawn from the theme's border token. */
+.document-list__guides {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+.document-list__guide {
+  flex: none;
+  width: 12px;
+  border-left: 1px solid var(--tl-color-border);
 }
 .document-list__dir:hover {
   background: var(--tl-color-row-hover);
@@ -999,6 +1013,13 @@ button.app-statusbar__jump:hover {
 .document-list__item[data-active="true"] {
   background: var(--tl-color-accent-faint);
   border-left-color: var(--tl-color-accent);
+}
+
+/* Open in a tab but not the one on screen: stronger than a closed file,
+   weaker than the active accent. */
+.document-list__item[data-open="true"] {
+  background: var(--tl-color-sunken);
+  border-left-color: var(--tl-color-border-strong);
 }
 
 /* The open-this-document hit area; the remove controls sit beside it. */
@@ -1268,6 +1289,36 @@ button.app-statusbar__jump:hover {
   box-shadow: var(--tl-focus-ring);
 }
 
+/* Boolean filter toggles (锁定 / 有术语 / 有标签) beside the state select;
+   an active channel also shows as a removable chip in the same row. */
+.grid-toolbar__toggle {
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.grid-toolbar__toggle:hover {
+  background: var(--tl-color-row-hover);
+}
+
+.grid-toolbar__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.grid-toolbar__toggle[aria-pressed="true"] {
+  color: var(--tl-color-accent-strong);
+  background: var(--tl-color-accent-faint);
+  border-color: var(--tl-color-accent);
+}
+
 .grid-toolbar__spacer {
   flex: 1;
 }
@@ -1312,6 +1363,48 @@ button.app-statusbar__jump:hover {
 .filter-chip__x {
   font-size: var(--tl-text-sm);
   line-height: 1;
+}
+
+/* 帮助 ▸ 键盘快捷键: one row per real chord — action label, then keys. */
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.shortcuts__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  padding: var(--tl-space-1) 0;
+  border-bottom: var(--tl-border-hairline);
+}
+
+.shortcuts__row dt {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+
+.shortcuts__row dd {
+  margin: 0;
+}
+
+.shortcuts kbd {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: var(--tl-color-sunken);
+  border: 1px solid var(--tl-color-border);
+  border-radius: var(--tl-radius-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* 帮助 ▸ 关于: the app name and version, nothing else. */
+.about__line {
+  margin: 0;
+  font-size: var(--tl-text-sm);
 }
 
 /* Floating find/replace widget (Ctrl+F / Ctrl+H, VS Code form). The

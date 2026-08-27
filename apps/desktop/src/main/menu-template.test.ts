@@ -22,8 +22,9 @@ const COMMAND_ITEMS: Array<{
   command: MenuCommand;
   accelerator?: string;
   rendererOwned?: boolean;
-  needs: "project" | "document";
+  needs: "project" | "document" | "none";
 }> = [
+  { label: "新建项目…", command: "new-project", needs: "none" },
   {
     label: "导入文档…",
     command: "import-document",
@@ -153,6 +154,26 @@ const COMMAND_ITEMS: Array<{
     rendererOwned: true,
     needs: "project",
   },
+  { label: "折叠左栏", command: "toggle-left", needs: "project" },
+  { label: "折叠右栏", command: "toggle-right", needs: "project" },
+  { label: "记忆库管理…", command: "open-tm-manage", needs: "project" },
+  { label: "术语库管理…", command: "open-term-manage", needs: "project" },
+  { label: "归档项目", command: "archive-project", needs: "project" },
+  { label: "复制源文到译文", command: "copy-source", needs: "document" },
+  { label: "清空译文", command: "clear-target", needs: "document" },
+  { label: "预翻译（TM）", command: "pretranslate", needs: "document" },
+  { label: "插入记忆匹配", command: "insert-tm", needs: "document" },
+  { label: "插入术语", command: "insert-term", needs: "document" },
+  { label: "AI 翻译当前句段", command: "ai-translate", needs: "document" },
+  { label: "AI 润色当前句段", command: "ai-refine", needs: "document" },
+  { label: "Agent 模式…", command: "show-dock-ai", needs: "project" },
+  { label: "运行 QA", command: "run-qa", needs: "document" },
+  { label: "忽略当前问题", command: "waive", needs: "document" },
+  { label: "忽略同类问题", command: "waive-rule", needs: "document" },
+  { label: "忽略本句问题", command: "waive-segment", needs: "document" },
+  { label: "恢复为未解决", command: "restore", needs: "document" },
+  { label: "应用引擎修复", command: "apply-fix", needs: "document" },
+  { label: "键盘快捷键…", command: "help-keys", needs: "none" },
 ];
 
 function build(
@@ -204,19 +225,33 @@ function click(item: MenuItemConstructorOptions): void {
   (item.click as unknown as () => void)();
 }
 
-const NO_PROJECT: MenuContext = { projectOpen: false, documentOpen: false };
-const PROJECT_ONLY: MenuContext = { projectOpen: true, documentOpen: false };
-const DOCUMENT_OPEN: MenuContext = { projectOpen: true, documentOpen: true };
+const NO_PROJECT: MenuContext = {
+  projectOpen: false,
+  documentOpen: false,
+  exportGate: false,
+};
+const PROJECT_ONLY: MenuContext = {
+  projectOpen: true,
+  documentOpen: false,
+  exportGate: false,
+};
+const DOCUMENT_OPEN: MenuContext = {
+  projectOpen: true,
+  documentOpen: true,
+  exportGate: false,
+};
 
 describe("buildMenuTemplate structure", () => {
-  it("lays out 文件/编辑/视图/导航/帮助 on Linux and Windows", () => {
+  it("lays out 文件/编辑/视图/项目/翻译/QA/帮助 on Linux and Windows", () => {
     for (const platform of ["linux", "win32"] as const) {
       const { template } = build(NO_PROJECT, { platform });
       expect(template.map((item) => item.label)).toEqual([
         "文件",
         "编辑",
         "视图",
-        "导航",
+        "项目",
+        "翻译",
+        "QA",
         "帮助",
       ]);
     }
@@ -260,7 +295,9 @@ describe("buildMenuTemplate honesty (enablement)", () => {
   it("disables every workbench command when no project is open", () => {
     const { template } = build(NO_PROJECT);
     for (const spec of COMMAND_ITEMS) {
-      expect(findItem(template, spec.label).enabled, spec.label).toBe(false);
+      expect(findItem(template, spec.label).enabled, spec.label).toBe(
+        spec.needs === "none",
+      );
     }
   });
 
@@ -268,7 +305,7 @@ describe("buildMenuTemplate honesty (enablement)", () => {
     const { template } = build(PROJECT_ONLY);
     for (const spec of COMMAND_ITEMS) {
       expect(findItem(template, spec.label).enabled, spec.label).toBe(
-        spec.needs === "project",
+        spec.needs !== "document",
       );
     }
   });
@@ -287,6 +324,51 @@ describe("buildMenuTemplate honesty (enablement)", () => {
         expect(item.enabled, String(item.role)).not.toBe(false);
       }
     }
+  });
+});
+
+describe("buildMenuTemplate QA export gate checkbox", () => {
+  it("mirrors the stored gate value and dispatches toggle-gate on click", () => {
+    for (const exportGate of [true, false]) {
+      const { template, onCommand } = build({
+        ...DOCUMENT_OPEN,
+        exportGate,
+      });
+      const item = findItem(template, "有错误时阻止导出");
+      expect(item.type).toBe("checkbox");
+      expect(item.checked).toBe(exportGate);
+      expect(item.enabled).toBe(true);
+      click(item);
+      expect(onCommand).toHaveBeenCalledWith("toggle-gate");
+    }
+  });
+
+  it("disables the gate checkbox without a project", () => {
+    const { template } = build(NO_PROJECT);
+    const item = findItem(template, "有错误时阻止导出");
+    expect(item.enabled).toBe(false);
+    expect(item.checked).toBe(false);
+  });
+});
+
+describe("buildMenuTemplate about entry", () => {
+  it("dispatches the about dialog command on Windows/Linux", () => {
+    for (const platform of ["linux", "win32"] as const) {
+      const { template, onCommand } = build(NO_PROJECT, { platform });
+      const item = findItem(template, "关于 Translunar CAT");
+      expect(item.enabled).toBe(true);
+      click(item);
+      expect(onCommand).toHaveBeenCalledWith("about");
+    }
+  });
+
+  it("keeps the native about role on macOS instead of a help item", () => {
+    const { template } = build(NO_PROJECT, { platform: "darwin" });
+    expect(
+      flatten(template).some((item) => item.label === "关于 Translunar CAT"),
+    ).toBe(false);
+    const appMenu = template[0]?.submenu as MenuItemConstructorOptions[];
+    expect(appMenu.some((item) => item.role === "about")).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 # 落地审计：Opus 原型 → Electron/React 工作台
 
-审计对象：`cursor/gf-themes-2398` 分支之上的 `apps/desktop`（审计分支 `cursor/gf-landing-audit-2398`）。
+审计对象：`cursor/gf-themes-2398` 分支之上的 `apps/desktop`（审计分支 `cursor/gf-landing-audit-2398`；Top 8 缺口已在 `cursor/gf-landing-fix-2398` 落地，本文判定已同步更新）。
 对照物：`docs/design-studies/FEATURE-INVENTORY.md`（原型契约）、`docs/design-studies/src/{app.js,data.js}`（Opus HTML 原型的实际 IA）、`docs/design-studies/README-opus.md`。
 
 审计方法：逐条读实现代码（非跑分、非截图猜测），每条结论都给 `文件:行号`；文件树部分另用真实引擎 + Playwright/xvfb 驱动真实应用拍照验证。**审计过程中发现并当场修复了两处文件树真实缺陷**（见 §2.3），除此之外没有实现任何新功能。
@@ -11,8 +11,8 @@
 
 | 问题 | 结论 |
 | --- | --- |
-| 原型 Workbench 功能是否全部落地？ | **绝大多数已落地**：清单 59 项中 **HAVE 50 / PARTIAL 6 / MISSING 3**。缺口集中在「入口晋升」（ribbon 动词、菜单 IA）与三个外观级差距，没有任何核心能力缺失。 |
-| IDE 式左侧文件树是否正确落地？ | **正确**（修复后）。路径成树、折叠、字母序、进度/QA 汇总、搜索强制展开均为真实实现并有单测 + 真实引擎 e2e 验证。本次修复了搜索只匹配文件名且会把树压平的缺陷，并补上了有数据未绘制的文件夹 QA 徽章。余下差距为外观级：缩进参考线、按格式图标、「已打开标签」标记。 |
+| 原型 Workbench 功能是否全部落地？ | **全部落地**：清单 59 项，审计当时 HAVE 50 / PARTIAL 6 / MISSING 3；差距 Top 8（§4）已在 `cursor/gf-landing-fix-2398` 全部修复，现为 **HAVE 59**。 |
+| IDE 式左侧文件树是否正确落地？ | **正确**。路径成树、折叠、字母序、进度/QA 汇总、搜索强制展开均为真实实现并有单测 + 真实引擎 e2e 验证。审计轮修复了搜索只匹配文件名且会把树压平的缺陷、补上了文件夹 QA 徽章；landing-fix 轮补齐外观级三件：缩进参考线、按格式图标、「已打开标签」`data-open` 标记。 |
 
 原型里**没有**评论 / 云同步 / 协作之类的剧场功能——`FEATURE-INVENTORY.md` 本身就是从已落地代码读出来的，原型唯一的演示机关是 8 个场景切换器（`data.js:672-681`），属于「原型专用，正确地未随产品发布」。
 
@@ -29,13 +29,13 @@
 | 路径成树 | 从导入目录折出文件夹；扁平导入保持扁平 | **HAVE**。共享前缀剥除后逐段建目录；单文档归根 | `doc-tree.ts:62-77,108-128`；单测 `doc-tree.test.ts`（keeps a flat import flat / derives folders） |
 | 文件夹排序 | 文件夹在前，二者各自按字母序 | **HAVE**（zh-Hans-CN collator） | `doc-tree.ts:131-158` |
 | 折叠 chevron | 点击切换，状态可持久 | **HAVE**。`aria-expanded` 如实上报，搜索时强制为开 | `WorkbenchView.tsx:2189-2206`、`app.css:948-954` |
-| 缩进 | 每层缩进 | **HAVE**（`paddingLeft = 6+depth*12` / `depth*12`） | `WorkbenchView.tsx:2197,2246` |
-| 缩进参考线 | 每个祖先层一条 hairline | **MISSING**（仅缩进，无参考线；外观级） | `app.css:919-1002` 无对应规则 |
-| 文件图标 | docx / md / json 各自 glyph | **PARTIAL**：统一 `IconFileText` | `WorkbenchView.tsx:2255-2260` |
+| 缩进 | 每层缩进 | **HAVE** | `WorkbenchView.tsx`（`IndentGuides` 前置于行内容） |
+| 缩进参考线 | 每个祖先层一条 hairline | **HAVE（landing-fix）**：`IndentGuides` 组件按深度绘制，取 `--tl-color-border` | `WorkbenchView.tsx`（`IndentGuides`）、`app.css`（`.document-list__guide`）；单测 draws one indent guide per ancestor folder level |
+| 文件图标 | docx / md / json 各自 glyph | **HAVE（landing-fix）**：按引擎 `Document.format` 分 glyph（docx/markdown/txt/html/pptx/xlsx/xliff\*），未映射格式保持 `IconFileText`——不为引擎不存在的格式发明字段 | `WorkbenchView.tsx`（`documentFormatIcon`）；单测 draws format-specific file glyphs |
 | 文件夹汇总 | 后代文件数 + 打开 QA 徽章 | **HAVE**（本次补上 QA 徽章，此前有数据未绘制） | `doc-tree.ts:165-182`、`WorkbenchView.tsx:2218-2234`、`app.css:966-975` |
 | 文件徽章 | 确认 % 与双色进度线；QA 计数 | **HAVE**（进度条 + %，meta 行含 `QA n`） | `WorkbenchView.tsx:2263-2291` |
-| 激活文件 | 行标记 + 强调 | **HAVE**：左侧 accent 边 + 底色（`data-active`） | `WorkbenchView.tsx:2244-2247`、`app.css:999-1002` |
-| 激活 vs 已打开标签 | 树里区分「打开着标签」与「激活」 | **PARTIAL**：树只标激活；已打开标签由中央标签页表达 | `WorkbenchView.tsx:2244` |
+| 激活文件 | 行标记 + 强调 | **HAVE**：左侧 accent 边 + 底色（`data-active`） | `WorkbenchView.tsx`、`app.css` |
+| 激活 vs 已打开标签 | 树里区分「打开着标签」与「激活」 | **HAVE（landing-fix）**：`data-open`（在 `openDocuments` 但非激活）介于激活与默认之间；中央标签页逻辑未动 | `WorkbenchView.tsx`、`app.css`（`.document-list__item[data-open="true"]`）；单测 marks open-but-inactive documents |
 | 移除 | 悬停 移除 → 确认移除/取消 两步 | **HAVE** | `WorkbenchView.tsx:2293-2311` |
 | 搜索 | 匹配完整路径（`docs/guides/onboarding-guide.docx`）并强制展开所有文件夹 | **HAVE（本次修复）**：改为匹配树实际绘制的可见路径；命中时文件夹保留且强开 | `doc-tree.ts:184-201`、`WorkbenchView.tsx:1349-1363,1391-1400` |
 | 展开/折叠全部 | —（原型无此钮） | 产品额外提供 | `WorkbenchView.tsx:2149-2166` |
@@ -71,10 +71,10 @@
 | 4 | 锁定/解锁句段（Ctrl+L，菜单持有） | HAVE | `menu-template.ts:141-147` |
 | 5 | 视图：命令面板/预览/四面板/缩放/全屏 | HAVE | `menu-template.ts:149-207` |
 | 6 | 导航：查找/替换/上一个/下一个/筛选/检索 | HAVE | `menu-template.ts:209-258` |
-| 7 | 原型 7 菜单 IA（新增 项目/翻译/QA 顶层，导航并入编辑） | PARTIAL：20 个命令全部可达，但仍是 5 菜单结构（文件/编辑/视图/导航/帮助） | `menu-template.ts:74,101,149,210,260` vs `data.js:486-595` |
-| 8 | 新建项目… 菜单入口 | PARTIAL：创建在项目列表工具条，无菜单项 | `ProjectsView.tsx`（创建工具条）vs `data.js:490` |
-| 9 | 折叠左栏/折叠右栏 菜单命令 | PARTIAL：Splitter chevron 有 UI，无菜单命令 | `Splitter.tsx` vs `data.js:525-526` |
-| 10 | 帮助：键盘快捷键… / 关于 | MISSING（帮助菜单仅 重新加载/开发者工具） | `menu-template.ts:260-266` vs `data.js:588-594` |
+| 7 | 原型 7 菜单 IA（新增 项目/翻译/QA 顶层，导航并入编辑） | HAVE（landing-fix）：文件/编辑/视图/项目/翻译/QA/帮助，`MenuCommand` 扩到 39 个，全部映射既有行为 | `menu-template.ts`、`menu-template.test.ts`；e2e 7 顶层断言 |
+| 8 | 新建项目… 菜单入口 | HAVE（landing-fix）：回到列表并聚焦既有创建表单的名称框（`focusCreate` prop，消费一次），不做第二套创建 UI | `App.tsx`、`ProjectsView.tsx`；单测 focusCreate |
+| 9 | 折叠左栏/折叠右栏 菜单命令 | HAVE（landing-fix）：`toggle-left`/`toggle-right` 切 `layout.leftCollapsed/rightCollapsed`，与 Splitter chevron 同一状态 | `menu-template.ts`、`WorkbenchView.tsx`；单测 toggle-left/right |
+| 10 | 帮助：键盘快捷键… / 关于 | HAVE（landing-fix）：快捷键对话框只列真实和弦；关于 = 应用名 + `package.json` version（mac 保留 role about） | `ShortcutsDialog.tsx`、`AboutDialog.tsx`、`App.tsx`；单测 App shell menu commands |
 
 ### 2.2 Ribbon（契约 §2；原型 `data.js:632-670`）
 
@@ -82,10 +82,10 @@
 | --- | --- | --- | --- |
 | 11 | 项目组：项目列表 / TM 管理 | HAVE | `Ribbon.tsx:110-134` |
 | 12 | 文档组：导入 / 导出译文 | HAVE | `Ribbon.tsx:135-152` |
-| 13 | 编辑组：确认 / 锁定（随选中翻转）/ 预翻译 | HAVE | `Ribbon.tsx:153-183` |
-| 14 | 审校组：查找/替换/筛选/检索 + 搜索句段框 | HAVE | `Ribbon.tsx:184-260,408` |
-| 15 | 溢出折叠进「更多」（ResizeObserver 实测，不滚动） | HAVE | `Ribbon.tsx:262-318,363` |
-| 16 | 原型晋升动词：撤销/重做/查找下一个/插入记忆/插入术语/运行 QA/预览 | PARTIAL：命令全部存在（菜单 roles、F4、Ctrl+1…9、术语 插入、QA dock、Ctrl+P），只是未晋升上 ribbon | `data.js:636-668` vs `Ribbon.tsx:110-260` |
+| 13 | 翻译组（原编辑组改名）：确认 / 锁定（随选中翻转）/ 插入记忆 / 插入术语 / 预翻译 | HAVE（landing-fix 对齐原型组名与成员） | `Ribbon.tsx` |
+| 14 | 审校组：查找/查找下一个/替换/检索/运行 QA/预览 + 搜索句段框 | HAVE（landing-fix：筛选钮让位给右侧搜索框与 Ctrl+Shift+F） | `Ribbon.tsx` |
+| 15 | 溢出折叠进「更多」（ResizeObserver 实测，不滚动） | HAVE | `Ribbon.tsx` |
+| 16 | 原型晋升动词：撤销/重做/查找下一个/插入记忆/插入术语/运行 QA/预览 | HAVE（landing-fix）：历史/文档/翻译/审校 组齐备。撤销/重做驱动聚焦编辑器自身 undo 栈（`execCommand`，无编辑器则禁用——不假装有应用级 undo）；插入记忆 = 第 1 条 TM 匹配（与 Ctrl+1 同路），无匹配报「没有第 1 条记忆匹配」；插入术语 = `term.lookup` 首条非禁用译文进光标，无命中切术语 dock 并报状态 | `Ribbon.tsx`、`WorkbenchView.tsx`；单测 ribbon describe 新增 5 组 |
 
 ### 2.3 状态栏（契约 §3）
 
@@ -103,9 +103,9 @@
 | 21 | 文件树（嵌套/折叠/汇总/搜索强开） | HAVE（本次修复后；详见 §1） | §1 |
 | 22 | 项目详情节 | HAVE | `WorkbenchView.tsx`（项目详情 region；e2e `vertical.spec.ts:176-178`） |
 | 23 | 移除两步确认 | HAVE | `WorkbenchView.tsx:2293-2311` |
-| 24 | 缩进参考线（每层 hairline） | MISSING（外观级） | `app.css:919-1002` |
-| 25 | 按格式文件图标 | PARTIAL：单一 `IconFileText` | `WorkbenchView.tsx:2255-2260` |
-| 26 | 激活 vs 已打开标签区分 | PARTIAL：树只标激活 | `WorkbenchView.tsx:2244-2247` |
+| 24 | 缩进参考线（每层 hairline） | HAVE（landing-fix；theme token，见 §1.1） | `WorkbenchView.tsx`、`app.css` |
+| 25 | 按格式文件图标 | HAVE（landing-fix；按引擎 format，见 §1.1） | `WorkbenchView.tsx` |
+| 26 | 激活 vs 已打开标签区分 | HAVE（landing-fix；`data-open`，见 §1.1） | `WorkbenchView.tsx`、`app.css` |
 
 ### 2.5 中央区：标签页 / 工具条 / 筛选（契约 §5）
 
@@ -114,7 +114,7 @@
 | 27 | 文档标签页（×只关标签、落到邻居） | HAVE | `WorkbenchView.tsx`（tabs strip）；e2e `vertical.spec.ts:171-175` |
 | 28 | 网格工具条：状态 select + 可移除 chips + n/total 计数 | HAVE | `WorkbenchView.tsx`（grid-toolbar）；e2e `vertical.spec.ts:276-290` |
 | 29 | 筛选通道：状态 + 自由文本 | HAVE | `lib/segment-filter.ts` |
-| 30 | 原型筛选 chips：锁定 / 有术语 / 有标签 | MISSING（契约本身标注 proposed；数据引擎侧齐备——`Segment.locked`、`term.lookup`、占位符 token——但无筛选通道） | `app.js:165-173` vs `lib/segment-filter.ts` |
+| 30 | 原型筛选 chips：锁定 / 有术语 / 有标签 | HAVE（landing-fix）：三个 AND 通道 + 工具条 toggle + 可移除 chip。有术语走引擎 `term.lookup`（按去重 sourceText 缓存、答案回来才收窄、失败自动退出该通道），禁止客户端自造 matcher；有标签用 `lexPlaceholderTokens`（与 TokenText/QA 同一 lexer）；原型 fixture `TERM_SEGMENTS` 未照抄 | `lib/segment-filter.ts`、`WorkbenchView.tsx`；单测 segment-filter + boolean filter chips describe |
 | 31 | 行内横幅：QA 门确认 / 覆盖确认 / 未确认写入警报 | HAVE | `WorkbenchView.tsx:2435-2452` |
 
 ### 2.6 查找/替换（契约 §6）
@@ -185,7 +185,8 @@
 | 58 | FX 开关（扫描线/颗粒/环境光）、localStorage 持久化、重启保留 | HAVE | `lib/theme.tsx:41-64,137-145`；e2e `themes.spec.ts:145-186` |
 | 59 | 原生窗框跟随主题 | HAVE | e2e `themes.spec.ts:164-172` |
 
-**合计：HAVE 50 / PARTIAL 6 / MISSING 3（共 59 项）。**
+**合计（审计轮）：HAVE 50 / PARTIAL 6 / MISSING 3（共 59 项）。
+landing-fix 轮修复 §4 全部 8 条后：HAVE 59 / PARTIAL 0 / MISSING 0。**
 
 ---
 
@@ -195,29 +196,41 @@
 | --- | --- | --- |
 | 场景切换器（8 场景：空项目列表→导出 QA 门） | `data.js:672-681`、`app.js` 场景重置 | 演示机关，产品不需要；契约 §15 的 8 个场景在产品里全部由真实流程可达（e2e 逐一走到） |
 | Fixture 数据（6 文档树、预置 issues/TM/terms） | `data.js` | 演示数据；产品由真实引擎供数 |
-| 帮助→键盘快捷键…（原型实现为打开命令面板） | `app.js:618-620` | 原型糖；产品命令面板本身已列出全部快捷键 |
+| 帮助→键盘快捷键…（原型实现为打开命令面板） | `app.js:618-620` | 原型糖不采纳；landing-fix 给了真正的快捷键对话框（只列产品真实和弦） |
 | 菜单中 cmd:null 的占位项（剪切/复制/粘贴等） | `data.js:506-509` | 产品用 Electron roles 真实实现，反而更完整 |
 
 原型没有评论、云同步、协作、机翻记忆库市场等任何引擎不存在的功能——不存在「剧场功能误落地」的风险面。
 
 ---
 
-## 4. 差距 Top 8（按影响排序）
+## 4. 差距 Top 8（按影响排序）——已全部在 `cursor/gf-landing-fix-2398` 修复
 
-1. **Ribbon 未晋升原型动词**（§2.2 #16，PARTIAL）：撤销/重做/查找下一个/插入记忆/插入术语/运行 QA/预览 都有命令，就差 ribbon 按钮。原型把它们排进 历史/翻译/审校 组（`data.js:632-670`）。
-2. **筛选 chips 锁定/有术语/有标签**（§2.5 #30，MISSING）：原型七 chips（`app.js:165-173`），产品只有状态+文本两通道；引擎侧数据齐备，缺的是 `segment-filter.ts` 的三个通道与工具条 UI。
-3. **菜单 IA 未采用 7 菜单结构**（§2.1 #7，PARTIAL）：项目/翻译/QA 顶层菜单未建，相应命令散在 ribbon/dock/设置里。命令无一缺失，纯入口分布差异。
-4. **文件树缩进参考线**（§2.4 #24，MISSING）：原型每祖先层一条 hairline，产品只有缩进。外观级，`app.css` 一条 border 即可补。
-5. **按格式文件图标**（§2.4 #25，PARTIAL）：docx/md/json 应各有 glyph，现统一 `IconFileText`。
-6. **树中「已打开标签」标记**（§2.4 #26，PARTIAL）：原型区分 打开/激活 两态，产品树只标激活（打开态由中央标签页承担，信息不丢但树上不可见）。
-7. **帮助菜单：键盘快捷键…/关于**（§2.1 #10，MISSING）：帮助菜单只有 重新加载/开发者工具。
-8. **零散菜单入口**（§2.1 #8/#9，PARTIAL）：新建项目…、折叠左栏/折叠右栏 无菜单命令（功能本体都在）。
+1. **Ribbon 未晋升原型动词**（§2.2 #16）→ **已修**：历史（撤销/重做）/ 文档 / 翻译（确认/锁定/插入记忆/插入术语/预翻译）/ 审校（查找/查找下一个/替换/检索/运行 QA/预览）四组，全部接既有 handler。
+2. **筛选 chips 锁定/有术语/有标签**（§2.5 #30）→ **已修**：`segment-filter.ts` 三个 AND 通道 + 工具条 toggle/chip；有术语由引擎 `term.lookup` 判定并按 sourceText 缓存。
+3. **菜单 IA 未采用 7 菜单结构**（§2.1 #7）→ **已修**：文件/编辑/视图/项目/翻译/QA/帮助，导航并入编辑；新命令全部映射既有行为，无一新造。
+4. **文件树缩进参考线**（§2.4 #24）→ **已修**：每祖先层一条 hairline，取 `--tl-color-border`。
+5. **按格式文件图标**（§2.4 #25）→ **已修**：按引擎 `Document.format` 分 glyph，未映射格式保持通用图标。
+6. **树中「已打开标签」标记**（§2.4 #26）→ **已修**：`data-open` 两态之间的视觉层级，标签页逻辑未动。
+7. **帮助菜单：键盘快捷键…/关于**（§2.1 #10）→ **已修**：两个对话框；快捷键表只列真实和弦，关于只有应用名 + version。
+8. **零散菜单入口**（§2.1 #8/#9）→ **已修**：新建项目…（聚焦既有创建表单）、折叠左栏/右栏（与 Splitter 同一 layout 状态）。
+
+仍刻意不做（与 §3 一致）：8 场景切换器、云图标/云同步、评论/成员/协作、fixture 术语名单与假数据——引擎没有的能力不进产品。
+
+Phase 2 补全：命令面板收齐全部工作台 MenuCommand（翻译/QA/视图/项目动词，enablement 读锁定行、当前 finding、持久化 QA 门等实况），锁定句段上的插入/复制/清空菜单命令改为短状态上报而非发出注定被锁盾拒绝的 RPC。
 
 ---
 
 ## 5. 验证记录
 
-- 单元测试：`pnpm --filter @translunar/desktop test` → **26 文件 336 用例全过**（含本次新增的树搜索/QA 徽章用例）。
+审计轮（`cursor/gf-landing-audit-2398`）：
+
+- 单元测试：`pnpm --filter @translunar/desktop test` → **26 文件 336 用例全过**（含树搜索/QA 徽章用例）。
 - 类型检查：`pnpm --filter @translunar/desktop typecheck` → 四个 tsconfig 全过。
 - 端到端：`./scripts/linux-display.sh … playwright test` → **20 用例全过**（vertical / themes / theme-gallery / engine-down，真实 `tl-engine`）。
 - 文件树实拍：临时 spec 经真实引擎导入嵌套语料，断言嵌套/折叠/搜索强开/前缀不可搜/状态恢复全部通过并截图（spec 不入库）。
+
+landing-fix 轮（`cursor/gf-landing-fix-2398`）：
+
+- 单元测试：**26 文件 375 用例全过**（新增筛选三通道、ribbon 新按钮、菜单新命令、树外观、帮助对话框、focusCreate、AiPanel 菜单请求、命令面板补全与锁定守卫用例）。
+- 类型检查：四个 tsconfig 全过。
+- 端到端：**20 用例全过**（vertical.spec 同步了 7 顶层菜单断言与 运行 QA 的 dock scope）。
