@@ -88,9 +88,8 @@ await matrix.setContent(`<style>
   main{padding:14px;display:grid;gap:8px}section{display:grid;grid-template-columns:108px 1fr;align-items:center;gap:12px}
   strong{text-align:right;letter-spacing:.05em}img{display:block;width:100%;height:auto;border:1px solid #343a40}
 </style><main>${rows}</main>`);
-await matrix.screenshot({
-  path: join(artifactDir, "ribbon_palette_matrix.png"),
-  fullPage: true,
+await matrix.locator("main").screenshot({
+  path: join(artifactDir, "ribbon_palette_matrix_final.png"),
 });
 await matrix.close();
 await context.close();
