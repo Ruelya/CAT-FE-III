@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Project } from "@translunar/contracts";
 import type {
@@ -8,7 +8,7 @@ import type {
   EngineInvokeResponse,
 } from "../../shared/desktop-api.js";
 
-import { ProjectsView } from "./ProjectsView.js";
+import { LAST_PROJECT_KEY, ProjectsView } from "./ProjectsView.js";
 
 function project(overrides: Partial<Project> & { id: string }): Project {
   return {
@@ -51,6 +51,10 @@ function installListBridge(projects: Project[]) {
 }
 
 describe("ProjectsView", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("hides archived projects by default and shows them via the toggle", async () => {
     installListBridge([
       project({ id: "active-1", name: "进行中项目" }),
@@ -156,6 +160,47 @@ describe("ProjectsView", () => {
     expect(onOpenProject).toHaveBeenCalledWith(
       expect.objectContaining({ id: "archived-open" }),
     );
+  });
+
+  it("offers 继续 for the remembered project and records every open", async () => {
+    localStorage.setItem(LAST_PROJECT_KEY, "p2");
+    installListBridge([
+      project({ id: "p1", name: "项目一" }),
+      project({ id: "p2", name: "项目二" }),
+    ]);
+    const onOpenProject = vi.fn();
+    render(
+      <ProjectsView
+        engineState="ready"
+        onOpenProject={onOpenProject}
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const chip = await screen.findByRole("button", { name: "继续「项目二」" });
+    await userEvent.click(chip);
+    expect(onOpenProject).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "p2" }),
+    );
+
+    // Opening a different project from the list re-records the id.
+    await userEvent.click(screen.getByRole("button", { name: /项目一/ }));
+    expect(localStorage.getItem(LAST_PROJECT_KEY)).toBe("p1");
+  });
+
+  it("shows no 继续 chip when the remembered project left project.list", async () => {
+    localStorage.setItem(LAST_PROJECT_KEY, "gone");
+    installListBridge([project({ id: "p1", name: "项目一" })]);
+    render(
+      <ProjectsView
+        engineState="ready"
+        onOpenProject={vi.fn()}
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("项目一")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /继续/ })).not.toBeInTheDocument();
   });
 
   it("focusCreate lands the keyboard in the create form's name field once", async () => {

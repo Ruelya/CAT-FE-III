@@ -33,10 +33,12 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
   "F3",
   "F4",
   "Shift+F4",
+  "F8",
   "CmdOrCtrl+Enter",
   "CmdOrCtrl+Alt+Enter",
   "CmdOrCtrl+Alt+Shift+Enter",
   "CmdOrCtrl+F",
+  "CmdOrCtrl+G",
   "CmdOrCtrl+H",
   "CmdOrCtrl+Shift+F",
   "CmdOrCtrl+Shift+P",
@@ -155,6 +157,28 @@ export function buildMenuTemplate(
         "F3",
         true,
       ),
+      SEPARATOR,
+      // Go-to family: jumps the selection without hiding rows (the display
+      // filter is a separate channel). Renderer-owned Ctrl+G opens the
+      // segment-number dialog; renderer-owned plain F8 (never Alt+F4-adjacent
+      // chords) jumps to the next open QA finding.
+      commandItem(
+        "转到句段…",
+        "go-to-segment",
+        context.documentOpen,
+        "CmdOrCtrl+G",
+        true,
+      ),
+      commandItem("下一未译句段", "next-untranslated", context.documentOpen),
+      commandItem("下一草稿句段", "next-draft", context.documentOpen),
+      commandItem(
+        "下一 QA 句段",
+        "next-qa",
+        context.documentOpen,
+        "F8",
+        true,
+      ),
+      commandItem("下一锁定句段", "next-locked", context.documentOpen),
     ],
   };
 

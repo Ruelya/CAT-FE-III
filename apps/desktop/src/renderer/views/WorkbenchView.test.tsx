@@ -4105,3 +4105,187 @@ describe("WorkbenchView segment intel", () => {
     expect(jump).toBeNull();
   });
 });
+
+describe("WorkbenchView go-to navigation", () => {
+  function seg(
+    id: string,
+    ordinal: number,
+    source: string,
+    target: string,
+    state: Segment["state"],
+    locked = false,
+  ): Segment {
+    return {
+      ...SEGMENT,
+      id,
+      ordinal,
+      structuralPath: `p:${ordinal}`,
+      sourceText: source,
+      targetText: target,
+      state,
+      ...(locked ? { locked: true } : {}),
+    };
+  }
+
+  /** Three alpha rows so a text filter can keep everything visible. */
+  const NAV_SEGMENTS = [
+    seg("s1", 0, "Alpha one.", "一。", "draft"),
+    seg("s2", 1, "Alpha two.", "", "untranslated"),
+    seg("s3", 2, "Alpha three.", "三。", "draft"),
+  ];
+
+  it("go-to-segment jumps by number and reports 没有句段 #n honestly", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("go-to-segment");
+    });
+    const dialog = screen.getByRole("dialog", { name: "转到句段" });
+    await userEvent.type(within(dialog).getByLabelText("句段号"), "3");
+    await userEvent.click(within(dialog).getByRole("button", { name: "转到" }));
+    // The selection landed on segment #3; the dialog is gone.
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "转到句段" }),
+    ).not.toBeInTheDocument();
+
+    // Out of range: an inline note, the dialog stays, nothing moves.
+    act(() => {
+      bridge.emitMenuCommand("go-to-segment");
+    });
+    const reopened = screen.getByRole("dialog", { name: "转到句段" });
+    await userEvent.type(within(reopened).getByLabelText("句段号"), "99");
+    await userEvent.click(
+      within(reopened).getByRole("button", { name: "转到" }),
+    );
+    expect(within(reopened).getByRole("alert")).toHaveTextContent(
+      "没有句段 #99",
+    );
+    expect(screen.getByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+
+  it("opens the go-to dialog on the renderer-owned Ctrl+G chord", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "g", ctrlKey: true });
+    expect(
+      screen.getByRole("dialog", { name: "转到句段" }),
+    ).toBeInTheDocument();
+  });
+
+  it("next-untranslated jumps the selection without touching the filter", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    const bridge = installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // An active text filter that keeps every row visible: the jump must
+    // leave it exactly as it is (the filter is a separate channel).
+    const filter = screen.getByLabelText("按文本筛选");
+    await userEvent.type(filter, "alpha");
+    await screen.findByLabelText("句段 1 译文");
+    act(() => {
+      bridge.emitMenuCommand("next-untranslated");
+    });
+    expect(await screen.findByLabelText("句段 2 译文")).toBeInTheDocument();
+    expect(filter).toHaveValue("alpha");
+    // Every alpha row is still visible — nothing was hidden by the jump.
+    expect(screen.getByText("Alpha one.")).toBeInTheDocument();
+    expect(screen.getByText("Alpha three.")).toBeInTheDocument();
+  });
+
+  it("next-* with an empty set reports a short status and keeps the filter", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({
+      segments: [
+        seg("s1", 0, "Alpha one.", "一。", "confirmed"),
+        seg("s2", 1, "Alpha two.", "二。", "draft"),
+      ],
+    });
+    const bridge = installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    const filter = screen.getByLabelText("按文本筛选");
+    await userEvent.type(filter, "alpha");
+    act(() => {
+      bridge.emitMenuCommand("next-untranslated");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith("没有未译句段");
+    act(() => {
+      bridge.emitMenuCommand("next-locked");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith("没有锁定句段");
+    act(() => {
+      bridge.emitMenuCommand("next-qa");
+    });
+    expect(onStatusMessage).toHaveBeenLastCalledWith(
+      "没有未解决 QA 问题的句段",
+    );
+    // The filter survived every miss.
+    expect(filter).toHaveValue("alpha");
+    expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
+  });
+
+  it("F8 jumps to the next open QA finding through the same dispatch", async () => {
+    const handlers = baseHandlers();
+    handlers["segment.list"] = () => ({ segments: NAV_SEGMENTS });
+    handlers["qa.list"] = () => ({
+      issues: [
+        {
+          id: "q-nav",
+          segmentId: "s3",
+          ruleId: "qa.empty-target",
+          severity: "error",
+          status: "open",
+          message: "Target is empty.",
+          fingerprint: "fp-nav",
+          evidence: {},
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+      ],
+    });
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    fireEvent.keyDown(window, { key: "F8" });
+    expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
+  });
+});

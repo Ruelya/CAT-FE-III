@@ -19,6 +19,17 @@ export interface ProjectsViewProps {
   onCreateConsumed?: () => void;
 }
 
+/** localStorage key for the project id this window opened last. */
+export const LAST_PROJECT_KEY = "translunar.last-project";
+
+function readLastProjectId(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function ProjectsView({
   engineState,
   onOpenProject,
@@ -36,6 +47,20 @@ export function ProjectsView({
   // working on"; the toggle keeps them reachable (archive is reversible in
   // project settings, so hiding them forever would be dishonest).
   const [showArchived, setShowArchived] = useState(false);
+  const [lastProjectId] = useState(readLastProjectId);
+
+  // Every open path records the id, so 继续 always points at the truth.
+  const openProject = useCallback(
+    (project: Project) => {
+      try {
+        localStorage.setItem(LAST_PROJECT_KEY, project.id);
+      } catch {
+        // Without storage the 继续 chip simply never appears.
+      }
+      onOpenProject(project);
+    },
+    [onOpenProject],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -89,7 +114,7 @@ export function ProjectsView({
       onStatusMessage(`项目「${project.name}」已创建`);
       setName("");
       await refresh();
-      onOpenProject(project);
+      openProject(project);
     } catch (createError) {
       setError(describeError(createError));
     } finally {
@@ -99,7 +124,7 @@ export function ProjectsView({
     name,
     sourceLocale,
     targetLocale,
-    onOpenProject,
+    openProject,
     onStatusMessage,
     refresh,
   ]);
@@ -107,6 +132,12 @@ export function ProjectsView({
   const activeProjects = useMemo(
     () => projects.filter((project) => project.lifecycle !== "archived"),
     [projects],
+  );
+  // 继续 only when the remembered project still exists in project.list —
+  // a stale id renders nothing rather than a dead chip.
+  const lastProject = useMemo(
+    () => projects.find((project) => project.id === lastProjectId) ?? null,
+    [projects, lastProjectId],
   );
   const archivedCount = projects.length - activeProjects.length;
   const visibleProjects = showArchived ? projects : activeProjects;
@@ -162,6 +193,15 @@ export function ProjectsView({
         <h2 className="projects-view__caption">
           项目（{activeProjects.length}）
         </h2>
+        {lastProject ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openProject(lastProject)}
+          >
+            继续「{lastProject.name}」
+          </Button>
+        ) : null}
         {archivedCount > 0 ? (
           <label className="project-list__archived-toggle">
             <input
@@ -185,7 +225,7 @@ export function ProjectsView({
               key={project.id}
               type="button"
               className="project-list__item"
-              onClick={() => onOpenProject(project)}
+              onClick={() => openProject(project)}
             >
               <span className="project-list__name">
                 {project.name}

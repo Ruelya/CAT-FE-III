@@ -193,3 +193,33 @@ export function findSegmentMatch(
   }
   return null;
 }
+
+/**
+ * 下一* navigation (下一未译/草稿/QA/锁定): the first segment matching
+ * `predicate`, starting after the active segment and wrapping around to
+ * cover the whole document (the active row itself is the last candidate).
+ * With no active segment the scan starts at the first row. Like
+ * `findSegmentMatch` it never hides rows — callers jump the selection.
+ * Returns null when nothing matches.
+ */
+export function findNextSegmentWhere(
+  segments: readonly Segment[],
+  activeSegmentId: string | null,
+  predicate: (segment: Segment) => boolean,
+): Segment | null {
+  const count = segments.length;
+  if (count === 0) {
+    return null;
+  }
+  const activeIndex = segments.findIndex(
+    (segment) => segment.id === activeSegmentId,
+  );
+  const start = activeIndex >= 0 ? activeIndex + 1 : 0;
+  for (let offset = 0; offset < count; offset += 1) {
+    const segment = segments[(start + offset) % count]!;
+    if (predicate(segment)) {
+      return segment;
+    }
+  }
+  return null;
+}

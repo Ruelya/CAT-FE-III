@@ -39,6 +39,11 @@ prototype duplicates; the accelerator stays on the 文件 instance only.
 | 编辑 | 查找上一个 | `find-prev` | Shift+F4 | renderer | document open |
 | 编辑 | 筛选句段 | `focus-filter` | Ctrl+Shift+F | renderer | document open |
 | 编辑 | 检索（取选中文本） | `open-concordance` | F3 | renderer | project open |
+| 编辑 | 转到句段… | `go-to-segment` | Ctrl+G | renderer | document open |
+| 编辑 | 下一未译句段 | `next-untranslated` | — | menu | document open |
+| 编辑 | 下一草稿句段 | `next-draft` | — | menu | document open |
+| 编辑 | 下一 QA 句段 | `next-qa` | F8 | renderer | document open |
+| 编辑 | 下一锁定句段 | `next-locked` | — | menu | document open |
 | 视图 | 命令面板 | `open-command-palette` | Ctrl+Shift+P (Ctrl+K synonym) | renderer | project open |
 | 视图 | 预览面板 | `toggle-preview` | Ctrl+P | menu | document open |
 | 视图 | 折叠左栏 / 折叠右栏 | `toggle-left` / `toggle-right` | — | menu | project open |
@@ -69,7 +74,10 @@ prototype duplicates; the accelerator stays on the 文件 instance only.
 | 帮助 | 重新加载窗口 / 开发者工具 | roles | — | menu | always |
 | 帮助 | 关于 <app> (in-app dialog; macOS keeps role `about`) | `about` | — | menu | always (non-mac) |
 
-`MenuCommand` union (`shared/desktop-api.ts`) — 39 commands, exactly the table above.
+`MenuCommand` union (`shared/desktop-api.ts`) — 47 commands, exactly the table above.
+The go-to family jumps the selection through the whole document (never the filtered
+rows) and never edits the display filter; a miss is a short status (`没有未译句段`
+etc.), and 转到句段… reports `没有句段 #n` inline for out-of-range numbers.
 Shell-handled: `open-project-settings`, `close-project`, `new-project`, `help-keys`,
 `about`; everything else dispatches into the workbench. `MenuContext` carries
 `projectOpen`, `documentOpen`, and `exportGate` (the stored QA gate, for the checkbox).
@@ -230,6 +238,8 @@ Virtualisation kicks in above 120 rows (measured heights, 400 px overscan).
 | --- | --- |
 | F3 | 检索, seeded from the current text selection |
 | F4 / Shift+F4 | 查找下一个 / 上一个 (plain F4 only — never Alt+F4) |
+| F8 | 下一 QA 句段 (plain F8 only) |
+| Ctrl+G | 转到句段… dialog |
 | Ctrl+F / Ctrl+H | find widget (find row / replace row) |
 | Ctrl+Shift+F | focus the ribbon 搜索句段 filter box |
 | Ctrl+K / Ctrl+Shift+P | command palette |
@@ -354,11 +364,18 @@ QA verbs on the active segment's actual findings, the gate row on the stored
 Full-bleed working surface, not a centered card. Create toolbar (项目名称 / 源语言 /
 目标语言 / 创建项目) over a hairline list. `项目（n）` caption,
 `显示已归档项目（n）` toggle (only when archived projects exist), `已归档` badge per row.
+`继续「name」` chip in the head for the last-opened project (localStorage
+`translunar.last-project`) — rendered only while that id still exists in
+`project.list`, never a fabricated recents list.
 Empties: `还没有项目`, `没有进行中的项目`. Errors surface verbatim.
 
 ### 12.2 导入文档 (`ImportDocumentDialog.tsx`)
 
-`选择文件…` + basename (`未选择文件` until picked); 分段方式 = `句子（SRX 规则）` /
+`选择文件…` + basename (`未选择文件` until picked); 格式 = `自动` (no `filterId`, the
+engine probes) / `双栏 XLSX` (`builtin.bilingual-xlsx`) / `双栏 DOCX`
+(`builtin.bilingual-docx`) — the two bilingual filters never probe-match, so the
+explicit pick is the only way to run them, and no other builtin is listed (probe
+already covers docx/txt/md/html/xliff/xlsx/pptx); 分段方式 = `句子（SRX 规则）` /
 `段落`; `选择 SRX 规则…` (sentence mode only) + basename + `清除`, else
 `内置规则（<sourceLocale>）`. Footer 取消 / 导入 (`导入中…`). Pre-fills from the stored
 project defaults and auto-saves the successful choice back through `project.update`; a
@@ -370,7 +387,7 @@ failed defaults-save keeps the dialog open and says so without pretending.
 | --- | --- |
 | 项目信息 | 项目名称 / 源语言 / 目标语言 → 保存项目信息 (engine refuses a locale change once the project holds content; refusal shown verbatim) |
 | 导入默认 | 默认分段方式; 选择默认 SRX 规则… + basename + 清除, else `内置规则（locale）`; 保存导入默认 |
-| 质量检查 | `有错误时阻止导出` checkbox → `qa.profile.update` with the stored revision |
+| 质量检查 | read-only `基础配置：<baseProfileId>`; `有错误时阻止导出` checkbox; 规则参数 knobs (`CJK 标点` / `CJK 间距` / `句末标点` checkboxes, `最短比（%）` / `最长比（%）` / `字数上限` numbers, 保存规则参数 / 恢复默认 = `clearSettings`); 严重度 grid — one `默认/错误/警告/提示` select per published static ruleId, written as the wholesale `severityOverrides` table (`{}` clears all). Every write rides the stored revision; a conflict rebases on a refetch and retries once |
 | 生命周期 | `进行中` / `已归档` + badge + `归档项目` / `恢复项目` |
 | 翻译记忆 | 记忆库 picker (`（可写）` suffix, defaults to the writable mount) + `导入外部 TM…` / `导出 TM…`; without mounts: `未挂载记忆库，无法导入或导出。请先在 TM 管理中挂载。` |
 | 术语库 | per mounted termbase: `管理术语` / `收起术语` (inline `TermManagePanel`), `导入 CSV/TBX…`, `导出…`, `卸载`; unmounted termbases get `挂载`; `新术语库名称` + `新建并挂载` |
