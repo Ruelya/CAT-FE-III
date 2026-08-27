@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>清水混凝土 BÉTON · Translunar 设计研究 三</title>
+<link rel="stylesheet" href="./fonts/fonts.css" />
+<style>
+/* ============================================================
+   STUDY 03 · 清水混凝土 (BÉTON BRUT)
+   A site-office terminal. Cast concrete, shutter marks, ink
+   rules, rubber stamps. Zero radius, zero softness, one violent
+   accent: safety orange. Motion is mechanical: things slam,
+   press, and jump-cut. Nothing floats, nothing glows.
+   Type: Anton (stamps, figures) · Space Grotesk (chrome)
+         Space Mono (readouts)
+   ============================================================ */
+
+:root {
+  --conc: #cac7bf;
+  --conc-lift: #d6d3cb;
+  --conc-deep: #b9b6ad;
+  --joint: rgba(24, 23, 17, 0.28);
+  --ink: #181711;
+  --mid: #565349;
+  --ghost: #83806f;
+  --orange: #e8490f;
+  --orange-deep: #b83407;
+  --ui: "Space Grotesk", "Noto Sans SC", sans-serif;
+  --stamp: "Anton", "Noto Sans SC", sans-serif;
+  --mono: "Space Mono", "Noto Sans Mono", monospace;
+  --t-hard: 110ms;
+  --t-drop: 220ms;
+  --cut: cubic-bezier(0.6, 0, 0.4, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--conc);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Aggregate: coarse noise, fixed, non-interactive. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0.09;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.7'/%3E%3C/svg%3E");
+}
+
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible, [contenteditable]:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 1px;
+}
+
+::selection { background: var(--orange); color: #fff; }
+
+kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 2px solid var(--ink);
+  padding: 1px 5px;
+  background: var(--conc-lift);
+}
+
+.block-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  padding: 7px 14px;
+  border: 2px solid var(--ink);
+  background: var(--conc-lift);
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: background var(--t-hard) var(--cut);
+}
+
+.block-btn:hover { background: var(--conc); }
+.block-btn:active { transform: translate(3px, 3px); box-shadow: none; }
+
+/* ---------- Header slab ---------- */
+
+.slab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 12px 20px;
+  border-bottom: 3px solid var(--ink);
+}
+
+.slab__brand {
+  font-family: var(--stamp);
+  font-size: 25px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.slab__site {
+  font-family: var(--stamp);
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  color: var(--conc);
+  background: var(--ink);
+  padding: 4px 10px 5px;
+}
+
+.slab__doc {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--mid);
+  border-left: 2px solid var(--ink);
+  padding-left: 18px;
+}
+
+.slab__spacer { flex: 1; }
+
+.slab__pair {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+/* ---------- Yard ---------- */
+
+.yard {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 8px var(--dock-w, 320px);
+}
+
+/* ---------- Manifest rail ---------- */
+
+.manifest {
+  border-right: 2px solid var(--ink);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 0 12px;
+}
+
+.sect {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  padding: 0 16px 8px;
+  color: var(--mid);
+}
+
+.manifest__item {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  border-top: 1px solid var(--joint);
+  transition: background var(--t-hard) var(--cut);
+}
+
+.manifest__item:last-of-type { border-bottom: 1px solid var(--joint); }
+.manifest__item:hover { background: var(--conc-lift); }
+
+.manifest__item[data-open="true"] {
+  background: var(--ink);
+  color: var(--conc-lift);
+}
+
+.manifest__no { font-family: var(--stamp); font-size: 14px; color: var(--ghost); }
+.manifest__item[data-open="true"] .manifest__no { color: var(--orange); }
+
+.manifest__name { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.manifest__pct { font-family: var(--mono); font-size: 11px; }
+
+.manifest__spec { margin-top: 16px; }
+
+.manifest__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 16px;
+  font-size: 11.5px;
+}
+.manifest__row dt { color: var(--mid); }
+.manifest__row dd { margin: 0; font-family: var(--mono); font-size: 11px; }
+
+.manifest__foot { margin-top: auto; padding: 16px 16px 0; }
+.manifest__keys { display: flex; flex-direction: column; gap: 6px; }
+.manifest__key { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--mid); }
+
+/* ---------- Works grid ---------- */
+
+.works { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.works__title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  border-bottom: 3px solid var(--ink);
+}
+
+.works__head {
+  font-family: var(--stamp);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.works__sub { font-size: 13px; font-weight: 500; color: var(--mid); }
+.works__ct { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--mid); }
+
+.grid__heads {
+  flex: none;
+  display: grid;
+  grid-template-columns: 58px 1fr 1fr 96px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.grid__head {
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  color: var(--mid);
+}
+
+.grid__head .loc { font-family: var(--mono); letter-spacing: 0.04em; margin-left: 8px; color: var(--ghost); }
+.grid__head--tgt { border-left: 1px solid var(--joint); }
+
+.rows { flex: 1; min-height: 0; overflow-y: auto; }
+
+.seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px 1fr 1fr 96px;
+  border-bottom: 1px solid var(--joint);
+  cursor: pointer;
+  transition: background var(--t-hard) var(--cut);
+}
+
+.seg:hover { background: var(--conc-lift); }
+
+.seg[data-active="true"] {
+  background: var(--conc-lift);
+  box-shadow: inset 6px 0 0 var(--orange);
+  cursor: text;
+}
+
+.seg__no {
+  font-family: var(--stamp);
+  font-size: 21px;
+  line-height: 1;
+  color: #a39f93;
+  padding: 12px 12px 0 0;
+  text-align: right;
+  user-select: none;
+}
+
+.seg[data-active="true"] .seg__no { color: var(--orange); }
+
+.seg__src, .seg__tgt {
+  padding: 12px 14px 13px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+.seg__src { color: var(--mid); }
+.seg__tgt { border-left: 1px solid var(--joint); caret-color: var(--orange); font-weight: 500; }
+.seg__tgt:focus { outline: none; }
+
+.seg__tgt:empty::before {
+  content: "未译";
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--ghost);
+}
+
+@keyframes pour-in {
+  0% { background: rgba(232, 73, 15, 0.14); }
+  100% { background: transparent; }
+}
+.seg__tgt.is-inserted { animation: pour-in 550ms var(--cut); }
+
+/* Confirm: wet press. */
+@keyframes press {
+  0% { background: var(--conc-deep); }
+  100% { background: var(--conc-lift); }
+}
+.seg.is-pressing { animation: press 380ms var(--cut); }
+
+.seg__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 10px 10px 14px;
+}
+
+.stamp {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  padding: 3px 7px 3px 9px;
+  border: 2px solid var(--mid);
+  color: var(--mid);
+  transform: rotate(-2deg);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.seg[data-state="set"] .stamp {
+  border-color: var(--ink);
+  color: var(--ink);
+  transform: rotate(-3deg);
+}
+
+.seg[data-state="new"] .stamp { border-style: dashed; color: var(--ghost); border-color: var(--ghost); }
+
+@keyframes slam {
+  0% { transform: scale(2.4) rotate(-10deg); opacity: 0; }
+  58% { transform: scale(0.92) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-3deg); opacity: 1; }
+}
+.seg.is-pressing .stamp { animation: slam 240ms var(--cut); }
+
+.stamp--defect {
+  border-color: var(--orange);
+  color: var(--orange);
+  transform: rotate(-6deg);
+}
+
+/* ---------- Splitter ---------- */
+
+.splitter { cursor: col-resize; position: relative; touch-action: none; }
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  transition: background var(--t-hard) var(--cut);
+}
+.splitter:hover::before, .splitter.is-dragging::before { background: var(--orange); }
+
+/* ---------- Store dock ---------- */
+
+.store {
+  border-left: 2px solid var(--ink);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.store__tabs {
+  flex: none;
+  display: flex;
+  border-bottom: 2px solid var(--ink);
+}
+
+.store__tab {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 10px 16px 11px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--mid);
+  border-right: 1px solid var(--joint);
+  transition: background var(--t-hard) var(--cut), color var(--t-hard) var(--cut);
+}
+
+.store__tab:hover { background: var(--conc-lift); color: var(--ink); }
+.store__tab[aria-selected="true"] { background: var(--ink); color: var(--conc-lift); }
+
+.store__tab .n { font-family: var(--mono); font-size: 11px; color: var(--orange); }
+
+.store__body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 16px; }
+
+.panel { display: none; }
+.panel[data-open="true"] { display: block; }
+
+.panel__note { padding: 14px 0; font-size: 12px; color: var(--mid); }
+
+/* TM entries: batch tickets. */
+.ticket { padding: 13px 0 14px; border-bottom: 1px solid var(--joint); }
+
+.ticket__head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+
+.ticket__pct {
+  font-family: var(--stamp);
+  font-size: 19px;
+  line-height: 1;
+}
+
+.ticket[data-grade="exact"] .ticket__pct { color: var(--orange); }
+
+.ticket__grade { font-weight: 700; font-size: 10px; letter-spacing: 0.24em; color: var(--mid); }
+.ticket__mem { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ghost); white-space: nowrap; }
+
+.ticket__src { margin: 0 0 3px; font-size: 12.5px; line-height: 1.5; color: var(--mid); }
+.ticket__tgt { margin: 0 0 9px; font-size: 13.5px; font-weight: 500; line-height: 1.55; }
+
+.ticket__ins {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  border: 2px solid var(--ink);
+  padding: 5px 13px;
+  background: var(--conc-lift);
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: background var(--t-hard) var(--cut);
+}
+.ticket__ins:hover { background: var(--orange); color: #fff; }
+.ticket__ins:active { transform: translate(3px, 3px); box-shadow: none; }
+
+/* Terms: plate schedule. */
+.plate {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 0 12px;
+  border-bottom: 1px solid var(--joint);
+}
+.plate__en { font-weight: 700; font-size: 13px; }
+.plate__zh { font-size: 13.5px; }
+.plate__src { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ghost); white-space: nowrap; }
+
+/* Defects */
+.defect { padding: 13px 0 14px; border-bottom: 1px solid var(--joint); }
+.defect[data-done="true"] { opacity: 0.4; }
+.defect[data-done="true"] .defect__msg { text-decoration: line-through; }
+
+.defect__head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+
+.defect__stamp {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--orange);
+  border: 2px solid var(--orange);
+  padding: 2px 7px;
+  transform: rotate(-4deg);
+}
+
+.defect__loc { font-family: var(--mono); font-size: 11px; color: var(--mid); }
+
+.defect__msg { margin: 0 0 9px; font-size: 13px; line-height: 1.55; }
+.defect__msg .bad { color: var(--orange); font-weight: 700; border-bottom: 2px solid var(--orange); }
+
+.defect__acts { display: flex; gap: 10px; }
+
+.defect__act {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  border: 2px solid var(--ink);
+  padding: 5px 12px;
+  background: var(--conc-lift);
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: background var(--t-hard) var(--cut), color var(--t-hard) var(--cut);
+}
+.defect__act:hover { background: var(--ink); color: var(--conc-lift); }
+.defect__act:active { transform: translate(3px, 3px); box-shadow: none; }
+.defect__act--fix { border-color: var(--orange); color: var(--orange); box-shadow: 3px 3px 0 var(--orange); }
+.defect__act--fix:hover { background: var(--orange); color: #fff; }
+
+/* ---------- Stencil strip (statusbar) ---------- */
+
+.stencil {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-top: 3px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.stencil > span {
+  padding: 7px 16px 8px;
+  border-right: 1px solid var(--joint);
+  white-space: nowrap;
+}
+
+.stencil b { font-weight: 700; }
+.stencil .hot { color: var(--orange); }
+.stencil__fill { flex: 1; border-right: none; }
+.stencil__brand { font-family: var(--stamp); letter-spacing: 0.14em; font-size: 12px; border-right: none; }
+
+/* ---------- Order palette ---------- */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(24, 23, 17, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 104px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-hard) var(--cut);
+}
+
+.veil[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+@keyframes drop {
+  0% { transform: translateY(-44px); }
+  68% { transform: translateY(5px); }
+  100% { transform: translateY(0); }
+}
+
+.order {
+  width: min(590px, calc(100% - 48px));
+  background: var(--conc);
+  border: 3px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+}
+
+.veil[data-open="true"] .order { animation: drop var(--t-drop) var(--cut); }
+
+.order__head {
+  font-family: var(--stamp);
+  font-size: 13px;
+  letter-spacing: 0.26em;
+  padding: 8px 16px;
+  background: var(--ink);
+  color: var(--conc-lift);
+}
+
+.order__input {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--conc-lift);
+  border: none;
+  outline: none;
+  border-bottom: 2px solid var(--ink);
+  padding: 13px 16px;
+}
+
+.order__input::placeholder { color: var(--ghost); }
+
+.order__list { max-height: 300px; overflow-y: auto; background: var(--conc); }
+
+.order__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 16px;
+  font-weight: 500;
+  font-size: 13px;
+  border-bottom: 1px solid var(--joint);
+}
+
+.order__item[data-hot="true"] {
+  background: var(--orange);
+  color: #fff;
+  font-weight: 700;
+}
+
+.order__item[data-hot="true"] kbd { border-color: #fff; background: transparent; color: #fff; }
+.order__item kbd { margin-left: auto; }
+.order__empty { padding: 16px; font-family: var(--mono); font-size: 12px; color: var(--mid); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="slab">
+  <div class="slab__brand">Translunar</div>
+  <div class="slab__site">工地</div>
+  <div class="slab__doc">施工规范.docx</div>
+  <div class="slab__spacer"></div>
+  <div class="slab__pair">EN→ZH</div>
+  <button class="block-btn" id="cmdBtn">指令 <kbd>⌘K</kbd></button>
+</header>
+
+<div class="yard" id="yard">
+
+  <aside class="manifest">
+    <div class="sect">清单</div>
+    <button class="manifest__item"><span class="manifest__no">01</span><span class="manifest__name">总则.docx</span><span class="manifest__pct">100</span></button>
+    <button class="manifest__item" data-open="true"><span class="manifest__no">02</span><span class="manifest__name">施工规范.docx</span><span class="manifest__pct" id="tocPct">40</span></button>
+    <button class="manifest__item"><span class="manifest__no">03</span><span class="manifest__name">验收记录.xlsx</span><span class="manifest__pct">15</span></button>
+    <button class="manifest__item"><span class="manifest__no">04</span><span class="manifest__name">安全须知.pdf</span><span class="manifest__pct">0</span></button>
+
+    <div class="manifest__spec">
+      <div class="sect">工程档案</div>
+      <dl style="margin:0;padding:0">
+        <div class="manifest__row"><dt>业主</dt><dd>恒基建设</dd></div>
+        <div class="manifest__row"><dt>交付</dt><dd>09-05</dd></div>
+        <div class="manifest__row"><dt>记忆库</dt><dd>结构规范2022</dd></div>
+        <div class="manifest__row"><dt>术语库</dt><dd>土建术语</dd></div>
+      </dl>
+    </div>
+
+    <div class="manifest__foot">
+      <div class="sect" style="padding-left:0">操作</div>
+      <div class="manifest__keys">
+        <span class="manifest__key">确认本段 <kbd>⌘⏎</kbd></span>
+        <span class="manifest__key">插入匹配 <kbd>⌘1</kbd></span>
+        <span class="manifest__key">上下移段 <kbd>↑ ↓</kbd></span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="works">
+    <div class="works__title">
+      <span class="works__head">Concrete Works</span>
+      <span class="works__sub">混凝土工程</span>
+      <span class="works__ct" id="segCount"></span>
+    </div>
+    <div class="grid__heads">
+      <div></div>
+      <div class="grid__head">原文<span class="loc">EN</span></div>
+      <div class="grid__head grid__head--tgt">译文<span class="loc">ZH</span></div>
+      <div class="grid__head">验收</div>
+    </div>
+    <div class="rows" id="rows" role="list"></div>
+  </main>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整料仓宽度"></div>
+
+  <aside class="store">
+    <nav class="store__tabs" role="tablist">
+      <button class="store__tab" role="tab" data-tab="tm" aria-selected="true">记忆 <span class="n" id="tmN"></span></button>
+      <button class="store__tab" role="tab" data-tab="terms" aria-selected="false">术语</button>
+      <button class="store__tab" role="tab" data-tab="qa" aria-selected="false">缺陷 <span class="n" id="qaN">1</span></button>
+    </nav>
+    <div class="store__body">
+      <section class="panel" data-panel="tm" data-open="true" id="tmPanel"></section>
+      <section class="panel" data-panel="terms">
+        <div class="plate"><span class="plate__en">formwork</span><span class="plate__zh">模板</span><span class="plate__src">土建术语</span></div>
+        <div class="plate"><span class="plate__en">lift</span><span class="plate__zh">浇筑层</span><span class="plate__src">土建术语</span></div>
+        <div class="plate"><span class="plate__en">cover</span><span class="plate__zh">保护层</span><span class="plate__src">土建术语</span></div>
+        <div class="plate"><span class="plate__en">slump</span><span class="plate__zh">坍落度</span><span class="plate__src">土建术语</span></div>
+      </section>
+      <section class="panel" data-panel="qa">
+        <div class="defect" id="defect1">
+          <div class="defect__head">
+            <span class="defect__stamp">数值</span>
+            <span class="defect__loc">段 03</span>
+          </div>
+          <p class="defect__msg">原文 forty millimetres，译文作 <span class="bad">35 mm</span>。</p>
+          <div class="defect__acts">
+            <button class="defect__act defect__act--fix" id="fixBtn">改为 40 mm</button>
+            <button class="defect__act" id="jumpBtn">跳转</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+</div>
+
+<footer class="stencil">
+  <span>段 <b id="posNow">4</b>/5</span>
+  <span>合格 <b id="setPct">40</b>%</span>
+  <span>缺陷 <b class="hot" id="defCt">1</b></span>
+  <span>字数 198</span>
+  <span class="stencil__fill"></span>
+  <span class="stencil__brand">BÉTON BRUT</span>
+</footer>
+
+<div class="veil" id="veil">
+  <div class="order" role="dialog" aria-label="指令">
+    <div class="order__head">工单</div>
+    <input class="order__input" id="palIn" placeholder="输入指令" autocomplete="off" />
+    <div class="order__list" id="palList"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const segs = [
+  {
+    en: "Strip the formwork only after the concrete reaches ten megapascals.",
+    zh: "混凝土强度达到 10 MPa 后方可拆模。",
+    state: "set",
+    matches: [
+      { pct: 100, grade: "exact", en: "Strip the formwork only after the concrete reaches ten megapascals.", zh: "混凝土强度达到 10 MPa 后方可拆模。", mem: "结构规范2022" },
+    ],
+  },
+  {
+    en: "Vibrate each lift until entrapped air stops rising.",
+    zh: "每一浇筑层须振捣至不再冒出气泡。",
+    state: "set",
+    matches: [
+      { pct: 86, grade: "fuzzy", en: "Vibrate each lift until air pockets close.", zh: "每一浇筑层须振捣至气穴闭合。", mem: "结构规范2022" },
+    ],
+  },
+  {
+    en: "Cover to reinforcement is forty millimetres minimum.",
+    zh: "钢筋保护层最小厚度为 35 mm。",
+    state: "draft",
+    qa: 1,
+    matches: [
+      { pct: 80, grade: "fuzzy", en: "Cover to reinforcement is fifty millimetres minimum.", zh: "钢筋保护层最小厚度为 50 mm。", mem: "市政工程库" },
+    ],
+  },
+  {
+    en: "Cure exposed slabs for seven days under wet burlap.",
+    zh: "外露楼板须以湿麻布养护七天。",
+    state: "draft",
+    matches: [
+      { pct: 95, grade: "exact", en: "Cure exposed slabs for seven days under wet hessian.", zh: "外露楼板须以湿麻布养护七天。", mem: "结构规范2022" },
+      { pct: 77, grade: "fuzzy", en: "Cure all slabs for three days minimum.", zh: "所有楼板至少养护三天。", mem: "市政工程库" },
+    ],
+  },
+  {
+    en: "Reject any batch that slumps beyond the approved range.",
+    zh: "",
+    state: "new",
+    matches: [
+      { pct: 71, grade: "fuzzy", en: "Reject any batch outside the approved mix.", zh: "凡不符合核准配比的拌合物一律退场。", mem: "市政工程库" },
+    ],
+  },
+];
+
+let active = 3;
+const $ = (s, r = document) => r.querySelector(s);
+const rowsEl = $("#rows");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const STAMP = { set: "合格", draft: "在建", new: "未译" };
+
+/* ---------- rows ---------- */
+function renderRows() {
+  rowsEl.innerHTML = "";
+  segs.forEach((s, i) => {
+    const row = document.createElement("article");
+    row.className = "seg";
+    row.dataset.state = s.state;
+    row.setAttribute("role", "listitem");
+    row.tabIndex = 0;
+    if (i === active) row.dataset.active = "true";
+    row.innerHTML = `
+      <div class="seg__no">${String(i + 1).padStart(2, "0")}</div>
+      <div class="seg__src">${s.en}</div>
+      <div class="seg__tgt" ${i === active ? 'contenteditable="plaintext-only"' : ""} spellcheck="false">${s.zh}</div>
+      <div class="seg__mark">
+        <span class="stamp">${STAMP[s.state]}</span>
+        ${s.qa ? `<span class="stamp stamp--defect">缺陷 ${s.qa}</span>` : ""}
+      </div>`;
+    row.addEventListener("mousedown", (e) => {
+      if (i !== active) { select(i); if (!e.target.closest(".seg__tgt")) e.preventDefault(); }
+    });
+    rowsEl.appendChild(row);
+  });
+  syncCounts();
+}
+
+function rowEl(i) { return rowsEl.children[i]; }
+
+function select(i, focus = true) {
+  if (i < 0 || i >= segs.length) return;
+  const prev = rowEl(active);
+  if (prev) {
+    delete prev.dataset.active;
+    const t = prev.querySelector(".seg__tgt");
+    segs[active].zh = t.textContent;
+    t.removeAttribute("contenteditable");
+  }
+  active = i;
+  const row = rowEl(i);
+  row.dataset.active = "true";
+  row.querySelector(".seg__tgt").setAttribute("contenteditable", "plaintext-only");
+  row.scrollIntoView({ block: "nearest" });
+  renderMatches();
+  syncCounts();
+  if (focus) focusEditor();
+}
+
+function focusEditor() {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.focus();
+  const r = document.createRange();
+  r.selectNodeContents(t);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/* ---------- confirm ---------- */
+function confirmSeg() {
+  const s = segs[active];
+  const row = rowEl(active);
+  s.zh = row.querySelector(".seg__tgt").textContent;
+  if (!s.zh.trim()) return;
+  s.state = "set";
+  row.dataset.state = "set";
+  row.querySelector(".stamp").textContent = STAMP.set;
+  row.classList.remove("is-pressing");
+  void row.offsetWidth;
+  row.classList.add("is-pressing");
+  syncCounts();
+  const next = segs.findIndex((x, j) => j > active && x.state !== "set");
+  setTimeout(() => select(next === -1 ? active : next), reduced ? 0 : 190);
+}
+
+/* ---------- counts ---------- */
+function syncCounts() {
+  const set = segs.filter((s) => s.state === "set").length;
+  const pct = Math.round((set / segs.length) * 100);
+  $("#setPct").textContent = pct;
+  $("#tocPct").textContent = pct;
+  $("#posNow").textContent = active + 1;
+  $("#segCount").textContent = `${segs.length} 段`;
+  const qa = segs.reduce((n, s) => n + (s.qa || 0), 0);
+  $("#defCt").textContent = qa;
+  $("#qaN").textContent = qa || "";
+}
+
+/* ---------- store ---------- */
+function renderMatches() {
+  const s = segs[active];
+  $("#tmN").textContent = s.matches.length || "";
+  const host = $("#tmPanel");
+  host.innerHTML = s.matches.length ? "" : `<p class="panel__note">此段无匹配。</p>`;
+  s.matches.forEach((m) => {
+    const d = document.createElement("div");
+    d.className = "ticket";
+    d.dataset.grade = m.grade;
+    d.innerHTML = `
+      <div class="ticket__head">
+        <span class="ticket__pct">${m.pct}</span>
+        <span class="ticket__grade">${m.grade === "exact" ? "全同" : "近似"}</span>
+        <span class="ticket__mem">${m.mem}</span>
+      </div>
+      <p class="ticket__src">${m.en}</p>
+      <p class="ticket__tgt">${m.zh}</p>
+      <button class="ticket__ins">插入</button>`;
+    d.querySelector(".ticket__ins").addEventListener("click", () => insertMatch(m));
+    host.appendChild(d);
+  });
+}
+
+function insertMatch(m) {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.textContent = m.zh;
+  segs[active].zh = m.zh;
+  if (segs[active].state === "new") {
+    segs[active].state = "draft";
+    rowEl(active).dataset.state = "draft";
+    rowEl(active).querySelector(".stamp").textContent = STAMP.draft;
+  }
+  t.classList.remove("is-inserted");
+  void t.offsetWidth;
+  t.classList.add("is-inserted");
+  focusEditor();
+}
+
+/* ---------- tabs (jump cut, no slide) ---------- */
+const tabs = [...document.querySelectorAll(".store__tab")];
+function openTab(name) {
+  tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  document.querySelectorAll(".panel").forEach((p) => {
+    if (p.dataset.panel === name) p.dataset.open = "true";
+    else delete p.dataset.open;
+  });
+}
+tabs.forEach((t) => t.addEventListener("click", () => openTab(t.dataset.tab)));
+
+/* ---------- defect fix ---------- */
+$("#fixBtn").addEventListener("click", () => {
+  const i = 2;
+  segs[i].zh = segs[i].zh.replace("35 mm", "40 mm");
+  segs[i].qa = 0;
+  const row = rowEl(i);
+  const t = row.querySelector(".seg__tgt");
+  t.textContent = segs[i].zh;
+  row.querySelector(".stamp--defect")?.remove();
+  t.classList.add("is-inserted");
+  $("#defect1").dataset.done = "true";
+  $("#fixBtn").disabled = true;
+  syncCounts();
+});
+$("#jumpBtn").addEventListener("click", () => select(2));
+
+/* ---------- splitter ---------- */
+const yard = $("#yard");
+const splitter = $("#splitter");
+let dockW = 320;
+splitter.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  splitter.classList.add("is-dragging");
+  splitter.setPointerCapture(e.pointerId);
+  const startX = e.clientX, startW = dockW;
+  const move = (ev) => {
+    dockW = Math.min(460, Math.max(250, startW + (startX - ev.clientX)));
+    yard.style.setProperty("--dock-w", dockW + "px");
+  };
+  const up = () => {
+    splitter.classList.remove("is-dragging");
+    splitter.removeEventListener("pointermove", move);
+    splitter.removeEventListener("pointerup", up);
+  };
+  splitter.addEventListener("pointermove", move);
+  splitter.addEventListener("pointerup", up);
+});
+splitter.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") dockW = Math.min(460, dockW + 16);
+  else if (e.key === "ArrowRight") dockW = Math.max(250, dockW - 16);
+  else return;
+  e.preventDefault();
+  yard.style.setProperty("--dock-w", dockW + "px");
+});
+
+/* ---------- order palette ---------- */
+const veil = $("#veil"), palIn = $("#palIn"), palList = $("#palList");
+let palHot = 0;
+const commands = [
+  { label: "确认本段", kbd: "⌘⏎", run: confirmSeg },
+  { label: "插入最佳匹配", kbd: "⌘1", run: () => segs[active].matches[0] && insertMatch(segs[active].matches[0]) },
+  { label: "下一段", kbd: "↓", run: () => select(active + 1) },
+  { label: "上一段", kbd: "↑", run: () => select(active - 1) },
+  { label: "跳到未译段", run: () => { const i = segs.findIndex((s) => s.state === "new"); if (i > -1) select(i); } },
+  { label: "复制原文", run: () => { const t = rowEl(active).querySelector(".seg__tgt"); t.textContent = segs[active].en; segs[active].zh = segs[active].en; t.classList.add("is-inserted"); focusEditor(); } },
+  { label: "料仓：记忆", run: () => openTab("tm") },
+  { label: "料仓：术语", run: () => openTab("terms") },
+  { label: "料仓：缺陷", run: () => openTab("qa") },
+];
+
+function renderPal(q = "") {
+  const hits = commands.filter((c) => c.label.includes(q));
+  palHot = Math.min(palHot, Math.max(0, hits.length - 1));
+  palList.innerHTML = "";
+  if (!hits.length) { palList.innerHTML = `<div class="order__empty">无此指令</div>`; return; }
+  hits.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "order__item";
+    b.dataset.hot = String(i === palHot);
+    b.innerHTML = `<span>${c.label}</span>${c.kbd ? `<kbd>${c.kbd}</kbd>` : ""}`;
+    b.addEventListener("click", () => { closePal(); c.run(); });
+    b.addEventListener("mousemove", () => { palHot = i; renderPal(palIn.value.trim()); });
+    palList.appendChild(b);
+  });
+}
+
+function openPal() { veil.dataset.open = "true"; palIn.value = ""; palHot = 0; renderPal(); setTimeout(() => palIn.focus(), 30); }
+function closePal() { delete veil.dataset.open; focusEditor(); }
+
+$("#cmdBtn").addEventListener("click", openPal);
+veil.addEventListener("mousedown", (e) => { if (e.target === veil) closePal(); });
+palIn.addEventListener("input", () => { palHot = 0; renderPal(palIn.value.trim()); });
+palIn.addEventListener("keydown", (e) => {
+  const hits = commands.filter((c) => c.label.includes(palIn.value.trim()));
+  if (e.key === "ArrowDown") { e.preventDefault(); palHot = Math.min(palHot + 1, hits.length - 1); renderPal(palIn.value.trim()); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); palHot = Math.max(palHot - 1, 0); renderPal(palIn.value.trim()); }
+  else if (e.key === "Enter") { e.preventDefault(); if (hits[palHot]) { closePal(); hits[palHot].run(); } }
+  else if (e.key === "Escape") closePal();
+});
+
+/* ---------- keys ---------- */
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); veil.dataset.open ? closePal() : openPal(); return; }
+  if (veil.dataset.open) return;
+  if (mod && e.key === "Enter") { e.preventDefault(); confirmSeg(); return; }
+  if (mod && e.key === "1") { e.preventDefault(); const m = segs[active].matches[0]; if (m) insertMatch(m); return; }
+  const inEditor = e.target.closest?.(".seg__tgt");
+  if (!inEditor && e.key === "ArrowDown") { e.preventDefault(); select(active + 1); }
+  if (!inEditor && e.key === "ArrowUp") { e.preventDefault(); select(active - 1); }
+});
+
+/* ---------- boot ---------- */
+renderRows();
+renderMatches();
+</script>
+</body>
+</html>

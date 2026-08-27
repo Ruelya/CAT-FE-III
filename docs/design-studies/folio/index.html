@@ -1,0 +1,1159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>排字房 · Translunar 设计研究 一</title>
+<link rel="stylesheet" href="./fonts/fonts.css" />
+<style>
+/* ============================================================
+   STUDY 01 · 排字房 (The Composing Room)
+   Editorial / print CAT. Ink on newsprint. The bilingual grid is
+   a folio spread: source column reads as set galley proof, the
+   target column is the translator's galley. The one accent is the
+   proofreader's red pencil. No radius, no glow, no cards.
+   Type: Playfair Display (masthead) · Newsreader (galley)
+         Libre Franklin (chrome) · Noto Serif SC (中文)
+   ============================================================ */
+
+:root {
+  --paper: #f2eee3;
+  --paper-deep: #e9e4d3;
+  --paper-lift: #f7f4ec;
+  --ink: #211b12;
+  --graphite: #5f584a;
+  --faint: #8b8371;
+  --hair: #d6cfba;
+  --red: #b5311e;
+  --red-ghost: rgba(181, 49, 30, 0.07);
+  --serif: "Newsreader", "Noto Serif SC", "Songti SC", serif;
+  --display: "Playfair Display", "Noto Serif SC", serif;
+  --chrome: "Libre Franklin", "Noto Sans SC", sans-serif;
+  --t-fast: 130ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--chrome);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Paper grain: fixed, non-interactive, faint. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible, [contenteditable]:focus-visible {
+  outline: 2px dotted var(--red);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--ink); color: var(--paper); }
+
+kbd {
+  font-family: var(--chrome);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--hair);
+  padding: 1px 4px 2px;
+  color: var(--graphite);
+  background: var(--paper-lift);
+}
+
+/* ---------- Masthead ---------- */
+
+.masthead {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  padding: 12px 22px 9px;
+}
+
+.masthead__brand {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.masthead__brand span {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 17px;
+  margin-left: 8px;
+}
+
+.masthead__doc {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--graphite);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.masthead__spacer { flex: 1; }
+
+.masthead__pair {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--graphite);
+  white-space: nowrap;
+}
+
+.masthead__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 5px 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper-lift);
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+
+.masthead__cmd:hover { background: var(--paper); box-shadow: inset 0 -2px 0 var(--red); }
+.masthead__cmd:active { transform: translateY(1px); }
+
+/* Oxford rule: thick over thin, the folio signature. */
+.rule-oxford {
+  flex: none;
+  margin: 0 22px;
+  border-top: 3px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  height: 6px;
+}
+
+/* ---------- Frame ---------- */
+
+.frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr) 6px var(--margin-w, 316px);
+  padding: 0 22px;
+}
+
+/* ---------- Contents rail ---------- */
+
+.contents {
+  border-right: 1px solid var(--hair);
+  padding: 16px 18px 12px 2px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.caption {
+  margin: 0 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+}
+
+.toc { list-style: none; margin: 0 0 26px; padding: 0; }
+
+.toc__item { display: block; width: 100%; text-align: left; padding: 6px 4px; }
+
+.toc__line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--serif);
+  font-size: 14px;
+}
+
+.toc__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.toc__leader {
+  flex: 1;
+  min-width: 16px;
+  border-bottom: 1.5px dotted var(--faint);
+  transform: translateY(-3px);
+}
+
+.toc__pct {
+  font-feature-settings: "onum";
+  color: var(--graphite);
+  font-size: 13.5px;
+}
+
+.toc__item:hover .toc__name { color: var(--red); }
+
+.toc__item[data-open="true"] .toc__name {
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--red);
+}
+
+.colophon-list { margin: 0; padding: 0; }
+
+.colophon-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 12px;
+}
+
+.colophon-list dt { color: var(--faint); }
+.colophon-list dd { margin: 0; font-family: var(--serif); font-size: 13px; text-align: right; }
+
+.contents__foot { margin-top: auto; padding-top: 18px; }
+
+/* ---------- Galley ---------- */
+
+.galley {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 0 20px;
+}
+
+.galley__title {
+  flex: none;
+  padding: 14px 12px 12px 46px;
+  border-bottom: 1px solid var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.galley__headline {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 19px;
+}
+
+.galley__deck {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--graphite);
+}
+
+.galley__count {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.galley__heads {
+  flex: none;
+  display: grid;
+  grid-template-columns: 46px 1fr 1fr 74px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.galley__head {
+  padding: 8px 14px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--graphite);
+}
+
+.galley__head .loc {
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  margin-left: 7px;
+}
+
+.galley__head--tgt { border-left: 1px solid var(--hair); }
+
+.rows { flex: 1; min-height: 0; overflow-y: auto; }
+
+.seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px 1fr 1fr 74px;
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.seg:hover { background: var(--paper-lift); }
+
+.seg[data-active="true"] {
+  background: var(--paper-lift);
+  cursor: text;
+  box-shadow: inset 3px 0 0 var(--red);
+}
+
+/* Manicule: the active-row mark of the margin. */
+.seg__no {
+  position: relative;
+  padding: 11px 6px 11px 0;
+  text-align: right;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-feature-settings: "onum";
+  color: var(--faint);
+  user-select: none;
+}
+
+.seg__hand {
+  position: absolute;
+  left: -4px;
+  top: 10px;
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--red);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+}
+
+.seg[data-active="true"] .seg__hand { opacity: 1; transform: translateX(0); }
+
+.seg__src, .seg__tgt {
+  padding: 10px 14px 11px;
+  font-family: var(--serif);
+  font-size: 15.5px;
+  line-height: 1.58;
+  overflow-wrap: break-word;
+}
+
+.seg__tgt { border-left: 1px solid var(--hair); caret-color: var(--red); }
+
+.seg__tgt:focus { outline: none; }
+
+.seg[data-state="draft"] .seg__tgt, .seg[data-state="new"] .seg__tgt { color: var(--graphite); }
+.seg[data-state="set"] .seg__tgt { color: var(--ink); }
+
+.seg__tgt:empty::before {
+  content: "待译";
+  color: var(--faint);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+}
+
+/* Insert flash: TM text arriving is a visible event. */
+@keyframes ink-in {
+  0% { background: var(--red-ghost); }
+  100% { background: transparent; }
+}
+.seg__tgt.is-inserted { animation: ink-in 700ms var(--ease); }
+
+/* Confirm press: the line is set. A letterpress push. */
+@keyframes press-in {
+  0% { transform: translateY(0); }
+  35% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+.seg.is-pressing .seg__tgt { animation: press-in 260ms var(--ease); }
+@keyframes press-bg {
+  0% { background: var(--paper-deep); }
+  100% { background: var(--paper-lift); }
+}
+.seg.is-pressing { animation: press-bg 500ms var(--ease); }
+
+.seg__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 10px 10px 12px;
+}
+
+.state-word {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.seg[data-state="set"] .state-word { color: var(--ink); }
+.seg[data-state="set"] .state-word::after { content: " ✓"; color: var(--red); letter-spacing: 0; }
+
+@keyframes stamp {
+  0% { transform: scale(1.5) rotate(-4deg); opacity: 0; }
+  60% { transform: scale(0.96) rotate(0.5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.seg.is-pressing .state-word { animation: stamp 300ms var(--ease); }
+
+.qa-mark {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--red);
+  border: 1.5px solid var(--red);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-6deg);
+}
+
+/* ---------- Splitter ---------- */
+
+.splitter {
+  cursor: col-resize;
+  position: relative;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  transition: background var(--t-fast) var(--ease);
+}
+.splitter:hover::before, .splitter.is-dragging::before { background: var(--red); }
+
+/* ---------- Marginalia dock ---------- */
+
+.margin {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 2px 0 16px;
+}
+
+.margin__tabs {
+  flex: none;
+  position: relative;
+  display: flex;
+  gap: 22px;
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 7px;
+}
+
+.margin__tab {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--faint);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.margin__tab:hover { color: var(--ink); }
+.margin__tab[aria-selected="true"] { color: var(--ink); }
+
+.margin__tab .n {
+  font-family: var(--serif);
+  font-feature-settings: "onum";
+  font-size: 12px;
+  color: var(--red);
+}
+
+/* Red pencil stroke slides under the open tab. */
+.margin__ink {
+  position: absolute;
+  bottom: -2px;
+  height: 3px;
+  background: var(--red);
+  transition: left var(--t-slow) var(--ease), width var(--t-slow) var(--ease);
+}
+
+.margin__body { flex: 1; min-height: 0; overflow-y: auto; padding-top: 4px; }
+
+.panel { display: none; }
+.panel[data-open="true"] { display: block; animation: leaf 260ms var(--ease); }
+
+@keyframes leaf {
+  0% { opacity: 0; transform: translateY(5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.panel__note {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--faint);
+  padding: 12px 2px;
+}
+
+/* TM entries as footnotes. */
+.note {
+  padding: 12px 2px 13px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.note__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.note__pct {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 19px;
+  font-feature-settings: "onum";
+}
+
+.note[data-grade="exact"] .note__pct { color: var(--red); }
+
+.note__grade {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--graphite);
+}
+
+.note__mem {
+  margin-left: auto;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note__src {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--graphite);
+  margin: 0 0 3px;
+}
+
+.note__tgt {
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+
+.note__ins {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  border: 1px solid var(--ink);
+  padding: 4px 10px 5px;
+  background: var(--paper-lift);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.note__ins:hover { background: var(--ink); color: var(--paper); }
+.note__ins:active { transform: translateY(1px); }
+
+/* Terms as dictionary entries. */
+.entry {
+  padding: 11px 2px 12px;
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.entry__head { font-family: var(--serif); font-weight: 600; font-size: 15px; }
+.entry__zh { font-family: var(--serif); font-size: 15px; }
+.entry__src { margin-left: auto; font-size: 10px; letter-spacing: 0.14em; color: var(--faint); white-space: nowrap; }
+
+/* QA as proof marks. */
+.proof {
+  padding: 12px 2px 13px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.proof[data-done="true"] { opacity: 0.45; }
+.proof[data-done="true"] .proof__msg { text-decoration: line-through; }
+
+.proof__head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+
+.proof__rule {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--red);
+  border: 1.5px solid var(--red);
+  padding: 2px 7px 3px;
+  transform: rotate(-2deg);
+}
+
+.proof__loc { font-size: 11px; letter-spacing: 0.1em; color: var(--faint); }
+
+.proof__msg { font-family: var(--serif); font-size: 14px; line-height: 1.55; margin: 0 0 8px; }
+.proof__msg .bad { color: var(--red); box-shadow: inset 0 -1.5px 0 var(--red); }
+
+.proof__acts { display: flex; gap: 8px; }
+
+.proof__act {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  border: 1px solid var(--ink);
+  padding: 4px 10px 5px;
+  background: var(--paper-lift);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.proof__act:hover { background: var(--ink); color: var(--paper); }
+.proof__act--red { border-color: var(--red); color: var(--red); }
+.proof__act--red:hover { background: var(--red); color: var(--paper); }
+
+/* ---------- Colophon (statusbar) ---------- */
+
+.colophon {
+  flex: none;
+  margin: 0 22px;
+  border-top: 1px solid var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 7px 2px 9px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--graphite);
+}
+
+.colophon .sep { width: 1px; height: 12px; background: var(--hair); }
+.colophon__right { margin-left: auto; display: flex; align-items: center; gap: 22px; }
+.colophon b { font-weight: 600; color: var(--ink); }
+.colophon .num { font-family: var(--serif); font-size: 13px; font-feature-settings: "onum"; letter-spacing: 0; }
+
+/* ---------- Palette: the composing stick ---------- */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(33, 27, 18, 0.34);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 110px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-base) var(--ease);
+}
+
+.veil[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+.palette {
+  width: min(600px, calc(100% - 48px));
+  background: var(--paper-lift);
+  border: 1px solid var(--ink);
+  border-top: 4px solid var(--ink);
+  box-shadow: 0 24px 60px rgba(33, 27, 18, 0.35);
+  transform: translateY(14px);
+  opacity: 0;
+  transition: transform var(--t-slow) var(--ease), opacity var(--t-slow) var(--ease);
+}
+
+.veil[data-open="true"] .palette { transform: translateY(0); opacity: 1; }
+
+.palette__input {
+  width: 100%;
+  font-family: var(--serif);
+  font-size: 17px;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  outline: none;
+  border-bottom: 1px solid var(--hair);
+  padding: 14px 18px;
+}
+
+.palette__input::placeholder { font-style: italic; color: var(--faint); }
+
+.palette__list { max-height: 320px; overflow-y: auto; padding: 6px 0; }
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 18px;
+  font-size: 13px;
+}
+
+.palette__item .hand {
+  font-family: var(--serif);
+  color: var(--red);
+  width: 16px;
+  flex: none;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+
+.palette__item[data-hot="true"] { background: var(--red-ghost); }
+.palette__item[data-hot="true"] .hand { opacity: 1; transform: translateX(0); }
+
+.palette__item kbd { margin-left: auto; }
+
+.palette__empty { padding: 16px 18px; font-family: var(--serif); font-style: italic; color: var(--faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead__brand">Translunar<span>排字房</span></div>
+  <div class="masthead__doc">活字与手工排版.docx</div>
+  <div class="masthead__spacer"></div>
+  <div class="masthead__pair">EN → ZH</div>
+  <button class="masthead__cmd" id="cmdBtn">检索台 <kbd>⌘K</kbd></button>
+</header>
+
+<div class="rule-oxford"></div>
+
+<div class="frame" id="frame">
+
+  <aside class="contents">
+    <h2 class="caption">目录</h2>
+    <ol class="toc">
+      <li><button class="toc__item"><span class="toc__line"><span class="toc__name">前言.docx</span><span class="toc__leader"></span><span class="toc__pct">100</span></span></button></li>
+      <li><button class="toc__item" data-open="true"><span class="toc__line"><span class="toc__name">活字与手工排版.docx</span><span class="toc__leader"></span><span class="toc__pct" id="tocPct">40</span></span></button></li>
+      <li><button class="toc__item"><span class="toc__line"><span class="toc__name">压印与纸张.docx</span><span class="toc__leader"></span><span class="toc__pct">12</span></span></button></li>
+      <li><button class="toc__item"><span class="toc__line"><span class="toc__name">图版说明.xlsx</span><span class="toc__leader"></span><span class="toc__pct">0</span></span></button></li>
+    </ol>
+
+    <h2 class="caption">版记</h2>
+    <dl class="colophon-list">
+      <div><dt>客户</dt><dd>望山出版</dd></div>
+      <div><dt>交稿</dt><dd>九月五日</dd></div>
+      <div><dt>记忆库</dt><dd>凸版工艺 2019</dd></div>
+      <div><dt>术语库</dt><dd>印艺词汇</dd></div>
+    </dl>
+
+    <div class="contents__foot">
+      <h2 class="caption">动作</h2>
+      <dl class="colophon-list">
+        <div><dt>确认本段</dt><dd><kbd>⌘⏎</kbd></dd></div>
+        <div><dt>插入首注</dt><dd><kbd>⌘1</kbd></dd></div>
+        <div><dt>上下移段</dt><dd><kbd>↑ ↓</kbd></dd></div>
+      </dl>
+    </div>
+  </aside>
+
+  <main class="galley">
+    <div class="galley__title">
+      <h1 class="galley__headline">Movable Type and the Hand-Set Page</h1>
+      <span class="galley__deck">活字与手工排版</span>
+      <span class="galley__count" id="segCount"></span>
+    </div>
+    <div class="galley__heads">
+      <div></div>
+      <div class="galley__head">原文<span class="loc">English</span></div>
+      <div class="galley__head galley__head--tgt">译文<span class="loc">中文</span></div>
+      <div class="galley__head">状态</div>
+    </div>
+    <div class="rows" id="rows" role="list"></div>
+  </main>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整旁注栏宽度"></div>
+
+  <aside class="margin">
+    <nav class="margin__tabs" role="tablist" id="tabs">
+      <button class="margin__tab" role="tab" data-tab="tm" aria-selected="true">记忆 <span class="n" id="tmN"></span></button>
+      <button class="margin__tab" role="tab" data-tab="terms" aria-selected="false">术语</button>
+      <button class="margin__tab" role="tab" data-tab="qa" aria-selected="false">校对 <span class="n" id="qaN">1</span></button>
+      <span class="margin__ink" id="tabInk"></span>
+    </nav>
+    <div class="margin__body">
+      <section class="panel" data-panel="tm" data-open="true" id="tmPanel"></section>
+      <section class="panel" data-panel="terms">
+        <div class="entry"><span class="entry__head">forme</span><span class="entry__zh">活版</span><span class="entry__src">印艺词汇</span></div>
+        <div class="entry"><span class="entry__head">chase</span><span class="entry__zh">夹框</span><span class="entry__src">印艺词汇</span></div>
+        <div class="entry"><span class="entry__head">impression</span><span class="entry__zh">压印</span><span class="entry__src">印艺词汇</span></div>
+        <div class="entry"><span class="entry__head">ink disc</span><span class="entry__zh">墨盘</span><span class="entry__src">印艺词汇</span></div>
+      </section>
+      <section class="panel" data-panel="qa" id="qaPanel">
+        <div class="proof" id="proof1">
+          <div class="proof__head">
+            <span class="proof__rule">术语</span>
+            <span class="proof__loc">第 3 段</span>
+          </div>
+          <p class="proof__msg">chase 译作 <span class="bad">版框</span>，术语库作 夹框。</p>
+          <div class="proof__acts">
+            <button class="proof__act proof__act--red" id="fixBtn">改为夹框</button>
+            <button class="proof__act" id="jumpBtn">跳转</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+</div>
+
+<footer class="colophon">
+  <span>第 <b class="num" id="posNow">4</b> 段，共 <b class="num">5</b> 段</span>
+  <span class="sep"></span>
+  <span id="stateLine">草稿</span>
+  <div class="colophon__right">
+    <span>已排 <b class="num" id="setPct">40</b>%</span>
+    <span class="sep"></span>
+    <span>字数 <b class="num">214</b></span>
+    <span class="sep"></span>
+    <span>凸版工艺 2019</span>
+  </div>
+</footer>
+
+<div class="veil" id="veil">
+  <div class="palette" role="dialog" aria-label="检索台">
+    <input class="palette__input" id="palIn" placeholder="检索命令" autocomplete="off" />
+    <div class="palette__list" id="palList"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const segs = [
+  {
+    en: "Movable type changed the economics of the written word.",
+    zh: "活字印刷改变了文字的经济学。",
+    state: "set",
+    matches: [
+      { pct: 100, grade: "exact", en: "Movable type changed the economics of the written word.", zh: "活字印刷改变了文字的经济学。", mem: "凸版工艺 2019" },
+    ],
+  },
+  {
+    en: "A compositor sets each line by hand, letter by letter.",
+    zh: "排字工以手工排定每一行，一字一粒。",
+    state: "set",
+    matches: [
+      { pct: 88, grade: "fuzzy", en: "The compositor sets every line by hand.", zh: "排字工以手工排定每一行。", mem: "凸版工艺 2019" },
+    ],
+  },
+  {
+    en: "The forme is locked into the chase before proofing begins.",
+    zh: "打样开始前，活版须先锁入版框。",
+    state: "draft",
+    qa: 1,
+    matches: [
+      { pct: 79, grade: "fuzzy", en: "The forme is locked up before printing begins.", zh: "开印前须先锁版。", mem: "凸版工艺 2019" },
+    ],
+  },
+  {
+    en: "Ink is drawn thin across the disc, then kissed onto the paper.",
+    zh: "油墨在墨盘上匀成薄层，再轻轻压印到纸面。",
+    state: "draft",
+    matches: [
+      { pct: 96, grade: "exact", en: "Ink is drawn thin across the disc, then pressed onto the paper.", zh: "油墨在墨盘上匀成薄层，再压印到纸面。", mem: "凸版工艺 2019" },
+      { pct: 82, grade: "fuzzy", en: "Ink is spread thin across the rollers.", zh: "油墨在墨辊上匀成薄层。", mem: "书籍装帧 2021" },
+    ],
+  },
+  {
+    en: "Good presswork leaves an even impression without punching through.",
+    zh: "",
+    state: "new",
+    matches: [
+      { pct: 74, grade: "fuzzy", en: "Good presswork gives an even impression.", zh: "好的印工能压出均匀的压痕。", mem: "书籍装帧 2021" },
+    ],
+  },
+];
+
+let active = 3;
+const $ = (s, r = document) => r.querySelector(s);
+const rowsEl = $("#rows");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- rows ---------- */
+const STATE_WORD = { set: "已排", draft: "草稿", new: "待译" };
+
+function renderRows() {
+  rowsEl.innerHTML = "";
+  segs.forEach((s, i) => {
+    const row = document.createElement("article");
+    row.className = "seg";
+    row.dataset.state = s.state;
+    row.dataset.i = i;
+    row.setAttribute("role", "listitem");
+    row.tabIndex = 0;
+    if (i === active) row.dataset.active = "true";
+    row.innerHTML = `
+      <div class="seg__no"><span class="seg__hand">☞</span>${i + 1}</div>
+      <div class="seg__src">${s.en}</div>
+      <div class="seg__tgt" ${i === active ? 'contenteditable="plaintext-only"' : ""} spellcheck="false">${s.zh}</div>
+      <div class="seg__mark">
+        <span class="state-word">${STATE_WORD[s.state]}</span>
+        ${s.qa ? `<span class="qa-mark">${s.qa}</span>` : ""}
+      </div>`;
+    row.addEventListener("mousedown", (e) => {
+      if (i !== active) { select(i); if (!e.target.closest(".seg__tgt")) e.preventDefault(); }
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && document.activeElement === row) {
+        e.preventDefault(); select(i); focusEditor();
+      }
+    });
+    rowsEl.appendChild(row);
+  });
+  syncCounts();
+}
+
+function rowEl(i) { return rowsEl.children[i]; }
+
+function select(i, focus = true) {
+  if (i < 0 || i >= segs.length) return;
+  const prevRow = rowEl(active);
+  if (prevRow) {
+    delete prevRow.dataset.active;
+    const t = prevRow.querySelector(".seg__tgt");
+    segs[active].zh = t.textContent;
+    t.removeAttribute("contenteditable");
+  }
+  active = i;
+  const row = rowEl(i);
+  row.dataset.active = "true";
+  row.querySelector(".seg__tgt").setAttribute("contenteditable", "plaintext-only");
+  row.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  renderMatches();
+  syncCounts();
+  if (focus) focusEditor();
+}
+
+function focusEditor() {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.focus();
+  const r = document.createRange();
+  r.selectNodeContents(t);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/* ---------- confirm ---------- */
+function confirmSeg() {
+  const s = segs[active];
+  const row = rowEl(active);
+  s.zh = row.querySelector(".seg__tgt").textContent;
+  if (!s.zh.trim()) return;
+  s.state = "set";
+  row.dataset.state = "set";
+  row.querySelector(".state-word").textContent = STATE_WORD.set;
+  row.classList.remove("is-pressing");
+  void row.offsetWidth;
+  row.classList.add("is-pressing");
+  syncCounts();
+  const next = segs.findIndex((x, j) => j > active && x.state !== "set");
+  setTimeout(() => select(next === -1 ? active : next), reduced ? 0 : 180);
+}
+
+/* ---------- counts ---------- */
+function syncCounts() {
+  const set = segs.filter((s) => s.state === "set").length;
+  const pct = Math.round((set / segs.length) * 100);
+  $("#setPct").textContent = pct;
+  $("#tocPct").textContent = pct;
+  $("#posNow").textContent = active + 1;
+  $("#stateLine").textContent = STATE_WORD[segs[active].state];
+  $("#segCount").textContent = `${segs.length} 段`;
+  const qa = segs.reduce((n, s) => n + (s.qa || 0), 0);
+  $("#qaN").textContent = qa || "";
+}
+
+/* ---------- marginalia ---------- */
+function renderMatches() {
+  const s = segs[active];
+  $("#tmN").textContent = s.matches.length || "";
+  const host = $("#tmPanel");
+  host.innerHTML = s.matches.length
+    ? ""
+    : `<p class="panel__note">此段无旁注。</p>`;
+  s.matches.forEach((m) => {
+    const d = document.createElement("div");
+    d.className = "note";
+    d.dataset.grade = m.grade;
+    d.innerHTML = `
+      <div class="note__head">
+        <span class="note__pct">${m.pct}</span>
+        <span class="note__grade">${m.grade === "exact" ? "全同" : "近似"}</span>
+        <span class="note__mem">${m.mem}</span>
+      </div>
+      <p class="note__src">${m.en}</p>
+      <p class="note__tgt">${m.zh}</p>
+      <button class="note__ins">插入</button>`;
+    d.querySelector(".note__ins").addEventListener("click", () => insertMatch(m));
+    host.appendChild(d);
+  });
+}
+
+function insertMatch(m) {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.textContent = m.zh;
+  segs[active].zh = m.zh;
+  if (segs[active].state === "new") {
+    segs[active].state = "draft";
+    rowEl(active).dataset.state = "draft";
+    rowEl(active).querySelector(".state-word").textContent = STATE_WORD.draft;
+  }
+  t.classList.remove("is-inserted");
+  void t.offsetWidth;
+  t.classList.add("is-inserted");
+  focusEditor();
+  syncCounts();
+}
+
+/* ---------- tabs ---------- */
+const tabs = [...document.querySelectorAll(".margin__tab")];
+function openTab(name) {
+  tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  document.querySelectorAll(".panel").forEach((p) => {
+    if (p.dataset.panel === name) p.dataset.open = "true";
+    else delete p.dataset.open;
+  });
+  const t = tabs.find((t) => t.dataset.tab === name);
+  const ink = $("#tabInk");
+  ink.style.left = t.offsetLeft + "px";
+  ink.style.width = t.offsetWidth + "px";
+}
+tabs.forEach((t) => t.addEventListener("click", () => openTab(t.dataset.tab)));
+
+/* ---------- QA fix ---------- */
+$("#fixBtn").addEventListener("click", () => {
+  const i = 2;
+  segs[i].zh = segs[i].zh.replace("版框", "夹框");
+  segs[i].qa = 0;
+  const row = rowEl(i);
+  const t = row.querySelector(".seg__tgt");
+  t.textContent = segs[i].zh;
+  row.querySelector(".qa-mark")?.remove();
+  t.classList.add("is-inserted");
+  $("#proof1").dataset.done = "true";
+  $("#fixBtn").disabled = true;
+  syncCounts();
+});
+$("#jumpBtn").addEventListener("click", () => select(2));
+
+/* ---------- splitter ---------- */
+const frame = $("#frame");
+const splitter = $("#splitter");
+let marginW = 316;
+splitter.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  splitter.classList.add("is-dragging");
+  splitter.setPointerCapture(e.pointerId);
+  const startX = e.clientX, startW = marginW;
+  const move = (ev) => {
+    marginW = Math.min(460, Math.max(240, startW + (startX - ev.clientX)));
+    frame.style.setProperty("--margin-w", marginW + "px");
+  };
+  const up = () => {
+    splitter.classList.remove("is-dragging");
+    splitter.removeEventListener("pointermove", move);
+    splitter.removeEventListener("pointerup", up);
+    openTab(tabs.find((t) => t.getAttribute("aria-selected") === "true").dataset.tab);
+  };
+  splitter.addEventListener("pointermove", move);
+  splitter.addEventListener("pointerup", up);
+});
+splitter.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") { marginW = Math.min(460, marginW + 16); }
+  else if (e.key === "ArrowRight") { marginW = Math.max(240, marginW - 16); }
+  else return;
+  e.preventDefault();
+  frame.style.setProperty("--margin-w", marginW + "px");
+});
+
+/* ---------- palette ---------- */
+const veil = $("#veil"), palIn = $("#palIn"), palList = $("#palList");
+let palHot = 0;
+const commands = [
+  { label: "确认本段", kbd: "⌘⏎", run: confirmSeg },
+  { label: "插入首注", kbd: "⌘1", run: () => segs[active].matches[0] && insertMatch(segs[active].matches[0]) },
+  { label: "下一段", kbd: "↓", run: () => select(active + 1) },
+  { label: "上一段", kbd: "↑", run: () => select(active - 1) },
+  { label: "跳到待译段", run: () => { const i = segs.findIndex((s) => s.state === "new"); if (i > -1) select(i); } },
+  { label: "复制原文", run: () => { const t = rowEl(active).querySelector(".seg__tgt"); t.textContent = segs[active].en; segs[active].zh = segs[active].en; t.classList.add("is-inserted"); focusEditor(); } },
+  { label: "旁注：记忆", run: () => openTab("tm") },
+  { label: "旁注：术语", run: () => openTab("terms") },
+  { label: "旁注：校对", run: () => openTab("qa") },
+];
+
+function renderPal(q = "") {
+  const hits = commands.filter((c) => c.label.includes(q));
+  palHot = Math.min(palHot, Math.max(0, hits.length - 1));
+  palList.innerHTML = "";
+  if (!hits.length) {
+    palList.innerHTML = `<div class="palette__empty">无此命令。</div>`;
+    return;
+  }
+  hits.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "palette__item";
+    b.dataset.hot = String(i === palHot);
+    b.innerHTML = `<span class="hand">☞</span><span>${c.label}</span>${c.kbd ? `<kbd>${c.kbd}</kbd>` : ""}`;
+    b.addEventListener("click", () => { closePal(); c.run(); });
+    b.addEventListener("mousemove", () => { palHot = i; renderPal(palIn.value.trim()); });
+    palList.appendChild(b);
+  });
+}
+
+function openPal() { veil.dataset.open = "true"; palIn.value = ""; palHot = 0; renderPal(); setTimeout(() => palIn.focus(), 30); }
+function closePal() { delete veil.dataset.open; focusEditor(); }
+
+$("#cmdBtn").addEventListener("click", openPal);
+veil.addEventListener("mousedown", (e) => { if (e.target === veil) closePal(); });
+palIn.addEventListener("input", () => { palHot = 0; renderPal(palIn.value.trim()); });
+palIn.addEventListener("keydown", (e) => {
+  const hits = commands.filter((c) => c.label.includes(palIn.value.trim()));
+  if (e.key === "ArrowDown") { e.preventDefault(); palHot = Math.min(palHot + 1, hits.length - 1); renderPal(palIn.value.trim()); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); palHot = Math.max(palHot - 1, 0); renderPal(palIn.value.trim()); }
+  else if (e.key === "Enter") { e.preventDefault(); if (hits[palHot]) { closePal(); hits[palHot].run(); } }
+  else if (e.key === "Escape") closePal();
+});
+
+/* ---------- global keys ---------- */
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); veil.dataset.open ? closePal() : openPal(); return; }
+  if (veil.dataset.open) return;
+  if (mod && e.key === "Enter") { e.preventDefault(); confirmSeg(); return; }
+  if (mod && e.key === "1") { e.preventDefault(); const m = segs[active].matches[0]; if (m) insertMatch(m); return; }
+  const inEditor = e.target.closest?.(".seg__tgt");
+  if (!inEditor && e.key === "ArrowDown") { e.preventDefault(); select(active + 1); }
+  if (!inEditor && e.key === "ArrowUp") { e.preventDefault(); select(active - 1); }
+});
+
+/* ---------- boot ---------- */
+renderRows();
+renderMatches();
+openTab("tm");
+addEventListener("resize", () => openTab(tabs.find((t) => t.getAttribute("aria-selected") === "true").dataset.tab));
+</script>
+</body>
+</html>

@@ -1,0 +1,1183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>弹机 KINETIC · Translunar 设计研究 四</title>
+<link rel="stylesheet" href="./fonts/fonts.css" />
+<style>
+/* ============================================================
+   STUDY 04 · 弹机 (KINETIC)
+   A hardware instrument, not a document. Porcelain body,
+   charcoal wells, one signal green. Every state change rides a
+   real damped spring (precomputed linear() curves, mass-spring
+   simulation, not a bezier guess). The signature: the row IS the
+   editor. Select a row and it inflates in place; a tool strip
+   springs out; confirm snaps it shut and hands the spring to the
+   next row. The keycap bar at the bottom physically depresses
+   when you press the real keys.
+   Type: Familjen Grotesk (chrome) · Azeret Mono (readouts)
+   ============================================================ */
+
+:root {
+  --body: #eae8e2;
+  --panel: #f2f1ec;
+  --well: #262420;
+  --well-lit: #37342e;
+  --text: #26241f;
+  --dim: #6e6b62;
+  --faint: #9b978c;
+  --hair: #d6d3ca;
+  --green: #087a41;
+  --green-hi: #0da35a;
+  --green-ghost: rgba(13, 163, 90, 0.1);
+  --amber: #b97d0a;
+  --ui: "Familjen Grotesk", "Noto Sans SC", sans-serif;
+  --mono: "Azeret Mono", "Noto Sans Mono", monospace;
+  /* Damped springs: simulated mass-spring, sampled to linear(). */
+  --spring-soft: linear(0.0000 0.0%, 0.0680, 0.1803, 0.3170, 0.4618, 0.6026 12.5%, 0.7311, 0.8418, 0.9323, 1.0021, 1.0522 25.0%, 1.0847, 1.1024, 1.1081, 1.1049, 1.0954 37.5%, 1.0822, 1.0670, 1.0515, 1.0369, 1.0238 50.0%, 1.0128, 1.0040, 0.9974, 0.9928, 0.9900 62.5%, 0.9887, 0.9885, 0.9891, 0.9903, 0.9918 75.0%, 0.9935, 0.9951, 0.9966, 0.9979, 0.9990 87.5%, 0.9999, 1.0005, 1.0009, 1.0011, 1.0012 100.0%);
+  --spring-snap: linear(0.0000 0.0%, 0.0500, 0.1313, 0.2295, 0.3344, 0.4385 12.5%, 0.5368, 0.6263, 0.7054, 0.7736, 0.8309 25.0%, 0.8780, 0.9159, 0.9457, 0.9686, 0.9855 37.5%, 0.9977, 1.0061, 1.0114, 1.0144, 1.0157 50.0%, 1.0158, 1.0151, 1.0139, 1.0123, 1.0107 62.5%, 1.0090, 1.0075, 1.0060, 1.0048, 1.0037 75.0%, 1.0028, 1.0020, 1.0014, 1.0009, 1.0005 87.5%, 1.0003, 1.0001, 0.9999, 0.9998, 0.9998 100.0%);
+  --dur-soft: 640ms;
+  --dur-snap: 420ms;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--ui);
+  font-size: 13.5px;
+  color: var(--text);
+  background: var(--body);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible, [contenteditable]:focus-visible {
+  outline: 2px solid var(--green-hi);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--well); color: var(--panel); }
+
+.mono { font-family: var(--mono); }
+
+/* ---------- Console (top bar) ---------- */
+
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 52px;
+  padding: 0 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--hair);
+}
+
+.top__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.top__badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--panel);
+  background: var(--well);
+  border-radius: 6px;
+  padding: 3px 8px 4px;
+}
+
+.top__doc { color: var(--dim); font-size: 13px; }
+.top__spacer { flex: 1; }
+
+/* Progress gauge: a physical slider, springs on confirm. */
+.gauge { display: flex; align-items: center; gap: 10px; }
+
+.gauge__label { font-size: 11.5px; font-weight: 600; color: var(--dim); letter-spacing: 0.06em; }
+
+.gauge__track {
+  position: relative;
+  width: 150px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hair);
+  overflow: visible;
+}
+
+.gauge__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--green-hi);
+  transition: width var(--dur-soft) var(--spring-soft);
+}
+
+.gauge__knob {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--well);
+  border: 2.5px solid var(--panel);
+  box-shadow: 0 1px 3px rgba(38, 36, 32, 0.4);
+  transform: translate(-50%, -50%);
+  transition: left var(--dur-soft) var(--spring-soft);
+}
+
+.gauge__num { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+
+.top__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  font-weight: 600;
+  font-size: 12.5px;
+  border-radius: 8px;
+  background: var(--well);
+  color: var(--panel);
+  transition: transform var(--dur-snap) var(--spring-snap), background 140ms ease;
+}
+
+.top__cmd:hover { background: var(--well-lit); }
+.top__cmd:active { transform: scale(0.94); }
+
+.top__cmd .k {
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 1px solid rgba(242, 241, 236, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ---------- Rack ---------- */
+
+.rack {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 6px var(--dock-w, 318px);
+}
+
+/* ---------- Banks rail ---------- */
+
+.banks {
+  background: var(--panel);
+  border-right: 1px solid var(--hair);
+  padding: 16px 0 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rail-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+  padding: 0 16px 10px;
+}
+
+.bank {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 16px;
+  border-radius: 0;
+  transition: background 140ms ease;
+}
+
+.bank:hover { background: var(--body); }
+
+.bank[data-open="true"] { background: var(--body); box-shadow: inset 3px 0 0 var(--green-hi); }
+
+.bank__name { font-size: 13px; font-weight: 600; }
+.bank[data-open="true"] .bank__name { color: var(--green); }
+
+.bank__meta { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+.banks__sep { margin: 14px 16px 10px; border-top: 1px solid var(--hair); }
+
+.banks__field { display: flex; justify-content: space-between; gap: 8px; padding: 4px 16px; font-size: 12px; }
+.banks__field dt { color: var(--faint); }
+.banks__field dd { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+/* ---------- Deck (grid) ---------- */
+
+.deck { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.deck__title {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 13px 20px 11px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.deck__head { margin: 0; font-size: 15.5px; font-weight: 700; }
+.deck__sub { font-size: 13px; color: var(--dim); }
+.deck__ct { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+
+.deck__cols {
+  flex: none;
+  display: grid;
+  grid-template-columns: 46px 1fr 1fr 30px;
+  padding: 8px 20px 7px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--panel);
+}
+
+.deck__col { font-size: 10.5px; font-weight: 700; letter-spacing: 0.16em; color: var(--faint); }
+.deck__col .loc { font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em; margin-left: 7px; }
+
+.rows { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 12px; }
+
+/* The row IS the editor. Inflation is a grid-rows spring. */
+.seg {
+  position: relative;
+  border-radius: 10px;
+  margin: 2px 0;
+  cursor: pointer;
+  transition: background 150ms ease, box-shadow var(--dur-snap) var(--spring-snap), transform var(--dur-snap) var(--spring-snap);
+}
+
+.seg:hover { background: var(--panel); }
+
+.seg[data-active="true"] {
+  background: var(--panel);
+  box-shadow: 0 1px 0 rgba(38, 36, 32, 0.08), 0 6px 22px -12px rgba(38, 36, 32, 0.35), inset 0 0 0 1.5px var(--well);
+  cursor: text;
+}
+
+.seg__main {
+  display: grid;
+  grid-template-columns: 38px 1fr 1fr 22px;
+  gap: 0 8px;
+  padding: 10px 8px;
+}
+
+.seg__no {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  text-align: right;
+  padding: 3px 2px 0 0;
+  user-select: none;
+}
+
+.seg[data-active="true"] .seg__no { color: var(--text); font-weight: 600; }
+
+.seg__src, .seg__tgt {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 1px 8px 2px;
+  overflow-wrap: break-word;
+}
+
+.seg__src { color: var(--dim); }
+.seg__tgt { caret-color: var(--green-hi); border-radius: 6px; }
+.seg__tgt:focus { outline: none; }
+
+.seg[data-state="draft"] .seg__tgt { color: var(--dim); }
+.seg[data-active="true"] .seg__tgt { color: var(--text); }
+
+.seg__tgt:empty::before {
+  content: "待译";
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--faint);
+}
+
+@keyframes pop-in {
+  from { background: var(--green-ghost); }
+  to { background: transparent; }
+}
+.seg__tgt.is-inserted { animation: pop-in 600ms ease; }
+
+/* State pip: a physical indicator lamp. */
+.seg__pip { display: flex; justify-content: center; padding-top: 6px; }
+
+.pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--faint);
+  background: transparent;
+  transition: transform var(--dur-soft) var(--spring-soft), background 160ms ease, border-color 160ms ease;
+}
+
+.seg[data-state="set"] .pip { background: var(--green-hi); border-color: var(--green-hi); }
+.seg[data-state="new"] .pip { border-style: dashed; }
+.seg[data-qa] .pip { border-color: var(--amber); background: var(--amber); }
+
+@keyframes pip-pop {
+  0% { transform: scale(0.3); }
+  100% { transform: scale(1); }
+}
+.seg.is-confirming .pip { animation: pip-pop var(--dur-soft) var(--spring-soft); }
+
+/* Tool strip: springs open under the active row. */
+.seg__drawer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-snap) var(--spring-snap);
+}
+
+.seg[data-active="true"] .seg__drawer { grid-template-rows: 1fr; }
+
+.seg__drawer-clip { overflow: hidden; min-height: 0; }
+
+.seg__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 12px 54px;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  font-weight: 600;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1.5px solid var(--hair);
+  background: var(--body);
+  transition: transform var(--dur-snap) var(--spring-snap), border-color 140ms ease, background 140ms ease;
+}
+
+.tool:hover { border-color: var(--well); }
+.tool:active { transform: scale(0.93); }
+
+.tool--go {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.tool--go:hover { background: var(--green-hi); border-color: var(--green-hi); }
+
+.tool .k {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 4px;
+  opacity: 0.65;
+}
+
+.seg__qa {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--amber);
+  border: 1.5px solid var(--amber);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+/* ---------- Splitter ---------- */
+
+.splitter { cursor: col-resize; position: relative; touch-action: none; }
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 2px;
+  transition: background 140ms ease;
+}
+.splitter:hover::before, .splitter.is-dragging::before { background: var(--green-hi); }
+
+/* ---------- Modules dock ---------- */
+
+.modules {
+  background: var(--panel);
+  border-left: 1px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modules__tabs {
+  flex: none;
+  position: relative;
+  display: flex;
+  gap: 4px;
+  margin: 12px 14px 0;
+  background: var(--body);
+  border-radius: 9px;
+  padding: 3px;
+}
+
+.modules__pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 7px;
+  background: var(--well);
+  transition: left var(--dur-snap) var(--spring-snap), width var(--dur-snap) var(--spring-snap);
+}
+
+.modules__tab {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--dim);
+  border-radius: 7px;
+  transition: color 160ms ease;
+}
+
+.modules__tab[aria-selected="true"] { color: var(--panel); }
+
+.modules__tab .n { font-family: var(--mono); font-size: 10px; }
+.modules__tab[aria-selected="true"] .n { color: var(--green-hi); }
+
+.modules__body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px 14px; }
+
+.panel { display: none; }
+.panel[data-open="true"] { display: block; }
+
+.panel__note { padding: 12px 2px; font-size: 12.5px; color: var(--faint); }
+
+/* Match cartridges: spring in, staggered. */
+@keyframes cart-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.cart {
+  border: 1.5px solid var(--hair);
+  border-radius: 10px;
+  background: var(--body);
+  padding: 11px 12px 12px;
+  margin-bottom: 10px;
+  animation: cart-in var(--dur-snap) var(--spring-snap) backwards;
+  transition: border-color 140ms ease, transform var(--dur-snap) var(--spring-snap);
+}
+
+.cart:hover { border-color: var(--well); }
+
+.cart__head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+
+.cart__pct {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--panel);
+  background: var(--well);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.cart[data-grade="exact"] .cart__pct { background: var(--green); }
+
+.cart__grade { font-size: 11px; font-weight: 600; color: var(--dim); }
+.cart__mem { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--faint); white-space: nowrap; }
+
+.cart__src { margin: 0 0 3px; font-size: 12.5px; line-height: 1.5; color: var(--dim); }
+.cart__tgt { margin: 0 0 9px; font-size: 13.5px; line-height: 1.55; }
+
+.cart__ins {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  font-weight: 600;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1.5px solid var(--well);
+  transition: transform var(--dur-snap) var(--spring-snap), background 140ms ease, color 140ms ease;
+}
+
+.cart__ins:hover { background: var(--well); color: var(--panel); }
+.cart__ins:active { transform: scale(0.92); }
+
+/* Terms */
+.key-term {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 4px 11px;
+  border-bottom: 1px solid var(--hair);
+}
+.key-term__en { font-weight: 600; font-size: 13px; }
+.key-term__zh { font-size: 13.5px; color: var(--dim); }
+.key-term__src { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--faint); white-space: nowrap; }
+
+/* QA checks */
+.check {
+  border: 1.5px solid var(--hair);
+  border-radius: 10px;
+  background: var(--body);
+  padding: 11px 12px 12px;
+  margin-bottom: 10px;
+}
+
+.check[data-done="true"] { opacity: 0.45; }
+.check[data-done="true"] .check__msg { text-decoration: line-through; }
+
+.check__head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+
+.check__rule {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+  border: 1.5px solid var(--amber);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.check__loc { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+.check__msg { margin: 0 0 9px; font-size: 13px; line-height: 1.55; }
+.check__msg .bad { color: var(--amber); border-bottom: 2px solid var(--amber); font-weight: 600; }
+
+.check__acts { display: flex; gap: 8px; }
+
+.check__act {
+  height: 26px;
+  padding: 0 12px;
+  font-weight: 600;
+  font-size: 11.5px;
+  border-radius: 6px;
+  border: 1.5px solid var(--hair);
+  transition: transform var(--dur-snap) var(--spring-snap), border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+.check__act:hover { border-color: var(--well); }
+.check__act:active { transform: scale(0.92); }
+.check__act--fix { border-color: var(--amber); color: var(--amber); }
+.check__act--fix:hover { background: var(--amber); color: #fff; border-color: var(--amber); }
+
+/* ---------- Keybed (bottom) ---------- */
+
+.keybed {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 46px;
+  padding: 0 18px;
+  background: var(--well);
+  color: #c9c5ba;
+}
+
+.keybed__group { display: flex; align-items: center; gap: 7px; }
+
+.cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--well);
+  background: #e6e3da;
+  border-radius: 5px;
+  box-shadow: 0 3px 0 #8f8b7f;
+  transform: translateY(0);
+  transition: transform 80ms ease, box-shadow 80ms ease;
+  user-select: none;
+}
+
+.cap.is-down { transform: translateY(3px); box-shadow: 0 0 0 #8f8b7f; }
+
+.keybed__what { font-size: 11.5px; color: #8f8b7f; font-weight: 600; }
+
+.keybed__right { margin-left: auto; display: flex; align-items: center; gap: 18px; font-family: var(--mono); font-size: 11px; color: #8f8b7f; }
+.keybed__right b { font-weight: 500; color: #e6e3da; }
+.keybed__right .ok { color: var(--green-hi); }
+.keybed__right .warn { color: #e0a33c; }
+
+/* ---------- Palette ---------- */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(38, 36, 32, 0.32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 108px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.veil[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+.pal {
+  width: min(580px, calc(100% - 48px));
+  background: var(--panel);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px -20px rgba(38, 36, 32, 0.55), 0 0 0 1.5px var(--well);
+  overflow: hidden;
+  transform: translateY(-18px) scale(0.97);
+  opacity: 0;
+  transition: transform var(--dur-soft) var(--spring-soft), opacity 200ms ease;
+}
+
+.veil[data-open="true"] .pal { transform: translateY(0) scale(1); opacity: 1; }
+
+.pal__input {
+  width: 100%;
+  font-family: var(--ui);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  border-bottom: 1.5px solid var(--hair);
+  padding: 15px 18px;
+}
+
+.pal__input::placeholder { color: var(--faint); }
+
+.pal__list { max-height: 300px; overflow-y: auto; padding: 8px; }
+
+@keyframes item-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.pal__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 500;
+  font-size: 13px;
+  border-radius: 8px;
+  color: var(--dim);
+  animation: item-in var(--dur-snap) var(--spring-snap) backwards;
+}
+
+.pal__item[data-hot="true"] { background: var(--well); color: var(--panel); }
+
+.pal__item .k {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--faint);
+}
+
+.pal__item[data-hot="true"] .k { border-color: rgba(242, 241, 236, 0.4); color: var(--panel); }
+.pal__empty { padding: 16px; font-size: 12.5px; color: var(--faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top__brand">Translunar<span class="top__badge">弹机</span></div>
+  <div class="top__doc">合成器手册.docx</div>
+  <div class="top__spacer"></div>
+  <div class="gauge">
+    <span class="gauge__label">已确认</span>
+    <span class="gauge__track">
+      <span class="gauge__fill" id="gaugeFill"></span>
+      <span class="gauge__knob" id="gaugeKnob"></span>
+    </span>
+    <span class="gauge__num" id="gaugeNum">40%</span>
+  </div>
+  <button class="top__cmd" id="cmdBtn">命令 <span class="k">⌘K</span></button>
+</header>
+
+<div class="rack" id="rack">
+
+  <aside class="banks">
+    <div class="rail-label">音库</div>
+    <button class="bank"><span class="bank__name">快速上手.docx</span><span class="bank__meta">24 段 &nbsp;100%</span></button>
+    <button class="bank" data-open="true"><span class="bank__name">合成器手册.docx</span><span class="bank__meta">5 段 &nbsp;<span id="tocPct">40</span>%</span></button>
+    <button class="bank"><span class="bank__name">音色库说明.xlsx</span><span class="bank__meta">61 段 &nbsp;0%</span></button>
+    <div class="banks__sep"></div>
+    <div class="rail-label">机况</div>
+    <dl style="margin:0;padding:0">
+      <div class="banks__field"><dt>客户</dt><dd>声波仪器</dd></div>
+      <div class="banks__field"><dt>交付</dt><dd>09-05</dd></div>
+      <div class="banks__field"><dt>记忆库</dt><dd>硬件手册2023</dd></div>
+      <div class="banks__field"><dt>术语库</dt><dd>音频词库</dd></div>
+    </dl>
+  </aside>
+
+  <main class="deck">
+    <div class="deck__title">
+      <h1 class="deck__head">Oscillator Guide</h1>
+      <span class="deck__sub">振荡器指南</span>
+      <span class="deck__ct" id="segCount"></span>
+    </div>
+    <div class="deck__cols">
+      <div></div>
+      <div class="deck__col">原文<span class="loc">en</span></div>
+      <div class="deck__col">译文<span class="loc">zh-CN</span></div>
+      <div></div>
+    </div>
+    <div class="rows" id="rows" role="list"></div>
+  </main>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整模块栏宽度"></div>
+
+  <aside class="modules">
+    <nav class="modules__tabs" role="tablist" id="modTabs">
+      <span class="modules__pill" id="modPill"></span>
+      <button class="modules__tab" role="tab" data-tab="tm" aria-selected="true">记忆 <span class="n" id="tmN"></span></button>
+      <button class="modules__tab" role="tab" data-tab="terms" aria-selected="false">术语</button>
+      <button class="modules__tab" role="tab" data-tab="qa" aria-selected="false">检查 <span class="n" id="qaN">1</span></button>
+    </nav>
+    <div class="modules__body">
+      <section class="panel" data-panel="tm" data-open="true" id="tmPanel"></section>
+      <section class="panel" data-panel="terms">
+        <div class="key-term"><span class="key-term__en">arpeggiator</span><span class="key-term__zh">琶音器</span><span class="key-term__src">音频词库</span></div>
+        <div class="key-term"><span class="key-term__en">latch</span><span class="key-term__zh">锁存</span><span class="key-term__src">音频词库</span></div>
+        <div class="key-term"><span class="key-term__en">cutoff</span><span class="key-term__zh">截止频率</span><span class="key-term__src">音频词库</span></div>
+        <div class="key-term"><span class="key-term__en">patch</span><span class="key-term__zh">音色</span><span class="key-term__src">音频词库</span></div>
+      </section>
+      <section class="panel" data-panel="qa">
+        <div class="check" id="check1">
+          <div class="check__head">
+            <span class="check__rule">term</span>
+            <span class="check__loc">段 03</span>
+          </div>
+          <p class="check__msg">patch 译作 <span class="bad">补丁</span>，术语库作 音色。</p>
+          <div class="check__acts">
+            <button class="check__act check__act--fix" id="fixBtn">改为音色</button>
+            <button class="check__act" id="jumpBtn">跳转</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+</div>
+
+<footer class="keybed">
+  <div class="keybed__group">
+    <span class="cap" data-cap="mod">⌘</span><span class="cap" data-cap="k">K</span>
+    <span class="keybed__what">命令</span>
+  </div>
+  <div class="keybed__group">
+    <span class="cap" data-cap="mod">⌘</span><span class="cap" data-cap="enter">⏎</span>
+    <span class="keybed__what">确认</span>
+  </div>
+  <div class="keybed__group">
+    <span class="cap" data-cap="mod">⌘</span><span class="cap" data-cap="one">1</span>
+    <span class="keybed__what">插入</span>
+  </div>
+  <div class="keybed__group">
+    <span class="cap" data-cap="up">↑</span><span class="cap" data-cap="down">↓</span>
+    <span class="keybed__what">移段</span>
+  </div>
+  <div class="keybed__right">
+    <span>段 <b id="posNow">4</b>/<b>5</b></span>
+    <span>已确认 <b class="ok" id="setPct">40%</b></span>
+    <span>检查 <b class="warn" id="qaCt">1</b></span>
+    <span>EN→ZH</span>
+  </div>
+</footer>
+
+<div class="veil" id="veil">
+  <div class="pal" role="dialog" aria-label="命令">
+    <input class="pal__input" id="palIn" placeholder="输入命令" autocomplete="off" />
+    <div class="pal__list" id="palList"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const segs = [
+  {
+    en: "Hold shift while turning the encoder for fine control.",
+    zh: "按住 Shift 再旋转编码器，即可微调。",
+    state: "set",
+    matches: [
+      { pct: 100, grade: "exact", en: "Hold shift while turning the encoder for fine control.", zh: "按住 Shift 再旋转编码器，即可微调。", mem: "硬件手册2023" },
+    ],
+  },
+  {
+    en: "Double-tap the key to latch the arpeggiator.",
+    zh: "双击琴键即可锁存琶音器。",
+    state: "set",
+    matches: [
+      { pct: 89, grade: "fuzzy", en: "Double-tap to latch the arpeggiator.", zh: "双击即可锁存琶音器。", mem: "硬件手册2023" },
+    ],
+  },
+  {
+    en: "Patch memory survives power loss for up to ten years.",
+    zh: "补丁存储在断电后最长可保存十年。",
+    state: "draft",
+    qa: 1,
+    matches: [
+      { pct: 76, grade: "fuzzy", en: "Patch memory is retained after power-down.", zh: "断电后音色存储不会丢失。", mem: "硬件手册2023" },
+    ],
+  },
+  {
+    en: "Route the LFO to filter cutoff for a classic wobble.",
+    zh: "将 LFO 路由至滤波器截止频率，获得经典的抖动感。",
+    state: "draft",
+    matches: [
+      { pct: 93, grade: "exact", en: "Route the LFO to the filter cutoff for a wobble.", zh: "将 LFO 路由至滤波器截止频率以获得抖动感。", mem: "硬件手册2023" },
+      { pct: 71, grade: "fuzzy", en: "Route envelope two to the cutoff.", zh: "将包络二路由至截止频率。", mem: "效果器词条" },
+    ],
+  },
+  {
+    en: "Firmware updates arrive over USB as standard MIDI files.",
+    zh: "",
+    state: "new",
+    matches: [
+      { pct: 68, grade: "fuzzy", en: "Firmware ships as a standard MIDI file.", zh: "固件以标准 MIDI 文件形式发布。", mem: "效果器词条" },
+    ],
+  },
+];
+
+let active = 3;
+const $ = (s, r = document) => r.querySelector(s);
+const rowsEl = $("#rows");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- rows ---------- */
+function renderRows() {
+  rowsEl.innerHTML = "";
+  segs.forEach((s, i) => {
+    const row = document.createElement("article");
+    row.className = "seg";
+    row.dataset.state = s.state;
+    if (s.qa) row.dataset.qa = "true";
+    row.setAttribute("role", "listitem");
+    row.tabIndex = 0;
+    if (i === active) row.dataset.active = "true";
+    row.innerHTML = `
+      <div class="seg__main">
+        <div class="seg__no">${String(i + 1).padStart(2, "0")}</div>
+        <div class="seg__src">${s.en}</div>
+        <div class="seg__tgt" ${i === active ? 'contenteditable="plaintext-only"' : ""} spellcheck="false">${s.zh}</div>
+        <div class="seg__pip"><span class="pip"></span></div>
+      </div>
+      <div class="seg__drawer"><div class="seg__drawer-clip">
+        <div class="seg__tools">
+          <button class="tool tool--go" data-act="confirm">确认 <span class="k">⌘⏎</span></button>
+          <button class="tool" data-act="insert">插入匹配 <span class="k">⌘1</span></button>
+          <button class="tool" data-act="copy">复制原文</button>
+          ${s.qa ? `<span class="seg__qa">检查 ${s.qa}</span>` : ""}
+        </div>
+      </div></div>`;
+    row.addEventListener("mousedown", (e) => {
+      if (i !== active && !e.target.closest(".tool")) {
+        select(i);
+        if (!e.target.closest(".seg__tgt")) e.preventDefault();
+      }
+    });
+    row.querySelector('[data-act="confirm"]').addEventListener("click", confirmSeg);
+    row.querySelector('[data-act="insert"]').addEventListener("click", () => {
+      const m = segs[active].matches[0];
+      if (m) insertMatch(m);
+    });
+    row.querySelector('[data-act="copy"]').addEventListener("click", () => {
+      const t = rowEl(active).querySelector(".seg__tgt");
+      t.textContent = segs[active].en;
+      segs[active].zh = segs[active].en;
+      t.classList.add("is-inserted");
+      focusEditor();
+    });
+    rowsEl.appendChild(row);
+  });
+  syncCounts();
+}
+
+function rowEl(i) { return rowsEl.children[i]; }
+
+function select(i, focus = true) {
+  if (i < 0 || i >= segs.length) return;
+  const prev = rowEl(active);
+  if (prev) {
+    delete prev.dataset.active;
+    const t = prev.querySelector(".seg__tgt");
+    segs[active].zh = t.textContent;
+    t.removeAttribute("contenteditable");
+  }
+  active = i;
+  const row = rowEl(i);
+  row.dataset.active = "true";
+  row.querySelector(".seg__tgt").setAttribute("contenteditable", "plaintext-only");
+  row.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  renderMatches();
+  syncCounts();
+  if (focus) focusEditor();
+}
+
+function focusEditor() {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.focus();
+  const r = document.createRange();
+  r.selectNodeContents(t);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/* ---------- confirm ---------- */
+function confirmSeg() {
+  const s = segs[active];
+  const row = rowEl(active);
+  s.zh = row.querySelector(".seg__tgt").textContent;
+  if (!s.zh.trim()) return;
+  s.state = "set";
+  row.dataset.state = "set";
+  row.classList.remove("is-confirming");
+  void row.offsetWidth;
+  row.classList.add("is-confirming");
+  syncCounts();
+  const next = segs.findIndex((x, j) => j > active && x.state !== "set");
+  setTimeout(() => select(next === -1 ? active : next), reduced ? 0 : 240);
+}
+
+/* ---------- counts ---------- */
+function syncCounts() {
+  const set = segs.filter((s) => s.state === "set").length;
+  const pct = Math.round((set / segs.length) * 100);
+  $("#setPct").textContent = pct + "%";
+  $("#gaugeNum").textContent = pct + "%";
+  $("#tocPct").textContent = pct;
+  $("#gaugeFill").style.width = pct + "%";
+  $("#gaugeKnob").style.left = pct + "%";
+  $("#posNow").textContent = active + 1;
+  $("#segCount").textContent = `${segs.length} 段`;
+  const qa = segs.reduce((n, s) => n + (s.qa || 0), 0);
+  $("#qaCt").textContent = qa;
+  $("#qaN").textContent = qa || "";
+}
+
+/* ---------- modules ---------- */
+function renderMatches() {
+  const s = segs[active];
+  $("#tmN").textContent = s.matches.length || "";
+  const host = $("#tmPanel");
+  host.innerHTML = s.matches.length ? "" : `<p class="panel__note">此段无匹配。</p>`;
+  s.matches.forEach((m, i) => {
+    const d = document.createElement("div");
+    d.className = "cart";
+    d.dataset.grade = m.grade;
+    d.style.animationDelay = `${i * 70}ms`;
+    d.innerHTML = `
+      <div class="cart__head">
+        <span class="cart__pct">${m.pct}</span>
+        <span class="cart__grade">${m.grade === "exact" ? "全同" : "近似"}</span>
+        <span class="cart__mem">${m.mem}</span>
+      </div>
+      <p class="cart__src">${m.en}</p>
+      <p class="cart__tgt">${m.zh}</p>
+      <button class="cart__ins">插入</button>`;
+    d.querySelector(".cart__ins").addEventListener("click", () => insertMatch(m));
+    host.appendChild(d);
+  });
+}
+
+function insertMatch(m) {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.textContent = m.zh;
+  segs[active].zh = m.zh;
+  if (segs[active].state === "new") {
+    segs[active].state = "draft";
+    rowEl(active).dataset.state = "draft";
+  }
+  t.classList.remove("is-inserted");
+  void t.offsetWidth;
+  t.classList.add("is-inserted");
+  focusEditor();
+}
+
+/* ---------- tabs: sliding pill on a spring ---------- */
+const tabs = [...document.querySelectorAll(".modules__tab")];
+function openTab(name) {
+  tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  document.querySelectorAll(".panel").forEach((p) => {
+    if (p.dataset.panel === name) p.dataset.open = "true";
+    else delete p.dataset.open;
+  });
+  const t = tabs.find((t) => t.dataset.tab === name);
+  const pill = $("#modPill");
+  pill.style.left = t.offsetLeft + "px";
+  pill.style.width = t.offsetWidth + "px";
+}
+tabs.forEach((t) => t.addEventListener("click", () => openTab(t.dataset.tab)));
+
+/* ---------- QA fix ---------- */
+$("#fixBtn").addEventListener("click", () => {
+  const i = 2;
+  segs[i].zh = segs[i].zh.replace("补丁", "音色");
+  segs[i].qa = 0;
+  const row = rowEl(i);
+  const t = row.querySelector(".seg__tgt");
+  t.textContent = segs[i].zh;
+  delete row.dataset.qa;
+  row.querySelector(".seg__qa")?.remove();
+  t.classList.add("is-inserted");
+  $("#check1").dataset.done = "true";
+  $("#fixBtn").disabled = true;
+  syncCounts();
+});
+$("#jumpBtn").addEventListener("click", () => select(2));
+
+/* ---------- splitter ---------- */
+const rack = $("#rack");
+const splitter = $("#splitter");
+let dockW = 318;
+splitter.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  splitter.classList.add("is-dragging");
+  splitter.setPointerCapture(e.pointerId);
+  const startX = e.clientX, startW = dockW;
+  const move = (ev) => {
+    dockW = Math.min(460, Math.max(250, startW + (startX - ev.clientX)));
+    rack.style.setProperty("--dock-w", dockW + "px");
+  };
+  const up = () => {
+    splitter.classList.remove("is-dragging");
+    splitter.removeEventListener("pointermove", move);
+    splitter.removeEventListener("pointerup", up);
+    openTab(tabs.find((t) => t.getAttribute("aria-selected") === "true").dataset.tab);
+  };
+  splitter.addEventListener("pointermove", move);
+  splitter.addEventListener("pointerup", up);
+});
+splitter.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") dockW = Math.min(460, dockW + 16);
+  else if (e.key === "ArrowRight") dockW = Math.max(250, dockW - 16);
+  else return;
+  e.preventDefault();
+  rack.style.setProperty("--dock-w", dockW + "px");
+  openTab(tabs.find((t) => t.getAttribute("aria-selected") === "true").dataset.tab);
+});
+
+/* ---------- palette ---------- */
+const veil = $("#veil"), palIn = $("#palIn"), palList = $("#palList");
+let palHot = 0;
+const commands = [
+  { label: "确认本段", kbd: "⌘⏎", run: confirmSeg },
+  { label: "插入最佳匹配", kbd: "⌘1", run: () => segs[active].matches[0] && insertMatch(segs[active].matches[0]) },
+  { label: "下一段", kbd: "↓", run: () => select(active + 1) },
+  { label: "上一段", kbd: "↑", run: () => select(active - 1) },
+  { label: "跳到未译段", run: () => { const i = segs.findIndex((s) => s.state === "new"); if (i > -1) select(i); } },
+  { label: "复制原文", run: () => { const t = rowEl(active).querySelector(".seg__tgt"); t.textContent = segs[active].en; segs[active].zh = segs[active].en; t.classList.add("is-inserted"); focusEditor(); } },
+  { label: "模块：记忆", run: () => openTab("tm") },
+  { label: "模块：术语", run: () => openTab("terms") },
+  { label: "模块：检查", run: () => openTab("qa") },
+];
+
+function renderPal(q = "") {
+  const hits = commands.filter((c) => c.label.includes(q));
+  palHot = Math.min(palHot, Math.max(0, hits.length - 1));
+  palList.innerHTML = "";
+  if (!hits.length) { palList.innerHTML = `<div class="pal__empty">无此命令</div>`; return; }
+  hits.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "pal__item";
+    b.dataset.hot = String(i === palHot);
+    b.style.animationDelay = `${Math.min(i * 24, 200)}ms`;
+    b.innerHTML = `<span>${c.label}</span>${c.kbd ? `<span class="k">${c.kbd}</span>` : ""}`;
+    b.addEventListener("click", () => { closePal(); c.run(); });
+    b.addEventListener("mousemove", () => {
+      if (palHot !== i) {
+        palHot = i;
+        [...palList.children].forEach((el, j) => { el.dataset.hot = String(j === i); el.style.animation = "none"; });
+      }
+    });
+    palList.appendChild(b);
+  });
+}
+
+function openPal() { veil.dataset.open = "true"; palIn.value = ""; palHot = 0; renderPal(); setTimeout(() => palIn.focus(), 40); }
+function closePal() { delete veil.dataset.open; focusEditor(); }
+
+$("#cmdBtn").addEventListener("click", openPal);
+veil.addEventListener("mousedown", (e) => { if (e.target === veil) closePal(); });
+palIn.addEventListener("input", () => { palHot = 0; renderPal(palIn.value.trim()); });
+palIn.addEventListener("keydown", (e) => {
+  const hits = commands.filter((c) => c.label.includes(palIn.value.trim()));
+  if (e.key === "ArrowDown") { e.preventDefault(); palHot = Math.min(palHot + 1, hits.length - 1); renderPal(palIn.value.trim()); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); palHot = Math.max(palHot - 1, 0); renderPal(palIn.value.trim()); }
+  else if (e.key === "Enter") { e.preventDefault(); if (hits[palHot]) { closePal(); hits[palHot].run(); } }
+  else if (e.key === "Escape") closePal();
+});
+
+/* ---------- keycaps mirror real keys ---------- */
+const capMap = { k: "k", enter: "enter", one: "one", up: "up", down: "down", mod: "mod" };
+function capsFor(e) {
+  const out = [];
+  if (e.metaKey || e.ctrlKey) out.push("mod");
+  const k = e.key.toLowerCase();
+  if (k === "k") out.push("k");
+  if (k === "enter") out.push("enter");
+  if (k === "1") out.push("one");
+  if (k === "arrowup") out.push("up");
+  if (k === "arrowdown") out.push("down");
+  return out;
+}
+function setCaps(names, down) {
+  names.forEach((n) => {
+    document.querySelectorAll(`.cap[data-cap="${n}"]`).forEach((el) => el.classList.toggle("is-down", down));
+  });
+}
+document.addEventListener("keydown", (e) => setCaps(capsFor(e), true));
+document.addEventListener("keyup", (e) => {
+  setCaps(capsFor(e), false);
+  if (!e.metaKey && !e.ctrlKey) setCaps(["mod"], false);
+});
+addEventListener("blur", () => document.querySelectorAll(".cap.is-down").forEach((el) => el.classList.remove("is-down")));
+
+/* ---------- global keys ---------- */
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); veil.dataset.open ? closePal() : openPal(); return; }
+  if (veil.dataset.open) return;
+  if (mod && e.key === "Enter") { e.preventDefault(); confirmSeg(); return; }
+  if (mod && e.key === "1") { e.preventDefault(); const m = segs[active].matches[0]; if (m) insertMatch(m); return; }
+  const inEditor = e.target.closest?.(".seg__tgt");
+  if (!inEditor && e.key === "ArrowDown") { e.preventDefault(); select(active + 1); }
+  if (!inEditor && e.key === "ArrowUp") { e.preventDefault(); select(active - 1); }
+});
+
+/* ---------- boot ---------- */
+renderRows();
+renderMatches();
+openTab("tm");
+addEventListener("resize", () => openTab(tabs.find((t) => t.getAttribute("aria-selected") === "true").dataset.tab));
+</script>
+</body>
+</html>
