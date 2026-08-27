@@ -207,6 +207,9 @@ async function shoot(page, file) {
 }
 
 const errors = [];
+/* One row per study: the ribbon paint it chose for itself. */
+const paint = [];
+const theme_label = (k) => (k === "bg" ? "ribbon background" : "确认 colour");
 
 for (const theme of THEMES) {
   const outTmp = join(tmp, theme);
@@ -242,7 +245,9 @@ for (const theme of THEMES) {
       dirs: rows.filter((r) => r.classList.contains("tree__row--dir")).length,
       files: rows.filter((r) => r.classList.contains("tree__row--file")).length,
       maxDepth: Math.max(...rows.map(depth)),
-      collapsible: !!document.querySelector('.tree__row--dir[aria-expanded="false"]'),
+      collapsible: !!document.querySelector(
+        '.tree__row--dir[aria-expanded="false"]',
+      ),
     };
   });
   if (tree.dirs < 4 || tree.maxDepth < 2 || !tree.collapsible)
@@ -285,7 +290,11 @@ for (const theme of THEMES) {
       const el = document.querySelector(sel);
       if (!el) return null;
       const cs = getComputedStyle(el);
-      return { bg: cs.backgroundColor, deco: cs.textDecorationLine, border: cs.borderTopColor };
+      return {
+        bg: cs.backgroundColor,
+        deco: cs.textDecorationLine,
+        border: cs.borderTopColor,
+      };
     };
     return {
       confirmed: pick('.pvseg[data-state="confirmed"]'),
@@ -298,19 +307,85 @@ for (const theme of THEMES) {
       ).length,
     };
   });
-  const fills = [chips.confirmed, chips.draft, chips.locked, chips.none].map((c) => c && c.bg);
+  const fills = [chips.confirmed, chips.draft, chips.locked, chips.none].map(
+    (c) => c && c.bg,
+  );
   if (new Set(fills).size !== 4)
-    errors.push(`${theme}: proofread fills not distinct ${JSON.stringify(fills)}`);
+    errors.push(
+      `${theme}: proofread fills not distinct ${JSON.stringify(fills)}`,
+    );
   if (fills.some((f) => !f || f === "rgba(0, 0, 0, 0)"))
-    errors.push(`${theme}: proofread chip without a fill ${JSON.stringify(fills)}`);
+    errors.push(
+      `${theme}: proofread chip without a fill ${JSON.stringify(fills)}`,
+    );
   if (chips.decorated)
-    errors.push(`${theme}: ${chips.decorated} proofread chips carry a line decoration`);
+    errors.push(
+      `${theme}: ${chips.decorated} proofread chips carry a line decoration`,
+    );
   if (!chips.active || chips.active.border === chips.confirmed.border)
     errors.push(`${theme}: active proofread chip has no outline of its own`);
+
+  /* The ribbon is a shared *layout* and nothing else: icon stacked above
+     label, four groups divided by vertical rules, 历史 文档 翻译 审校. Colour
+     is the study's own business — 确认 is simply the check action in that
+     theme's accent or ink. Layout is asserted here; the paint is collected
+     and checked for collisions once every study has been measured. */
+  const ribbon = await page.evaluate(() => {
+    const rb = document.querySelector(".ribbon");
+    const primary = document.querySelector(".rbtn--primary");
+    const first = document.querySelector(".rbtn");
+    const icon = first.querySelector("svg").getBoundingClientRect();
+    const label = first.querySelector("span").getBoundingClientRect();
+    const groups = [...document.querySelectorAll(".rgroup")];
+    return {
+      bg: getComputedStyle(rb).backgroundColor,
+      confirm: getComputedStyle(primary).color,
+      confirmLabel: primary.textContent.trim(),
+      stacked: getComputedStyle(first).flexDirection === "column",
+      iconAboveLabel: icon.bottom <= label.top + 1,
+      labels: groups.map((g) =>
+        g.querySelector(".rgroup__label").textContent.trim(),
+      ),
+      ruled: groups
+        .slice(0, -1)
+        .every((g) => parseFloat(getComputedStyle(g).borderRightWidth) > 0),
+    };
+  });
+  if (!ribbon.stacked || !ribbon.iconAboveLabel)
+    errors.push(`${theme}: ribbon verbs are not icon-above-label`);
+  if (!ribbon.ruled)
+    errors.push(`${theme}: ribbon groups have lost their vertical rules`);
+  if (ribbon.labels.join("/") !== "历史/文档/翻译/审校")
+    errors.push(`${theme}: ribbon groups are ${ribbon.labels.join("/")}`);
+  if (ribbon.confirmLabel !== "确认")
+    errors.push(`${theme}: ribbon primary verb is ${ribbon.confirmLabel}`);
+  paint.push({ theme, bg: ribbon.bg, confirm: ribbon.confirm });
 
   await browser.close();
   console.log(`captured ${theme}: ${SHOTS.length} shots`);
 }
+
+/* No study may borrow another's toolbar paint. Two systems landing on the
+   same ribbon background, or on the same colour for 确认, means a shared
+   colorway has been forced across studies that are supposed to differ. */
+for (const key of ["bg", "confirm"]) {
+  const seen = new Map();
+  for (const p of paint) {
+    const hit = seen.get(p[key]);
+    if (hit)
+      errors.push(`${theme_label(key)}: ${hit} and ${p.theme} share ${p[key]}`);
+    else seen.set(p[key], p.theme);
+  }
+}
+console.log(
+  "\nribbon paint (layout shared, colour not):\n" +
+    paint
+      .map(
+        (p) =>
+          `  ${p.theme.padEnd(30)} bg ${p.bg.padEnd(26)} 确认 ${p.confirm}`,
+      )
+      .join("\n"),
+);
 
 if (errors.length) {
   console.error("\nFAILURES:\n" + errors.join("\n"));
