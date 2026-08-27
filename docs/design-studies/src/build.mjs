@@ -81,12 +81,136 @@ const STUDIES = [
     js: "art-phosphor.js",
     blurb: "日光终端：同一等宽排版，反射式液晶而非发光管。",
   },
+
+  /* Ported from the Fable studies onto this shared IA. The visual systems are
+     Fable's — palette, type, geometry, material, motion — restated against the
+     Opus variable contract so they run on the same renderer, the same IDE
+     tree, the same proofreading chips and the same stacked ribbon as the rest
+     of the family. The faces travel with the file. */
+  {
+    slug: "compact",
+    dir: "saas-opus-compact",
+    family: "saas-opus",
+    css: "theme-compact.css",
+    fonts: [
+      ["Geist", 400, "Geist-400-normal-latin.woff2"],
+      ["Geist", 500, "Geist-500-normal-latin.woff2"],
+      ["Geist", 600, "Geist-600-normal-latin.woff2"],
+      ["Geist Mono", 400, "GeistMono-400-normal-latin.woff2"],
+      ["Geist Mono", 500, "GeistMono-500-normal-latin.woff2"],
+    ],
+    blurb: "紧凑光亮：12.5px、4px 圆角、发丝线，密度即层级。",
+  },
+  {
+    slug: "comfortable",
+    dir: "saas-opus-comfortable",
+    family: "saas-opus",
+    css: "theme-comfortable.css",
+    fonts: [
+      ["Figtree", 400, "Figtree-400-normal-latin.woff2"],
+      ["Figtree", 500, "Figtree-500-normal-latin.woff2"],
+      ["Figtree", 600, "Figtree-600-normal-latin.woff2"],
+      ["Spline Sans Mono", 400, "SplineSansMono-400-normal-latin.woff2"],
+      ["Spline Sans Mono", 500, "SplineSansMono-500-normal-latin.woff2"],
+    ],
+    blurb: "舒适光亮：13.5px、胶囊控件、柔和抬升，深青强调。",
+  },
+  {
+    slug: "dark",
+    dir: "saas-opus-dark",
+    family: "saas-opus",
+    css: "theme-dark.css",
+    fonts: [
+      ["Hanken Grotesk", 400, "HankenGrotesk-400-normal-latin.woff2"],
+      ["Hanken Grotesk", 500, "HankenGrotesk-500-normal-latin.woff2"],
+      ["Hanken Grotesk", 600, "HankenGrotesk-600-normal-latin.woff2"],
+      ["JetBrains Mono", 400, "JetBrainsMono-400-normal-latin.woff2"],
+      ["JetBrains Mono", 500, "JetBrainsMono-500-normal-latin.woff2"],
+    ],
+    blurb: "暗色专注：浮层靠亮度分层而非重投影。",
+  },
+  {
+    slug: "terra",
+    dir: "saas-opus-art-terra",
+    family: "saas-opus-art",
+    css: "art-terra.css",
+    fonts: [
+      ["Onest", 400, "Onest-400-normal-latin.woff2"],
+      ["Onest", 500, "Onest-500-normal-latin.woff2"],
+      ["Onest", 600, "Onest-600-normal-latin.woff2"],
+      ["Sometype Mono", 400, "SometypeMono-400-normal-latin.woff2"],
+      ["Sometype Mono", 500, "SometypeMono-500-normal-latin.woff2"],
+    ],
+    blurb: "陶土触感：挤出的控件、真实按陷、带回弹的弹簧曲线。",
+  },
+  {
+    slug: "aurora",
+    dir: "saas-opus-art-aurora",
+    family: "saas-opus-art",
+    css: "art-aurora.css",
+    js: "art-aurora.js",
+    fonts: [
+      ["Schibsted Grotesk", 400, "SchibstedGrotesk-400-normal-latin.woff2"],
+      ["Schibsted Grotesk", 500, "SchibstedGrotesk-500-normal-latin.woff2"],
+      ["Schibsted Grotesk", 700, "SchibstedGrotesk-700-normal-latin.woff2"],
+      ["DM Mono", 400, "DMMono-400-normal-latin.woff2"],
+      ["DM Mono", 500, "DMMono-500-normal-latin.woff2"],
+    ],
+    blurb: "极光玻璃：漂移光场之上一整片磨砂，面板靠透明度分层。",
+  },
+  {
+    slug: "blueprint",
+    dir: "saas-opus-art-blueprint",
+    family: "saas-opus-art",
+    css: "art-blueprint.css",
+    fonts: [
+      ["Bricolage Grotesque", 400, "BricolageGrotesque-400-normal-latin.woff2"],
+      ["Bricolage Grotesque", 500, "BricolageGrotesque-500-normal-latin.woff2"],
+      ["Bricolage Grotesque", 600, "BricolageGrotesque-600-normal-latin.woff2"],
+      ["Martian Mono", 400, "MartianMono-400-normal-latin.woff2"],
+      ["Martian Mono", 500, "MartianMono-500-normal-latin.woff2"],
+    ],
+    blurb: "蓝晒制图：双层坐标网格、针管笔线、虚线焦点环。",
+  },
+  {
+    slug: "acid",
+    dir: "saas-opus-art-acid",
+    family: "saas-opus-art",
+    css: "art-acid.css",
+    fonts: [
+      ["Familjen Grotesk", 400, "FamiljenGrotesk-400-normal-latin.woff2"],
+      ["Familjen Grotesk", 500, "FamiljenGrotesk-500-normal-latin.woff2"],
+      ["Familjen Grotesk", 700, "FamiljenGrotesk-700-normal-latin.woff2"],
+      ["Unbounded", 500, "Unbounded-500-normal-latin.woff2"],
+      ["Unbounded", 700, "Unbounded-700-normal-latin.woff2"],
+      ["Space Mono", 400, "SpaceMono-400-normal-latin.woff2"],
+      ["Space Mono", 700, "SpaceMono-700-normal-latin.woff2"],
+    ],
+    blurb: "画廊酸性：零圆角、硬线描边、硬偏移投影，克莱因蓝担全部动作。",
+  },
 ];
 
 const read = (f) => readFileSync(join(here, f), "utf8");
 const base = read("base.css");
 const data = read("data.js");
 const app = read("app.js");
+
+/* Type is not decoration on these studies, it is half the visual system, so
+   the faces travel with the file rather than being approximated by whatever
+   the reviewer happens to have installed. Only the latin subset is inlined —
+   CJK falls through to the system stack, which is what the originals did. */
+const fontDir = join(here, "..", "fonts");
+function faces(list) {
+  if (!list || !list.length) return "";
+  return list
+    .map(([family, weight, file]) => {
+      const path = join(fontDir, file);
+      if (!existsSync(path)) throw new Error(`missing font ${file}`);
+      const b64 = readFileSync(path).toString("base64");
+      return `@font-face{font-family:"${family}";font-style:normal;font-weight:${weight};font-display:swap;src:url(data:font/woff2;base64,${b64}) format("woff2")}`;
+    })
+    .join("\n");
+}
 
 for (const s of STUDIES) {
   /* A study may be a base sheet plus an override layer. The light siblings
@@ -96,6 +220,7 @@ for (const s of STUDIES) {
   const sheets = Array.isArray(s.css) ? s.css : [s.css];
   const theme = sheets.map((f) => `/* --- ${f} --- */\n${read(f)}`).join("\n");
   const artJs = s.js && existsSync(join(here, s.js)) ? read(s.js) : null;
+  const fontCss = faces(s.fonts);
   const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -104,7 +229,7 @@ for (const s of STUDIES) {
 <title>Translunar 工作台 — ${s.family} / ${s.slug}</title>
 <meta name="description" content="${s.blurb}">
 <style>
-/* ===== base.css — structure shared by every visual system ===== */
+${fontCss ? `/* ===== bundled faces for this visual system ===== */\n${fontCss}\n` : ""}/* ===== base.css — structure shared by every visual system ===== */
 ${base}
 /* ===== ${sheets.join(" + ")} — this visual system ===== */
 ${theme}

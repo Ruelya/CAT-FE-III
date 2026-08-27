@@ -1,0 +1,123 @@
+/* DARK — 暗色专注. Ported from the Fable study onto the Opus shared IA.
+   Hanken Grotesk over JetBrains Mono at 13px, 6px radii, a blue-cast dark
+   gray scale. The rule that makes it work: floats separate by luminance, not
+   by shadow — a dialog is lighter than the panel behind it, and the border
+   stays crisp instead of dissolving into a glow. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #121418;
+  --surface: #15171c;
+  --surface-2: #1b1e25;
+  --surface-3: #21252d;
+  --sunken: #0e1014;
+  --chrome: #17191e;
+  --chrome-text: #e6e9ef;
+
+  --border: #2a2e37;
+  --border-soft: #21242b;
+  --border-strong: #3d434f;
+
+  --text: #e6e9ef;
+  --text-muted: #99a1b0;
+  --text-faint: #6d7585;
+
+  --accent: #3e7de8;
+  --accent-strong: #7fb1f7;
+  --accent-soft: rgba(62, 125, 232, 0.2);
+  --accent-faint: rgba(62, 125, 232, 0.1);
+  --on-accent: #ffffff;
+
+  --ok: #43b57e;
+  --ok-soft: rgba(67, 181, 126, 0.16);
+  --warn: #d79f47;
+  --warn-soft: rgba(215, 159, 71, 0.16);
+  --danger: #e2657a;
+  --danger-soft: rgba(226, 101, 122, 0.15);
+  --info: #6ba7d8;
+  --info-soft: rgba(107, 167, 216, 0.15);
+
+  --font-ui: "Hanken Grotesk", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.52;
+  --lh-tight: 1.3;
+
+  --label-weight: 600;
+  --label-tracking: 0.02em;
+  --strong-weight: 600;
+
+  --titlebar-h: 30px;
+  --ribbon-h: 56px;
+  --status-h: 26px;
+  --tab-h: 30px;
+  --row-h: 34px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 23px;
+  --rail-left: 260px;
+  --rail-right: 330px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 11px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 20px 56px rgba(0, 0, 0, 0.62);
+  --focus: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
+  --scrim: rgba(6, 8, 11, 0.62);
+
+  --row-hover: rgba(255, 255, 255, 0.035);
+  --row-active: var(--accent-faint);
+  --dur: 130ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+}
+
+/* Floats rise by luminance. The border does the separating, so the shadow can
+   stay quiet instead of smearing the panel underneath. */
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+.dialog__head,
+.dialog__foot,
+.palette__inputwrap,
+.palette__foot {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.docktabs [role="tab"][data-active] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+.btn--outline {
+  background: transparent;
+}
+/* The layout preview is a lit sheet on a dark desk. */
+.preview__page {
+  background: #f6f7f9;
+  color: #16181d;
+  box-shadow: var(--shadow-2);
+}
