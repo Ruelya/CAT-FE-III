@@ -33,7 +33,9 @@
   --tl-status-info: #62b8d8;
   --tl-status-info-soft: rgba(98, 184, 216, 0.15);
   --tl-color-scrim: rgba(4, 10, 16, 0.5);
-  --tl-font-ui: "Schibsted Grotesk", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Schibsted Grotesk", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
   --tl-font-mono: "DM Mono", ui-monospace, monospace;
   --tl-text-xs: 10.5px;
   --tl-text-sm: 11.5px;
@@ -53,7 +55,8 @@
   --tl-shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.3);
   --tl-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.45);
   --tl-shadow-overlay: 0 30px 80px rgba(0, 0, 0, 0.6);
-  --tl-focus-ring: 0 0 0 2px rgba(52, 227, 176, 0.4), 0 0 14px rgba(52, 227, 176, 0.45);
+  --tl-focus-ring:
+    0 0 0 2px rgba(52, 227, 176, 0.4), 0 0 14px rgba(52, 227, 176, 0.45);
   --tl-border-hairline: 1px solid var(--tl-color-border);
   --tl-motion-fast: 120ms;
   --tl-motion-base: 180ms;

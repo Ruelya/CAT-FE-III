@@ -33,7 +33,9 @@
   --tl-status-info: #2e7186;
   --tl-status-info-soft: rgba(59, 142, 165, 0.14);
   --tl-color-scrim: rgba(46, 42, 35, 0.34);
-  --tl-font-ui: "Onest", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Onest", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
   --tl-font-mono: "Sometype Mono", ui-monospace, monospace;
   --tl-text-xs: 10.5px;
   --tl-text-sm: 12px;
@@ -50,9 +52,14 @@
   --tl-tab-h: 32px;
   --tl-rail-left: 264px;
   --tl-rail-right: 336px;
-  --tl-shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(122, 106, 84, 0.18);
-  --tl-shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 24px rgba(122, 106, 84, 0.24), 0 2px 6px rgba(122, 106, 84, 0.14);
-  --tl-shadow-overlay: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 26px 60px rgba(96, 82, 62, 0.32), 0 4px 12px rgba(96, 82, 62, 0.16);
+  --tl-shadow-raised:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(122, 106, 84, 0.18);
+  --tl-shadow-pop:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 10px 24px rgba(122, 106, 84, 0.24), 0 2px 6px rgba(122, 106, 84, 0.14);
+  --tl-shadow-overlay:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 26px 60px rgba(96, 82, 62, 0.32),
+    0 4px 12px rgba(96, 82, 62, 0.16);
   --tl-focus-ring: 0 0 0 2px rgba(184, 92, 56, 0.24), 0 0 0 3px #b85c38;
   --tl-border-hairline: 1px solid var(--tl-color-border);
   --tl-motion-fast: 144ms;

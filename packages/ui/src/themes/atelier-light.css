@@ -33,7 +33,9 @@
   --tl-status-info: #3b5f80;
   --tl-status-info-soft: rgba(59, 95, 128, 0.14);
   --tl-color-scrim: rgba(96, 82, 52, 0.28);
-  --tl-font-ui: "C059", "Century Schoolbook", "Noto Serif", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", serif;
+  --tl-font-ui:
+    "C059", "Century Schoolbook", "Noto Serif", "PingFang SC",
+    "Noto Sans CJK SC", "WenQuanYi Micro Hei", serif;
   --tl-font-mono: "Nimbus Mono PS", "JetBrains Mono", ui-monospace, monospace;
   --tl-text-xs: 10.5px;
   --tl-text-sm: 12px;

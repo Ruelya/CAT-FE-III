@@ -33,7 +33,9 @@
   --tl-status-info: #6ba7d8;
   --tl-status-info-soft: rgba(107, 167, 216, 0.15);
   --tl-color-scrim: rgba(6, 8, 11, 0.62);
-  --tl-font-ui: "Hanken Grotesk", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Hanken Grotesk", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
   --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
   --tl-text-xs: 10.5px;
   --tl-text-sm: 11.5px;

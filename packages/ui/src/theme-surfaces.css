@@ -191,10 +191,23 @@
    lighter fill. Both stay more opaque than a marketing page would: this is
    read for eight hours. */
 
+/* The shell sits above the ambient field whatever the DOM order, and it is
+   transparent so the field reads through the panes rather than around them.
+   The blur belongs on the panes, not here: a viewport-wide backdrop filter
+   flattens the field before any pane gets to refract it. */
 [data-theme="aurora"] .app-shell,
 [data-theme="vitrine"] .app-shell {
-  -webkit-backdrop-filter: saturate(1.3) blur(24px);
-  backdrop-filter: saturate(1.3) blur(24px);
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+/* The centre pane is the largest sheet of glass in the window, so it is the
+   one that has to stay translucent or the field only survives at the edges. */
+[data-theme="aurora"] .segment-grid,
+[data-theme="aurora"] .workbench,
+[data-theme="vitrine"] .segment-grid,
+[data-theme="vitrine"] .workbench {
+  background: transparent;
 }
 [data-theme="aurora"] .tl-dialog,
 [data-theme="aurora"] .palette,

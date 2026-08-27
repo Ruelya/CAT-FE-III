@@ -5,6 +5,7 @@ import type { Document, SegmentCounts } from "@translunar/contracts";
 import { buildDocTree, docTreeDirKeys } from "./doc-tree.js";
 
 function doc(id: string, relativePath: string, name?: string): Document {
+  /* Document carries an index signature, so the literal is the whole type. */
   return {
     currentVersion: 1,
     degradation: [],
@@ -12,15 +13,15 @@ function doc(id: string, relativePath: string, name?: string): Document {
     format: "docx",
     id,
     importedAtMs: 0,
-    name: name ?? relativePath.split("/").pop()!,
+    name: name ?? relativePath.split("/").pop() ?? relativePath,
     projectId: "p1",
     relativePath,
     revision: 1,
     segmentCount: 3,
     sourceSha256: "",
-    status: "ready",
+    status: "active",
     updatedAtMs: 0,
-  } as Document;
+  };
 }
 
 function counts(
@@ -34,7 +35,7 @@ function counts(
     draft: 0,
     untranslated: total - confirmed,
     openIssues,
-  } as SegmentCounts;
+  };
 }
 
 describe("buildDocTree", () => {

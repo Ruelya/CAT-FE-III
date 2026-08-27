@@ -33,7 +33,9 @@
   --tl-status-info: #93a9cc;
   --tl-status-info-soft: rgba(147, 169, 204, 0.15);
   --tl-color-scrim: rgba(4, 6, 10, 0.66);
-  --tl-font-ui: "Public Sans", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
+  --tl-font-ui:
+    "Public Sans", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    sans-serif;
   --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
   --tl-text-xs: 10.5px;
   --tl-text-sm: 11.5px;

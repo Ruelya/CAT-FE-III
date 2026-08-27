@@ -33,7 +33,9 @@
   --tl-status-info: #79b8e8;
   --tl-status-info-soft: rgba(121, 184, 232, 0.14);
   --tl-color-scrim: rgba(5, 18, 34, 0.6);
-  --tl-font-ui: "Bricolage Grotesque", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Bricolage Grotesque", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
   --tl-font-mono: "Martian Mono", ui-monospace, monospace;
   --tl-text-xs: 10px;
   --tl-text-sm: 11px;

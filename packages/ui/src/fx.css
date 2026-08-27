@@ -20,7 +20,11 @@
 .fx-layer {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  /* Above the app's own popovers (30) and below every modal surface —
+     dialog backdrop 40, engine gate 50, palette 60. A theme picker whose
+     swatches were scanned by the active theme's own CRT would be lying
+     about what each theme looks like. */
+  z-index: 35;
   pointer-events: none;
   display: none;
 }
@@ -135,24 +139,30 @@
    The drifting field behind the glass themes and the slow breath under
    atelier's brass. This one is movement, so reduced-motion freezes it. */
 
+/*
+ * The field belongs behind the glass, not over the reader's text. The shell
+ * is lifted to z-index 1 in theme-surfaces.css so DOM order stops deciding
+ * this, and the field shows through the panes' translucency rather than
+ * tinting the ink on top of them.
+ */
 [data-fx-ambient="on"] .fx-layer--ambient {
   display: block;
   z-index: 0;
   background:
     radial-gradient(
       42vw 42vw at 18% 22%,
-      var(--fx-ambient-a, rgba(52, 227, 176, 0.22)),
-      transparent 70%
+      var(--fx-ambient-a, rgba(52, 227, 176, 0.55)),
+      transparent 68%
     ),
     radial-gradient(
       38vw 38vw at 82% 14%,
-      var(--fx-ambient-b, rgba(58, 158, 214, 0.2)),
-      transparent 70%
+      var(--fx-ambient-b, rgba(58, 158, 214, 0.5)),
+      transparent 68%
     ),
     radial-gradient(
       46vw 46vw at 70% 86%,
-      var(--fx-ambient-c, rgba(38, 178, 132, 0.18)),
-      transparent 70%
+      var(--fx-ambient-c, rgba(38, 178, 132, 0.45)),
+      transparent 68%
     );
   animation: fx-drift 44s ease-in-out infinite alternate;
 }
@@ -165,26 +175,36 @@
   }
 }
 [data-theme="vitrine"] {
-  --fx-ambient-a: rgba(10, 127, 150, 0.16);
-  --fx-ambient-b: rgba(120, 180, 210, 0.2);
-  --fx-ambient-c: rgba(160, 205, 200, 0.18);
+  --fx-ambient-a: rgba(96, 186, 205, 0.6);
+  --fx-ambient-b: rgba(126, 173, 220, 0.55);
+  --fx-ambient-c: rgba(150, 210, 196, 0.6);
 }
+[data-theme="aurora"] {
+  --fx-ambient-a: rgba(52, 227, 176, 0.5);
+  --fx-ambient-b: rgba(58, 158, 214, 0.46);
+  --fx-ambient-c: rgba(122, 96, 214, 0.34);
+}
+/* The dark themes read their field as a glow rather than a wash, so it stays
+   an order of magnitude quieter than the glass ones. */
 [data-theme="atelier"] {
-  --fx-ambient-a: rgba(200, 162, 74, 0.14);
-  --fx-ambient-b: rgba(120, 86, 40, 0.16);
-  --fx-ambient-c: rgba(70, 52, 26, 0.2);
+  --fx-ambient-a: rgba(200, 162, 74, 0.16);
+  --fx-ambient-b: rgba(120, 86, 40, 0.18);
+  --fx-ambient-c: rgba(70, 52, 26, 0.22);
 }
 [data-theme="phosphor"] {
-  --fx-ambient-a: rgba(255, 179, 64, 0.12);
-  --fx-ambient-b: rgba(120, 200, 120, 0.1);
-  --fx-ambient-c: rgba(255, 140, 40, 0.1);
+  --fx-ambient-a: rgba(255, 179, 64, 0.14);
+  --fx-ambient-b: rgba(120, 200, 120, 0.12);
+  --fx-ambient-c: rgba(255, 140, 40, 0.12);
 }
 
-/* The glass themes read their field through the shell, so the shell has to
-   stop being opaque when the field is on. */
-[data-theme="aurora"][data-fx-ambient="on"] .app-shell,
-[data-theme="vitrine"][data-fx-ambient="on"] .app-shell {
-  background: transparent;
+/* The glass themes need an opaque desk under the field — the panes are
+   translucent all the way down, so without one the field would sit on the
+   window's default white and the whole argument would collapse. */
+[data-theme="aurora"] body {
+  background: #060a10;
+}
+[data-theme="vitrine"] body {
+  background: #dbe6ea;
 }
 
 @media (prefers-reduced-motion: reduce) {

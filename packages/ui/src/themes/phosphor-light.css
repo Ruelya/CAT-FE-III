@@ -33,8 +33,11 @@
   --tl-status-info: #17627a;
   --tl-status-info-soft: rgba(23, 98, 122, 0.14);
   --tl-color-scrim: rgba(60, 74, 62, 0.3);
-  --tl-font-ui: "JetBrains Mono", "Cascadia Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
-  --tl-font-mono: "JetBrains Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
+  --tl-font-ui:
+    "JetBrains Mono", "Cascadia Mono", "WenQuanYi Micro Hei Mono", ui-monospace,
+    monospace;
+  --tl-font-mono:
+    "JetBrains Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
   --tl-text-xs: 10px;
   --tl-text-sm: 11.5px;
   --tl-text-md: 12.5px;
@@ -51,8 +54,10 @@
   --tl-rail-left: 272px;
   --tl-rail-right: 340px;
   --tl-shadow-raised: none;
-  --tl-shadow-pop: 0 0 0 1px rgba(23, 98, 122, 0.16), 0 12px 32px -14px rgba(30, 44, 36, 0.45);
-  --tl-shadow-overlay: 0 0 0 1px rgba(23, 98, 122, 0.2), 0 30px 70px -26px rgba(30, 44, 36, 0.5);
+  --tl-shadow-pop:
+    0 0 0 1px rgba(23, 98, 122, 0.16), 0 12px 32px -14px rgba(30, 44, 36, 0.45);
+  --tl-shadow-overlay:
+    0 0 0 1px rgba(23, 98, 122, 0.2), 0 30px 70px -26px rgba(30, 44, 36, 0.5);
   --tl-focus-ring: 0 0 0 1px #9a5b00, 0 0 0 3px rgba(154, 91, 0, 0.22);
   --tl-border-hairline: 1px solid var(--tl-color-border);
   --tl-motion-fast: 56ms;

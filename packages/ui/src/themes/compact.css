@@ -33,7 +33,9 @@
   --tl-status-info: #2f5c8a;
   --tl-status-info-soft: #e4ecf4;
   --tl-color-scrim: rgba(22, 24, 29, 0.3);
-  --tl-font-ui: "Geist", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Geist", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
   --tl-font-mono: "Geist Mono", ui-monospace, monospace;
   --tl-text-xs: 10px;
   --tl-text-sm: 11px;

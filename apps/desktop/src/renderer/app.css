@@ -676,7 +676,7 @@ button.app-statusbar__jump:hover {
 .theme-picker__id {
   font-family: var(--tl-font-mono);
   font-size: var(--tl-text-xs);
-  color: var(--tl-color-text-faint);
+  color: var(--tl-color-text-muted);
 }
 .theme-picker__fx {
   display: grid;

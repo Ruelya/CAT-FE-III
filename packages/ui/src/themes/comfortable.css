@@ -33,7 +33,9 @@
   --tl-status-info: #2f6386;
   --tl-status-info-soft: #e5eef3;
   --tl-color-scrim: rgba(29, 36, 34, 0.3);
-  --tl-font-ui: "Figtree", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-ui:
+    "Figtree", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
   --tl-font-mono: "Spline Sans Mono", ui-monospace, monospace;
   --tl-text-xs: 11px;
   --tl-text-sm: 12.5px;

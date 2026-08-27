@@ -3,6 +3,8 @@ import type { CSSProperties } from "react";
 
 import {
   IconChevronRight,
+  IconChevronsDown,
+  IconChevronsUp,
   IconClipboardCheck,
   IconDatabase,
   IconFileText,
@@ -1368,6 +1370,15 @@ export function WorkbenchView({
     });
   }, []);
   const searching = fileQuery.trim().length > 0;
+  const dirKeys = useMemo(
+    () => docTreeDirKeys(visibleDocuments),
+    [visibleDocuments],
+  );
+  const allCollapsed =
+    dirKeys.length > 0 && dirKeys.every((key) => collapsedDirs.has(key));
+  const toggleAllDirs = useCallback(() => {
+    setCollapsedDirs(allCollapsed ? new Set() : new Set(dirKeys));
+  }, [allCollapsed, dirKeys]);
   const docTree = useMemo(
     () =>
       buildDocTree(
@@ -2125,6 +2136,24 @@ export function WorkbenchView({
           >
             <header className="explorer__heading">
               <h2 className="explorer__caption">文件</h2>
+              {/* Only offered when the tree has folders to fold. */}
+              {dirKeys.length > 0 ? (
+                <button
+                  type="button"
+                  className="explorer__gear"
+                  aria-label={
+                    allCollapsed ? "展开全部文件夹" : "折叠全部文件夹"
+                  }
+                  title={allCollapsed ? "展开全部" : "折叠全部"}
+                  onClick={toggleAllDirs}
+                >
+                  {allCollapsed ? (
+                    <IconChevronsDown size={15} stroke={1.75} aria-hidden />
+                  ) : (
+                    <IconChevronsUp size={15} stroke={1.75} aria-hidden />
+                  )}
+                </button>
+              ) : null}
             </header>
             {documents.length > 0 ? (
               <input
