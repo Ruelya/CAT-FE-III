@@ -918,9 +918,15 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   await expect(page.getByRole("button", { name: "添加术语" })).toBeVisible();
 
   // 返回项目列表 lands on the full-bleed projects list, with the project
-  // created earlier as a hairline row at workbench density.
+  // created earlier as a hairline row at workbench density, plus the
+  // 继续 chip pointing back at it.
   expect(await clickMenuItem("返回项目列表")).toBe(true);
-  await expect(page.getByRole("button", { name: /演示项目/ })).toBeVisible();
+  await expect(
+    page.locator(".project-list__item", { hasText: "演示项目" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "继续「演示项目」" }),
+  ).toBeVisible();
   await shot("16-projects-list.png");
 });
 
@@ -928,8 +934,9 @@ test("application menu mirrors workbench state and shortcuts", async () => {
 // export above went through with open findings); switched on in project
 // settings it refuses the export, and only the explicit 仍要导出 passes.
 test("export gate refuses on QA errors until the user decides", async () => {
-  // Re-enter the project and open words.txt (rows: 2 confirmed, 1 empty).
-  await page.getByRole("button", { name: /演示项目/ }).click();
+  // Re-enter the project through the 继续 chip and open words.txt
+  // (rows: 2 confirmed, 1 empty).
+  await page.getByRole("button", { name: "继续「演示项目」" }).click();
   const rows = page.locator(".segment-grid tbody tr");
   await page
     .locator(".document-list__select", { hasText: "words.txt" })
