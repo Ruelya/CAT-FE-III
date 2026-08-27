@@ -1023,9 +1023,7 @@ describe("WorkbenchView segment navigation", () => {
       expect(confirmed).toBe(1);
     });
     await waitFor(() => {
-      expect(onStatusMessage).toHaveBeenCalledWith(
-        "句段 #1 已确认并写入 TM",
-      );
+      expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
     });
     // The selection did not move: segment 1's editor is still mounted.
     expect(screen.getByLabelText("句段 1 译文")).toBeInTheDocument();
@@ -1176,9 +1174,10 @@ describe("WorkbenchView segment lock", () => {
     expect(
       screen.getByRole("img", { name: "句段 1 已锁定" }),
     ).toBeInTheDocument();
-    expect(
-      container.querySelector('tr[data-segment-id="s1"]'),
-    ).toHaveAttribute("data-locked", "true");
+    expect(container.querySelector('tr[data-segment-id="s1"]')).toHaveAttribute(
+      "data-locked",
+      "true",
+    );
     expect(screen.queryByLabelText("句段 1 译文")).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "解锁句段" }),
@@ -1395,9 +1394,7 @@ describe("WorkbenchView confirm-time QA", () => {
       shiftKey: true,
     });
     await waitFor(() => {
-      expect(onStatusMessage).toHaveBeenCalledWith(
-        "句段 #1 已确认并写入 TM",
-      );
+      expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
     });
     await waitFor(() => {
       expect(

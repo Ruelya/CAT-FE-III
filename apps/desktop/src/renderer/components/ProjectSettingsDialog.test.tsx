@@ -565,9 +565,7 @@ describe("ProjectSettingsDialog", () => {
       screen.getByRole("button", { name: "卸载术语库 产品术语" }),
     );
     await waitFor(() => {
-      expect(
-        screen.getByText(/术语库「产品术语」已卸载/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/术语库「产品术语」已卸载/)).toBeInTheDocument();
     });
     const detachCall = calls.find(([method]) => method === "termbase.detach");
     expect(detachCall?.[1]).toEqual({ projectId: "p1", termbaseId: "tb1" });
@@ -692,7 +690,9 @@ describe("ProjectSettingsDialog", () => {
     );
     await waitFor(() => {
       expect(
-        screen.getByText(/TM 导出完成（库「主记忆库」）：7 条 → \/tmp\/out.tmx/),
+        screen.getByText(
+          /TM 导出完成（库「主记忆库」）：7 条 → \/tmp\/out.tmx/,
+        ),
       ).toBeInTheDocument();
     });
     // The save dialog gets a sensible default filename derived from the

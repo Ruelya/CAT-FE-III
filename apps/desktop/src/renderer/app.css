@@ -308,8 +308,9 @@ button.app-statusbar__jump:hover {
   --tl-rail-left: 260px;
   --tl-rail-right: 336px;
   display: grid;
-  grid-template-columns:
-    var(--tl-rail-left) 4px minmax(0, 1fr) 4px var(--tl-rail-right);
+  grid-template-columns: var(--tl-rail-left) 4px minmax(0, 1fr) 4px var(
+      --tl-rail-right
+    );
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   background: var(--tl-color-surface-raised);
@@ -438,11 +439,38 @@ button.app-statusbar__jump:hover {
   gap: var(--tl-space-1);
 }
 
+/* Groups: a labeled column of stacked buttons, separated by a hairline.
+   The label is the same caption the application menu uses, so the toolbar
+   and the menu name the same four regions of work. */
+.ribbon__group {
+  display: flex;
+  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0;
+}
+.ribbon__group-items {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tl-space-1);
+}
+.ribbon__group-label {
+  flex-basis: 100%;
+  order: 3;
+  padding-top: 1px;
+  text-align: center;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: var(--tl-color-text-faint);
+  user-select: none;
+}
 .ribbon__divider {
   width: 1px;
-  margin: var(--tl-space-2) var(--tl-space-1);
+  margin: var(--tl-space-2) var(--tl-space-2);
   background: var(--tl-color-border);
   flex: none;
+  align-self: stretch;
 }
 
 .ribbon__more {
@@ -538,6 +566,147 @@ button.app-statusbar__jump:hover {
 
 .ribbon__label {
   line-height: 1;
+}
+
+/* ---------------------------------------------------------- theme picker */
+
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-5);
+}
+.theme-picker__caption {
+  margin: 0 0 var(--tl-space-3);
+  font-size: var(--tl-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--tl-color-text-faint);
+}
+.theme-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: var(--tl-space-3);
+}
+.theme-picker__swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--tl-space-3);
+  text-align: left;
+  background: var(--tl-color-surface);
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-md);
+  cursor: pointer;
+  font-family: var(--tl-font-ui);
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    background-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+.theme-picker__swatch:hover {
+  background: var(--tl-color-sunken);
+}
+.theme-picker__swatch[data-active="true"] {
+  border-color: var(--tl-color-accent);
+  box-shadow: inset 0 0 0 1px var(--tl-color-accent);
+}
+.theme-picker__swatch:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+/* The swatch is painted by the theme it selects: the token block is scoped
+   to [data-theme], so a preview attribute on the button is enough. */
+.theme-picker__chip {
+  display: block;
+  height: 44px;
+  border-radius: var(--tl-radius-sm);
+  border: 1px solid var(--tl-color-border);
+  background: var(--tl-color-bg);
+  font-family: var(--tl-font-ui);
+  overflow: hidden;
+}
+.theme-picker__chip-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 13px;
+  padding: 0 4px;
+  background: var(--tl-color-chrome);
+  border-bottom: 1px solid var(--tl-color-border);
+}
+.theme-picker__chip-bar::before,
+.theme-picker__chip-bar::after {
+  content: "";
+  width: 9px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--tl-color-accent);
+}
+.theme-picker__chip-bar::after {
+  width: 16px;
+  background: var(--tl-color-text-faint);
+}
+.theme-picker__chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 5px;
+  background: var(--tl-color-surface);
+}
+.theme-picker__chip-accent {
+  display: block;
+  height: 5px;
+  width: 62%;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-accent);
+}
+.theme-picker__chip-line {
+  display: block;
+  height: 3px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-text-faint);
+  opacity: 0.6;
+}
+.theme-picker__chip-line:last-child {
+  width: 74%;
+}
+.theme-picker__name {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+.theme-picker__id {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+.theme-picker__fx {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-2) 0;
+  cursor: pointer;
+}
+.theme-picker__fx-label {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+.theme-picker__fx-hint {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+.theme-picker__reset {
+  align-self: flex-start;
+  margin-top: var(--tl-space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent);
+  cursor: pointer;
+}
+.app-statusbar__theme {
+  color: var(--tl-color-text);
 }
 
 .ribbon__spacer {
@@ -750,6 +919,55 @@ button.app-statusbar__jump:hover {
 .document-list {
   display: flex;
   flex-direction: column;
+}
+
+/* Folder rows. The tree is derived from each document's relativePath, so a
+   flat import stays a flat list — the indentation always means something. */
+.document-list__dir {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  width: 100%;
+  height: var(--tl-row-h-list);
+  padding-right: var(--tl-space-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  text-align: left;
+}
+.document-list__dir:hover {
+  background: var(--tl-color-row-hover);
+}
+.document-list__dir:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+.document-list__chevron {
+  flex: none;
+  transition: transform var(--tl-motion-fast) var(--tl-ease-standard);
+}
+.document-list__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+.document-list__dir-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-list__dir-count {
+  flex: none;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+.document-list__file-icon {
+  flex: none;
+  margin-right: var(--tl-space-2);
+  vertical-align: -2px;
+  color: var(--tl-color-text-faint);
 }
 
 .document-list__item {
@@ -2091,50 +2309,64 @@ button.app-statusbar__jump:hover {
   line-height: 1.7;
 }
 
+/*
+ * Proofreading chips. Segment state is a filled block, not a line under the
+ * text: an underline competes with the punctuation of the language being
+ * proofread and disappears entirely at the end of a wrapped line. Each state
+ * gets its own fill, the active segment gets a white card with a solid
+ * outline, and no state is ever expressed as a strike-through.
+ */
 .preview__segment {
   display: inline;
   font: inherit;
   line-height: inherit;
   color: inherit;
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid transparent;
-  padding: 0;
-  margin-right: 0.25em;
+  background: var(--tl-chip-untranslated);
+  border: 1px solid transparent;
+  border-radius: var(--tl-radius-md);
+  padding: 2px 6px;
+  margin: 0 0.18em 3px 0;
   cursor: pointer;
   text-align: left;
-  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard);
 }
 
 .preview__segment:hover {
-  background: var(--tl-color-accent-faint);
+  border-color: var(--tl-color-accent);
 }
 
 .preview__segment:focus-visible {
   outline: none;
-  background: var(--tl-color-accent-faint);
   box-shadow: var(--tl-focus-ring);
-  border-radius: 2px;
 }
 
 .preview__segment[data-state="confirmed"] {
-  border-bottom-color: var(--tl-status-ok);
+  background: var(--tl-chip-confirmed);
 }
 
 .preview__segment[data-state="draft"] {
-  border-bottom-color: var(--tl-color-accent);
+  background: var(--tl-chip-draft);
 }
 
+/* Untranslated shows the source instead, so it keeps the untranslated fill
+   and drops to muted ink — the reader can see it is a stand-in without a
+   dashed rule doing the telling. */
 .preview__segment[data-fallback="true"] {
-  color: var(--tl-color-text-faint);
-  border-bottom: 1px dashed var(--tl-status-warn);
+  color: var(--tl-color-text-muted);
+  background: var(--tl-chip-untranslated);
 }
 
 .preview__segment[data-active="true"] {
-  background: var(--tl-color-accent-faint);
-  outline: 1px solid var(--tl-color-accent);
-  outline-offset: 1px;
-  border-radius: 2px;
+  background: var(--tl-chip-active-bg);
+  border-color: var(--tl-chip-active-line);
+}
+
+.preview__block {
+  line-height: 2.15;
 }
 
 /* docx-preview renders its own page chrome inside this container. */

@@ -54,6 +54,29 @@
   --tl-color-accent-faint: var(--tl-blue-accent-faint);
   --tl-color-on-accent: #ffffff;
 
+  /*
+   * Surfaces a theme has to be able to move independently of the base
+   * scale. Chrome is the ribbon/status band, float is what a dialog or a
+   * palette is made of, and row-hover has to stay separable from
+   * surface-active or a hovered row reads as a selected one.
+   */
+  --tl-color-chrome: var(--tl-color-surface);
+  --tl-color-surface-float: var(--tl-color-surface-raised);
+  --tl-color-row-hover: rgba(27, 32, 43, 0.035);
+  --tl-color-scrim: rgba(27, 32, 43, 0.34);
+  --tl-color-scroll-thumb: var(--tl-gray-4);
+  --tl-color-scroll-thumb-hover: var(--tl-gray-5);
+  --tl-color-field-hover: var(--tl-gray-6);
+  --tl-status-info: #355070;
+  --tl-status-info-soft: #e6ebf2;
+
+  /* Proofreading chips: one fill per segment state (see app.css). */
+  --tl-chip-confirmed: var(--tl-status-ok-soft);
+  --tl-chip-draft: var(--tl-color-accent-faint);
+  --tl-chip-untranslated: var(--tl-status-warn-soft);
+  --tl-chip-active-bg: var(--tl-color-surface-raised);
+  --tl-chip-active-line: var(--tl-status-ok);
+
   /* Typography: bundled IBM Plex (fonts.css) + system CJK fallbacks. */
   --tl-font-ui:
     "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC",

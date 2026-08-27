@@ -265,9 +265,7 @@ describe("QaPanel", () => {
     ).toBeInTheDocument();
     // The error-severity rule group renders before the warning one.
     const groups = Array.from(document.querySelectorAll(".issue-group"));
-    expect(
-      groups.map((group) => group.getAttribute("aria-label")),
-    ).toEqual([
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
       "qa.number-mismatch 未解决 2 项",
       "qa.edge-whitespace 未解决 1 项",
     ]);
@@ -340,9 +338,7 @@ describe("QaPanel", () => {
         {...NOOP}
       />,
     );
-    expect(
-      screen.getByText("模糊匹配（82%）未修改即确认"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("模糊匹配（82%）未修改即确认")).toBeInTheDocument();
     // The pinned target text is fingerprint evidence, not a 源 ≠ 译 diff.
     expect(document.querySelectorAll(".issue-card__evidence")).toHaveLength(0);
   });

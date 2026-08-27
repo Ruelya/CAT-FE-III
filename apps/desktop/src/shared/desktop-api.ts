@@ -70,6 +70,12 @@ export interface MenuContext {
   documentOpen: boolean;
 }
 
+/**
+ * The light/dark cast of the active renderer theme. The OS frame is not
+ * themeable, so the most it can do is agree with the workbench underneath it.
+ */
+export type NativeScheme = "light" | "dark";
+
 export interface DesktopApi {
   invoke(method: string, params: unknown): Promise<EngineInvokeResponse>;
   engineStatus(): Promise<EngineStatusPayload>;
@@ -99,6 +105,8 @@ export interface DesktopApi {
   onMenuCommand(listener: (command: MenuCommand) => void): () => void;
   /** Report open-project/document state so menu enablement stays honest. */
   setMenuContext(context: MenuContext): void;
+  /** Report the active theme's cast so the native frame matches it. */
+  setNativeScheme(scheme: NativeScheme): void;
 }
 
 export const IPC_CHANNELS = {
@@ -117,6 +125,7 @@ export const IPC_CHANNELS = {
   previewDocx: "tl:preview:docx",
   menuCommand: "tl:menu:command",
   menuContext: "tl:menu:context",
+  nativeScheme: "tl:window:native-scheme",
 } as const;
 
 declare global {

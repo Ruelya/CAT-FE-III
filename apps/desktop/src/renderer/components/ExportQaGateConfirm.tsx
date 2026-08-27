@@ -39,12 +39,7 @@ export function ExportQaGateConfirm({
         </span>
       </span>
       <span className="export-overwrite__actions">
-        <Button
-          size="sm"
-          variant="danger"
-          disabled={busy}
-          onClick={onOverride}
-        >
+        <Button size="sm" variant="danger" disabled={busy} onClick={onOverride}>
           {busy ? "导出中…" : "仍要导出"}
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>

@@ -101,124 +101,124 @@ export function FindWidget({
         aria-label={mode === "replace" ? "查找替换" : "查找"}
         onKeyDown={onWidgetKeyDown}
       >
-      <button
-        type="button"
-        className="find-widget__toggle"
-        aria-label={mode === "replace" ? "收起替换" : "展开替换"}
-        aria-expanded={mode === "replace"}
-        title={mode === "replace" ? "收起替换" : "展开替换（Ctrl+H）"}
-        onClick={() => onModeChange(mode === "replace" ? "find" : "replace")}
-      >
-        {mode === "replace" ? (
-          <IconChevronDown {...ICON} />
-        ) : (
-          <IconChevronRight {...ICON} />
-        )}
-      </button>
-      <div className="find-widget__rows">
-        <div className="find-widget__row">
-          <input
-            ref={findInputRef}
-            className="find-widget__input"
-            aria-label="查找"
-            placeholder="查找"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) {
-                // Enter mid-IME commits the composed text, not a jump.
-                return;
-              }
-              if (event.key === "Enter") {
-                event.preventDefault();
-                if (event.shiftKey) {
-                  onFindPrev();
-                } else {
-                  onFindNext();
-                }
-              }
-            }}
-          />
-          <span className="find-widget__count tl-num" aria-label="匹配句段数">
-            {hasQuery ? `${matchCount} 段` : ""}
-          </span>
-          <button
-            type="button"
-            className="find-widget__button"
-            aria-label="查找上一个"
-            title="查找上一个（Shift+F4）"
-            disabled={!hasQuery}
-            onClick={onFindPrev}
-          >
-            <IconChevronUp {...ICON} />
-          </button>
-          <button
-            type="button"
-            className="find-widget__button"
-            aria-label="查找下一个"
-            title="查找下一个（F4）"
-            disabled={!hasQuery}
-            onClick={onFindNext}
-          >
+        <button
+          type="button"
+          className="find-widget__toggle"
+          aria-label={mode === "replace" ? "收起替换" : "展开替换"}
+          aria-expanded={mode === "replace"}
+          title={mode === "replace" ? "收起替换" : "展开替换（Ctrl+H）"}
+          onClick={() => onModeChange(mode === "replace" ? "find" : "replace")}
+        >
+          {mode === "replace" ? (
             <IconChevronDown {...ICON} />
-          </button>
-          <button
-            type="button"
-            className="find-widget__button"
-            aria-label="关闭查找"
-            title="关闭（Esc）"
-            onClick={onClose}
-          >
-            <IconX {...ICON} />
-          </button>
-        </div>
-        {mode === "replace" ? (
+          ) : (
+            <IconChevronRight {...ICON} />
+          )}
+        </button>
+        <div className="find-widget__rows">
           <div className="find-widget__row">
             <input
-              ref={replaceInputRef}
+              ref={findInputRef}
               className="find-widget__input"
-              aria-label="替换为"
-              placeholder="替换为"
-              value={replaceWith}
-              onChange={(event) => onReplaceWithChange(event.target.value)}
+              aria-label="查找"
+              placeholder="查找"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) {
+                  // Enter mid-IME commits the composed text, not a jump.
                   return;
                 }
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  onReplace();
+                  if (event.shiftKey) {
+                    onFindPrev();
+                  } else {
+                    onFindNext();
+                  }
                 }
               }}
             />
+            <span className="find-widget__count tl-num" aria-label="匹配句段数">
+              {hasQuery ? `${matchCount} 段` : ""}
+            </span>
             <button
               type="button"
-              className="find-widget__action"
-              disabled={!hasQuery || busy}
-              onClick={onReplace}
+              className="find-widget__button"
+              aria-label="查找上一个"
+              title="查找上一个（Shift+F4）"
+              disabled={!hasQuery}
+              onClick={onFindPrev}
             >
-              替换
+              <IconChevronUp {...ICON} />
             </button>
             <button
               type="button"
-              className="find-widget__action"
-              disabled={!hasQuery || busy}
-              onClick={onReplaceAll}
+              className="find-widget__button"
+              aria-label="查找下一个"
+              title="查找下一个（F4）"
+              disabled={!hasQuery}
+              onClick={onFindNext}
             >
-              全部替换
+              <IconChevronDown {...ICON} />
             </button>
-            <label className="find-widget__checkbox">
-              <input
-                type="checkbox"
-                checked={includeConfirmed}
-                onChange={(event) =>
-                  onIncludeConfirmedChange(event.target.checked)
-                }
-              />
-              含已确认
-            </label>
+            <button
+              type="button"
+              className="find-widget__button"
+              aria-label="关闭查找"
+              title="关闭（Esc）"
+              onClick={onClose}
+            >
+              <IconX {...ICON} />
+            </button>
           </div>
-        ) : null}
+          {mode === "replace" ? (
+            <div className="find-widget__row">
+              <input
+                ref={replaceInputRef}
+                className="find-widget__input"
+                aria-label="替换为"
+                placeholder="替换为"
+                value={replaceWith}
+                onChange={(event) => onReplaceWithChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing) {
+                    return;
+                  }
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onReplace();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="find-widget__action"
+                disabled={!hasQuery || busy}
+                onClick={onReplace}
+              >
+                替换
+              </button>
+              <button
+                type="button"
+                className="find-widget__action"
+                disabled={!hasQuery || busy}
+                onClick={onReplaceAll}
+              >
+                全部替换
+              </button>
+              <label className="find-widget__checkbox">
+                <input
+                  type="checkbox"
+                  checked={includeConfirmed}
+                  onChange={(event) =>
+                    onIncludeConfirmedChange(event.target.checked)
+                  }
+                />
+                含已确认
+              </label>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

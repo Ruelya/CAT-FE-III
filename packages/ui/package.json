@@ -11,6 +11,9 @@
     "./tokens.css": "./src/tokens.css",
     "./fonts.css": "./src/fonts.css",
     "./components.css": "./src/components.css",
+    "./themes.css": "./src/themes.css",
+    "./theme-surfaces.css": "./src/theme-surfaces.css",
+    "./fx.css": "./src/fx.css",
     "./fonts/*": "./fonts/*"
   },
   "scripts": {

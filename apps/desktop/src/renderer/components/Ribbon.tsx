@@ -72,6 +72,22 @@ interface RibbonItem {
 
 const ICON_PROPS = { size: 18, stroke: 1.75, "aria-hidden": true } as const;
 
+/** Splits the visible run into consecutive same-group blocks, in order. */
+function groupRuns(
+  items: readonly RibbonItem[],
+): { group: string; items: RibbonItem[] }[] {
+  const runs: { group: string; items: RibbonItem[] }[] = [];
+  for (const item of items) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === item.group) {
+      last.items.push(item);
+    } else {
+      runs.push({ group: item.group, items: [item] });
+    }
+  }
+  return runs;
+}
+
 export function Ribbon({
   documentOpen,
   busy,
@@ -305,24 +321,39 @@ export function Ribbon({
       ref={containerRef}
     >
       <div className="ribbon__commands" ref={commandsRef}>
-        {visible.map((item, index) => (
-          <span key={item.id} className="ribbon__slot" data-ribbon-id={item.id}>
-            {index > 0 && visible[index - 1]!.group !== item.group ? (
-              <span className="ribbon__divider" />
-            ) : null}
-            <button
-              type="button"
-              className="ribbon__button"
-              title={item.title}
-              disabled={item.disabled}
-              onClick={item.onClick}
-            >
-              <span className="ribbon__icon" aria-hidden="true">
-                {item.icon}
-              </span>
-              <span className="ribbon__label">{item.label}</span>
-            </button>
-          </span>
+        {/* Consecutive items of one group render inside a labeled column, so
+            the toolbar reads as 项目 / 文档 / 编辑 / 审校 rather than as a run
+            of icons. Slots keep their data-ribbon-id and their own width, so
+            the overflow measurement above is unaffected by the grouping. */}
+        {groupRuns(visible).map((run, runIndex) => (
+          <div key={`${run.group}-${runIndex}`} className="ribbon__group">
+            {runIndex > 0 ? <span className="ribbon__divider" /> : null}
+            <div className="ribbon__group-items">
+              {run.items.map((item) => (
+                <span
+                  key={item.id}
+                  className="ribbon__slot"
+                  data-ribbon-id={item.id}
+                >
+                  <button
+                    type="button"
+                    className="ribbon__button"
+                    title={item.title}
+                    disabled={item.disabled}
+                    onClick={item.onClick}
+                  >
+                    <span className="ribbon__icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                    <span className="ribbon__label">{item.label}</span>
+                  </button>
+                </span>
+              ))}
+            </div>
+            <span className="ribbon__group-label" aria-hidden="true">
+              {run.group}
+            </span>
+          </div>
         ))}
         {overflow.length > 0 ? (
           <div className="ribbon__more" ref={moreRef}>

@@ -1,0 +1,65 @@
+/* Generated from art-acid.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="acid"] {
+  color-scheme: light;
+
+  --tl-color-bg: #f2f0e9;
+  --tl-color-surface: #faf9f4;
+  --tl-color-surface-raised: #fdfcf8;
+  --tl-color-surface-float: #ffffff;
+  --tl-color-sunken: #e7e4da;
+  --tl-color-chrome: #f6f4ee;
+  --tl-color-surface-active: rgba(0, 49, 173, 0.09);
+  --tl-color-row-hover: rgba(23, 23, 15, 0.045);
+  --tl-color-border: #17170f;
+  --tl-color-border-strong: #17170f;
+  --tl-color-field-hover: #17170f;
+  --tl-color-text: #17170f;
+  --tl-color-text-muted: #55534a;
+  --tl-color-text-faint: #86837a;
+  --tl-color-accent: #0031ad;
+  --tl-color-accent-strong: #002278;
+  --tl-color-accent-soft: rgba(0, 49, 173, 0.12);
+  --tl-color-accent-faint: rgba(0, 49, 173, 0.06);
+  --tl-color-on-accent: #ffffff;
+  --tl-status-ok: #157f43;
+  --tl-status-ok-soft: rgba(21, 127, 67, 0.13);
+  --tl-status-warn: #b5821b;
+  --tl-status-warn-soft: rgba(181, 130, 27, 0.15);
+  --tl-status-danger: #d2232a;
+  --tl-status-danger-soft: rgba(210, 35, 42, 0.11);
+  --tl-status-info: #0031ad;
+  --tl-status-info-soft: rgba(0, 49, 173, 0.1);
+  --tl-color-scrim: rgba(23, 23, 15, 0.32);
+  --tl-font-ui:
+    "Familjen Grotesk", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-mono: "Space Mono", ui-monospace, monospace;
+  --tl-text-xs: 10px;
+  --tl-text-sm: 11.5px;
+  --tl-text-md: 13px;
+  --tl-text-lg: 15px;
+  --tl-text-xl: 22px;
+  --tl-radius-sm: 0;
+  --tl-radius-md: 0;
+  --tl-row-h-grid: 34px;
+  --tl-ctl-h-md: 28px;
+  --tl-ctl-h-sm: 23px;
+  --tl-ribbon-h: 58px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 31px;
+  --tl-rail-left: 258px;
+  --tl-rail-right: 332px;
+  --tl-shadow-raised: 2px 2px 0 rgba(23, 23, 15, 0.14);
+  --tl-shadow-pop: 4px 4px 0 rgba(23, 23, 15, 0.2);
+  --tl-shadow-overlay: 8px 8px 0 rgba(23, 23, 15, 0.24);
+  --tl-focus-ring: 0 0 0 3px #d9ff4d, 0 0 0 4px #17170f;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 96ms;
+  --tl-motion-base: 144ms;
+  --tl-motion-slow: 204ms;
+  --tl-ease-standard: cubic-bezier(0.3, 0.8, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.3, 0.8, 0.3, 1);
+}

@@ -285,10 +285,7 @@ function installMemoryBridge(state: BridgeState) {
 function twoMountState(): BridgeState {
   return {
     memories: [memory("tm-p1", "主记忆库"), memory("m-b", "领域库")],
-    mounts: [
-      mount("tm-p1", 0, { writable: true }),
-      mount("m-b", 1),
-    ],
+    mounts: [mount("tm-p1", 0, { writable: true }), mount("m-b", 1)],
     entries: [
       entry("e1", "tm-p1", "Hello world.", "你好，世界。"),
       entry("e2", "tm-p1", "Save often.", "经常保存。"),
@@ -449,9 +446,7 @@ describe("TmManageDialog", () => {
       expect(screen.getByLabelText("新建记忆库")).toBeInTheDocument();
     });
     await userEvent.type(screen.getByLabelText("新建记忆库"), "  风格库  ");
-    await userEvent.click(
-      screen.getByRole("button", { name: "新建并挂载" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "新建并挂载" }));
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent(
         "已新建并挂载：风格库（只读）",

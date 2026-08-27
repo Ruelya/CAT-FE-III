@@ -1,0 +1,118 @@
+/* COMPACT — 紧凑光亮. Ported from the Fable study of the same name onto the
+   Opus shared IA. The visual system is Fable's: Geist over Geist Mono at
+   12.5px, 4px radii, hairline rules, almost no shadow, and one calibrated
+   indigo carrying every active state. Hierarchy comes from density, weight
+   and a cool gray scale rather than from colour or elevation. */
+
+:root {
+  --bg: #f4f5f7;
+  --surface: #f7f8fa;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --sunken: #edeef1;
+  --chrome: #fafbfc;
+  --chrome-text: #16181d;
+
+  --border: #dfe1e6;
+  --border-soft: #ebedf0;
+  --border-strong: #c2c6cf;
+
+  --text: #16181d;
+  --text-muted: #5a6070;
+  --text-faint: #858b99;
+
+  --accent: #3b5bdb;
+  --accent-strong: #2f49b0;
+  --accent-soft: #dfe4fa;
+  --accent-faint: #eff2fd;
+  --on-accent: #ffffff;
+
+  --ok: #17794c;
+  --ok-soft: #dcefe5;
+  --warn: #8a5d0c;
+  --warn-soft: #f6ead2;
+  --danger: #b02a2a;
+  --danger-soft: #f8e3e2;
+  --info: #2f5c8a;
+  --info-soft: #e4ecf4;
+
+  --font-ui: "Geist", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
+  --font-num: "Geist Mono", ui-monospace, monospace;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12.5px;
+  --fs-lg: 14px;
+  --fs-xl: 18px;
+  --lh: 1.45;
+  --lh-tight: 1.28;
+
+  --label-weight: 500;
+  --label-tracking: 0.01em;
+  --strong-weight: 600;
+
+  --titlebar-h: 28px;
+  --ribbon-h: 52px;
+  --status-h: 24px;
+  --tab-h: 28px;
+  --row-h: 30px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 22px;
+  --rail-left: 248px;
+  --rail-right: 320px;
+  --cell-pad-y: 6px;
+  --cell-pad-x: 9px;
+
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+
+  --shadow-1: 0 1px 1px rgba(22, 24, 29, 0.04);
+  --shadow-2: 0 2px 6px rgba(22, 24, 29, 0.08);
+  --shadow-3: 0 12px 32px rgba(22, 24, 29, 0.16);
+  --focus: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
+  --scrim: rgba(22, 24, 29, 0.3);
+
+  --row-hover: rgba(22, 24, 29, 0.03);
+  --row-active: var(--accent-faint);
+  --dur: 110ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+}
+
+/* Compact reads its dock tabs as underlines rather than filled pills: at
+   this density a fill is a heavier mark than the thing it selects. */
+.docktabs [role="tab"] {
+  position: relative;
+  background: transparent;
+}
+.docktabs [role="tab"][data-active] {
+  background: transparent;
+  color: var(--accent);
+}
+.docktabs [role="tab"][data-active]::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+/* Density is the whole argument, so the number column gives back what it
+   does not need and the tree runs one step tighter than the shared default. */
+.grid td.c-n,
+.grid th.c-n {
+  padding-right: 6px;
+}
+.tree__row {
+  height: 22px;
+}
+.card,
+.issue,
+.agentsum {
+  box-shadow: none;
+}

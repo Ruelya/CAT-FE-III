@@ -185,7 +185,8 @@ export function QaPanel({
           ...issue.evidence.targetNumbers,
           ...(issue.evidence.targetValues ?? []),
         ];
-    const fix = issue.status === "open" ? fixByIssueId.get(issue.id) : undefined;
+    const fix =
+      issue.status === "open" ? fixByIssueId.get(issue.id) : undefined;
     return (
       <div
         key={issue.id}

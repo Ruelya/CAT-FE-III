@@ -8,6 +8,7 @@ import type {
   EngineStatusPayload,
   MenuCommand,
   MenuContext,
+  NativeScheme,
 } from "../shared/desktop-api.js";
 
 const CHANNELS = {
@@ -26,6 +27,7 @@ const CHANNELS = {
   previewDocx: "tl:preview:docx",
   menuCommand: "tl:menu:command",
   menuContext: "tl:menu:context",
+  nativeScheme: "tl:window:native-scheme",
 } as const;
 
 const api: DesktopApi = {
@@ -114,6 +116,9 @@ const api: DesktopApi = {
   },
   setMenuContext(context: MenuContext): void {
     electron.ipcRenderer.send(CHANNELS.menuContext, context);
+  },
+  setNativeScheme(scheme: NativeScheme): void {
+    electron.ipcRenderer.send(CHANNELS.nativeScheme, scheme);
   },
 };
 

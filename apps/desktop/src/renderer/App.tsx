@@ -7,15 +7,14 @@ import type {
   EngineLifecycleState,
   EngineStatusPayload,
 } from "../shared/desktop-api.js";
+import { AppearanceDialog } from "./components/AppearanceDialog.js";
 import { EngineGate } from "./components/EngineGate.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { TmManageDialog } from "./components/TmManageDialog.js";
+import { useTheme } from "./lib/theme.js";
 import { ProjectsView } from "./views/ProjectsView.js";
 import { WorkbenchView } from "./views/WorkbenchView.js";
-import type {
-  StatJumpTarget,
-  WorkbenchStats,
-} from "./views/WorkbenchView.js";
+import type { StatJumpTarget, WorkbenchStats } from "./views/WorkbenchView.js";
 
 type EngineDotState = "ok" | "busy" | "down";
 
@@ -58,9 +57,10 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [documentOpen, setDocumentOpen] = useState(false);
   const [tmManageOpen, setTmManageOpen] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string>(
-    "Translunar CAT 就绪",
-  );
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const { theme } = useTheme();
+  const [statusMessage, setStatusMessage] =
+    useState<string>("Translunar CAT 就绪");
   // Live document stats reported by the workbench; the status bar shows
   // them as first-class chrome so progress never hides inside a panel.
   const [workbenchStats, setWorkbenchStats] = useState<WorkbenchStats | null>(
@@ -149,6 +149,7 @@ export function App() {
   }, []);
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), []);
+  const handleOpenAppearance = useCallback(() => setAppearanceOpen(true), []);
   const handleOpenTmManage = useCallback(() => setTmManageOpen(true), []);
   const handleCloseProject = useCallback(() => {
     setSettingsOpen(false);
@@ -177,6 +178,7 @@ export function App() {
             onStatsChange={setWorkbenchStats}
             onRegisterStatJump={registerStatJump}
             onOpenSettings={handleOpenSettings}
+            onOpenAppearance={handleOpenAppearance}
             onOpenTmManage={handleOpenTmManage}
             onCloseProject={handleCloseProject}
           />
@@ -308,12 +310,25 @@ export function App() {
               ) : null}
             </>
           ) : null}
+          <button
+            type="button"
+            className="app-statusbar__stat app-statusbar__jump"
+            title="外观与主题"
+            onClick={handleOpenAppearance}
+          >
+            主题 <span className="app-statusbar__theme">{theme.label}</span>
+          </button>
           <span className="app-statusbar__engine">
             <StatusDot state={dotState(engineStatus)} />
             {engineLabel(engineStatus)}
           </span>
         </span>
       </footer>
+
+      <AppearanceDialog
+        open={appearanceOpen}
+        onClose={() => setAppearanceOpen(false)}
+      />
 
       {engineReady ? null : (
         <EngineGate

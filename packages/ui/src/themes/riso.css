@@ -1,0 +1,65 @@
+/* Generated from art-riso.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="riso"] {
+  color-scheme: light;
+
+  --tl-color-bg: #ddd3bf;
+  --tl-color-surface: #f3ece0;
+  --tl-color-surface-raised: #f8f3e9;
+  --tl-color-surface-float: #f8f3e9;
+  --tl-color-sunken: #e5dcca;
+  --tl-color-chrome: #16234f;
+  --tl-color-surface-active: rgba(242, 84, 45, 0.16);
+  --tl-color-row-hover: rgba(242, 84, 45, 0.09);
+  --tl-color-border: #b9ad93;
+  --tl-color-border-strong: #16234f;
+  --tl-color-field-hover: #16234f;
+  --tl-color-text: #16234f;
+  --tl-color-text-muted: #4a5273;
+  --tl-color-text-faint: #8a8397;
+  --tl-color-accent: #16234f;
+  --tl-color-accent-strong: #0c1636;
+  --tl-color-accent-soft: #c3c9dd;
+  --tl-color-accent-faint: #e4e2e6;
+  --tl-color-on-accent: #f8f3e9;
+  --tl-status-ok: #10795a;
+  --tl-status-ok-soft: #cfe3d4;
+  --tl-status-warn: #b8560d;
+  --tl-status-warn-soft: #f5e0c6;
+  --tl-status-danger: #cf2e39;
+  --tl-status-danger-soft: #f6d6d2;
+  --tl-status-info: #2a5ea8;
+  --tl-status-info-soft: #d5dced;
+  --tl-color-scrim: rgba(22, 35, 79, 0.42);
+  --tl-font-ui:
+    "Public Sans", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tl-text-xs: 10.5px;
+  --tl-text-sm: 12px;
+  --tl-text-md: 13px;
+  --tl-text-lg: 15px;
+  --tl-text-xl: 21px;
+  --tl-radius-sm: 0px;
+  --tl-radius-md: 0px;
+  --tl-row-h-grid: 32px;
+  --tl-ctl-h-md: 26px;
+  --tl-ctl-h-sm: 21px;
+  --tl-ribbon-h: 56px;
+  --tl-statusbar-h: 25px;
+  --tl-tab-h: 30px;
+  --tl-rail-left: 258px;
+  --tl-rail-right: 342px;
+  --tl-shadow-raised: none;
+  --tl-shadow-pop: 3px 3px 0 rgba(22, 35, 79, 0.9);
+  --tl-shadow-overlay: 8px 8px 0 rgba(22, 35, 79, 0.9);
+  --tl-focus-ring: 0 0 0 2px #f3ece0, 0 0 0 4px #f2542d;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 72ms;
+  --tl-motion-base: 108ms;
+  --tl-motion-slow: 153ms;
+  --tl-ease-standard: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+}

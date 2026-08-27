@@ -284,9 +284,7 @@ describe("PreviewPane", () => {
     expect(renderDocxPreview).toHaveBeenCalledTimes(1);
 
     // Expanding resumes with the current draft.
-    view.rerender(
-      paneElement({ layoutRefreshDelayMs: 0, segments: edited }),
-    );
+    view.rerender(paneElement({ layoutRefreshDelayMs: 0, segments: edited }));
     await waitFor(() => {
       expect(screen.getByText(/已回填 3 个已译单元/)).toBeInTheDocument();
     });

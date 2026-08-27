@@ -1,0 +1,199 @@
+/* BLUEPRINT — 蓝晒制图. Ported from the Fable art study onto the Opus shared IA.
+   White line on Prussian blue paper. The ground is a two-layer coordinate
+   grid — 6px fine over 30px coarse — and the panels are zones drawn on that
+   one sheet rather than objects placed on top of it, so every surface is the
+   paper at a different transparency. Radii are 2px because a technical pen
+   does not round corners. Headings are drawing titles: caps, wide tracking,
+   a leading tick. Bricolage Grotesque over Martian Mono. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0d2440;
+  --surface: #122c4d;
+  --surface-2: #163457;
+  --surface-3: #1b3d63;
+  --sunken: #0a1e36;
+  --chrome: #0f2846;
+  --chrome-text: #e9f2fc;
+
+  --border: #2d5480;
+  --border-soft: #21446c;
+  --border-strong: #4a7bb0;
+
+  --text: #e9f2fc;
+  --text-muted: #accbe9;
+  --text-faint: #7ba3ca;
+
+  /* Chalk white is the accent: on blueprint paper the drawn line is the
+     figure and everything else is ground. */
+  --accent: #f2f8ff;
+  --accent-strong: #ffffff;
+  --accent-soft: rgba(242, 248, 255, 0.16);
+  --accent-faint: rgba(242, 248, 255, 0.07);
+  --on-accent: #0d2440;
+
+  --ok: #46c986;
+  --ok-soft: rgba(70, 201, 134, 0.15);
+  --warn: #ecb45c;
+  --warn-soft: rgba(236, 180, 92, 0.16);
+  --danger: #e56a75;
+  --danger-soft: rgba(229, 106, 117, 0.15);
+  --info: #79b8e8;
+  --info-soft: rgba(121, 184, 232, 0.14);
+
+  --font-ui: "Bricolage Grotesque", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --font-num: "Martian Mono", ui-monospace, monospace;
+  --font-mono: "Martian Mono", ui-monospace, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12.5px;
+  --fs-lg: 14.5px;
+  --fs-xl: 19px;
+  --lh: 1.5;
+  --lh-tight: 1.28;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.16em;
+  --label-weight: 600;
+  --label-color: var(--text-faint);
+  --strong-weight: 600;
+  --heading-tracking: 0.02em;
+
+  --titlebar-h: 30px;
+  --ribbon-h: 56px;
+  --status-h: 26px;
+  --tab-h: 30px;
+  --row-h: 33px;
+  --ctl-h: 27px;
+  --ctl-h-sm: 22px;
+  --rail-left: 256px;
+  --rail-right: 330px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 11px;
+
+  --r-sm: 1px;
+  --r-md: 2px;
+  --r-lg: 3px;
+
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 6px 20px rgba(3, 14, 28, 0.55);
+  --shadow-3: 0 22px 60px rgba(3, 14, 28, 0.7);
+  --focus: 0 0 0 2px rgba(242, 248, 255, 0.3);
+  --scrim: rgba(5, 18, 34, 0.6);
+
+  --row-hover: rgba(156, 203, 255, 0.06);
+  --row-active: rgba(242, 248, 255, 0.1);
+  --tree-guide: rgba(156, 203, 255, 0.2);
+  --dur: 130ms;
+  --ease: cubic-bezier(0.25, 0.7, 0.3, 1);
+}
+
+/* The paper. Two coordinate grids, coarse over fine, drawn once on the body
+   so every translucent panel above reads as a zone of the same sheet. */
+body {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(156, 203, 255, 0.055) 0 1px,
+      transparent 1px 30px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(156, 203, 255, 0.055) 0 1px,
+      transparent 1px 30px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(156, 203, 255, 0.022) 0 1px,
+      transparent 1px 6px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(156, 203, 255, 0.022) 0 1px,
+      transparent 1px 6px
+    ),
+    var(--bg);
+}
+.app,
+.body {
+  background: transparent;
+}
+.rail--left,
+.rail--right,
+.center {
+  background: rgba(18, 44, 77, 0.82);
+}
+.titlebar,
+.ribbon,
+.statusbar,
+.gridbar,
+.doctabs,
+.docktabs,
+.preview {
+  background: rgba(15, 40, 70, 0.86);
+}
+
+/* Section heads are drawing titles, with the tick a draughtsman puts before
+   a label to anchor it to its leader line. */
+.railsec__head h2,
+.panel__head h3,
+.rgroup__label,
+.gridbar__label {
+  position: relative;
+  padding-left: 10px;
+}
+.railsec__head h2::before,
+.panel__head h3::before,
+.rgroup__label::before,
+.gridbar__label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+/* A pen draws a dashed construction line to show focus, not a glow. */
+:focus-visible {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+/* The active row gets the double annotation rule used to call out a detail. */
+.grid tbody tr[data-active] td.c-n {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 5px 0 0 rgba(242, 248, 255, 0.35);
+}
+.btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn--primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+.mark {
+  border-radius: 1px;
+  background: var(--accent);
+}
+.titlebar__brand {
+  color: var(--accent);
+  letter-spacing: 0.06em;
+}
+kbd,
+.kbdi,
+.dchip {
+  background: rgba(10, 30, 54, 0.8);
+  border-color: var(--border-strong);
+}
+.preview__page {
+  background: #f4f8fd;
+  color: #0d2440;
+}

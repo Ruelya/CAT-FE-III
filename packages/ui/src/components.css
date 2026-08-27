@@ -148,7 +148,7 @@
 }
 
 .tl-field__control:hover:not(:disabled):not(:focus-visible) {
-  border-color: var(--tl-gray-6);
+  border-color: var(--tl-color-field-hover);
 }
 
 .tl-field__control:focus-visible {
@@ -418,7 +418,7 @@ textarea.tl-field__control {
 
 .tl-progress__draft {
   height: 100%;
-  background: var(--tl-blue-accent);
+  background: var(--tl-color-accent);
   opacity: 0.55;
   transition: width var(--tl-motion-slow) var(--tl-ease-out);
 }
@@ -519,14 +519,14 @@ textarea.tl-field__control {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--tl-gray-4);
+  background: var(--tl-color-scroll-thumb);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--tl-gray-5);
+  background: var(--tl-color-scroll-thumb-hover);
   background-clip: content-box;
   border: 3px solid transparent;
 }

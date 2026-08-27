@@ -1,0 +1,65 @@
+/* Generated from art-atelier.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="atelier"] {
+  color-scheme: dark;
+
+  --tl-color-bg: #100f0b;
+  --tl-color-surface: #1a1813;
+  --tl-color-surface-raised: #211e18;
+  --tl-color-surface-float: #262219;
+  --tl-color-sunken: #14120e;
+  --tl-color-chrome: #0d0c09;
+  --tl-color-surface-active: rgba(200, 162, 74, 0.09);
+  --tl-color-row-hover: rgba(240, 215, 154, 0.045);
+  --tl-color-border: #3a342a;
+  --tl-color-border-strong: #554c3a;
+  --tl-color-field-hover: #554c3a;
+  --tl-color-text: #efe7d6;
+  --tl-color-text-muted: #b1a68f;
+  --tl-color-text-faint: #7d745f;
+  --tl-color-accent: #c8a24a;
+  --tl-color-accent-strong: #f0d79a;
+  --tl-color-accent-soft: rgba(200, 162, 74, 0.26);
+  --tl-color-accent-faint: rgba(200, 162, 74, 0.1);
+  --tl-color-on-accent: #171308;
+  --tl-status-ok: #86b98a;
+  --tl-status-ok-soft: rgba(134, 185, 138, 0.14);
+  --tl-status-warn: #d9a566;
+  --tl-status-warn-soft: rgba(217, 165, 102, 0.14);
+  --tl-status-danger: #d97a72;
+  --tl-status-danger-soft: rgba(217, 122, 114, 0.14);
+  --tl-status-info: #9fb3c8;
+  --tl-status-info-soft: rgba(159, 179, 200, 0.14);
+  --tl-color-scrim: rgba(8, 7, 5, 0.74);
+  --tl-font-ui:
+    "C059", "Century Schoolbook", "Noto Serif", "PingFang SC",
+    "Noto Sans CJK SC", "WenQuanYi Micro Hei", serif;
+  --tl-font-mono: "Nimbus Mono PS", "JetBrains Mono", ui-monospace, monospace;
+  --tl-text-xs: 10.5px;
+  --tl-text-sm: 12px;
+  --tl-text-md: 13.5px;
+  --tl-text-lg: 16px;
+  --tl-text-xl: 23px;
+  --tl-radius-sm: 1px;
+  --tl-radius-md: 2px;
+  --tl-row-h-grid: 34px;
+  --tl-ctl-h-md: 27px;
+  --tl-ctl-h-sm: 22px;
+  --tl-ribbon-h: 58px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 32px;
+  --tl-rail-left: 262px;
+  --tl-rail-right: 346px;
+  --tl-shadow-raised: 0 1px 0 rgba(255, 240, 210, 0.045);
+  --tl-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --tl-shadow-overlay: 0 40px 90px rgba(0, 0, 0, 0.78);
+  --tl-focus-ring: 0 0 0 1px #c8a24a, 0 0 14px rgba(200, 162, 74, 0.4);
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 160ms;
+  --tl-motion-base: 240ms;
+  --tl-motion-slow: 340ms;
+  --tl-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
