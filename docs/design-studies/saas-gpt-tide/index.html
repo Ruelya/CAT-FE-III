@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Translunar Workbench — Tide</title>
+    <link rel="stylesheet" href="../saas-gpt-shared/prototype.css" />
+    <style>
+      :root {
+        color-scheme: light;
+        --ui: "Aptos", "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+        --display: "Aptos Display", "Segoe UI Variable Display", "PingFang SC", sans-serif;
+        --bg: #eef3f4;
+        --panel: #fbfdfd;
+        --panel-2: #f5f8f8;
+        --panel-3: #e9f0f1;
+        --line: #d9e2e4;
+        --line-strong: #bdcccf;
+        --text: #17282b;
+        --muted: #64777a;
+        --faint: #849396;
+        --accent: #087c79;
+        --accent-2: #075f5d;
+        --accent-soft: #dff2ef;
+        --selection: #e9f6f4;
+        --good: #147d60;
+        --good-soft: #e3f4ed;
+        --warn: #9d6514;
+        --warn-soft: #fff2d6;
+        --danger: #bc3d46;
+        --danger-soft: #fdebed;
+        --info: #26718a;
+        --info-soft: #e5f2f6;
+        --radius: 6px;
+        --radius-sm: 4px;
+        --left-w: 242px;
+        --right-w: 340px;
+        --grid-row: 80px;
+      }
+
+      .topbar,
+      .statusbar {
+        background: #f9fbfb;
+      }
+
+      .brand__mark {
+        border-radius: 5px;
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .project-title,
+      .panel__title,
+      .dialog__title {
+        letter-spacing: -0.015em;
+      }
+
+      .grid tr[data-active="true"] td {
+        background: linear-gradient(90deg, var(--selection), #f4fbfa);
+      }
+
+      .dock-tab[data-active="true"]::after {
+        right: 20px;
+        left: 20px;
+        border-radius: 2px 2px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="prototype"></div>
+    <script src="../saas-gpt-shared/prototype.js"></script>
+  </body>
+</html>
