@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>User Manual Localization — User_Manual.docx</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --chrome: #fbfcfd;
+        --chrome-2: #f7f9fb;
+        --line: #e1e6eb;
+        --line-2: #d4dbe2;
+        --text: #20262e;
+        --muted: #65707d;
+        --faint: #9aa4af;
+        --blue: #2563eb;
+        --blue-2: #3b82f6;
+        --blue-soft: #eaf4ff;
+        --blue-row: #edf6ff;
+        --green: #19a94b;
+        --green-text: #238144;
+        --green-soft: #e7f7eb;
+        --green-panel: #eaf8ef;
+        --orange: #b6780d;
+        --orange-soft: #fff4d8;
+        --left: 285px;
+        --right: 320px;
+        --menu-h: 40px;
+        --ribbon-h: 73px;
+        --status-h: 46px;
+        --font: "Segoe UI", Arial, "Noto Sans", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 12px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        min-width: 1180px;
+        min-height: 760px;
+      }
+
+      button,
+      input,
+      select {
+        color: inherit;
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 1px solid var(--blue-2);
+        outline-offset: 1px;
+      }
+
+      .icon {
+        width: 17px;
+        height: 17px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.65;
+      }
+
+      .icon--lg {
+        width: 21px;
+        height: 21px;
+      }
+
+      .icon--sm {
+        width: 14px;
+        height: 14px;
+      }
+
+      .icon--xs {
+        width: 12px;
+        height: 12px;
+      }
+
+      .app {
+        display: grid;
+        width: 100vw;
+        height: 100vh;
+        grid-template-rows: var(--menu-h) var(--ribbon-h) minmax(0, 1fr) var(--status-h);
+        background: #fff;
+      }
+
+      .menubar {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfd;
+        user-select: none;
+      }
+
+      .app-menu {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        gap: 1px;
+        padding-left: 9px;
+      }
+
+      .app-menu button {
+        height: 30px;
+        padding: 0 14px;
+        border-radius: 3px;
+        color: #20242b;
+        font-size: 12px;
+      }
+
+      .app-menu button:hover {
+        background: #eef2f6;
+      }
+
+      .window-controls {
+        display: flex;
+        height: 100%;
+        margin-left: auto;
+      }
+
+      .window-control {
+        display: grid;
+        width: 46px;
+        height: 100%;
+        place-items: center;
+        color: #4e5965;
+      }
+
+      .window-control:hover {
+        background: #edf1f5;
+      }
+
+      .window-control:last-child:hover {
+        background: #e81123;
+        color: #fff;
+      }
+
+      .ribbon {
+        display: flex;
+        min-width: 0;
+        align-items: stretch;
+        padding: 4px 7px 5px;
+        border-bottom: 1px solid var(--line-2);
+        background: #fff;
+        box-shadow: 0 1px 3px rgb(30 48 67 / 4%);
+        user-select: none;
+      }
+
+      .ribbon-group {
+        display: flex;
+        align-items: stretch;
+        padding: 0 5px;
+        border-right: 1px solid var(--line);
+      }
+
+      .ribbon-group:first-child {
+        padding-left: 0;
+      }
+
+      .ribbon-action {
+        position: relative;
+        display: flex;
+        min-width: 53px;
+        align-items: center;
+        flex-direction: column;
+        justify-content: center;
+        gap: 5px;
+        padding: 2px 7px 0;
+        border-radius: 4px;
+        color: #315c9c;
+      }
+
+      .ribbon-action:hover {
+        background: #f2f6fb;
+      }
+
+      .ribbon-action span {
+        color: #29313b;
+        font-size: 10px;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .ribbon-action[data-disabled="true"] {
+        color: #b8c0c8;
+        cursor: default;
+      }
+
+      .ribbon-action[data-disabled="true"] span {
+        color: #b8c0c8;
+      }
+
+      .ribbon-action--split {
+        padding-right: 17px;
+      }
+
+      .ribbon-action--split::after {
+        position: absolute;
+        right: 5px;
+        bottom: 10px;
+        border: 3px solid transparent;
+        border-top-color: #697582;
+        content: "";
+      }
+
+      .ribbon-spacer {
+        flex: 1;
+      }
+
+      .ribbon-search {
+        display: flex;
+        width: 215px;
+        height: 32px;
+        align-self: center;
+        align-items: center;
+        gap: 7px;
+        margin: 0 4px 0 10px;
+        padding: 0 8px 0 10px;
+        border: 1px solid var(--line-2);
+        border-radius: 4px;
+        background: #fff;
+        color: var(--muted);
+      }
+
+      .ribbon-search input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .workbench {
+        display: grid;
+        min-height: 0;
+        grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
+      }
+
+      .left-pane {
+        display: grid;
+        min-height: 0;
+        grid-template-rows: 34px 122px 37px minmax(0, 1fr) 24px;
+        border-right: 1px solid var(--line-2);
+        background: #fbfcfd;
+      }
+
+      .pane-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        color: #444c56;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .collapse {
+        color: #67717d;
+      }
+
+      .project-summary {
+        padding: 7px 10px 9px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .project-summary__title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .project-summary__title strong {
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .project-summary p {
+        margin: 0 0 7px;
+        color: #343b44;
+        font-size: 10px;
+      }
+
+      .project-summary p strong {
+        font-weight: 600;
+      }
+
+      .progress-line {
+        height: 5px;
+        margin-top: 10px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: #e1e5e9;
+      }
+
+      .progress-line span {
+        display: block;
+        width: 68%;
+        height: 100%;
+        background: #18ad4b;
+      }
+
+      .file-search {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 26px;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 9px 5px;
+      }
+
+      .file-search input {
+        width: 100%;
+        height: 29px;
+        padding: 0 8px;
+        border: 1px solid var(--line-2);
+        border-radius: 3px;
+        outline: 0;
+        background: #fff;
+        color: #65717f;
+        font-size: 10px;
+      }
+
+      .square-button {
+        display: grid;
+        width: 26px;
+        height: 27px;
+        place-items: center;
+        border: 1px solid var(--line-2);
+        border-radius: 3px;
+        background: #fff;
+        color: #3c74bd;
+      }
+
+      .explorer {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .tree {
+        height: 55.8%;
+        min-height: 296px;
+        padding: 3px 5px 0;
+        overflow: hidden;
+      }
+
+      .tree-row {
+        display: grid;
+        height: 28px;
+        grid-template-columns: 14px 17px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 3px;
+        padding: 0 7px;
+        border-radius: 3px;
+        color: #38424d;
+        font-size: 10px;
+      }
+
+      .tree-row__chevron {
+        color: #66717d;
+        font-size: 10px;
+      }
+
+      .tree-row__name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tree-row__pct {
+        color: #6e7883;
+        font-size: 9px;
+      }
+
+      .tree-row--child {
+        padding-left: 23px;
+      }
+
+      .tree-row--selected {
+        background: #d9ecfc;
+        color: #1e3d61;
+      }
+
+      .tree-icon--folder {
+        color: #e5a82d;
+      }
+
+      .tree-icon--word {
+        color: #2f6fb2;
+      }
+
+      .tree-icon--pdf {
+        color: #df3f47;
+      }
+
+      .tree-icon--txt {
+        color: #9aa3ac;
+      }
+
+      .tree-icon--xls {
+        color: #28a45f;
+      }
+
+      .details {
+        height: 44.2%;
+        min-height: 207px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .details__heading {
+        display: flex;
+        height: 35px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        color: #3d4650;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .details dl {
+        display: grid;
+        grid-template-columns: 106px minmax(0, 1fr);
+        gap: 9px 5px;
+        margin: 12px 10px;
+        color: #4f5965;
+        font-size: 9px;
+      }
+
+      .details dt,
+      .details dd {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .left-footer {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        border-top: 1px solid var(--line-2);
+        background: #fff;
+      }
+
+      .left-footer button {
+        display: grid;
+        place-items: center;
+        color: #667583;
+      }
+
+      .left-footer button[data-active="true"] {
+        border-top: 2px solid #4b93ea;
+        background: #edf5fd;
+        color: #286cb9;
+      }
+
+      .center-pane {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-rows: 39px 48px minmax(0, 1fr) 35px 34px 75px;
+        background: #fff;
+      }
+
+      .document-tabs {
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid var(--line-2);
+        background: #f9fafb;
+      }
+
+      .document-tab {
+        display: flex;
+        width: 193px;
+        align-items: center;
+        gap: 7px;
+        padding: 0 10px;
+        border-right: 1px solid var(--line);
+        background: #fff;
+        color: #303842;
+        font-size: 11px;
+      }
+
+      .document-tab .tab-name {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .document-tab .tab-close {
+        color: #77818c;
+        font-size: 16px;
+      }
+
+      .grid-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .segment-search {
+        display: flex;
+        width: 315px;
+        height: 29px;
+        align-items: center;
+        gap: 6px;
+        padding: 0 7px 0 8px;
+        border: 1px solid var(--line-2);
+        border-radius: 3px;
+        color: #7a8591;
+      }
+
+      .segment-search input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #697582;
+        font-size: 10px;
+      }
+
+      .toolbar-icon {
+        display: grid;
+        width: 22px;
+        height: 25px;
+        place-items: center;
+        color: #3678c7;
+      }
+
+      .grid-toolbar__spacer {
+        flex: 1;
+      }
+
+      .segment-grid-wrap {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .segment-grid {
+        width: 100%;
+        height: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        table-layout: fixed;
+      }
+
+      .segment-grid thead {
+        height: 41px;
+      }
+
+      .segment-grid th {
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line-2);
+        background: #fbfcfd;
+        color: #4a535e;
+        font-size: 10px;
+        font-weight: 650;
+        text-align: left;
+      }
+
+      .segment-grid th:first-child {
+        width: 41px;
+        padding: 0;
+      }
+
+      .segment-grid th:nth-child(2) {
+        width: 40.25%;
+      }
+
+      .segment-grid th:nth-child(4) {
+        width: 125px;
+      }
+
+      .segment-grid td {
+        position: relative;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+        line-height: 1.45;
+        vertical-align: top;
+      }
+
+      .segment-grid td + td {
+        border-left: 1px solid var(--line);
+      }
+
+      .segment-grid td:first-child {
+        padding: 11px 0 0;
+        color: #687582;
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .segment-grid tbody tr:nth-child(1) {
+        height: 101px;
+      }
+
+      .segment-grid tbody tr:nth-child(2),
+      .segment-grid tbody tr:nth-child(3),
+      .segment-grid tbody tr:nth-child(4),
+      .segment-grid tbody tr:nth-child(5),
+      .segment-grid tbody tr:nth-child(6),
+      .segment-grid tbody tr:nth-child(7) {
+        height: 71px;
+      }
+
+      .segment-grid tr.row-highlight td {
+        background: var(--blue-row);
+      }
+
+      .segment-grid tr.row-active td:nth-child(3) {
+        z-index: 2;
+        background: #fff;
+        box-shadow: inset 0 0 0 2px #4792ef;
+      }
+
+      .source,
+      .target {
+        color: #20262e;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .segment-comment {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        margin-top: 7px;
+        color: #7c8793;
+        font-size: 9px;
+      }
+
+      .status-cell {
+        padding-right: 8px !important;
+        padding-left: 20px !important;
+        text-align: center;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        height: 25px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 7px;
+        border: 1px solid #caead4;
+        border-radius: 4px;
+        background: var(--green-soft);
+        color: var(--green-text);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .status-chip--fuzzy {
+        border-color: #d5e7fb;
+        background: #eef6ff;
+        color: #2470c2;
+      }
+
+      .status-chip--mt {
+        border-color: #f0d69b;
+        background: var(--orange-soft);
+        color: var(--orange);
+      }
+
+      .status-origin {
+        display: block;
+        margin-top: 5px;
+        color: #3e4853;
+        font-size: 9px;
+      }
+
+      .cell-more {
+        position: absolute;
+        top: 13px;
+        right: 8px;
+        color: #536170;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .empty-status {
+        color: #808a95;
+        font-size: 18px;
+      }
+
+      .view-tabs {
+        display: flex;
+        align-items: flex-end;
+        gap: 16px;
+        padding-left: 12px;
+        border-top: 1px solid var(--line-2);
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfd;
+      }
+
+      .view-tab {
+        display: flex;
+        height: 34px;
+        align-items: center;
+        padding: 0 2px;
+        color: #65707c;
+        font-size: 10px;
+      }
+
+      .view-tab[data-active="true"] {
+        border-bottom: 2px solid #357cd0;
+        color: #2367b6;
+        font-weight: 650;
+      }
+
+      .comment-tabs {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        color: #707a85;
+        font-size: 10px;
+      }
+
+      .comment-tabs button:first-child {
+        color: #2670c1;
+        font-weight: 650;
+      }
+
+      .comment-tabs__spacer {
+        flex: 1;
+      }
+
+      .comment-body {
+        display: flex;
+        gap: 10px;
+        padding: 11px 13px;
+        background: #fff;
+      }
+
+      .avatar {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        flex: none;
+        place-items: center;
+        border-radius: 50%;
+        background: #dcecff;
+        color: #2975c7;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .comment-content strong {
+        display: block;
+        margin-bottom: 5px;
+        color: #303842;
+        font-size: 11px;
+      }
+
+      .comment-content p {
+        margin: 0 0 4px;
+        color: #3d4650;
+        font-size: 10px;
+      }
+
+      .comment-content time {
+        color: #87919b;
+        font-size: 9px;
+      }
+
+      .right-pane {
+        display: grid;
+        min-height: 0;
+        grid-template-rows: 39px 46px minmax(0, 1fr) 36px 221px;
+        border-left: 1px solid var(--line-2);
+        background: #fff;
+      }
+
+      .right-tabs {
+        display: flex;
+        gap: 23px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--line-2);
+        background: #fbfcfd;
+      }
+
+      .right-tab {
+        position: relative;
+        display: flex;
+        align-items: center;
+        color: #555f6b;
+        font-size: 10px;
+      }
+
+      .right-tab[data-active="true"] {
+        color: #2369b6;
+        font-weight: 650;
+      }
+
+      .right-tab[data-active="true"]::after {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        background: #3982d4;
+        content: "";
+      }
+
+      .memory-picker {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .memory-picker select {
+        width: 100%;
+        height: 30px;
+        padding: 0 27px 0 9px;
+        border: 1px solid var(--line-2);
+        border-radius: 3px;
+        outline: 0;
+        background: #fff;
+        color: #313943;
+        font-size: 10px;
+      }
+
+      .matches {
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .matches-heading {
+        height: 38px;
+        padding: 11px 10px 0;
+        color: #3d4650;
+        font-size: 10px;
+        font-weight: 650;
+      }
+
+      .match-card {
+        min-height: 87px;
+        padding: 9px 10px 8px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .match-card--best {
+        background: var(--green-panel);
+      }
+
+      .match-card strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #27303a;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .match-card p {
+        margin: 0;
+        color: #313a44;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .match-card__score {
+        display: inline-block;
+        margin-right: 8px;
+        color: #2175c4;
+        font-size: 10px;
+        font-weight: 650;
+      }
+
+      .term-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 10px;
+        border-top: 1px solid var(--line-2);
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        color: #3e4650;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .term-table {
+        display: grid;
+        min-height: 0;
+        grid-template-rows: 31px repeat(5, 1fr);
+      }
+
+      .term-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 23px;
+        align-items: center;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        color: #3f4852;
+        font-size: 9px;
+      }
+
+      .term-row--head {
+        color: #6b7580;
+        font-size: 8px;
+      }
+
+      .bookmark {
+        color: #377ac6;
+      }
+
+      .statusbar {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        padding: 0 10px;
+        border-top: 1px solid var(--line-2);
+        background: #fbfcfd;
+        color: #5d6874;
+        font-size: 12px;
+        user-select: none;
+      }
+
+      .statusbar__spacer {
+        flex: 1;
+      }
+
+      .status-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+
+      .status-ok {
+        color: #17a34a;
+      }
+
+      .zoom {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .zoom-track {
+        position: relative;
+        width: 92px;
+        height: 2px;
+        background: #d6dde4;
+      }
+
+      .zoom-track::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 57%;
+        background: #3e86db;
+        content: "";
+      }
+
+      .zoom-thumb {
+        position: absolute;
+        top: -5px;
+        left: 54%;
+        width: 12px;
+        height: 12px;
+        border: 1px solid #c6cdd5;
+        border-radius: 50%;
+        background: #fff;
+      }
+
+      @media (max-width: 1260px) {
+        :root {
+          --left: 248px;
+          --right: 295px;
+        }
+
+        .ribbon-action {
+          min-width: 46px;
+          padding-right: 4px;
+          padding-left: 4px;
+        }
+
+        .ribbon-search {
+          width: 170px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute">
+      <defs>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5" /></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3z" /><path d="M3 7V5h7l2 2" /></symbol>
+        <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h12l3 3v15H4V3z" /><path d="M8 3v6h8V3M8 17h8" /></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0 4 4m-4-4L8 8M5 20h14" /></symbol>
+        <symbol id="i-cut" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="m8.5 7.5 11 8M8.5 16.5 19.5 8" /></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="1" /><path d="M16 8V4H4v12h4" /></symbol>
+        <symbol id="i-paste" viewBox="0 0 24 24"><path d="M9 5h6v4H9z" /><path d="M7 7H5v14h14V7h-2" /></symbol>
+        <symbol id="i-undo" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5" /><path d="M5 12h8a6 6 0 0 1 6 6" /></symbol>
+        <symbol id="i-redo" viewBox="0 0 24 24"><path d="m15 7 5 5-5 5" /><path d="M19 12h-8a6 6 0 0 0-6 6" /></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></symbol>
+        <symbol id="i-replace" viewBox="0 0 24 24"><path d="M4 7h13l-3-3m3 3-3 3M20 17H7l3-3m-3 3 3 3" /></symbol>
+        <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z" /></symbol>
+        <symbol id="i-table" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" /><path d="M4 9h16M9 4v16M14 4v16M4 14h16" /></symbol>
+        <symbol id="i-comment" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4z" /></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /><path d="m9 10 2 2 4-4" /></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.5 1A8 8 0 0 0 14.7 6L14.3 3h-4.6l-.4 3a8 8 0 0 0-1.7 1.1l-2.5-1-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.5-1A8 8 0 0 0 9.3 18l.4 3h4.6l.4-3a8 8 0 0 0 1.7-1.1l2.5 1 2-3.4-2-1.5a7 7 0 0 0 .1-1z" /></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5" /><path d="M19 12a7 7 0 1 1-2-5" /></symbol>
+        <symbol id="i-columns" viewBox="0 0 24 24"><path d="M5 5h4v14H5zM15 5h4v14h-4z" /></symbol>
+        <symbol id="i-lines" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.1M4 12h.1M4 18h.1" /></symbol>
+        <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z" /></symbol>
+        <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M6 19a4 4 0 0 1-.4-8A6.5 6.5 0 0 1 18 9a5 5 0 0 1 0 10z" /></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20v-7h3v7M11 20V8h3v12M17 20V4h3v16M3 20h19" /></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="m8 12 3 3 5-6" /></symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24"><path d="m7 10 5-5 5 5M12 5v14" /></symbol>
+      </defs>
+    </svg>
+
+    <div class="app">
+      <header class="menubar">
+        <nav class="app-menu" aria-label="Application menu">
+          <button>File</button><button>Edit</button><button>View</button><button>Project</button><button>Translate</button><button>Review</button><button>Tools</button><button>Window</button><button>Help</button>
+        </nav>
+        <div class="window-controls">
+          <button class="window-control" aria-label="Minimize">—</button>
+          <button class="window-control" aria-label="Maximize">□</button>
+          <button class="window-control" aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <section class="ribbon" aria-label="Ribbon">
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-file" /></svg><span>New</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg" style="color:#e3a11f"><use href="#i-folder" /></svg><span>Open</span></button>
+          <button class="ribbon-action ribbon-action--split"><svg class="icon icon--lg"><use href="#i-save" /></svg><span>Save</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-download" /></svg><span>Import</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-upload" /></svg><span>Export</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-cut" /></svg><span>Cut</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-copy" /></svg><span>Copy</span></button>
+          <button class="ribbon-action" data-disabled="true"><svg class="icon icon--lg"><use href="#i-paste" /></svg><span>Paste</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-undo" /></svg><span>Undo</span></button>
+          <button class="ribbon-action" data-disabled="true"><svg class="icon icon--lg"><use href="#i-redo" /></svg><span>Redo</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-search" /></svg><span>Find</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-replace" /></svg><span>Replace</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-filter" /></svg><span>Filters</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-table" /></svg><span>Concordance</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-comment" /></svg><span>Comments</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-monitor" /></svg><span>TQA</span></button>
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-grid" /></svg><span>Segment Actions</span></button>
+        </div>
+        <div class="ribbon-group">
+          <button class="ribbon-action"><svg class="icon icon--lg"><use href="#i-more" /></svg><span>More</span></button>
+        </div>
+        <span class="ribbon-spacer"></span>
+        <label class="ribbon-search"><input value="Search (Ctrl+F)" aria-label="Search" /><svg class="icon icon--sm"><use href="#i-search" /></svg></label>
+      </section>
+
+      <main class="workbench">
+        <aside class="left-pane">
+          <header class="pane-heading"><span>Project</span><button class="collapse">⌃</button></header>
+          <section class="project-summary">
+            <div class="project-summary__title"><strong>User Manual Localization</strong><button><svg class="icon icon--sm"><use href="#i-gear" /></svg></button></div>
+            <p><strong>Languages:</strong> EN (US) → DE (DE)</p>
+            <p><strong>Due:</strong> May 30, 2025</p>
+            <p><strong>Progress:</strong> 68%</p>
+            <div class="progress-line"><span></span></div>
+          </section>
+          <div class="file-search"><input value="Search files" aria-label="Search files" /><button class="square-button"><svg class="icon icon--sm"><use href="#i-filter" /></svg></button></div>
+          <section class="explorer">
+            <div class="tree">
+              <div class="tree-row"><span class="tree-row__chevron">⌄</span><svg class="icon icon--sm tree-icon--folder"><use href="#i-folder" /></svg><span class="tree-row__name">01_Source</span><span></span></div>
+              <div class="tree-row tree-row--child tree-row--selected"><span></span><svg class="icon icon--sm tree-icon--word"><use href="#i-file" /></svg><span class="tree-row__name">User_Manual.docx</span><span class="tree-row__pct">68%</span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--pdf"><use href="#i-file" /></svg><span class="tree-row__name">Quick_Start.pdf</span><span class="tree-row__pct">100%</span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--txt"><use href="#i-file" /></svg><span class="tree-row__name">Release_Notes.txt</span><span class="tree-row__pct">45%</span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--xls"><use href="#i-file" /></svg><span class="tree-row__name">FAQ.xlsx</span><span class="tree-row__pct">0%</span></div>
+              <div class="tree-row"><span class="tree-row__chevron">⌄</span><svg class="icon icon--sm tree-icon--folder"><use href="#i-folder" /></svg><span class="tree-row__name">02_Reference</span><span></span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--xls"><use href="#i-file" /></svg><span class="tree-row__name">Glossary_Terms.xlsx</span><span></span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--word"><use href="#i-file" /></svg><span class="tree-row__name">Style_Guide.docx</span><span></span></div>
+              <div class="tree-row"><span class="tree-row__chevron">⌄</span><svg class="icon icon--sm tree-icon--folder"><use href="#i-folder" /></svg><span class="tree-row__name">03_Translation_Memory</span><span></span></div>
+              <div class="tree-row tree-row--child"><span></span><svg class="icon icon--sm tree-icon--word"><use href="#i-file" /></svg><span class="tree-row__name">TM_En-De.sdltm</span><span></span></div>
+              <div class="tree-row"><span class="tree-row__chevron">⌄</span><svg class="icon icon--sm tree-icon--folder"><use href="#i-folder" /></svg><span class="tree-row__name">04_Deliverables</span><svg class="icon icon--sm" style="color:#4f8bd0"><use href="#i-cloud" /></svg></div>
+            </div>
+            <div class="details">
+              <header class="details__heading"><span>Project Details</span><span>⌃</span></header>
+              <dl>
+                <dt>Name</dt><dd>User Manual Localization</dd>
+                <dt>Source Language</dt><dd>English (United States)</dd>
+                <dt>Target Language</dt><dd>German (Germany)</dd>
+                <dt>Created</dt><dd>May 15, 2025</dd>
+                <dt>Created by</dt><dd>Project Manager</dd>
+                <dt>File Count</dt><dd>4</dd>
+                <dt>Total Segments</dt><dd>1,248</dd>
+                <dt>Translated Segments</dt><dd>849 (68%)</dd>
+              </dl>
+            </div>
+          </section>
+          <footer class="left-footer">
+            <button data-active="true"><svg class="icon icon--sm"><use href="#i-lines" /></svg></button>
+            <button><svg class="icon icon--sm"><use href="#i-columns" /></svg></button>
+            <button><svg class="icon icon--sm"><use href="#i-chart" /></svg></button>
+            <button><svg class="icon icon--sm"><use href="#i-gear" /></svg></button>
+          </footer>
+        </aside>
+
+        <section class="center-pane">
+          <div class="document-tabs">
+            <button class="document-tab"><svg class="icon icon--sm" style="color:#2f6fb2"><use href="#i-file" /></svg><span class="tab-name">User_Manual.docx</span><span class="tab-close">×</span></button>
+          </div>
+          <div class="grid-toolbar">
+            <label class="segment-search"><input value="Search in file" aria-label="Search in file" /><span>⌘</span></label>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-filter" /></svg></button>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-columns" /></svg></button>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-table" /></svg></button>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-lines" /></svg></button>
+            <span class="grid-toolbar__spacer"></span>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-refresh" /></svg></button>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-comment" /></svg></button>
+            <button class="toolbar-icon"><svg class="icon"><use href="#i-expand" /></svg></button>
+          </div>
+          <div class="segment-grid-wrap">
+            <table class="segment-grid">
+              <thead><tr><th></th><th>Source: English (United States)</th><th>Target: German (Germany)</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr class="row-highlight">
+                  <td>1</td>
+                  <td><div class="source">Welcome to the User Manual.<br />This guide provides information about the<br />installation and use of the product.</div><div class="segment-comment"><svg class="icon icon--xs"><use href="#i-comment" /></svg>17</div></td>
+                  <td><div class="target">Willkommen im Benutzerhandbuch.<br />Diese Anleitung enthält Informationen zur<br />Installation und Verwendung des Produkts.</div></td>
+                  <td class="status-cell"><span class="status-chip">100%</span><span class="status-origin">TM</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td><div class="source">Before you begin, make sure you read the<br />safety instructions carefully.</div><div class="segment-comment"><svg class="icon icon--xs"><use href="#i-comment" /></svg>3</div></td>
+                  <td><div class="target">Lesen Sie vor Beginn die Sicherheitshinweise<br />sorgfältig durch.</div></td>
+                  <td class="status-cell"><span class="status-chip">100%</span><span class="status-origin">TM</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td><div class="source">The software is compatible with Windows<br />10 and later versions.</div></td>
+                  <td><div class="target">Die Software ist mit Windows 10 und<br />späteren Versionen kompatibel.</div></td>
+                  <td class="status-cell"><span class="status-chip">100%</span><span class="status-origin">TM</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td><div class="source">To install the product, run the setup file<br />as an administrator.</div></td>
+                  <td><div class="target">Um das Produkt zu installieren, führen Sie<br />die Setup-Datei als Administrator aus.</div></td>
+                  <td class="status-cell"><span class="status-chip status-chip--fuzzy">95%</span><span class="status-origin">TM</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr>
+                  <td>5</td>
+                  <td><div class="source">You can customize the installation<br />options in the next step.</div></td>
+                  <td><div class="target">Im nächsten Schritt können Sie die<br />Installationsoptionen anpassen.</div></td>
+                  <td class="status-cell"><span class="status-chip status-chip--fuzzy">85%</span><span class="status-origin">TM</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr class="row-active">
+                  <td>6</td>
+                  <td><div class="source">If you encounter any issues, please refer<br />to the troubleshooting section.</div></td>
+                  <td><div class="target">Wenn Sie Probleme haben, lesen Sie bitte<br />den Abschnitt zur Fehlerbehebung.</div></td>
+                  <td class="status-cell"><span class="status-chip status-chip--mt">MT</span><span class="status-origin">62%</span><span class="cell-more">⋮</span></td>
+                </tr>
+                <tr>
+                  <td>7</td>
+                  <td><div class="source">For more information, visit our website<br />or contact support.</div></td>
+                  <td></td>
+                  <td class="status-cell"><span class="empty-status">—</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <nav class="view-tabs"><button class="view-tab" data-active="true">Text</button><button class="view-tab">Preview</button><button class="view-tab">Source</button></nav>
+          <nav class="comment-tabs"><button>Comments (1)</button><button>Messages (2)</button><span class="comment-tabs__spacer"></span><button>⌄</button></nav>
+          <div class="comment-body">
+            <span class="avatar">R</span>
+            <div class="comment-content"><strong>Reviewer</strong><p>Please check terminology consistency.</p><time>May 16, 2025 10:32</time></div>
+          </div>
+        </section>
+
+        <aside class="right-pane">
+          <nav class="right-tabs"><button class="right-tab" data-active="true">Translation Memory</button><button class="right-tab">Terminology</button></nav>
+          <div class="memory-picker"><select aria-label="Translation memory"><option>TM_En-De.sdltm</option></select><button><svg class="icon icon--sm"><use href="#i-gear" /></svg></button></div>
+          <section class="matches">
+            <div class="matches-heading">100% Match (3)</div>
+            <article class="match-card match-card--best"><strong>Welcome to the User Manual.</strong><p>Willkommen im Benutzerhandbuch.</p></article>
+            <article class="match-card"><strong>The software is compatible with Windows<br />10 and later versions.</strong><p>Die Software ist mit Windows 10 und<br />späteren Versionen kompatibel.</p></article>
+            <article class="match-card"><strong>If you encounter any issues, please refer<br />to the troubleshooting section.</strong><p>Wenn Sie Probleme haben, lesen Sie bitte<br />den Abschnitt zur Fehlerbehebung.</p></article>
+            <article class="match-card"><strong>Fuzzy Matches</strong><p><span class="match-card__score">95%</span>To install the product, run the setup file<br />as an administrator.</p></article>
+            <article class="match-card"><p><span class="match-card__score">85%</span>You can customize the installation<br />options in the next step.</p></article>
+          </section>
+          <header class="term-heading"><span>Term Suggestions</span><button><svg class="icon icon--sm"><use href="#i-gear" /></svg></button></header>
+          <section class="term-table">
+            <div class="term-row term-row--head"><span>English (United States)</span><span>German (Germany)</span><span></span></div>
+            <div class="term-row"><span>installation</span><span>Installation</span><svg class="icon icon--xs bookmark"><use href="#i-bookmark" /></svg></div>
+            <div class="term-row"><span>setup file</span><span>Setup-Datei</span><svg class="icon icon--xs bookmark"><use href="#i-bookmark" /></svg></div>
+            <div class="term-row"><span>administrator</span><span>Administrator</span><svg class="icon icon--xs bookmark"><use href="#i-bookmark" /></svg></div>
+            <div class="term-row"><span>compatibility</span><span>Kompatibilität</span><svg class="icon icon--xs bookmark"><use href="#i-bookmark" /></svg></div>
+            <div class="term-row"><span>troubleshooting</span><span>Fehlerbehebung</span><svg class="icon icon--xs bookmark"><use href="#i-bookmark" /></svg></div>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="statusbar">
+        <span>Segments: 1,248</span><span>Translated: 849 (68%)</span><span>Remaining: 399 (32%)</span><span>Words: 18,732</span>
+        <span class="statusbar__spacer"></span>
+        <span class="status-item status-ok"><svg class="icon icon--sm"><use href="#i-check" /></svg>No issues</span>
+        <span class="status-item"><svg class="icon icon--sm"><use href="#i-bookmark" /></svg>100%</span>
+        <span>INS</span>
+        <span class="status-item"><svg class="icon icon--sm"><use href="#i-columns" /></svg></span>
+        <span class="status-item"><svg class="icon icon--sm"><use href="#i-grid" /></svg></span>
+        <span class="zoom"><span>−</span><span class="zoom-track"><span class="zoom-thumb"></span></span><span>＋</span><span>120%</span></span>
+      </footer>
+    </div>
+
+    <script>
+      document.querySelectorAll(".view-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".view-tab").forEach((item) => {
+            item.dataset.active = String(item === tab);
+          });
+        });
+      });
+      document.querySelectorAll(".right-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".right-tab").forEach((item) => {
+            item.dataset.active = String(item === tab);
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
