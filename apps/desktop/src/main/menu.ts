@@ -19,11 +19,16 @@ function normalizeContext(raw: unknown): MenuContext {
   return {
     projectOpen: record.projectOpen === true,
     documentOpen: record.documentOpen === true,
+    exportGate: record.exportGate === true,
   };
 }
 
 export function installApplicationMenu(): void {
-  let context: MenuContext = { projectOpen: false, documentOpen: false };
+  let context: MenuContext = {
+    projectOpen: false,
+    documentOpen: false,
+    exportGate: false,
+  };
 
   const dispatch = (command: MenuCommand): void => {
     const target =
@@ -48,7 +53,8 @@ export function installApplicationMenu(): void {
     const next = normalizeContext(raw);
     if (
       next.projectOpen === context.projectOpen &&
-      next.documentOpen === context.documentOpen
+      next.documentOpen === context.documentOpen &&
+      next.exportGate === context.exportGate
     ) {
       return;
     }
