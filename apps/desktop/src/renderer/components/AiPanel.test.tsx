@@ -111,10 +111,7 @@ describe("AiPanel", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("模型")).toBeInTheDocument();
     });
-    await userEvent.type(
-      screen.getByLabelText("模型"),
-      "gpt-test",
-    );
+    await userEvent.type(screen.getByLabelText("模型"), "gpt-test");
     await userEvent.type(screen.getByLabelText("API Key"), "sk-test");
     await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
     await waitFor(() => {
@@ -157,10 +154,7 @@ describe("AiPanel", () => {
       expect(screen.getByLabelText("供应商")).toBeInTheDocument();
     });
     await userEvent.selectOptions(screen.getByLabelText("供应商"), "gemini");
-    await userEvent.type(
-      screen.getByLabelText("模型"),
-      "gemini-2.5-flash",
-    );
+    await userEvent.type(screen.getByLabelText("模型"), "gemini-2.5-flash");
     await userEvent.type(
       screen.getByLabelText("Base URL"),
       "https://gateway.example/v1beta",
@@ -207,10 +201,7 @@ describe("AiPanel", () => {
       screen.getByLabelText("供应商"),
       "openaiResponses",
     );
-    await userEvent.type(
-      screen.getByLabelText("模型"),
-      "gpt-5-mini",
-    );
+    await userEvent.type(screen.getByLabelText("模型"), "gpt-5-mini");
     await userEvent.type(
       screen.getByLabelText("Base URL"),
       "https://gateway.example/v1",
@@ -315,7 +306,10 @@ describe("AiPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "应用为草稿" }));
     // The provider model travels with the text so the segment.update can
     // stamp an honest aiDraft origin.
-    expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 继续。", "gpt-test");
+    expect(onApplyDraft).toHaveBeenCalledWith(
+      "点击 {button} 继续。",
+      "gpt-test",
+    );
   });
 
   it("surfaces a failed assist run instead of pretending", async () => {

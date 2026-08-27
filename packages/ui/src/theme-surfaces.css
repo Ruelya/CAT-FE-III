@@ -1,0 +1,288 @@
+/*
+ * The material half of a theme.
+ *
+ * A palette is a token; paper fibre, a pane of glass, a pressed clay button
+ * and a hard offset shadow are not. This sheet carries those, keyed on the
+ * same `data-theme` attribute the generated token sheets use, and targeting
+ * the product's real surfaces — ribbon, explorer, grid, docks, preview,
+ * dialogs, status bar, palette, find widget. Nothing here invents chrome.
+ *
+ * Anything that costs legibility over a long session belongs in fx.css
+ * behind a switch, not here.
+ */
+
+/* ---------------------------------------------------------------- terra --
+   Every control is extruded clay: a highlight on the top edge, an earth
+   shadow beneath, and a real inset when pressed. Motion overshoots once. */
+
+[data-theme="terra"] .tl-button,
+[data-theme="terra"] .filter-chip {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(122, 106, 84, 0.22);
+  transition:
+    transform var(--tl-motion-base) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-base) var(--tl-ease-standard),
+    background-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+[data-theme="terra"] .tl-button:active:not(:disabled),
+[data-theme="terra"] .filter-chip:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(96, 82, 62, 0.28);
+}
+[data-theme="terra"] .tl-button[data-variant="primary"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 6px rgba(164, 79, 46, 0.4);
+}
+[data-theme="terra"] .tl-field__control,
+[data-theme="terra"] .explorer__search,
+[data-theme="terra"] .ribbon__search-box {
+  box-shadow: inset 0 1.5px 3px rgba(122, 106, 84, 0.18);
+}
+[data-theme="terra"] .explorer,
+[data-theme="terra"] .dock-stack {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* ------------------------------------------------------------- blueprint --
+   Panels are zones of one sheet of blueprint paper, so they are translucent
+   over the coordinate grid rather than opaque rectangles on top of it. The
+   grid itself is fibre, and lives in fx.css behind the grain switch. */
+
+[data-theme="blueprint"] .explorer,
+[data-theme="blueprint"] .dock-stack,
+[data-theme="blueprint"] .segment-grid,
+[data-theme="blueprint"] .preview-pane {
+  background: rgba(18, 44, 77, 0.82);
+}
+[data-theme="blueprint"] .ribbon,
+[data-theme="blueprint"] .app-statusbar,
+[data-theme="blueprint"] .grid-toolbar,
+[data-theme="blueprint"] .doc-tabs,
+[data-theme="blueprint"] .dock-tabs {
+  background: rgba(15, 40, 70, 0.86);
+}
+/* A draughtsman anchors a label to its leader line with a tick. */
+[data-theme="blueprint"] .explorer__caption,
+[data-theme="blueprint"] .ribbon__group-label,
+[data-theme="blueprint"] .dock-panel__title {
+  position: relative;
+  padding-left: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+[data-theme="blueprint"] .explorer__caption::before,
+[data-theme="blueprint"] .ribbon__group-label::before,
+[data-theme="blueprint"] .dock-panel__title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--tl-color-border-strong);
+}
+/* Focus is a construction line, not a glow. */
+[data-theme="blueprint"] :focus-visible {
+  outline: 2px dashed var(--tl-color-accent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------------ acid --
+   Hard line on gallery off-white: 1.5px stroke, offset shadow that does not
+   blur, zero radius. Motion is the layout's physics — a control displaces a
+   pixel and its shadow follows. Acid yellow-green is selection only. */
+
+[data-theme="acid"] ::selection {
+  background: #d9ff4d;
+  color: #17170f;
+}
+[data-theme="acid"] .tl-dialog,
+[data-theme="acid"] .palette,
+[data-theme="acid"] .find-widget,
+[data-theme="acid"] .engine-gate__card,
+[data-theme="acid"] .tl-panel,
+[data-theme="acid"] .match-card,
+[data-theme="acid"] .issue-card {
+  border: 1.5px solid var(--tl-color-text);
+}
+[data-theme="acid"] .tl-button,
+[data-theme="acid"] .filter-chip {
+  border: 1.5px solid var(--tl-color-text);
+  transition:
+    transform var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
+}
+[data-theme="acid"] .tl-button:hover:not(:disabled),
+[data-theme="acid"] .filter-chip:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(23, 23, 15, 0.2);
+}
+[data-theme="acid"] .tl-button:active:not(:disabled),
+[data-theme="acid"] .filter-chip:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+[data-theme="acid"] .ribbon,
+[data-theme="acid"] .app-statusbar {
+  border-color: var(--tl-color-text);
+  border-width: 1.5px;
+}
+
+/* --------------------------------------------------------------- ledger --
+   A ruled data sheet: the chrome band is the black masthead and the grid is
+   the only place colour appears. */
+
+[data-theme="ledger"] .ribbon,
+[data-theme="ledger"] .app-statusbar {
+  background: var(--tl-color-chrome);
+  color: #ffffff;
+}
+[data-theme="ledger"] .ribbon .ribbon__label,
+[data-theme="ledger"] .ribbon .ribbon__group-label,
+[data-theme="ledger"] .app-statusbar,
+[data-theme="ledger"] .app-statusbar__message,
+[data-theme="ledger"] .app-statusbar__stat {
+  color: rgba(255, 255, 255, 0.82);
+}
+[data-theme="ledger"] .ribbon__icon {
+  color: #ffffff;
+}
+[data-theme="ledger"] .ribbon__button:hover:not(:disabled),
+[data-theme="ledger"] .app-statusbar__jump:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-theme="ledger"] .ribbon__divider {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ----------------------------------------------------------------- riso --
+   Two-colour screen printing: the chrome band is the ink plate, floats carry
+   a hard mis-registered offset shadow, nothing is rounded. Paper fibre and
+   halftone are fx.grain. */
+
+[data-theme="riso"] .ribbon {
+  background: var(--tl-color-chrome);
+}
+[data-theme="riso"] .ribbon .ribbon__label,
+[data-theme="riso"] .ribbon .ribbon__group-label {
+  color: rgba(248, 243, 233, 0.78);
+}
+[data-theme="riso"] .ribbon__icon {
+  color: #f2542d;
+}
+[data-theme="riso"] .ribbon__button:hover:not(:disabled) {
+  background: rgba(248, 243, 233, 0.14);
+}
+[data-theme="riso"] .ribbon__divider {
+  background: rgba(248, 243, 233, 0.3);
+}
+[data-theme="riso"] .tl-dialog,
+[data-theme="riso"] .palette,
+[data-theme="riso"] .find-widget {
+  border: 1.5px solid var(--tl-color-accent);
+}
+
+/* ---------------------------------------------------------------- glass --
+   aurora and vitrine are the same argument at two temperatures: panels
+   separate by transparency, and a float is a second pane rather than a
+   lighter fill. Both stay more opaque than a marketing page would: this is
+   read for eight hours. */
+
+[data-theme="aurora"] .app-shell,
+[data-theme="vitrine"] .app-shell {
+  -webkit-backdrop-filter: saturate(1.3) blur(24px);
+  backdrop-filter: saturate(1.3) blur(24px);
+}
+[data-theme="aurora"] .tl-dialog,
+[data-theme="aurora"] .palette,
+[data-theme="aurora"] .find-widget,
+[data-theme="aurora"] .engine-gate__card,
+[data-theme="vitrine"] .tl-dialog,
+[data-theme="vitrine"] .palette,
+[data-theme="vitrine"] .find-widget,
+[data-theme="vitrine"] .engine-gate__card {
+  -webkit-backdrop-filter: saturate(1.5) blur(34px);
+  backdrop-filter: saturate(1.5) blur(34px);
+  background: var(--tl-color-surface-float);
+}
+[data-theme="aurora"] .explorer,
+[data-theme="aurora"] .dock-stack,
+[data-theme="aurora"] .preview-pane,
+[data-theme="vitrine"] .explorer,
+[data-theme="vitrine"] .dock-stack,
+[data-theme="vitrine"] .preview-pane {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+/* The grid header has to stay legible while rows scroll under it. */
+[data-theme="aurora"] .segment-grid thead th,
+[data-theme="vitrine"] .segment-grid thead th {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+[data-theme="vitrine"] .tl-button,
+[data-theme="vitrine"] .filter-chip,
+[data-theme="vitrine"] .tl-dialog,
+[data-theme="vitrine"] .palette {
+  border-radius: 12px;
+}
+[data-theme="vitrine"] .tl-dialog,
+[data-theme="vitrine"] .palette {
+  border-radius: 20px;
+}
+/* Specular edge: the light catches the top of a pane of glass. */
+[data-theme="vitrine"] .tl-dialog,
+[data-theme="vitrine"] .palette,
+[data-theme="vitrine"] .engine-gate__card {
+  box-shadow:
+    var(--tl-shadow-overlay),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+/* ------------------------------------------------------------- atelier ---
+   A night gallery: brass, and light raking across a plate. The type is the
+   study's; the grain and the breathing glow are fx. */
+
+[data-theme="atelier"] .ribbon__icon,
+[data-theme="atelier-light"] .ribbon__icon {
+  color: var(--tl-color-accent);
+}
+[data-theme="atelier"] .tl-dialog,
+[data-theme="atelier"] .palette,
+[data-theme="atelier-light"] .tl-dialog,
+[data-theme="atelier-light"] .palette {
+  border-top-color: color-mix(in srgb, var(--tl-color-accent) 45%, transparent);
+}
+
+/* -------------------------------------------------------------- phosphor --
+   A terminal, so the type is monospaced everywhere text is data and the
+   accent is the tube's colour. Scanlines, bloom and refresh are all fx. */
+
+[data-theme="phosphor"] .segment-grid,
+[data-theme="phosphor"] .app-statusbar,
+[data-theme="phosphor-light"] .segment-grid,
+[data-theme="phosphor-light"] .app-statusbar {
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="phosphor"] .ribbon__label,
+[data-theme="phosphor-light"] .ribbon__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* -------------------------------------------------------------- reduced --
+   Cinematic motion is off when the reader asked for less of it; the causal
+   feedback that tells you a control responded stays. */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme] .tl-button:hover:not(:disabled),
+  [data-theme] .tl-button:active:not(:disabled),
+  [data-theme] .filter-chip:hover,
+  [data-theme] .filter-chip:active {
+    transform: none;
+  }
+}

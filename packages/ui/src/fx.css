@@ -1,0 +1,195 @@
+/*
+ * Switchable effects.
+ *
+ * These are the parts of a theme that make it that theme and also the parts
+ * that make it hard to read for eight hours: a CRT's line grid and refresh
+ * roll, a print's paper fibre and halftone, a light field drifting behind
+ * the glass. Each is gated on its own attribute, so a reader can keep
+ * phosphor's palette and monospace and drop the scanlines without leaving
+ * the theme.
+ *
+ *   data-fx-scanlines  CRT line grid, bloom, refresh roll
+ *   data-fx-grain      paper fibre, halftone, noise
+ *   data-fx-ambient    drifting light fields, breathing glow
+ *
+ * Every layer is `pointer-events: none` and sits above the shell but below
+ * dialogs, so nothing here can eat a click or hide a gate. All of it is off
+ * under prefers-reduced-motion when it moves; static texture may stay.
+ */
+
+.fx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: none;
+}
+
+/* ------------------------------------------------------------ scanlines --
+   The line grid is static and the roll is the moving part, so a reader who
+   only objects to the movement can keep the grid via reduced-motion. */
+
+[data-fx-scanlines="on"] .fx-layer--scanlines {
+  display: block;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+[data-theme="phosphor"][data-fx-scanlines="on"] .fx-layer--scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.32) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: normal;
+  opacity: 0.8;
+}
+/* Bloom: a tube's light does not stop at the glyph. */
+[data-theme="phosphor"][data-fx-scanlines="on"] .segment-grid,
+[data-theme="phosphor"][data-fx-scanlines="on"] .app-statusbar {
+  text-shadow: 0 0 6px
+    color-mix(in srgb, var(--tl-color-accent) 45%, transparent);
+}
+/* The refresh roll, one slow pass. */
+[data-fx-scanlines="on"] .fx-layer--scanlines::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 34vh;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.045),
+    transparent
+  );
+  animation: fx-refresh 7.5s linear infinite;
+}
+@keyframes fx-refresh {
+  from {
+    transform: translateY(-40vh);
+  }
+  to {
+    transform: translateY(140vh);
+  }
+}
+
+/* ---------------------------------------------------------------- grain --
+   Paper fibre for riso and atelier, the coordinate grid for blueprint. All
+   static, so it survives reduced-motion: texture is not movement. */
+
+[data-fx-grain="on"] .fx-layer--grain {
+  display: block;
+  opacity: 0.5;
+  background-image: var(--fx-grain-image);
+  background-size: 180px 180px;
+  mix-blend-mode: var(--fx-grain-blend, multiply);
+}
+:root {
+  /* One tiled fractal-noise tile; cheap, and it does not tile visibly at
+     this opacity. */
+  --fx-grain-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+}
+[data-theme="atelier"][data-fx-grain="on"] .fx-layer--grain,
+[data-theme="phosphor"][data-fx-grain="on"] .fx-layer--grain,
+[data-theme="cobalt"][data-fx-grain="on"] .fx-layer--grain {
+  --fx-grain-blend: screen;
+  opacity: 0.16;
+}
+[data-theme="riso"][data-fx-grain="on"] .fx-layer--grain {
+  opacity: 0.34;
+}
+/* Blueprint's texture is not noise but the paper it is printed on: two
+   coordinate grids, coarse over fine. */
+[data-theme="blueprint"][data-fx-grain="on"] .fx-layer--grain {
+  opacity: 1;
+  mix-blend-mode: normal;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(156, 203, 255, 0.055) 0 1px,
+      transparent 1px 30px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(156, 203, 255, 0.055) 0 1px,
+      transparent 1px 30px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(156, 203, 255, 0.022) 0 1px,
+      transparent 1px 6px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(156, 203, 255, 0.022) 0 1px,
+      transparent 1px 6px
+    );
+  background-size: auto;
+}
+
+/* -------------------------------------------------------------- ambient --
+   The drifting field behind the glass themes and the slow breath under
+   atelier's brass. This one is movement, so reduced-motion freezes it. */
+
+[data-fx-ambient="on"] .fx-layer--ambient {
+  display: block;
+  z-index: 0;
+  background:
+    radial-gradient(
+      42vw 42vw at 18% 22%,
+      var(--fx-ambient-a, rgba(52, 227, 176, 0.22)),
+      transparent 70%
+    ),
+    radial-gradient(
+      38vw 38vw at 82% 14%,
+      var(--fx-ambient-b, rgba(58, 158, 214, 0.2)),
+      transparent 70%
+    ),
+    radial-gradient(
+      46vw 46vw at 70% 86%,
+      var(--fx-ambient-c, rgba(38, 178, 132, 0.18)),
+      transparent 70%
+    );
+  animation: fx-drift 44s ease-in-out infinite alternate;
+}
+@keyframes fx-drift {
+  from {
+    transform: translate3d(-3%, -2%, 0) scale(1.06);
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.14);
+  }
+}
+[data-theme="vitrine"] {
+  --fx-ambient-a: rgba(10, 127, 150, 0.16);
+  --fx-ambient-b: rgba(120, 180, 210, 0.2);
+  --fx-ambient-c: rgba(160, 205, 200, 0.18);
+}
+[data-theme="atelier"] {
+  --fx-ambient-a: rgba(200, 162, 74, 0.14);
+  --fx-ambient-b: rgba(120, 86, 40, 0.16);
+  --fx-ambient-c: rgba(70, 52, 26, 0.2);
+}
+[data-theme="phosphor"] {
+  --fx-ambient-a: rgba(255, 179, 64, 0.12);
+  --fx-ambient-b: rgba(120, 200, 120, 0.1);
+  --fx-ambient-c: rgba(255, 140, 40, 0.1);
+}
+
+/* The glass themes read their field through the shell, so the shell has to
+   stop being opaque when the field is on. */
+[data-theme="aurora"][data-fx-ambient="on"] .app-shell,
+[data-theme="vitrine"][data-fx-ambient="on"] .app-shell {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-layer--ambient,
+  [data-fx-scanlines="on"] .fx-layer--scanlines::after {
+    animation: none;
+  }
+}

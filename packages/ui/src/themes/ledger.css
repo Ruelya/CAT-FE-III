@@ -1,0 +1,58 @@
+/* Generated from theme-ledger.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="ledger"] {
+  color-scheme: light;
+
+  --tl-color-bg: #e6e6e6;
+  --tl-color-surface: #f4f4f4;
+  --tl-color-surface-raised: #ffffff;
+  --tl-color-surface-float: #ffffff;
+  --tl-color-sunken: #ededed;
+  --tl-color-chrome: #0a0a0a;
+  --tl-color-surface-active: #ececec;
+  --tl-color-row-hover: #f4f4f4;
+  --tl-color-border: #d2d2d2;
+  --tl-color-border-strong: #a6a6a6;
+  --tl-color-field-hover: #a6a6a6;
+  --tl-color-text: #0a0a0a;
+  --tl-color-text-muted: #545454;
+  --tl-color-text-faint: #8c8c8c;
+  --tl-color-accent: #0a0a0a;
+  --tl-color-accent-strong: #000000;
+  --tl-color-accent-soft: #cfcfcf;
+  --tl-color-accent-faint: #efefef;
+  --tl-color-on-accent: #ffffff;
+  --tl-status-ok: #04713f;
+  --tl-status-ok-soft: #d7ecdf;
+  --tl-status-warn: #8a5800;
+  --tl-status-warn-soft: #f6e7c8;
+  --tl-status-danger: #c02718;
+  --tl-status-danger-soft: #f8dcd8;
+  --tl-status-info: #24509c;
+  --tl-status-info-soft: #dee6f4;
+  --tl-color-scrim: rgba(10, 10, 10, 0.4);
+  --tl-font-ui: "Nimbus Sans", "Helvetica Neue", Helvetica, "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
+  --tl-font-mono: "Cascadia Mono", ui-monospace, monospace;
+  --tl-text-xs: 10px;
+  --tl-text-sm: 11px;
+  --tl-text-md: 12px;
+  --tl-text-lg: 14px;
+  --tl-text-xl: 18px;
+  --tl-radius-sm: 0px;
+  --tl-radius-md: 0px;
+  --tl-row-h-grid: 26px;
+  --tl-ctl-h-md: 24px;
+  --tl-ctl-h-sm: 19px;
+  --tl-ribbon-h: 50px;
+  --tl-statusbar-h: 24px;
+  --tl-tab-h: 27px;
+  --tl-rail-left: 244px;
+  --tl-rail-right: 332px;
+  --tl-shadow-raised: none;
+  --tl-shadow-pop: 0 2px 0 rgba(10, 10, 10, 0.16);
+  --tl-shadow-overlay: 0 18px 48px rgba(10, 10, 10, 0.3);
+  --tl-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0a0a0a;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+}

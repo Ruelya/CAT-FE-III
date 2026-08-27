@@ -570,7 +570,10 @@ export function SegmentGrid({
         }
         return;
       }
-      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+      if (
+        event.key === "ContextMenu" ||
+        (event.shiftKey && event.key === "F10")
+      ) {
         event.preventDefault();
         setMenuSegmentId(segment.id);
       }
@@ -971,7 +974,9 @@ export function SegmentGrid({
                                 type="button"
                                 role="menuitem"
                                 className="segment-grid__menu-item"
-                                disabled={locked || segment.targetText.length === 0}
+                                disabled={
+                                  locked || segment.targetText.length === 0
+                                }
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setMenuSegmentId(null);

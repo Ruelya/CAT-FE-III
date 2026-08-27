@@ -31,3 +31,19 @@ export type {
   TextAreaFieldProps,
   TextFieldProps,
 } from "./components.js";
+export {
+  DEFAULT_THEME_ID,
+  defaultFxFor,
+  findTheme,
+  isThemeId,
+  THEME_FX_KEYS,
+  THEME_FX_LABELS,
+  THEMES,
+  themeOrDefault,
+} from "./theme.js";
+export type {
+  ThemeDefinition,
+  ThemeFx,
+  ThemeFxKey,
+  ThemeFxLabel,
+} from "./theme.js";

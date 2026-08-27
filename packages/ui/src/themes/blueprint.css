@@ -1,0 +1,63 @@
+/* Generated from art-blueprint.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="blueprint"] {
+  color-scheme: dark;
+
+  --tl-color-bg: #0d2440;
+  --tl-color-surface: #122c4d;
+  --tl-color-surface-raised: #163457;
+  --tl-color-surface-float: #1b3d63;
+  --tl-color-sunken: #0a1e36;
+  --tl-color-chrome: #0f2846;
+  --tl-color-surface-active: rgba(242, 248, 255, 0.1);
+  --tl-color-row-hover: rgba(156, 203, 255, 0.06);
+  --tl-color-border: #2d5480;
+  --tl-color-border-strong: #4a7bb0;
+  --tl-color-field-hover: #4a7bb0;
+  --tl-color-text: #e9f2fc;
+  --tl-color-text-muted: #accbe9;
+  --tl-color-text-faint: #7ba3ca;
+  --tl-color-accent: #f2f8ff;
+  --tl-color-accent-strong: #ffffff;
+  --tl-color-accent-soft: rgba(242, 248, 255, 0.16);
+  --tl-color-accent-faint: rgba(242, 248, 255, 0.07);
+  --tl-color-on-accent: #0d2440;
+  --tl-status-ok: #46c986;
+  --tl-status-ok-soft: rgba(70, 201, 134, 0.15);
+  --tl-status-warn: #ecb45c;
+  --tl-status-warn-soft: rgba(236, 180, 92, 0.16);
+  --tl-status-danger: #e56a75;
+  --tl-status-danger-soft: rgba(229, 106, 117, 0.15);
+  --tl-status-info: #79b8e8;
+  --tl-status-info-soft: rgba(121, 184, 232, 0.14);
+  --tl-color-scrim: rgba(5, 18, 34, 0.6);
+  --tl-font-ui: "Bricolage Grotesque", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-mono: "Martian Mono", ui-monospace, monospace;
+  --tl-text-xs: 10px;
+  --tl-text-sm: 11px;
+  --tl-text-md: 12.5px;
+  --tl-text-lg: 14.5px;
+  --tl-text-xl: 19px;
+  --tl-radius-sm: 1px;
+  --tl-radius-md: 2px;
+  --tl-row-h-grid: 33px;
+  --tl-ctl-h-md: 27px;
+  --tl-ctl-h-sm: 22px;
+  --tl-ribbon-h: 56px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 30px;
+  --tl-rail-left: 256px;
+  --tl-rail-right: 330px;
+  --tl-shadow-raised: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --tl-shadow-pop: 0 6px 20px rgba(3, 14, 28, 0.55);
+  --tl-shadow-overlay: 0 22px 60px rgba(3, 14, 28, 0.7);
+  --tl-focus-ring: 0 0 0 2px rgba(242, 248, 255, 0.3);
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 104ms;
+  --tl-motion-base: 156ms;
+  --tl-motion-slow: 221ms;
+  --tl-ease-standard: cubic-bezier(0.25, 0.7, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.25, 0.7, 0.3, 1);
+}

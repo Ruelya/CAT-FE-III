@@ -1,0 +1,63 @@
+/* Generated from art-terra.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="terra"] {
+  color-scheme: light;
+
+  --tl-color-bg: #e6e3da;
+  --tl-color-surface: #f1efe8;
+  --tl-color-surface-raised: #f7f6f0;
+  --tl-color-surface-float: #faf9f4;
+  --tl-color-sunken: #dcd8cc;
+  --tl-color-chrome: #ecebe3;
+  --tl-color-surface-active: rgba(184, 92, 56, 0.09);
+  --tl-color-row-hover: rgba(122, 106, 84, 0.05);
+  --tl-color-border: #cfcaba;
+  --tl-color-border-strong: #aaa28c;
+  --tl-color-field-hover: #aaa28c;
+  --tl-color-text: #2e2a23;
+  --tl-color-text-muted: #6a6355;
+  --tl-color-text-faint: #938b77;
+  --tl-color-accent: #b85c38;
+  --tl-color-accent-strong: #9c4a29;
+  --tl-color-accent-soft: rgba(184, 92, 56, 0.13);
+  --tl-color-accent-faint: rgba(184, 92, 56, 0.07);
+  --tl-color-on-accent: #ffffff;
+  --tl-status-ok: #4d8b45;
+  --tl-status-ok-soft: rgba(77, 139, 69, 0.14);
+  --tl-status-warn: #92660f;
+  --tl-status-warn-soft: rgba(190, 138, 30, 0.16);
+  --tl-status-danger: #b93352;
+  --tl-status-danger-soft: rgba(185, 51, 82, 0.12);
+  --tl-status-info: #2e7186;
+  --tl-status-info-soft: rgba(59, 142, 165, 0.14);
+  --tl-color-scrim: rgba(46, 42, 35, 0.34);
+  --tl-font-ui: "Onest", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-mono: "Sometype Mono", ui-monospace, monospace;
+  --tl-text-xs: 10.5px;
+  --tl-text-sm: 12px;
+  --tl-text-md: 13px;
+  --tl-text-lg: 15.5px;
+  --tl-text-xl: 21px;
+  --tl-radius-sm: 7px;
+  --tl-radius-md: 10px;
+  --tl-row-h-grid: 36px;
+  --tl-ctl-h-md: 30px;
+  --tl-ctl-h-sm: 24px;
+  --tl-ribbon-h: 62px;
+  --tl-statusbar-h: 28px;
+  --tl-tab-h: 32px;
+  --tl-rail-left: 264px;
+  --tl-rail-right: 336px;
+  --tl-shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(122, 106, 84, 0.18);
+  --tl-shadow-pop: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 24px rgba(122, 106, 84, 0.24), 0 2px 6px rgba(122, 106, 84, 0.14);
+  --tl-shadow-overlay: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 26px 60px rgba(96, 82, 62, 0.32), 0 4px 12px rgba(96, 82, 62, 0.16);
+  --tl-focus-ring: 0 0 0 2px rgba(184, 92, 56, 0.24), 0 0 0 3px #b85c38;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 144ms;
+  --tl-motion-base: 216ms;
+  --tl-motion-slow: 306ms;
+  --tl-ease-standard: cubic-bezier(0.34, 1.45, 0.5, 1);
+  --tl-ease-out: cubic-bezier(0.34, 1.45, 0.5, 1);
+}

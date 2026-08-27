@@ -57,9 +57,7 @@ export function TmManageDialog({
 }: TmManageDialogProps) {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [mounts, setMounts] = useState<MemoryMount[]>([]);
-  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(
-    null,
-  );
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [attachChoice, setAttachChoice] = useState("");
   const [newMemoryName, setNewMemoryName] = useState("");
   const [entries, setEntries] = useState<TmEntry[]>([]);
@@ -252,38 +250,44 @@ export function TmManageDialog({
 
   const makeWritable = useCallback(
     (mount: MemoryMount) =>
-      runMountAction(async () => {
-        // The engine allows at most one writable mount: demote the current
-        // one first, then promote. If the second step fails, the refresh
-        // shows the honest in-between state (no writable mount).
-        const current = mounts.find(
-          (candidate) =>
-            candidate.writable && candidate.memoryId !== mount.memoryId,
-        );
-        if (current) {
+      runMountAction(
+        async () => {
+          // The engine allows at most one writable mount: demote the current
+          // one first, then promote. If the second step fails, the refresh
+          // shows the honest in-between state (no writable mount).
+          const current = mounts.find(
+            (candidate) =>
+              candidate.writable && candidate.memoryId !== mount.memoryId,
+          );
+          if (current) {
+            await callEngine("memory.update", {
+              projectId: project.id,
+              memoryId: current.memoryId,
+              writable: false,
+            });
+          }
           await callEngine("memory.update", {
             projectId: project.id,
-            memoryId: current.memoryId,
-            writable: false,
+            memoryId: mount.memoryId,
+            writable: true,
           });
-        }
-        await callEngine("memory.update", {
-          projectId: project.id,
-          memoryId: mount.memoryId,
-          writable: true,
-        });
-      }, `已设为可写：${memoryName(mount.memoryId)}`),
+        },
+        `已设为可写：${memoryName(mount.memoryId)}`,
+      ),
     [project.id, mounts, memoryName, runMountAction],
   );
 
   const detachMount = useCallback(
     (mount: MemoryMount) =>
-      runMountAction(async () => {
-        await callEngine("memory.detach", {
-          projectId: project.id,
-          memoryId: mount.memoryId,
-        });
-      }, `已卸载：${memoryName(mount.memoryId)}（条目保留）`),
+      runMountAction(
+        async () => {
+          await callEngine("memory.detach", {
+            projectId: project.id,
+            memoryId: mount.memoryId,
+          });
+        },
+        `已卸载：${memoryName(mount.memoryId)}（条目保留）`,
+      ),
     [project.id, memoryName, runMountAction],
   );
 
@@ -686,7 +690,9 @@ export function TmManageDialog({
                   variant="danger"
                   disabled={busy}
                   aria-label={`连同条目删除记忆库 ${memoryName(cascadePrompt.memoryId)}`}
-                  onClick={() => void deleteMemory(cascadePrompt.memoryId, true)}
+                  onClick={() =>
+                    void deleteMemory(cascadePrompt.memoryId, true)
+                  }
                 >
                   连同条目删除
                 </Button>

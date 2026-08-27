@@ -1,0 +1,63 @@
+/* Generated from art-atelier.css + art-atelier-light.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="atelier-light"] {
+  color-scheme: light;
+
+  --tl-color-bg: #e6dfd0;
+  --tl-color-surface: #f7f3ea;
+  --tl-color-surface-raised: #fdfaf3;
+  --tl-color-surface-float: #fffdf8;
+  --tl-color-sunken: #ded6c4;
+  --tl-color-chrome: #f2ede2;
+  --tl-color-surface-active: rgba(138, 106, 31, 0.13);
+  --tl-color-row-hover: rgba(138, 106, 31, 0.06);
+  --tl-color-border: #c8bda5;
+  --tl-color-border-strong: #a4977b;
+  --tl-color-field-hover: #a4977b;
+  --tl-color-text: #29231a;
+  --tl-color-text-muted: #665c4a;
+  --tl-color-text-faint: #948976;
+  --tl-color-accent: #8a6a1f;
+  --tl-color-accent-strong: #c19a3d;
+  --tl-color-accent-soft: rgba(138, 106, 31, 0.18);
+  --tl-color-accent-faint: rgba(138, 106, 31, 0.08);
+  --tl-color-on-accent: #fffdf6;
+  --tl-status-ok: #3f7a4b;
+  --tl-status-ok-soft: rgba(63, 122, 75, 0.16);
+  --tl-status-warn: #96620f;
+  --tl-status-warn-soft: rgba(150, 98, 15, 0.16);
+  --tl-status-danger: #a83a30;
+  --tl-status-danger-soft: rgba(168, 58, 48, 0.14);
+  --tl-status-info: #3b5f80;
+  --tl-status-info-soft: rgba(59, 95, 128, 0.14);
+  --tl-color-scrim: rgba(96, 82, 52, 0.28);
+  --tl-font-ui: "C059", "Century Schoolbook", "Noto Serif", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", serif;
+  --tl-font-mono: "Nimbus Mono PS", "JetBrains Mono", ui-monospace, monospace;
+  --tl-text-xs: 10.5px;
+  --tl-text-sm: 12px;
+  --tl-text-md: 13.5px;
+  --tl-text-lg: 16px;
+  --tl-text-xl: 23px;
+  --tl-radius-sm: 1px;
+  --tl-radius-md: 2px;
+  --tl-row-h-grid: 34px;
+  --tl-ctl-h-md: 27px;
+  --tl-ctl-h-sm: 22px;
+  --tl-ribbon-h: 58px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 32px;
+  --tl-rail-left: 262px;
+  --tl-rail-right: 346px;
+  --tl-shadow-raised: 0 1px 2px rgba(70, 58, 34, 0.1);
+  --tl-shadow-pop: 0 12px 30px -12px rgba(70, 58, 34, 0.34);
+  --tl-shadow-overlay: 0 40px 90px -30px rgba(70, 58, 34, 0.45);
+  --tl-focus-ring: 0 0 0 1px #8a6a1f, 0 0 0 4px rgba(138, 106, 31, 0.22);
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 160ms;
+  --tl-motion-base: 240ms;
+  --tl-motion-slow: 340ms;
+  --tl-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

@@ -1,0 +1,58 @@
+/* Generated from theme-quarry.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="quarry"] {
+  color-scheme: light;
+
+  --tl-color-bg: #e7e3db;
+  --tl-color-surface: #f5f2ec;
+  --tl-color-surface-raised: #fffdf8;
+  --tl-color-surface-float: #fffdf8;
+  --tl-color-sunken: #e8e3d9;
+  --tl-color-chrome: #f0ece4;
+  --tl-color-surface-active: #f0efe6;
+  --tl-color-row-hover: rgba(90, 74, 44, 0.045);
+  --tl-color-border: #d6cfc2;
+  --tl-color-border-strong: #bcb3a3;
+  --tl-color-field-hover: #bcb3a3;
+  --tl-color-text: #24211c;
+  --tl-color-text-muted: #5f594e;
+  --tl-color-text-faint: #8b8477;
+  --tl-color-accent: #1f5d4c;
+  --tl-color-accent-strong: #16463a;
+  --tl-color-accent-soft: #cbe0d8;
+  --tl-color-accent-faint: #ebf2ef;
+  --tl-color-on-accent: #fffdf8;
+  --tl-status-ok: #2c6b4f;
+  --tl-status-ok-soft: #d9e9df;
+  --tl-status-warn: #8a5a12;
+  --tl-status-warn-soft: #f2e6cf;
+  --tl-status-danger: #a33a2c;
+  --tl-status-danger-soft: #f4dfda;
+  --tl-status-info: #3c5875;
+  --tl-status-info-soft: #e2e7ee;
+  --tl-color-scrim: rgba(40, 34, 24, 0.3);
+  --tl-font-ui: "Source Sans 3", "Source Sans Pro", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tl-text-xs: 11px;
+  --tl-text-sm: 12.5px;
+  --tl-text-md: 13.5px;
+  --tl-text-lg: 16px;
+  --tl-text-xl: 21px;
+  --tl-radius-sm: 3px;
+  --tl-radius-md: 4px;
+  --tl-row-h-grid: 36px;
+  --tl-ctl-h-md: 28px;
+  --tl-ctl-h-sm: 23px;
+  --tl-ribbon-h: 58px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 32px;
+  --tl-rail-left: 264px;
+  --tl-rail-right: 348px;
+  --tl-shadow-raised: none;
+  --tl-shadow-pop: 0 2px 10px rgba(48, 40, 26, 0.1);
+  --tl-shadow-overlay: 0 20px 52px rgba(48, 40, 26, 0.2);
+  --tl-focus-ring: 0 0 0 2px #cbe0d8, 0 0 0 3px #1f5d4c;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+}

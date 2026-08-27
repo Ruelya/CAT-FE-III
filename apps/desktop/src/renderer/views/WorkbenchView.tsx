@@ -20,7 +20,13 @@ import type {
   SegmentOrigin,
   TmMatchItem,
 } from "@translunar/contracts";
-import { Button, EmptyState, SegmentProgress } from "@translunar/ui";
+import {
+  Button,
+  EmptyState,
+  SegmentProgress,
+  THEME_FX_LABELS,
+  THEMES,
+} from "@translunar/ui";
 
 import type {
   EngineLifecycleState,
@@ -47,6 +53,7 @@ import type {
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
 import { CommandPalette } from "../components/CommandPalette.js";
+import { useTheme } from "../lib/theme.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
 import { FindWidget } from "../components/FindWidget.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
@@ -88,9 +95,13 @@ export interface WorkbenchViewProps {
    * grid to that state); called with null on unmount so the shell never
    * holds a jump into a closed workbench.
    */
-  onRegisterStatJump?: (jump: ((target: StatJumpTarget) => void) | null) => void;
+  onRegisterStatJump?: (
+    jump: ((target: StatJumpTarget) => void) | null,
+  ) => void;
   /** Opens the project settings dialog (owned by the shell). */
   onOpenSettings?: () => void;
+  /** Opens the appearance dialog; also surfaced as palette theme commands. */
+  onOpenAppearance?: () => void;
   /** Opens the TM manage dialog (owned by the shell). */
   onOpenTmManage?: () => void;
   /** Returns to the projects list (same path as the menu command). */
@@ -188,9 +199,11 @@ export function WorkbenchView({
   onStatsChange,
   onRegisterStatJump,
   onOpenSettings,
+  onOpenAppearance,
   onOpenTmManage,
   onCloseProject,
 }: WorkbenchViewProps) {
+  const themeState = useTheme();
   const [documents, setDocuments] = useState<Document[]>([]);
   // Per-document progress counts from document.list; the active document's
   // entry is kept live from the loaded segments/issues so the explorer never
@@ -709,7 +722,10 @@ export function WorkbenchView({
   // outline on the grid's token highlighting. Straight from qa.list — the
   // renderer never re-diffs placeholders on its own.
   const placeholderAlerts = useMemo(() => {
-    const alerts = new Map<string, { missing: Set<string>; extra: Set<string> }>();
+    const alerts = new Map<
+      string,
+      { missing: Set<string>; extra: Set<string> }
+    >();
     for (const issue of issues) {
       if (issue.status !== "open") {
         continue;
@@ -922,8 +938,7 @@ export function WorkbenchView({
             ]);
           }
           const openQaCount =
-            refreshedQa?.filter((issue) => issue.status === "open").length ??
-            0;
+            refreshedQa?.filter((issue) => issue.status === "open").length ?? 0;
           const propagated =
             result.propagated.length > 0
               ? `，TM 传播 ${result.propagated.length} 个重复句段`
@@ -1145,7 +1160,9 @@ export function WorkbenchView({
           current.map((item) => changed.get(item.id) ?? item),
         );
         const label =
-          result.issues.length > 1 ? `${result.issues.length} 个 QA 问题` : "QA 问题";
+          result.issues.length > 1
+            ? `${result.issues.length} 个 QA 问题`
+            : "QA 问题";
         onStatusMessage(waived ? `已忽略 ${label}` : `已恢复 ${label}为未解决`);
       } catch (error) {
         // The issues keep their current status; nothing is pretended.
@@ -1868,6 +1885,35 @@ export function WorkbenchView({
   // (already MenuCommands) and one jump per project document. Labels and
   // shortcuts mirror the application menu.
   const paletteEntries = useMemo<PaletteEntry[]>(() => {
+    /* Themes and their effect switches are palette commands too: a reader
+       who lives in Ctrl+K should not have to find a dialog to turn the
+       scanlines off. */
+    const themeEntries: PaletteEntry[] = [
+      ...(onOpenAppearance
+        ? [
+            {
+              id: "open-appearance",
+              label: "外观与主题…",
+              enabled: true,
+              run: onOpenAppearance,
+            },
+          ]
+        : []),
+      ...THEMES.map((item) => ({
+        id: `set-theme:${item.id}`,
+        label: `主题：${item.label}（${item.id}）`,
+        enabled: item.id !== themeState.theme.id,
+        run: () => themeState.setThemeId(item.id),
+      })),
+      ...THEME_FX_LABELS.filter((entry) =>
+        themeState.theme.fx.includes(entry.key),
+      ).map((entry) => ({
+        id: `toggle-fx:${entry.key}`,
+        label: `效果：${entry.label}（${themeState.fx[entry.key] ? "关闭" : "开启"}）`,
+        enabled: true,
+        run: () => themeState.setFx(entry.key, !themeState.fx[entry.key]),
+      })),
+    ];
     const documentOpen = activeDocument !== null;
     const command = (
       id: MenuCommand,
@@ -1935,6 +1981,7 @@ export function WorkbenchView({
       command("show-dock-term", "术语面板", true, "Ctrl+2"),
       command("show-dock-qa", "QA 面板", true, "Ctrl+3"),
       command("show-dock-ai", "AI 面板", true, "Ctrl+4"),
+      ...themeEntries,
       ...documents.map((document): PaletteEntry => ({
         id: `open-document:${document.id}`,
         label: `打开文档：${document.name}`,
@@ -1952,6 +1999,8 @@ export function WorkbenchView({
     busy,
     documents,
     handleMenuCommand,
+    onOpenAppearance,
+    themeState,
     loadDocument,
     onCloseProject,
     onOpenSettings,

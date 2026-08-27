@@ -1,0 +1,63 @@
+/* Generated from art-aurora.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="aurora"] {
+  color-scheme: dark;
+
+  --tl-color-bg: transparent;
+  --tl-color-surface: rgba(255, 255, 255, 0.038);
+  --tl-color-surface-raised: rgba(255, 255, 255, 0.055);
+  --tl-color-surface-float: rgba(255, 255, 255, 0.075);
+  --tl-color-sunken: rgba(0, 0, 0, 0.22);
+  --tl-color-chrome: rgba(255, 255, 255, 0.028);
+  --tl-color-surface-active: rgba(52, 227, 176, 0.11);
+  --tl-color-row-hover: rgba(255, 255, 255, 0.04);
+  --tl-color-border: rgba(190, 226, 226, 0.14);
+  --tl-color-border-strong: rgba(190, 226, 226, 0.26);
+  --tl-color-field-hover: rgba(190, 226, 226, 0.26);
+  --tl-color-text: #ecf5f5;
+  --tl-color-text-muted: #a4b8c2;
+  --tl-color-text-faint: #7d939e;
+  --tl-color-accent: #34e3b0;
+  --tl-color-accent-strong: #6ff0cb;
+  --tl-color-accent-soft: rgba(52, 227, 176, 0.18);
+  --tl-color-accent-faint: rgba(52, 227, 176, 0.08);
+  --tl-color-on-accent: #04231b;
+  --tl-status-ok: #3ecf82;
+  --tl-status-ok-soft: rgba(62, 207, 130, 0.16);
+  --tl-status-warn: #e9b558;
+  --tl-status-warn-soft: rgba(233, 181, 88, 0.16);
+  --tl-status-danger: #e75f6f;
+  --tl-status-danger-soft: rgba(231, 95, 111, 0.16);
+  --tl-status-info: #62b8d8;
+  --tl-status-info-soft: rgba(98, 184, 216, 0.15);
+  --tl-color-scrim: rgba(4, 10, 16, 0.5);
+  --tl-font-ui: "Schibsted Grotesk", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-mono: "DM Mono", ui-monospace, monospace;
+  --tl-text-xs: 10.5px;
+  --tl-text-sm: 11.5px;
+  --tl-text-md: 13px;
+  --tl-text-lg: 15px;
+  --tl-text-xl: 20px;
+  --tl-radius-sm: 6px;
+  --tl-radius-md: 9px;
+  --tl-row-h-grid: 34px;
+  --tl-ctl-h-md: 28px;
+  --tl-ctl-h-sm: 23px;
+  --tl-ribbon-h: 58px;
+  --tl-statusbar-h: 26px;
+  --tl-tab-h: 30px;
+  --tl-rail-left: 258px;
+  --tl-rail-right: 334px;
+  --tl-shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --tl-shadow-pop: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --tl-shadow-overlay: 0 30px 80px rgba(0, 0, 0, 0.6);
+  --tl-focus-ring: 0 0 0 2px rgba(52, 227, 176, 0.4), 0 0 14px rgba(52, 227, 176, 0.45);
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 120ms;
+  --tl-motion-base: 180ms;
+  --tl-motion-slow: 255ms;
+  --tl-ease-standard: cubic-bezier(0.22, 0.9, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.22, 0.9, 0.3, 1);
+}

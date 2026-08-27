@@ -1,0 +1,63 @@
+/* Generated from theme-compact.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="compact"] {
+  color-scheme: light;
+
+  --tl-color-bg: #f4f5f7;
+  --tl-color-surface: #f7f8fa;
+  --tl-color-surface-raised: #ffffff;
+  --tl-color-surface-float: #ffffff;
+  --tl-color-sunken: #edeef1;
+  --tl-color-chrome: #fafbfc;
+  --tl-color-surface-active: #eff2fd;
+  --tl-color-row-hover: rgba(22, 24, 29, 0.03);
+  --tl-color-border: #dfe1e6;
+  --tl-color-border-strong: #c2c6cf;
+  --tl-color-field-hover: #c2c6cf;
+  --tl-color-text: #16181d;
+  --tl-color-text-muted: #5a6070;
+  --tl-color-text-faint: #858b99;
+  --tl-color-accent: #3b5bdb;
+  --tl-color-accent-strong: #2f49b0;
+  --tl-color-accent-soft: #dfe4fa;
+  --tl-color-accent-faint: #eff2fd;
+  --tl-color-on-accent: #ffffff;
+  --tl-status-ok: #17794c;
+  --tl-status-ok-soft: #dcefe5;
+  --tl-status-warn: #8a5d0c;
+  --tl-status-warn-soft: #f6ead2;
+  --tl-status-danger: #b02a2a;
+  --tl-status-danger-soft: #f8e3e2;
+  --tl-status-info: #2f5c8a;
+  --tl-status-info-soft: #e4ecf4;
+  --tl-color-scrim: rgba(22, 24, 29, 0.3);
+  --tl-font-ui: "Geist", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --tl-font-mono: "Geist Mono", ui-monospace, monospace;
+  --tl-text-xs: 10px;
+  --tl-text-sm: 11px;
+  --tl-text-md: 12.5px;
+  --tl-text-lg: 14px;
+  --tl-text-xl: 18px;
+  --tl-radius-sm: 3px;
+  --tl-radius-md: 4px;
+  --tl-row-h-grid: 30px;
+  --tl-ctl-h-md: 26px;
+  --tl-ctl-h-sm: 22px;
+  --tl-ribbon-h: 52px;
+  --tl-statusbar-h: 24px;
+  --tl-tab-h: 28px;
+  --tl-rail-left: 248px;
+  --tl-rail-right: 320px;
+  --tl-shadow-raised: 0 1px 1px rgba(22, 24, 29, 0.04);
+  --tl-shadow-pop: 0 2px 6px rgba(22, 24, 29, 0.08);
+  --tl-shadow-overlay: 0 12px 32px rgba(22, 24, 29, 0.16);
+  --tl-focus-ring: 0 0 0 2px #dfe4fa, 0 0 0 3px #3b5bdb;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 88ms;
+  --tl-motion-base: 132ms;
+  --tl-motion-slow: 187ms;
+  --tl-ease-standard: cubic-bezier(0.2, 0.6, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.2, 0.6, 0.3, 1);
+}

@@ -178,7 +178,10 @@ describe("SegmentGrid", () => {
     expect(chips[0]).toHaveTextContent("85TM");
     expect(chips[0]).toHaveAttribute("data-tone", "accent");
     // Tooltip: 状态/来源/分值/模型 — only the lines that exist.
-    expect(chips[0]).toHaveAttribute("title", "状态：草稿\n来源：TM 模糊\n分值：85");
+    expect(chips[0]).toHaveAttribute(
+      "title",
+      "状态：草稿\n来源：TM 模糊\n分值：85",
+    );
     expect(chips[1]).toHaveTextContent("100TM");
     expect(chips[1]).not.toHaveAttribute("data-tone");
     expect(chips[1]).toHaveAttribute("data-muted");
@@ -698,9 +701,11 @@ describe("SegmentGrid", () => {
       altKey: true,
       shiftKey: true,
     });
-    expect(
-      onConfirm.mock.calls.map((call) => (call as unknown[])[2]),
-    ).toEqual(["nextUnconfirmed", "nextAny", "stay"]);
+    expect(onConfirm.mock.calls.map((call) => (call as unknown[])[2])).toEqual([
+      "nextUnconfirmed",
+      "nextAny",
+      "stay",
+    ]);
   });
 
   it("leaves Ctrl+Shift+Enter vacant (reserved for confirm-without-TM)", () => {
@@ -766,9 +771,7 @@ describe("SegmentGrid", () => {
   it("marks QA-flagged tokens with the danger outline, driven by evidence", () => {
     const { container } = render(
       <SegmentGrid
-        segments={[
-          segment("s1", 0, "Hi {name} and {other}.", "你好 {nmae}。"),
-        ]}
+        segments={[segment("s1", 0, "Hi {name} and {other}.", "你好 {nmae}。")]}
         activeSegmentId={null}
         qaSegmentIds={new Set(["s1"])}
         placeholderAlerts={
@@ -868,12 +871,14 @@ describe("SegmentGrid", () => {
         onConfirm={vi.fn()}
       />,
     );
-    expect(
-      container.querySelector('tr[data-segment-id="s2"]'),
-    ).toHaveAttribute("tabindex", "0");
-    expect(
-      container.querySelector('tr[data-segment-id="s1"]'),
-    ).toHaveAttribute("tabindex", "-1");
+    expect(container.querySelector('tr[data-segment-id="s2"]')).toHaveAttribute(
+      "tabindex",
+      "0",
+    );
+    expect(container.querySelector('tr[data-segment-id="s1"]')).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
   });
 
   it("offers 复制源文 and 清空译文 in the row menu", async () => {
