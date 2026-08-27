@@ -1,0 +1,148 @@
+/* GEMINI-ART-KINETIC — Cyber-Kinetic Tactical HUD / Neo-Tokyo Localization Terminal.
+   High-tech HUD telemetry, glowing cybernetic neon green (#00ff9d) and cyan (#00e5ff),
+   subtle CRT scanline texture, tactical monospace typography, glowing active segment pulse aura. */
+
+:root {
+  --bg: #040609;
+  --surface: #090d14;
+  --surface-2: #0e1420;
+  --surface-3: #141c2c;
+  --sunken: #06090e;
+  --chrome: #05080c;
+  --chrome-text: #e2f1ff;
+
+  --border: #1a2538;
+  --border-soft: #111a28;
+  --border-strong: #24354f;
+
+  --text: #e2f1ff;
+  --text-muted: #7d96b8;
+  --text-faint: #486080;
+
+  --accent: #00ff9d;
+  --accent-strong: #00e5ff;
+  --accent-soft: rgba(0, 255, 157, 0.2);
+  --accent-faint: rgba(0, 255, 157, 0.06);
+  --on-accent: #040609;
+
+  --ok: #00ff9d;
+  --ok-soft: rgba(0, 255, 157, 0.16);
+  --warn: #ffb800;
+  --warn-soft: rgba(255, 184, 0, 0.16);
+  --danger: #ff3366;
+  --danger-soft: rgba(255, 51, 102, 0.16);
+  --info: #00e5ff;
+  --info-soft: rgba(0, 229, 255, 0.16);
+
+  --font-ui: "JetBrains Mono", "Space Mono", "SF Mono", Consolas, monospace;
+  --font-num: "JetBrains Mono", "Space Mono", monospace;
+  --font-mono: "JetBrains Mono", "Space Mono", monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12.5px;
+  --fs-lg: 14px;
+  --fs-xl: 18px;
+  --lh: 1.45;
+  --lh-tight: 1.3;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.08em;
+  --label-weight: 700;
+  --label-size: 9.5px;
+  --label-color: #00e5ff;
+  --strong-weight: 700;
+  --heading-tracking: 0.06em;
+
+  --u: 4px;
+  --titlebar-h: 30px;
+  --ribbon-h: 52px;
+  --status-h: 25px;
+  --tab-h: 30px;
+  --row-h: 32px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 21px;
+  --rail-left: 260px;
+  --rail-right: 340px;
+  --brand-w: 136px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 10px;
+
+  --r-sm: 2px;
+  --r-md: 3px;
+  --r-lg: 4px;
+  --r-pill: 4px;
+
+  --shadow-1: 0 0 10px rgba(0, 255, 157, 0.15);
+  --shadow-2: 0 0 24px rgba(0, 229, 255, 0.2);
+  --shadow-3: 0 0 50px rgba(0, 255, 157, 0.25), 0 20px 60px rgba(0, 0, 0, 0.8);
+  --focus: 0 0 0 1px #00ff9d, 0 0 12px rgba(0, 255, 157, 0.4);
+  --scrim: rgba(2, 4, 8, 0.85);
+
+  --row-hover: rgba(0, 229, 255, 0.05);
+  --row-active: rgba(0, 255, 157, 0.12);
+  --row-marker: #00ff9d;
+  --row-marker-w: 3px;
+}
+
+/* Cyber-kinetic scanline glow & telemetry accents */
+body {
+  background-image: linear-gradient(rgba(0, 255, 157, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.015) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.titlebar__brand .mark {
+  background: #00ff9d;
+  box-shadow: 0 0 12px #00ff9d;
+}
+
+.grid tbody tr[data-active] {
+  background: linear-gradient(90deg, rgba(0, 255, 157, 0.14), rgba(0, 229, 255, 0.02));
+  box-shadow: inset 3px 0 0 #00ff9d, 0 0 15px rgba(0, 255, 157, 0.15);
+}
+
+.chip {
+  border-color: #1a2538;
+}
+.chip[data-active] {
+  border-color: #00ff9d;
+  box-shadow: 0 0 8px rgba(0, 255, 157, 0.3);
+}
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: #06090e;
+  border-color: #1a2538;
+  color: #00ff9d;
+}
+.field select {
+  color-scheme: dark;
+}
+
+.btn--primary {
+  background: #00ff9d;
+  color: #040609;
+  font-weight: 700;
+  border-color: #00ff9d;
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.4);
+}
+.btn--primary:hover {
+  background: #33ffb1;
+  box-shadow: 0 0 16px rgba(0, 255, 157, 0.6);
+}
+
+.scenbar {
+  background: #05080c;
+  border-bottom: 1px solid #1a2538;
+}
+.scenbar__chip[data-active] {
+  background: #00ff9d;
+  color: #040609;
+  box-shadow: 0 0 10px rgba(0, 255, 157, 0.4);
+}

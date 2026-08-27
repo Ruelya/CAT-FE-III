@@ -1,0 +1,174 @@
+/* GEMINI-PLUS-STRIPE — Stripe Dashboard enterprise light & slate localization console.
+   Deep slate left rail (#0f172a), pristine white and subtle porcelain card surfaces,
+   Stripe signature blurple (#635bff), refined multi-layer elevation shadows, crisp typography. */
+
+:root {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #ffffff;
+  --sunken: #f1f5f9;
+  --chrome: #ffffff;
+  --chrome-text: #0f172a;
+
+  --border: #e2e8f0;
+  --border-soft: #edf2f7;
+  --border-strong: #cbd5e1;
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
+
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-faint: #94a3b8;
+
+  --accent: #635bff;
+  --accent-strong: #4f46e5;
+  --accent-soft: #ede9fe;
+  --accent-faint: #f5f3ff;
+  --on-accent: #ffffff;
+
+  --ok: #059669;
+  --ok-soft: #ecfdf5;
+  --warn: #d97706;
+  --warn-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --info: #0284c7;
+  --info-soft: #f0f9ff;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", sans-serif;
+  --font-num: "SF Mono", Monaco, Consolas, monospace;
+  --font-mono: "SF Mono", Monaco, Consolas, monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13.5px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.5;
+  --lh-tight: 1.35;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.05em;
+  --label-weight: 700;
+  --label-size: 10px;
+  --label-color: var(--text-faint);
+  --strong-weight: 600;
+  --heading-tracking: -0.015em;
+
+  --u: 4px;
+  --titlebar-h: 32px;
+  --ribbon-h: 52px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 34px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --rail-left: 260px;
+  --rail-right: 340px;
+  --brand-w: 132px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 12px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-pill: 999px;
+
+  --shadow-1: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 4px 12px 0 rgba(0, 0, 0, 0.08), 0 2px 4px 0 rgba(0, 0, 0, 0.04);
+  --shadow-3: 0 20px 35px -4px rgba(15, 23, 42, 0.18), 0 8px 16px -4px rgba(15, 23, 42, 0.08);
+  --focus: 0 0 0 1px #ffffff, 0 0 0 3px #635bff;
+  --scrim: rgba(15, 23, 42, 0.5);
+
+  --row-hover: #fbfcfe;
+  --row-active: #f5f3ff;
+  --row-marker: #635bff;
+  --row-marker-w: 3px;
+}
+
+/* Deep Slate Left Rail for authentic Stripe enterprise contrast */
+.rail--left {
+  background: #0f172a;
+  color: #f8fafc;
+  border-right-color: #1e293b;
+}
+.rail--left .railsec {
+  border-bottom-color: #1e293b;
+}
+.rail--left .railsec__head h2 {
+  color: #94a3b8;
+}
+.rail--left .proj__name {
+  color: #ffffff;
+  font-weight: 700;
+}
+.rail--left .proj__pair {
+  color: #cbd5e1;
+}
+.rail--left .details dt {
+  color: #94a3b8;
+}
+.rail--left .details dd {
+  color: #f8fafc;
+}
+.rail--left .railsearch {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+.rail--left .railsearch input {
+  color: #f8fafc;
+}
+.rail--left .railsearch input::placeholder {
+  color: #64748b;
+}
+.rail--left .tree__folder-head {
+  color: #cbd5e1;
+}
+.rail--left .tree__folder-head:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+.rail--left .tree__file-row:hover {
+  background: #1e293b;
+}
+.rail--left .tree__file-row[data-active] {
+  background: #334155;
+  box-shadow: inset 3px 0 0 #635bff;
+}
+.rail--left .tree__file-btn {
+  color: #f8fafc;
+}
+.rail--left .tree__folder-body {
+  border-left-color: #334155;
+}
+.rail--left .iconbtn:hover {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.titlebar__brand .mark {
+  background: linear-gradient(135deg, #635bff, #00d4ff);
+  border-radius: 4px;
+}
+
+.btn--primary {
+  background: #635bff;
+  color: #ffffff;
+  border-color: #635bff;
+}
+.btn--primary:hover {
+  background: #5348eb;
+  border-color: #5348eb;
+}
+
+.scenbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+}
+.scenbar__chip[data-active] {
+  background: #635bff;
+  color: #ffffff;
+}

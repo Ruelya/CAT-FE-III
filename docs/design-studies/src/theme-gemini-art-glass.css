@@ -1,0 +1,158 @@
+/* GEMINI-ART-GLASS — Neo-Glassmorphism / Spatial Aurora & VisionOS Translucent Experience.
+   Multi-layered frosted glass panels (backdrop-filter: blur(24px)), deep cosmic aurora gradient canvas,
+   semi-transparent glass borders with specular rim lighting, luminous electric cyan (#38bdf8) & magenta (#ec4899),
+   aurora active row glow, floating glass pills. */
+
+:root {
+  --bg: #070913;
+  --surface: rgba(18, 22, 38, 0.72);
+  --surface-2: rgba(26, 32, 54, 0.76);
+  --surface-3: rgba(35, 43, 72, 0.82);
+  --sunken: rgba(10, 13, 24, 0.75);
+  --chrome: rgba(14, 18, 32, 0.85);
+  --chrome-text: #f1f5f9;
+
+  --border: rgba(255, 255, 255, 0.12);
+  --border-soft: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
+
+  --text: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+
+  --accent: #38bdf8;
+  --accent-strong: #0284c7;
+  --accent-soft: rgba(56, 189, 248, 0.22);
+  --accent-faint: rgba(56, 189, 248, 0.08);
+  --on-accent: #0f172a;
+
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.18);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.18);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.18);
+  --info: #818cf8;
+  --info-soft: rgba(129, 140, 248, 0.18);
+
+  --font-ui: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-num: "SF Mono", Monaco, Consolas, monospace;
+  --font-mono: "SF Mono", Monaco, Consolas, monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.5;
+  --lh-tight: 1.35;
+
+  --label-transform: none;
+  --label-tracking: 0.02em;
+  --label-weight: 600;
+  --label-size: 11px;
+  --label-color: #38bdf8;
+  --strong-weight: 600;
+  --heading-tracking: -0.01em;
+
+  --u: 4px;
+  --titlebar-h: 32px;
+  --ribbon-h: 54px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 34px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --rail-left: 260px;
+  --rail-right: 340px;
+  --brand-w: 130px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 12px;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+
+  --shadow-1: 0 4px 16px 0 rgba(0, 0, 0, 0.37);
+  --shadow-2: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 24px 60px 0 rgba(0, 0, 0, 0.65);
+  --focus: 0 0 0 1px #38bdf8, 0 0 16px rgba(56, 189, 248, 0.4);
+  --scrim: rgba(7, 9, 19, 0.75);
+
+  --row-hover: rgba(255, 255, 255, 0.04);
+  --row-active: rgba(56, 189, 248, 0.12);
+  --row-marker: #38bdf8;
+  --row-marker-w: 3px;
+}
+
+/* Cosmic Aurora Glass Background */
+body {
+  background: radial-gradient(circle at 10% 10%, #1e1b4b 0%, #0c0a1f 40%, #030712 100%);
+  background-attachment: fixed;
+}
+
+.rail,
+.grid,
+.dock,
+.preview,
+.menubar__item[data-open],
+.dialog {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.titlebar__brand .mark {
+  background: linear-gradient(135deg, #38bdf8, #ec4899);
+  border-radius: 6px;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
+}
+
+.grid tbody tr[data-active] {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.15), rgba(236, 72, 153, 0.04));
+  box-shadow: inset 3px 0 0 #38bdf8, 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+  backdrop-filter: blur(12px);
+}
+.field select {
+  color-scheme: dark;
+}
+
+.btn {
+  backdrop-filter: blur(12px);
+}
+.btn--primary {
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  color: #0f172a;
+  font-weight: 700;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+}
+.btn--primary:hover {
+  background: linear-gradient(135deg, #7dd3fc, #a5b4fc);
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.55);
+}
+
+.scenbar {
+  background: rgba(10, 13, 24, 0.8);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.scenbar__chip[data-active] {
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  color: #0f172a;
+  font-weight: 700;
+}
