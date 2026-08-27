@@ -1337,4 +1337,248 @@ describe("ProjectSettingsDialog", () => {
     expect(toggle).not.toBeChecked();
     expect(screen.queryByText("已开启导出前 QA 检查")).not.toBeInTheDocument();
   });
+
+  it("writes a severity remap as the full table rebased on the stored view", async () => {
+    const stored = {
+      ...QA_PROFILE_VIEW,
+      severityOverrides: { "qa.edge-whitespace": "error" },
+    };
+    const updates: unknown[] = [];
+    installBridge((method, params) => {
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: stored });
+      }
+      if (method === "qa.profile.update") {
+        updates.push(params);
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...stored,
+            severityOverrides: {
+              "qa.edge-whitespace": "error",
+              "qa.tag-tag_missing": "error",
+            },
+            revision: 2,
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, result: { termbases: [], mounts: [] } });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const row = await screen.findByLabelText("qa.tag-tag_missing");
+    // A rule without a remap reads 默认 — the renderer never guesses the
+    // base profile's severity.
+    expect(row).toHaveValue("default");
+    expect(screen.getByLabelText("qa.edge-whitespace")).toHaveValue("error");
+
+    await userEvent.selectOptions(row, "error");
+    await waitFor(() => {
+      expect(updates).toHaveLength(1);
+    });
+    expect(updates[0]).toEqual({
+      projectId: "p1",
+      baseRevision: 1,
+      severityOverrides: {
+        "qa.edge-whitespace": "error",
+        "qa.tag-tag_missing": "error",
+      },
+    });
+    expect(
+      screen.getByText("严重度已更新：qa.tag-tag_missing → 错误"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(row).toHaveValue("error");
+    });
+  });
+
+  it("clears the last remap by sending the empty table", async () => {
+    const stored = {
+      ...QA_PROFILE_VIEW,
+      severityOverrides: { "qa.repeated-word": "error" },
+    };
+    const updates: unknown[] = [];
+    installBridge((method, params) => {
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: stored });
+      }
+      if (method === "qa.profile.update") {
+        updates.push(params);
+        return Promise.resolve({
+          ok: true,
+          result: { ...stored, severityOverrides: {}, revision: 2 },
+        });
+      }
+      return Promise.resolve({ ok: true, result: { termbases: [], mounts: [] } });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const row = await screen.findByLabelText("qa.repeated-word");
+    expect(row).toHaveValue("error");
+    await userEvent.selectOptions(row, "default");
+    await waitFor(() => {
+      expect(updates).toHaveLength(1);
+    });
+    // {} clears every remap — the contract's wholesale-replacement shape.
+    expect(updates[0]).toEqual({
+      projectId: "p1",
+      baseRevision: 1,
+      severityOverrides: {},
+    });
+    expect(
+      screen.getByText("已清除严重度覆写：qa.repeated-word"),
+    ).toBeInTheDocument();
+  });
+
+  it("saves the settings knobs wholesale and clears them via clearSettings", async () => {
+    const updates: unknown[] = [];
+    installBridge((method, params) => {
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: QA_PROFILE_VIEW });
+      }
+      if (method === "qa.profile.update") {
+        updates.push(params);
+        const change = params as {
+          settings?: { minLengthRatioPercent: number };
+        };
+        return Promise.resolve({
+          ok: true,
+          result: change.settings
+            ? {
+                ...QA_PROFILE_VIEW,
+                settings: {
+                  ...QA_PROFILE_VIEW.settings,
+                  minLengthRatioPercent: 50,
+                  maxTargetChars: 120,
+                },
+                revision: 2,
+              }
+            : { ...QA_PROFILE_VIEW, revision: 3 },
+        });
+      }
+      return Promise.resolve({ ok: true, result: { termbases: [], mounts: [] } });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const min = await screen.findByLabelText("最短比（%）");
+    await userEvent.clear(min);
+    await userEvent.type(min, "50");
+    const cap = screen.getByLabelText("字数上限");
+    await userEvent.type(cap, "120");
+    await userEvent.click(screen.getByRole("checkbox", { name: "CJK 间距" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "保存规则参数" }),
+    );
+    await waitFor(() => {
+      expect(updates).toHaveLength(1);
+    });
+    expect(updates[0]).toEqual({
+      projectId: "p1",
+      baseRevision: 1,
+      settings: {
+        cjkPunctuation: true,
+        cjkSpacing: false,
+        requireSentenceFinalPunctuation: true,
+        minLengthRatioPercent: 50,
+        maxLengthRatioPercent: 300,
+        maxTargetChars: 120,
+      },
+    });
+    expect(screen.getByText("QA 规则参数已保存")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    await waitFor(() => {
+      expect(updates).toHaveLength(2);
+    });
+    expect(updates[1]).toEqual({
+      projectId: "p1",
+      baseRevision: 2,
+      clearSettings: true,
+    });
+    expect(screen.getByText("QA 规则参数已恢复默认")).toBeInTheDocument();
+  });
+
+  it("rebases a conflicted remap on the refetched revision and retries once", async () => {
+    let updateCount = 0;
+    let getCount = 0;
+    const updates: unknown[] = [];
+    installBridge((method, params) => {
+      if (method === "qa.profile.get") {
+        getCount += 1;
+        return Promise.resolve({
+          ok: true,
+          // The first fetch (dialog open) serves revision 1; the conflict
+          // refetch serves the moved revision 5 with a remap someone else
+          // wrote in between.
+          result:
+            getCount === 1
+              ? QA_PROFILE_VIEW
+              : {
+                  ...QA_PROFILE_VIEW,
+                  severityOverrides: { "qa.cjk-dash": "warning" },
+                  revision: 5,
+                },
+        });
+      }
+      if (method === "qa.profile.update") {
+        updateCount += 1;
+        updates.push(params);
+        if (updateCount === 1) {
+          return Promise.resolve({
+            ok: false,
+            error: { code: "conflict", message: "project revision is 5" },
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          result: {
+            ...QA_PROFILE_VIEW,
+            severityOverrides: {
+              "qa.cjk-dash": "warning",
+              "qa.empty-target": "warning",
+            },
+            revision: 6,
+          },
+        });
+      }
+      return Promise.resolve({ ok: true, result: { termbases: [], mounts: [] } });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    const row = await screen.findByLabelText("qa.empty-target");
+    await userEvent.selectOptions(row, "warning");
+    await waitFor(() => {
+      expect(updates).toHaveLength(2);
+    });
+    expect(updates[0]).toEqual({
+      projectId: "p1",
+      baseRevision: 1,
+      severityOverrides: { "qa.empty-target": "warning" },
+    });
+    // The retry rides the fresh revision and the fresh table — the change
+    // is rebased, never a stale replay that would drop qa.cjk-dash.
+    expect(updates[1]).toEqual({
+      projectId: "p1",
+      baseRevision: 5,
+      severityOverrides: {
+        "qa.cjk-dash": "warning",
+        "qa.empty-target": "warning",
+      },
+    });
+    expect(
+      screen.getByText("严重度已更新：qa.empty-target → 警告"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("qa.cjk-dash")).toHaveValue("warning");
+    });
+  });
+
+  it("shows the stored base profile id read-only", async () => {
+    installBridge((method) => {
+      if (method === "qa.profile.get") {
+        return Promise.resolve({ ok: true, result: QA_PROFILE_VIEW });
+      }
+      return Promise.resolve({ ok: true, result: { termbases: [], mounts: [] } });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    expect(
+      await screen.findByText("builtin.qa.cjk-professional"),
+    ).toBeInTheDocument();
+  });
 });

@@ -4,13 +4,20 @@ import type {
   Memory,
   MemoryMount,
   Project,
+  QaProfileUpdateParams,
   QaProfileView,
+  QaSeverity,
   Termbase,
   TermbaseListResult,
 } from "@translunar/contracts";
 import { Badge, Button, Dialog, SelectField, TextField } from "@translunar/ui";
 
-import { callEngine, describeError, isExportBlocked } from "../lib/engine.js";
+import {
+  EngineClientError,
+  callEngine,
+  describeError,
+  isExportBlocked,
+} from "../lib/engine.js";
 import { ExportOverwriteConfirm } from "./ExportOverwriteConfirm.js";
 import { defaultSegmentation, defaultSrxPath } from "./ImportDocumentDialog.js";
 import { TermManagePanel } from "./TermManagePanel.js";
@@ -20,6 +27,70 @@ type SegmentationChoice = "sentence" | "paragraph";
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
+
+/**
+ * The engine's published standard rule ids (tl-qa `profile_with_id`
+ * enabled set, expanded to the concrete finding ids severity lookups use).
+ * Parameterized findings (`qa.term-required:<id>`, `qa.term-forbidden:<id>`,
+ * `qa.regex:<id>`) exist per term/regex definition and get no static row.
+ */
+export const QA_STANDARD_RULE_IDS: readonly string[] = [
+  "qa.empty-target",
+  "qa.source-equals-target",
+  "qa.number-mismatch",
+  "qa.unit-mismatch",
+  "qa.tag-tag_missing",
+  "qa.tag-tag_extra",
+  "qa.tag-tag_order",
+  "qa.tag-tag_pair",
+  "qa.tag-placeholder_missing",
+  "qa.tag-placeholder_extra",
+  "qa.unbalanced-delimiter",
+  "qa.edge-whitespace",
+  "qa.repeated-word",
+  "qa.length-ratio",
+  "qa.target-length-limit",
+  "qa.missing-final-punctuation",
+  "qa.same-source-different-target",
+  "qa.different-source-same-target",
+  "qa.unedited-fuzzy",
+  "qa.cjk-halfwidth-punctuation",
+  "qa.cjk-ellipsis",
+  "qa.cjk-dash",
+  "qa.cjk-latin-spacing",
+];
+
+const SEVERITY_LABEL: Record<QaSeverity, string> = {
+  error: "错误",
+  warning: "警告",
+  info: "提示",
+};
+
+/** Drafts of the QA settings knobs; numbers stay text while typing. */
+interface QaSettingsDraft {
+  cjkPunctuation: boolean;
+  cjkSpacing: boolean;
+  requireSentenceFinalPunctuation: boolean;
+  minLengthRatioPercent: string;
+  maxLengthRatioPercent: string;
+  /** Empty means no character limit (`maxTargetChars: null`). */
+  maxTargetChars: string;
+}
+
+/** Parses a knob draft as a non-negative integer; null when it is not one. */
+function parseKnob(value: string): number | null {
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  return Number.parseInt(trimmed, 10);
+}
+
+/** The change a `qa.profile.update` carries besides project id/revision. */
+type QaProfileChange = Omit<
+  QaProfileUpdateParams,
+  "projectId" | "baseRevision"
+>;
 
 export interface ProjectSettingsDialogProps {
   open: boolean;
@@ -94,6 +165,11 @@ export function ProjectSettingsDialog({
   // The project's effective QA profile (qa.profile.get); carries the
   // revision the next qa.profile.update must be based on.
   const [qaProfile, setQaProfile] = useState<QaProfileView | null>(null);
+  // Editable copies of the stored QA settings knobs, resynced from every
+  // stored view (open fetch, update result, conflict refetch).
+  const [qaSettingsDraft, setQaSettingsDraft] = useState<QaSettingsDraft | null>(
+    null,
+  );
   // An export the engine refused because the destination exists. Kept until
   // the user explicitly picks 覆盖 (retry with overwrite) or 取消 (leave the
   // existing file untouched).
@@ -176,11 +252,35 @@ export function ProjectSettingsDialog({
     }
   }, [qaProfile, onExportGateChange]);
 
-  // Toggle the QA export gate through qa.profile.update. The stored view's
-  // revision is the optimistic-concurrency base; the result replaces the
-  // view wholesale, so consecutive toggles stay coherent.
-  const setExportGate = useCallback(
-    async (blocked: boolean) => {
+  // The knob drafts always mirror the latest stored view — an update from
+  // any control in this section (gate, remap, settings) re-seeds them. A
+  // view without settings (older engine) renders the unloaded note instead.
+  useEffect(() => {
+    const settings = qaProfile?.settings;
+    if (!settings) {
+      setQaSettingsDraft(null);
+      return;
+    }
+    setQaSettingsDraft({
+      cjkPunctuation: settings.cjkPunctuation,
+      cjkSpacing: settings.cjkSpacing,
+      requireSentenceFinalPunctuation: settings.requireSentenceFinalPunctuation,
+      minLengthRatioPercent: String(settings.minLengthRatioPercent),
+      maxLengthRatioPercent: String(settings.maxLengthRatioPercent),
+      maxTargetChars:
+        settings.maxTargetChars == null ? "" : String(settings.maxTargetChars),
+    });
+  }, [qaProfile]);
+
+  // Every write to the stored QA profile goes through here. The stored
+  // view's revision is the optimistic-concurrency base; on `conflict` the
+  // change is rebased once on a refetched view and retried, and any other
+  // refusal (or a second conflict) surfaces the engine's message verbatim.
+  const applyQaProfileUpdate = useCallback(
+    async (
+      change: (profile: QaProfileView) => QaProfileChange,
+      notice: string,
+    ) => {
       if (!qaProfile) {
         return;
       }
@@ -188,17 +288,36 @@ export function ProjectSettingsDialog({
       setError(null);
       setNotice(null);
       try {
-        const updated = await callEngine("qa.profile.update", {
-          projectId: project.id,
-          baseRevision: qaProfile.revision,
-          blockExportOnError: blocked,
-        });
+        let updated: QaProfileView;
+        try {
+          updated = await callEngine("qa.profile.update", {
+            projectId: project.id,
+            baseRevision: qaProfile.revision,
+            ...change(qaProfile),
+          });
+        } catch (firstError) {
+          if (
+            !(firstError instanceof EngineClientError) ||
+            firstError.code !== "conflict"
+          ) {
+            throw firstError;
+          }
+          const fresh = await callEngine("qa.profile.get", {
+            projectId: project.id,
+          });
+          setQaProfile(fresh);
+          updated = await callEngine("qa.profile.update", {
+            projectId: project.id,
+            baseRevision: fresh.revision,
+            ...change(fresh),
+          });
+        }
         setQaProfile(updated);
-        setNotice(blocked ? "已开启导出前 QA 检查" : "已关闭导出前 QA 检查");
+        setNotice(notice);
       } catch (updateError) {
         setError(describeError(updateError));
-        // The stored revision may have moved (e.g. a concurrent settings
-        // save); refetch so the next toggle is based on reality.
+        // The stored revision may have moved; refetch so the next write is
+        // based on reality.
         try {
           setQaProfile(
             await callEngine("qa.profile.get", { projectId: project.id }),
@@ -211,6 +330,82 @@ export function ProjectSettingsDialog({
       }
     },
     [qaProfile, project.id, beginAction, endAction],
+  );
+
+  const setExportGate = useCallback(
+    (blocked: boolean) =>
+      applyQaProfileUpdate(
+        () => ({ blockExportOnError: blocked }),
+        blocked ? "已开启导出前 QA 检查" : "已关闭导出前 QA 检查",
+      ),
+    [applyQaProfileUpdate],
+  );
+
+  // One remap row changed. The table replaces wholesale (`{}` clears every
+  // remap — the contract), so the full table is rebuilt from the stored
+  // view plus this single change; a conflict retry rebuilds it from the
+  // refetched view, never replaying a stale table.
+  const setRuleSeverity = useCallback(
+    (ruleId: string, value: "default" | QaSeverity) =>
+      applyQaProfileUpdate(
+        (profile) => {
+          const overrides = { ...profile.severityOverrides };
+          if (value === "default") {
+            delete overrides[ruleId];
+          } else {
+            overrides[ruleId] = value;
+          }
+          return { severityOverrides: overrides };
+        },
+        value === "default"
+          ? `已清除严重度覆写：${ruleId}`
+          : `严重度已更新：${ruleId} → ${SEVERITY_LABEL[value]}`,
+      ),
+    [applyQaProfileUpdate],
+  );
+
+  const qaKnobsValid =
+    qaSettingsDraft !== null &&
+    parseKnob(qaSettingsDraft.minLengthRatioPercent) !== null &&
+    parseKnob(qaSettingsDraft.maxLengthRatioPercent) !== null &&
+    (qaSettingsDraft.maxTargetChars.trim() === "" ||
+      parseKnob(qaSettingsDraft.maxTargetChars) !== null);
+
+  const saveQaSettings = useCallback(() => {
+    if (!qaSettingsDraft) {
+      return;
+    }
+    const min = parseKnob(qaSettingsDraft.minLengthRatioPercent);
+    const max = parseKnob(qaSettingsDraft.maxLengthRatioPercent);
+    if (min === null || max === null) {
+      return;
+    }
+    const cap = qaSettingsDraft.maxTargetChars.trim();
+    return applyQaProfileUpdate(
+      () => ({
+        settings: {
+          cjkPunctuation: qaSettingsDraft.cjkPunctuation,
+          cjkSpacing: qaSettingsDraft.cjkSpacing,
+          requireSentenceFinalPunctuation:
+            qaSettingsDraft.requireSentenceFinalPunctuation,
+          minLengthRatioPercent: min,
+          maxLengthRatioPercent: max,
+          maxTargetChars: cap === "" ? null : parseKnob(cap),
+        },
+      }),
+      "QA 规则参数已保存",
+    );
+  }, [qaSettingsDraft, applyQaProfileUpdate]);
+
+  // Drops the project-level settings replacement (`clearSettings`), back
+  // to the base profile's values.
+  const clearQaSettings = useCallback(
+    () =>
+      applyQaProfileUpdate(
+        () => ({ clearSettings: true }),
+        "QA 规则参数已恢复默认",
+      ),
+    [applyQaProfileUpdate],
   );
 
   const saveProjectInfo = useCallback(async () => {
@@ -692,16 +887,130 @@ export function ProjectSettingsDialog({
 
         <section className="settings__section">
           <h3 className="settings__heading">质量检查</h3>
-          {qaProfile ? (
-            <label className="settings__row">
-              <input
-                type="checkbox"
-                checked={qaProfile.blockExportOnError}
-                disabled={pending.has("qa.profile")}
-                onChange={(event) => void setExportGate(event.target.checked)}
-              />
-              有错误时阻止导出
-            </label>
+          {qaProfile && qaSettingsDraft ? (
+            <>
+              <p className="settings__note">
+                基础配置：<code>{qaProfile.baseProfileId}</code>
+              </p>
+              <label className="settings__row">
+                <input
+                  type="checkbox"
+                  checked={qaProfile.blockExportOnError}
+                  disabled={pending.has("qa.profile")}
+                  onChange={(event) =>
+                    void setExportGate(event.target.checked)
+                  }
+                />
+                有错误时阻止导出
+              </label>
+              <h4 className="settings__subheading">规则参数</h4>
+              <div className="settings__row">
+                {(
+                  [
+                    ["cjkPunctuation", "CJK 标点"],
+                    ["cjkSpacing", "CJK 间距"],
+                    ["requireSentenceFinalPunctuation", "句末标点"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label className="settings__row" key={key}>
+                    <input
+                      type="checkbox"
+                      checked={qaSettingsDraft[key]}
+                      disabled={pending.has("qa.profile")}
+                      onChange={(event) =>
+                        setQaSettingsDraft({
+                          ...qaSettingsDraft,
+                          [key]: event.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div className="form-row">
+                <TextField
+                  label="最短比（%）"
+                  inputMode="numeric"
+                  value={qaSettingsDraft.minLengthRatioPercent}
+                  disabled={pending.has("qa.profile")}
+                  onChange={(event) =>
+                    setQaSettingsDraft({
+                      ...qaSettingsDraft,
+                      minLengthRatioPercent: event.target.value,
+                    })
+                  }
+                />
+                <TextField
+                  label="最长比（%）"
+                  inputMode="numeric"
+                  value={qaSettingsDraft.maxLengthRatioPercent}
+                  disabled={pending.has("qa.profile")}
+                  onChange={(event) =>
+                    setQaSettingsDraft({
+                      ...qaSettingsDraft,
+                      maxLengthRatioPercent: event.target.value,
+                    })
+                  }
+                />
+                <TextField
+                  label="字数上限"
+                  inputMode="numeric"
+                  value={qaSettingsDraft.maxTargetChars}
+                  disabled={pending.has("qa.profile")}
+                  onChange={(event) =>
+                    setQaSettingsDraft({
+                      ...qaSettingsDraft,
+                      maxTargetChars: event.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="settings__row">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={pending.has("qa.profile") || !qaKnobsValid}
+                  onClick={() => void saveQaSettings()}
+                >
+                  保存规则参数
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending.has("qa.profile")}
+                  onClick={() => void clearQaSettings()}
+                >
+                  恢复默认
+                </Button>
+              </div>
+              <h4 className="settings__subheading">严重度</h4>
+              <div className="qa-rule-grid">
+                {QA_STANDARD_RULE_IDS.map((ruleId) => {
+                  const override = qaProfile.severityOverrides[ruleId];
+                  return (
+                    <SelectField
+                      key={ruleId}
+                      label={ruleId}
+                      className="qa-rule-grid__row"
+                      value={override ?? "default"}
+                      disabled={pending.has("qa.profile")}
+                      onChange={(event) =>
+                        void setRuleSeverity(
+                          ruleId,
+                          event.target.value as "default" | QaSeverity,
+                        )
+                      }
+                    >
+                      <option value="default">默认</option>
+                      <option value="error">错误</option>
+                      <option value="warning">警告</option>
+                      <option value="info">提示</option>
+                    </SelectField>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <p className="settings__note">配置未加载。</p>
           )}

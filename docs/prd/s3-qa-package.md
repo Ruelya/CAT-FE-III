@@ -10,7 +10,9 @@
 ⑥ Resolve 式面板——纯 UI 叠在既有契约上：未解决 finding 按 ruleId 分组
 带计数，修复预览逐字来自引擎（`修复为：…`），`应用修复` 按钮仅在引擎
 给出 Correction 时出现（无假「一键修复」），忽略/恢复/定位/批量忽略
-保持原契约。severity 重映射 UI 仍未做（引擎通道已在 S3b 落地）。
+保持原契约。severity 重映射 UI 已落地：项目设置 QA 节按稳定 ruleId 列出
+标准规则的严重度覆写下拉与规则参数旋钮，全部走 `qa.profile.update`
+（S3b 引擎通道），conflict 时按存储视图 rebase 重试一次。
 
 以下为原提案全文，契约边界不变。
 
