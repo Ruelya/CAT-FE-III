@@ -1,0 +1,133 @@
+/* PRISM — soft violet glass with complete workstation density. Translucency
+   is limited to chrome and rails so grid text retains stable contrast. */
+:root {
+  --bg: #e7e7f2;
+  --surface: rgba(247, 247, 252, 0.88);
+  --surface-2: #fcfcff;
+  --surface-3: #ffffff;
+  --sunken: #e8e8f1;
+  --chrome: rgba(246, 246, 252, 0.91);
+  --chrome-text: #222039;
+  --border: #cbc9dc;
+  --border-soft: #e4e2ef;
+  --border-strong: #adaac4;
+  --text: #242238;
+  --text-muted: #5a5870;
+  --text-faint: #858197;
+  --accent: #6356d9;
+  --accent-strong: #4f43bc;
+  --accent-soft: #d9d5ff;
+  --accent-faint: #f0efff;
+  --on-accent: #ffffff;
+  --ok: #24704f;
+  --ok-soft: #dff0e7;
+  --warn: #9a650b;
+  --warn-soft: #fff0d2;
+  --danger: #bf3d53;
+  --danger-soft: #f9e2e7;
+  --info: #47638f;
+  --info-soft: #e3e9f4;
+  --font-ui: "Plus Jakarta Sans", Inter, "Segoe UI", "PingFang SC", sans-serif;
+  --font-num: "Berkeley Mono", "SFMono-Regular", Consolas, monospace;
+  --font-mono: "Berkeley Mono", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.5;
+  --lh-tight: 1.34;
+  --label-transform: none;
+  --label-tracking: 0.015em;
+  --label-weight: 650;
+  --label-size: 10.5px;
+  --label-color: #716d89;
+  --strong-weight: 640;
+  --heading-tracking: -0.012em;
+  --u: 4px;
+  --titlebar-h: 31px;
+  --ribbon-h: 56px;
+  --status-h: 25px;
+  --tab-h: 31px;
+  --row-h: 32px;
+  --ctl-h: 27px;
+  --ctl-h-sm: 22px;
+  --rail-left: 288px;
+  --rail-right: 352px;
+  --brand-w: 134px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 11px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 3px rgba(55, 48, 96, 0.06);
+  --shadow-2: 0 12px 28px rgba(55, 48, 96, 0.14);
+  --shadow-3: 0 30px 76px rgba(55, 48, 96, 0.25);
+  --focus: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
+  --scrim: rgba(37, 32, 65, 0.38);
+  --row-hover: rgba(99, 86, 217, 0.05);
+  --row-active: #f1f0ff;
+  --row-marker: #6356d9;
+  --row-marker-w: 3px;
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 0%, #dce7ff 0, transparent 35%),
+    radial-gradient(circle at 100% 10%, #eddcff 0, transparent 38%),
+    #e9e9f3;
+}
+.titlebar,
+.ribbon,
+.rail--left,
+.rail--right,
+.statusbar {
+  backdrop-filter: blur(15px) saturate(1.15);
+}
+.ribbon {
+  background: rgba(250, 250, 255, 0.86);
+}
+.rail--left,
+.rail--right {
+  background: rgba(247, 247, 252, 0.9);
+}
+.panel__head,
+.doctabs,
+.grid thead th {
+  background: #f8f7fd;
+}
+.grid tbody tr[data-active] {
+  background: linear-gradient(90deg, #eeecff, #f8f7ff);
+}
+.grid tbody tr[data-active] .rowbar {
+  background: linear-gradient(#6356d9, #9c5fd4);
+}
+.grid tbody tr[data-active] td.c-tgt {
+  background: #ffffff;
+}
+.treeitem--folder > .treeitem__ico {
+  color: #7b6ee6;
+}
+.treeleaf[data-active] {
+  background: linear-gradient(90deg, #eceaff, rgba(246, 245, 255, 0.82));
+}
+.card,
+.issue {
+  box-shadow: 0 1px 2px rgba(55, 48, 96, 0.035);
+}
+.card--match[data-best] {
+  background: #f4faf6;
+}
+.palette,
+.dialog,
+.menudrop,
+.findwidget,
+.rowmenu {
+  border-color: rgba(148, 142, 181, 0.65);
+  backdrop-filter: blur(20px);
+}
+.btn--primary {
+  box-shadow: 0 3px 9px rgba(99, 86, 217, 0.2);
+}

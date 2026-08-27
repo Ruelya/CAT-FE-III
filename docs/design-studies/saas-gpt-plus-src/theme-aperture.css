@@ -1,0 +1,110 @@
+/* APERTURE — cool daylight studio. A crisp cobalt focus channel, compact
+   geometry, and slightly stepped rails keep a dense workbench easy to scan. */
+:root {
+  --bg: #e8edf5;
+  --surface: #f5f7fb;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --sunken: #e8edf4;
+  --chrome: #f9fafc;
+  --chrome-text: #172033;
+  --border: #cbd4e2;
+  --border-soft: #e3e8f0;
+  --border-strong: #aeb9ca;
+  --text: #172033;
+  --text-muted: #4e5c70;
+  --text-faint: #7f8ba0;
+  --accent: #315fda;
+  --accent-strong: #254db8;
+  --accent-soft: #cfdafd;
+  --accent-faint: #edf2ff;
+  --on-accent: #ffffff;
+  --ok: #16714b;
+  --ok-soft: #def1e8;
+  --warn: #9a6208;
+  --warn-soft: #fff0cf;
+  --danger: #c13c39;
+  --danger-soft: #fae3e2;
+  --info: #315a8a;
+  --info-soft: #e4edf7;
+  --font-ui: Inter, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-num: "SFMono-Regular", Consolas, ui-monospace, monospace;
+  --font-mono: "SFMono-Regular", Consolas, ui-monospace, monospace;
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.48;
+  --lh-tight: 1.32;
+  --label-transform: none;
+  --label-tracking: 0.01em;
+  --label-weight: 650;
+  --label-size: 10.5px;
+  --label-color: #69768b;
+  --strong-weight: 620;
+  --heading-tracking: -0.012em;
+  --u: 4px;
+  --titlebar-h: 31px;
+  --ribbon-h: 56px;
+  --status-h: 25px;
+  --tab-h: 30px;
+  --row-h: 31px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 21px;
+  --rail-left: 282px;
+  --rail-right: 348px;
+  --brand-w: 132px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 11px;
+  --r-sm: 3px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(30, 46, 76, 0.06);
+  --shadow-2: 0 8px 22px rgba(30, 46, 76, 0.13);
+  --shadow-3: 0 24px 64px rgba(30, 46, 76, 0.23);
+  --focus: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
+  --scrim: rgba(22, 31, 50, 0.38);
+  --row-hover: rgba(49, 95, 218, 0.055);
+  --row-active: #eef3ff;
+  --row-marker: var(--accent);
+  --row-marker-w: 3px;
+}
+
+.titlebar {
+  box-shadow: 0 1px 0 rgba(23, 32, 51, 0.03);
+}
+.ribbon {
+  background: #fbfcfe;
+}
+.rail--left,
+.rail--right,
+.panel__head,
+.doctabs {
+  background: #f7f9fc;
+}
+.grid thead th {
+  background: #f7f9fc;
+  box-shadow: 0 1px 0 var(--border);
+}
+.grid tbody tr[data-active] td.c-tgt {
+  background: #ffffff;
+}
+.editor textarea {
+  box-shadow: 0 0 0 3px rgba(49, 95, 218, 0.12);
+}
+.card,
+.issue {
+  box-shadow: 0 1px 0 rgba(23, 32, 51, 0.025);
+}
+.card--match[data-best] {
+  background: #f4fbf7;
+}
+.treeitem--folder > .treeitem__ico {
+  color: #d38b20;
+}
+.statusbar {
+  background: #f5f7fb;
+}
