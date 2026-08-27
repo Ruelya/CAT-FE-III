@@ -17,13 +17,13 @@
 
   /* geometry — round glass */
   --r-ctl: 8px; --r-card: 10px; --r-dlg: 14px; --r-badge: 6px; --r-chip: 8px;
-  --h-menubar: 38px; --h-ribbon: 47px; --h-statusbar: 27px;
+  --h-menubar: 38px; --h-ribbon: 67px; --h-statusbar: 27px;
   --h-ctl: 28px; --h-ctl-sm: 23px;
   --h-gridbar: 37px; --h-previewbar: 34px; --preview-h: 212px;
   --w-explorer: 262px; --w-dock: 332px; --w-staterow: 172px;
   --pad-panel: 14px; --pad-cell-y: 8px;
   --bar-h: 4px; --ic: 14px; --dtabs-pad: 6px;
-  --tree-row: 24px; --tree-folder: #7fd9c2;
+  --confirm-ic: #45c2a4; --tree-row: 24px; --tree-folder: #7fd9c2;
 
   /* glass neutrals — alpha layers over the light field */
   --bg-app: transparent;

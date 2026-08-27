@@ -224,49 +224,78 @@ mark {
 
 /* ---------- ribbon ---------- */
 
+/* stacked ribbon: icon above label, captioned groups split by hairlines */
 .ribbon {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex: none;
   height: var(--h-ribbon);
   padding: 0 var(--u3);
-  gap: var(--u2);
+  gap: var(--u1);
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
 }
 .ribbon__group {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding-right: var(--u2);
-  border-right: 1px solid var(--border);
+  padding: var(--u1) var(--u2) 3px;
+  position: relative;
 }
-.ribbon__group:last-of-type { border-right: 0; }
+.ribbon__group + .ribbon__group::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14%;
+  bottom: 14%;
+  width: 1px;
+  background: var(--border);
+}
+.ribbon__btns { display: flex; align-items: stretch; gap: 2px; flex: 1; min-height: 0; }
+.ribbon__cap {
+  flex: none;
+  font-size: 9.5px;
+  line-height: 1;
+  padding-top: 3px;
+  color: var(--text-3);
+  letter-spacing: 0.1em;
+}
 .ribbon__spacer { flex: 1; }
 
 .rb {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  height: var(--h-ctl);
-  padding: 0 var(--u2);
+  justify-content: center;
+  gap: 4px;
+  min-width: 46px;
+  padding: 2px var(--u2) 3px;
   border-radius: var(--r-ctl);
   color: var(--text-2);
-  font-size: calc(var(--fs-ui) - 0.5px);
+  font-size: calc(var(--fs-ui) - 1.5px);
+  line-height: 1;
   white-space: nowrap;
 }
+.rb .ic { width: calc(var(--ic) + 2px); height: calc(var(--ic) + 2px); }
 .rb:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .rb:active:not(:disabled) { background: var(--bg-active); }
 .rb:disabled { color: var(--text-3); opacity: 0.6; }
-.rb--primary {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 500;
+.rb--confirm:not(:disabled) .ic { color: var(--confirm-ic, var(--accent)); }
+.rb--confirm:not(:disabled) { color: var(--text); }
+
+/* the right cluster stays horizontal and vertically centered */
+.rb--cmdk {
+  flex-direction: row;
+  gap: 6px;
+  height: var(--h-ctl);
+  min-width: 0;
+  padding: 0 var(--u2);
+  align-self: center;
+  font-size: calc(var(--fs-ui) - 0.5px);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
 }
-.rb--primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--on-accent); }
-.rb--primary:active:not(:disabled) { background: var(--accent-hover); }
-.rb--primary:disabled { background: var(--bg-active); color: var(--text-3); opacity: 1; }
-.rb--cmdk { border: 1px solid var(--border); background: var(--bg-surface); }
+.rb--cmdk .ic { width: var(--ic); height: var(--ic); }
 .rb--cmdk kbd { margin-left: 2px; }
 
 .ribbon__search {
@@ -274,6 +303,7 @@ mark {
   align-items: center;
   gap: 6px;
   height: var(--h-ctl);
+  align-self: center;
   padding: 0 var(--u2);
   border-radius: var(--r-ctl);
   border: 1px solid var(--border);
