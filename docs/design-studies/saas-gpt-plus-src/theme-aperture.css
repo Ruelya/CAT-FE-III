@@ -8,7 +8,6 @@
   --sunken: #e8edf4;
   --chrome: #f9fafc;
   --chrome-text: #172033;
-  --toolbar: #f9f7f2;
   --border: #cbd4e2;
   --border-soft: #e3e8f0;
   --border-strong: #aeb9ca;
@@ -78,7 +77,7 @@
   box-shadow: 0 1px 0 rgba(23, 32, 51, 0.03);
 }
 .ribbon {
-  background: var(--toolbar);
+  background: #fbfcfe;
 }
 .rail--left,
 .rail--right,

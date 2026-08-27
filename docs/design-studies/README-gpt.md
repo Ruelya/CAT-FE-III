@@ -22,7 +22,7 @@ Source of truth: [`FEATURE-INVENTORY.md`](FEATURE-INVENTORY.md), vendored unchan
 ## Inventory
 
 - [x] 文件 / 编辑 / 视图 / 项目 / 翻译 / QA / 帮助 menus and accelerator hints
-- [x] Grouped icon-over-label ribbon with warm light toolbar and muted teal confirmation
+- [x] Grouped icon-over-label ribbon using each study's own toolbar and confirmation palette
 - [x] `Ctrl+K` / `Ctrl+Shift+P` palette, complete status strip, search, and replace
 - [x] VS Code-style nested workspace tree with folders, guides, search, progress, and removal
 - [x] Multi-document tabs, filters, origin, lock, QA, tokens, editor, row menu, and confirm navigation
