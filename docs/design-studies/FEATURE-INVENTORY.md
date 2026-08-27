@@ -1,9 +1,11 @@
 # Workbench Feature Inventory
 
-Source of truth: `apps/desktop` at `cursor/gf-workbench-s3d-2398`. Every row below was
-read out of the shipped code, not out of a PRD. Anything a prototype adds beyond the
-shipped surface is marked **(proposed)** so a prototype can never be mistaken for
-landed behaviour.
+Source of truth: `apps/desktop` at `cursor/gf-landing-fix-2398` (originally read at
+`cursor/gf-workbench-s3d-2398`; the audit Top 8 — 7-menu IA, ribbon verbs, filter
+chips, tree appearance, help dialogs — have since landed and the rows below reflect
+them). Every row was read out of the shipped code, not out of a PRD. Anything a
+prototype adds beyond the shipped surface is marked **(proposed)** so a prototype can
+never be mistaken for landed behaviour.
 
 Files read: `App.tsx`, `views/WorkbenchView.tsx`, `views/ProjectsView.tsx`,
 `main/menu-template.ts`, `shared/desktop-api.ts`, `lib/segment-filter.ts`,
@@ -17,8 +19,13 @@ Accelerator ownership matters: chords marked *renderer* are displayed by the men
 registered with `registerAccelerator: false`, so the raw key event reaches the renderer
 keymap. Everything else is owned by the menu.
 
+Seven top-level menus (文件/编辑/视图/项目/翻译/QA/帮助 — the prototype IA; 导航
+folded into 编辑). 项目设置/导入文档/返回项目列表 repeat under 项目 as deliberate
+prototype duplicates; the accelerator stays on the 文件 instance only.
+
 | Menu | Item | Command | Accelerator | Owner | Enabled when |
 | --- | --- | --- | --- | --- | --- |
+| 文件 | 新建项目… | `new-project` | — | menu | always |
 | 文件 | 导入文档… | `import-document` | Ctrl+O | menu | project open |
 | 文件 | 导出译文… | `export-document` | Ctrl+E | menu | document open |
 | 文件 | 项目设置… | `open-project-settings` | Ctrl+, | menu | project open |
@@ -26,37 +33,46 @@ keymap. Everything else is owned by the menu.
 | 文件 | 退出 | role `quit` | — | menu | always (non-mac) |
 | 编辑 | 撤销 / 重做 | roles `undo` / `redo` | Ctrl+Z / Ctrl+Y | menu | always |
 | 编辑 | 剪切 / 复制 / 粘贴 / 全选 | roles | standard | menu | always |
-| 编辑 | 确认当前句段 | `confirm-segment` | Ctrl+Enter | renderer | document open |
-| 编辑 | 确认并到下一句段 | `confirm-segment-any` | Ctrl+Alt+Enter | renderer | document open |
-| 编辑 | 确认并停留 | `confirm-segment-stay` | Ctrl+Alt+Shift+Enter | renderer | document open |
-| 编辑 | 锁定/解锁句段 | `toggle-lock-segment` | Ctrl+L | menu | document open |
+| 编辑 | 查找… | `open-find` | Ctrl+F | renderer | document open |
+| 编辑 | 替换… | `open-replace` | Ctrl+H | renderer | document open |
+| 编辑 | 查找下一个 | `find-next` | F4 | renderer | document open |
+| 编辑 | 查找上一个 | `find-prev` | Shift+F4 | renderer | document open |
+| 编辑 | 筛选句段 | `focus-filter` | Ctrl+Shift+F | renderer | document open |
+| 编辑 | 检索（取选中文本） | `open-concordance` | F3 | renderer | project open |
 | 视图 | 命令面板 | `open-command-palette` | Ctrl+Shift+P (Ctrl+K synonym) | renderer | project open |
 | 视图 | 预览面板 | `toggle-preview` | Ctrl+P | menu | document open |
+| 视图 | 折叠左栏 / 折叠右栏 | `toggle-left` / `toggle-right` | — | menu | project open |
 | 视图 | 记忆面板 | `show-dock-memory` | Ctrl+1 | renderer | project open |
 | 视图 | 术语面板 | `show-dock-term` | Ctrl+2 | renderer | project open |
 | 视图 | QA 面板 | `show-dock-qa` | Ctrl+3 | renderer | project open |
 | 视图 | AI 面板 | `show-dock-ai` | Ctrl+4 | renderer | project open |
 | 视图 | 实际大小 / 放大 / 缩小 / 切换全屏 | roles | standard | menu | always |
-| 导航 | 查找… | `open-find` | Ctrl+F | renderer | document open |
-| 导航 | 替换… | `open-replace` | Ctrl+H | renderer | document open |
-| 导航 | 查找下一个 | `find-next` | F4 | renderer | document open |
-| 导航 | 查找上一个 | `find-prev` | Shift+F4 | renderer | document open |
-| 导航 | 筛选句段 | `focus-filter` | Ctrl+Shift+F | renderer | document open |
-| 导航 | 检索（取选中文本） | `open-concordance` | F3 | renderer | project open |
+| 项目 | 项目设置… / 导入文档… / 返回项目列表 | duplicates of 文件 | — | menu | project open |
+| 项目 | 记忆库管理… | `open-tm-manage` | — | menu | project open |
+| 项目 | 术语库管理… | `open-term-manage` | — | menu | project open |
+| 项目 | 归档项目 | `archive-project` | — | menu | project open |
+| 翻译 | 确认当前句段 | `confirm-segment` | Ctrl+Enter | renderer | document open |
+| 翻译 | 确认并到下一句段 | `confirm-segment-any` | Ctrl+Alt+Enter | renderer | document open |
+| 翻译 | 确认并停留 | `confirm-segment-stay` | Ctrl+Alt+Shift+Enter | renderer | document open |
+| 翻译 | 锁定/解锁句段 | `toggle-lock-segment` | Ctrl+L | menu | document open |
+| 翻译 | 复制源文到译文 / 清空译文 | `copy-source` / `clear-target` | — | menu | document open |
+| 翻译 | 预翻译（TM） | `pretranslate` | — | menu | document open |
+| 翻译 | 插入记忆匹配 / 插入术语 | `insert-tm` / `insert-term` | — | menu | document open |
+| 翻译 | AI 翻译当前句段 / AI 润色当前句段 | `ai-translate` / `ai-refine` | — | menu | document open |
+| 翻译 | Agent 模式… | `show-dock-ai` | — | menu | project open |
+| QA | 运行 QA | `run-qa` | — | menu | document open |
+| QA | QA 面板 | `show-dock-qa` | — | menu | project open |
+| QA | 忽略当前/同类/本句问题, 恢复为未解决 | `waive` / `waive-rule` / `waive-segment` / `restore` | — | menu | document open |
+| QA | 应用引擎修复 | `apply-fix` | — | menu | document open |
+| QA | 有错误时阻止导出 (checkbox = stored `qa.profile.blockExportOnError`) | `toggle-gate` | — | menu | project open |
+| 帮助 | 键盘快捷键… | `help-keys` | — | menu | always |
 | 帮助 | 重新加载窗口 / 开发者工具 | roles | — | menu | always |
+| 帮助 | 关于 <app> (in-app dialog; macOS keeps role `about`) | `about` | — | menu | always (non-mac) |
 
-`MenuCommand` union (`shared/desktop-api.ts`) — 20 commands, exactly the table above:
-`import-document`, `export-document`, `open-project-settings`, `close-project`,
-`open-command-palette`, `toggle-preview`, `open-concordance`, `focus-filter`,
-`open-find`, `open-replace`, `find-next`, `find-prev`, `confirm-segment`,
-`confirm-segment-any`, `confirm-segment-stay`, `toggle-lock-segment`,
-`show-dock-memory`, `show-dock-term`, `show-dock-qa`, `show-dock-ai`.
-
-Prototype menu mapping: the brief asks for 文件/编辑/视图/项目/翻译/QA/帮助. The
-prototypes keep every command above and redistribute them — 导航 folds into 编辑,
-项目 collects 项目设置/记忆库管理/术语库管理/归档/返回项目列表, 翻译 collects the
-confirm family + 锁定 + 预翻译 + 插入记忆/插入术语 + AI 翻译/润色 + Agent, QA collects
-运行 QA + the waive family + 应用修复 + 有错误时阻止导出.
+`MenuCommand` union (`shared/desktop-api.ts`) — 39 commands, exactly the table above.
+Shell-handled: `open-project-settings`, `close-project`, `new-project`, `help-keys`,
+`about`; everything else dispatches into the workbench. `MenuContext` carries
+`projectOpen`, `documentOpen`, and `exportGate` (the stored QA gate, for the checkbox).
 
 ## 2. Ribbon (`components/Ribbon.tsx`)
 
@@ -68,22 +84,27 @@ item; none owns behaviour.
 | --- | --- | --- | --- |
 | 项目 | 项目列表 | 返回项目列表 | — |
 | 项目 | TM 管理 | TM 管理 | — |
+| 历史 | 撤销 / 重做 | 撤销（Ctrl+Z）/ 重做（Ctrl+Y） | no mounted target editor (drives the editor's own `execCommand` stack; no app-level undo exists) |
 | 文档 | 导入 | 导入文档（Ctrl+O） | busy |
 | 文档 | 导出译文 | 导出译文（Ctrl+E） | no document / busy |
-| 编辑 | 确认句段 | 确认句段（Ctrl+Enter） | no document |
-| 编辑 | 锁定句段 / 解锁句段 | 锁定句段（Ctrl+L） | no document / no selection |
-| 编辑 | 预翻译 | 预翻译 | no document / busy |
+| 翻译 | 确认句段 | 确认句段（Ctrl+Enter） | no document |
+| 翻译 | 锁定句段 / 解锁句段 | 锁定句段（Ctrl+L） | no document / no selection |
+| 翻译 | 插入记忆 | 插入记忆匹配（Ctrl+1…9） | no document / no unlocked selection |
+| 翻译 | 插入术语 | 插入术语 | no document / no unlocked selection |
+| 翻译 | 预翻译 | 预翻译 | no document / busy |
 | 审校 | 查找 | 查找（Ctrl+F） | no document |
+| 审校 | 查找下一个 | 查找下一个（F4） | no document |
 | 审校 | 替换 | 替换（Ctrl+H） | no document |
-| 审校 | 筛选 | 筛选（Ctrl+Shift+F） | no document |
 | 审校 | 检索 | 检索（F3，取选中文本） | — |
+| 审校 | 运行 QA | 对整篇文档运行质量检查 | no document |
+| 审校 | 预览 | 预览面板（Ctrl+P） | no document |
 | tail | 搜索句段 input | 按文本筛选 | no document |
 
-Ribbon verbs the brief additionally requires in the prototypes: 撤销, 重做,
-查找下一个, 插入记忆, 插入术语, 运行 QA, 预览, 命令搜索 (Ctrl+K). All of these exist as
-commands in the shipped app (menu roles, `find-next`, TM 应用为草稿, 术语 插入,
-QA 运行 QA, `toggle-preview`, `open-command-palette`) — the prototypes only promote them
-to the ribbon row.
+插入记忆 applies TM match #1 through the same `applyTmMatchToActive` path as the
+editor's Ctrl+1 (an honest `没有第 1 条记忆匹配` on a miss); 插入术语 runs an on-demand
+`term.lookup` and inserts the first non-forbidden translation at the caret (a miss
+switches to the 术语 dock and reports `当前句段无术语命中`). 筛选 left the ribbon —
+the far-right search box and Ctrl+Shift+F own that channel.
 
 ## 3. Status bar (`App.tsx`)
 
@@ -121,26 +142,20 @@ double-click resets, chevron collapses).
 - **项目详情**: 名称, 源语言, 目标语言, 创建时间, 文件数, 总句段, 已确认句段（n%）.
 - Empty states: `暂无文档`, `无匹配文件`.
 
-**Prototype deviation — the 文件 section is a tree, not a list.** The shipped app
-renders documents flat; every `saas-opus-*` study renders the same documents as an
-IDE file tree, folded from the directory each document was imported from. Nothing
-about the per-document data changes, only how it is arranged:
+**The 文件 section is an IDE file tree** (`lib/doc-tree.ts`), folded from the
+directory each document was imported from (shared prefix stripped; a flat import
+stays flat). All shipped:
 
 | Element | Behaviour |
 | --- | --- |
-| Folder row | chevron toggles; folders sort before files, both alphabetical |
-| Indent guide | one hairline per ancestor level, drawn at every depth |
-| File icon | per format — `docx`, `md`, `json` each get their own glyph |
-| Folder rollup | descendant file count, plus an open-QA badge when any child has findings |
-| File badge | 已确认 `%` over a two-tone fill line; QA count badge when open > 0 |
-| Active file | row marker, accent icon, weight bump — distinct from "tab is open" |
-| Removal | unchanged: hover → 移除 → `确认移除` / `取消` |
-| Search | matches the full path (`docs/guides/onboarding-guide.docx`) and force-expands every folder |
-| Reset | a 场景 switch collapses `legal`, clears the search, re-activates `onboarding-guide.docx` |
-
-Fixture tree: `docs/guides/{onboarding-guide.docx, troubleshooting.docx}`,
-`docs/release-notes-4.2.docx`, `reference/api-reference.md`,
-`ui/strings/console-strings.json`, `legal/terms-of-service.docx`.
+| Folder row | chevron toggles (`aria-expanded` honest); folders sort before files, both alphabetical (zh-Hans-CN collator) |
+| Indent guide | one hairline per ancestor level (`--tl-color-border`), at every depth |
+| File icon | per engine `Document.format` — docx / markdown / txt / html / pptx / xlsx / xliff each get their own glyph, anything unmapped keeps the plain file glyph |
+| Folder rollup | descendant confirmed/total (or file count), plus an open-QA badge when any child has findings |
+| File badge | 已确认 `%` over a two-tone fill line; meta line carries `QA n` when open > 0 |
+| Active file | `data-active`: accent left edge + fill. `data-open`: open in a tab but behind another document — weaker than active, stronger than closed |
+| Removal | hover → 移除 → `确认移除` / `取消` |
+| Search | matches the visible drawn path (folder names hit everything inside) and force-expands the matched folders; the stripped prefix is not searchable |
 
 ## 5. Center — document tabs, banners, toolbar
 
@@ -150,11 +165,15 @@ Fixture tree: `docs/guides/{onboarding-guide.docx, troubleshooting.docx}`,
 - **Inline banners**, in render order: QA-gate confirm, overwrite confirm, unacked-write
   alert (`句段 #n 的草稿/确认未被引擎确认写入（<message>）` + 关闭).
 - **Grid toolbar**: 状态 select (`全部状态` / `未译` / `草稿` / `已确认` / `QA 问题`),
-  removable chips (one per active channel: state chip, `“query”` chip — `×` clears that
+  three boolean toggles (锁定 / 有术语 / 有标签), removable chips (one per active
+  channel: state chip, `“query”` chip, one per active boolean — `×` clears that
   channel, Esc clears all), and a right-aligned `visible/total` count.
-- **Filter channels shipped**: state + free text (`lib/segment-filter.ts`).
-  **(proposed)** in the prototypes: 锁定, 有术语, 有标签 chips — the data exists
-  (`Segment.locked`, `term.lookup`, `lexPlaceholderTokens`) but no filter channel does.
+- **Filter channels shipped**: state + free text + 锁定 + 有术语 + 有标签, all AND
+  (`lib/segment-filter.ts`). 锁定 keeps `Segment.locked === true`; 有标签 keeps rows
+  whose source or target has a placeholder run (`lexPlaceholderTokens`, the TokenText
+  lexer); 有术语 resolves through the engine's own `term.lookup` — one call per
+  distinct sourceText, cached while the chip stays on, rows narrow only after the
+  engine answers (never a client-side matcher).
 
 ## 6. Find / replace widget (`components/FindWidget.tsx`)
 
