@@ -280,7 +280,7 @@ mark {
 .rb:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .rb:active:not(:disabled) { background: var(--bg-active); }
 .rb:disabled { color: var(--text-3); opacity: 0.6; }
-.rb--confirm:not(:disabled) .ic { color: var(--confirm-ic, var(--accent)); }
+.rb--confirm:not(:disabled) .ic { color: var(--accent); }
 .rb--confirm:not(:disabled) { color: var(--text); }
 
 /* the right cluster stays horizontal and vertically centered */

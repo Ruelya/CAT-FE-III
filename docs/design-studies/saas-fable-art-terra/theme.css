@@ -25,7 +25,7 @@
   --w-explorer: 264px; --w-dock: 336px; --w-staterow: 176px;
   --pad-panel: 15px; --pad-cell-y: 9px;
   --bar-h: 5px; --ic: 15px; --dtabs-pad: 6px;
-  --confirm-ic: #3f8f7c; --tree-row: 25px; --tree-folder: #9a8f77;
+  --tree-row: 25px; --tree-folder: #9a8f77;
 
   /* mineral neutrals — stone, not paper */
   --bg-app: #e6e3da;

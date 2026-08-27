@@ -24,7 +24,7 @@
   --w-explorer: 262px; --w-dock: 332px; --w-staterow: 172px;
   --pad-panel: 14px; --pad-cell-y: 8px;
   --bar-h: 4px; --ic: 14px; --dtabs-pad: 6px;
-  --confirm-ic: #2fa78a; --tree-row: 24px; --tree-folder: #2b9a7e;
+  --tree-row: 24px; --tree-folder: #2b9a7e;
 
   /* warm-white glass — alpha layers over the daylight field */
   --bg-app: transparent;
