@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>夜航 NOCTURNE · Translunar 设计研究 二</title>
+<link rel="stylesheet" href="./fonts/fonts.css" />
+<style>
+/* ============================================================
+   STUDY 02 · 夜航 (NOCTURNE)
+   A grading-suite console. Neutral charcoal surround, the way a
+   color room is lit: no blue cast, no VS Code. One working light:
+   tungsten. Confirmed reads as quiet phosphor. The signature is
+   the reel: every segment is a clip on a strip, the strip is the
+   map, the playhead is where you are.
+   Type: Archivo (chrome and text) · Fragment Mono (numbers)
+   ============================================================ */
+
+:root {
+  --void: #111110;
+  --panel: #171716;
+  --lift: #1d1d1b;
+  --well: #0c0c0b;
+  --hair: #292926;
+  --hair-lit: #3a3a36;
+  --text: #d9d6cf;
+  --dim: #93908a;
+  --faint: #5f5d57;
+  --tung: #e2a557;
+  --tung-deep: #8a6432;
+  --tung-ghost: rgba(226, 165, 87, 0.09);
+  --phos: #8fb779;
+  --phos-deep: #4c6540;
+  --alarm: #d2604c;
+  --ui: "Archivo", "Noto Sans SC", sans-serif;
+  --mono: "Fragment Mono", "Noto Sans Mono", monospace;
+  --t-fast: 120ms;
+  --t-base: 190ms;
+  --t-slow: 300ms;
+  --ease: cubic-bezier(0.3, 0, 0.1, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--void);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible, [contenteditable]:focus-visible {
+  outline: 1px solid var(--tung);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--tung-deep); color: var(--text); }
+
+.lbl {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+.num { font-family: var(--mono); font-size: 12px; }
+
+kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  border: 1px solid var(--hair-lit);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 5px;
+  background: var(--lift);
+}
+
+/* ---------- Deck (top bar) ---------- */
+
+.deck {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 44px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--hair);
+}
+
+.deck__brand {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.deck__brand em {
+  font-style: normal;
+  color: var(--tung);
+  margin-left: 8px;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+}
+
+.deck__doc { color: var(--dim); font-size: 12.5px; }
+.deck__spacer { flex: 1; }
+.deck__pair { font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: 0.1em; }
+
+.deck__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  border: 1px solid var(--hair-lit);
+  border-radius: 3px;
+  background: var(--lift);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.deck__cmd:hover { color: var(--tung); border-color: var(--tung-deep); }
+.deck__cmd:active { transform: translateY(1px); }
+
+/* ---------- Reel ---------- */
+
+.reel {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 16px;
+  background: var(--well);
+  border-bottom: 1px solid var(--hair);
+}
+
+.reel__label { flex: none; }
+
+.reel__strip {
+  flex: 1;
+  display: flex;
+  gap: 3px;
+  height: 26px;
+}
+
+.clip {
+  position: relative;
+  height: 100%;
+  border: 1px solid var(--hair-lit);
+  border-radius: 2px;
+  background: var(--panel);
+  overflow: hidden;
+  transition: border-color var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+
+.clip:hover { filter: brightness(1.35); }
+
+.clip__fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--phos-deep);
+  transition: transform var(--t-slow) var(--ease);
+}
+
+.clip[data-state="set"] .clip__fill { transform: scaleX(1); }
+.clip[data-state="draft"] { border-color: var(--tung-deep); }
+.clip[data-state="draft"] .clip__fill { transform: scaleX(1); background: var(--tung-ghost); }
+
+.clip__n {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.clip[data-state="set"] .clip__n { color: var(--phos); }
+
+.clip[data-hot="true"] {
+  border-color: var(--tung);
+  box-shadow: 0 0 0 1px var(--tung), 0 0 14px rgba(226, 165, 87, 0.25);
+}
+.clip[data-hot="true"] .clip__n { color: var(--tung); }
+
+.reel__tc {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  letter-spacing: 0.08em;
+}
+.reel__tc b { font-weight: 400; color: var(--tung); }
+
+/* ---------- Stage ---------- */
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 6px var(--dock-w, 324px);
+}
+
+/* ---------- Bin ---------- */
+
+.bin {
+  background: var(--panel);
+  border-right: 1px solid var(--hair);
+  padding: 14px 0 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.bin .lbl { padding: 0 14px 8px; display: block; }
+
+.bin__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 14px;
+  border-left: 2px solid transparent;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.bin__item:hover { background: var(--lift); }
+.bin__item[data-open="true"] { background: var(--lift); border-left-color: var(--tung); }
+
+.bin__name { font-size: 12.5px; }
+.bin__item[data-open="true"] .bin__name { color: var(--tung); }
+
+.bin__meta { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+.bin__sep { margin: 14px 14px 10px; border-top: 1px solid var(--hair); }
+
+.bin__field {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 14px;
+  font-size: 11px;
+}
+.bin__field dt { color: var(--faint); }
+.bin__field dd { margin: 0; font-family: var(--mono); font-size: 10.5px; color: var(--dim); text-align: right; }
+
+/* ---------- Grid ---------- */
+
+.gridwrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.grid__heads {
+  flex: none;
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr 92px;
+  border-bottom: 1px solid var(--hair-lit);
+  background: var(--panel);
+}
+
+.grid__head { padding: 9px 14px 8px; }
+
+.grid__head .loc {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  text-transform: none;
+  margin-left: 8px;
+}
+
+.rows { flex: 1; min-height: 0; overflow-y: auto; }
+
+.seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px 1fr 1fr 92px;
+  border-bottom: 1px solid var(--hair);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.seg:hover { background: var(--lift); }
+
+.seg[data-active="true"] {
+  background: var(--tung-ghost);
+  box-shadow: inset 2px 0 0 var(--tung);
+  cursor: text;
+}
+
+.seg__no {
+  padding: 12px 10px 0 0;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  user-select: none;
+}
+
+.seg[data-state="set"] .seg__no { color: var(--phos); }
+.seg[data-active="true"] .seg__no { color: var(--tung); }
+
+.seg__src, .seg__tgt {
+  padding: 11px 14px 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+.seg__src { color: var(--dim); }
+.seg__tgt { border-left: 1px solid var(--hair); caret-color: var(--tung); }
+.seg__tgt:focus { outline: none; }
+
+.seg[data-state="draft"] .seg__tgt { color: var(--dim); }
+
+.seg__tgt:empty::before {
+  content: "未译";
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  color: var(--faint);
+}
+
+@keyframes glow-in {
+  0% { background: var(--tung-ghost); box-shadow: inset 0 0 0 1px var(--tung-deep); }
+  100% { background: transparent; box-shadow: inset 0 0 0 1px transparent; }
+}
+.seg__tgt.is-inserted { animation: glow-in 650ms var(--ease); }
+
+/* Confirm: tungsten flash settles to phosphor. */
+@keyframes grade-pass {
+  0% { box-shadow: inset 2px 0 0 var(--tung), inset 240px 0 60px -60px rgba(226, 165, 87, 0.14); }
+  55% { box-shadow: inset 2px 0 0 var(--phos), inset 240px 0 60px -60px rgba(143, 183, 121, 0.12); }
+  100% { box-shadow: inset 2px 0 0 var(--phos); }
+}
+.seg.is-passing { animation: grade-pass 550ms var(--ease); }
+
+.seg__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px 12px 0 14px;
+}
+
+.state-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.seg[data-state="set"] .state-tag { color: var(--phos); }
+.seg[data-active="true"][data-state="draft"] .state-tag { color: var(--tung); }
+
+.qa-flag {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--alarm);
+  border: 1px solid var(--alarm);
+  border-radius: 2px;
+  padding: 1px 5px;
+}
+
+/* ---------- Splitter ---------- */
+
+.splitter { cursor: col-resize; position: relative; touch-action: none; background: var(--void); }
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.splitter:hover::before, .splitter.is-dragging::before {
+  background: var(--tung);
+  box-shadow: 0 0 10px rgba(226, 165, 87, 0.4);
+}
+
+/* ---------- Scopes dock ---------- */
+
+.scopes {
+  background: var(--panel);
+  border-left: 1px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scopes__tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.scopes__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px 9px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+  border-bottom: 2px solid transparent;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+.scopes__tab:hover { color: var(--dim); }
+.scopes__tab[aria-selected="true"] { color: var(--tung); border-bottom-color: var(--tung); }
+
+.scopes__tab .n { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+.scopes__tab[aria-selected="true"] .n { color: var(--tung); }
+
+.scopes__body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 14px; }
+
+.panel { display: none; }
+.panel[data-open="true"] { display: block; animation: slide-up 240ms var(--ease); }
+
+@keyframes slide-up {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.panel__note { padding: 14px 2px; font-size: 12px; color: var(--faint); }
+
+/* TM hit: a reading with a meter. */
+.hit { padding: 12px 0 13px; border-bottom: 1px solid var(--hair); }
+
+.hit__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+
+.hit__pct { font-family: var(--mono); font-size: 16px; color: var(--tung); }
+.hit[data-grade="exact"] .hit__pct { color: var(--phos); }
+
+.hit__meter {
+  flex: 1;
+  height: 3px;
+  background: var(--well);
+  border-radius: 1px;
+  overflow: hidden;
+  align-self: center;
+}
+
+.hit__meter i {
+  display: block;
+  height: 100%;
+  background: var(--tung);
+  transform-origin: left;
+  animation: meter-in 500ms var(--ease) backwards;
+}
+
+.hit[data-grade="exact"] .hit__meter i { background: var(--phos); }
+
+@keyframes meter-in {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
+.hit__mem { font-family: var(--mono); font-size: 10px; color: var(--faint); white-space: nowrap; }
+
+.hit__src { margin: 0 0 3px; font-size: 12.5px; line-height: 1.5; color: var(--dim); }
+.hit__tgt { margin: 0 0 9px; font-size: 13.5px; line-height: 1.55; }
+
+.hit__ins {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--tung);
+  border: 1px solid var(--tung-deep);
+  border-radius: 2px;
+  padding: 4px 12px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.hit__ins:hover { background: var(--tung); color: var(--void); }
+.hit__ins:active { transform: translateY(1px); }
+
+/* Terms */
+.term {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 0 11px;
+  border-bottom: 1px solid var(--hair);
+}
+.term__en { font-size: 13px; font-weight: 500; }
+.term__zh { font-size: 13.5px; color: var(--dim); }
+.term__src { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--faint); white-space: nowrap; }
+
+/* Flags */
+.flag { padding: 12px 0 13px; border-bottom: 1px solid var(--hair); }
+.flag[data-done="true"] { opacity: 0.4; }
+.flag[data-done="true"] .flag__msg { text-decoration: line-through; }
+
+.flag__head { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+
+.flag__rule {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--alarm);
+  border: 1px solid var(--alarm);
+  border-radius: 2px;
+  padding: 1px 6px;
+}
+
+.flag__loc { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+
+.flag__msg { margin: 0 0 9px; font-size: 13px; line-height: 1.55; }
+.flag__msg .bad { color: var(--alarm); border-bottom: 1px solid var(--alarm); }
+
+.flag__acts { display: flex; gap: 8px; }
+
+.flag__act {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--dim);
+  border: 1px solid var(--hair-lit);
+  border-radius: 2px;
+  padding: 4px 11px;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.flag__act:hover { color: var(--text); border-color: var(--dim); }
+.flag__act--fix { color: var(--alarm); border-color: var(--alarm); }
+.flag__act--fix:hover { background: var(--alarm); color: var(--void); border-color: var(--alarm); }
+
+/* ---------- Transport ---------- */
+
+.transport {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 30px;
+  padding: 0 16px;
+  background: var(--well);
+  border-top: 1px solid var(--hair);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  letter-spacing: 0.06em;
+}
+
+.transport b { font-weight: 400; color: var(--text); }
+.transport .lit { color: var(--tung); }
+.transport .ok { color: var(--phos); }
+.transport .warn { color: var(--alarm); }
+.transport__right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+
+.transport .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--phos);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+@keyframes tick {
+  0% { opacity: 0; transform: translateY(0.55em); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.tick { display: inline-block; animation: tick 240ms var(--ease); }
+
+/* ---------- Console (palette) ---------- */
+
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(8, 8, 7, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-base) var(--ease);
+}
+
+.veil[data-open="true"] { opacity: 1; pointer-events: auto; }
+
+.console {
+  width: min(580px, calc(100% - 48px));
+  background: var(--panel);
+  border: 1px solid var(--hair-lit);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--well), 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  transform: translateY(10px) scale(0.99);
+  opacity: 0;
+  transition: transform var(--t-slow) var(--ease), opacity var(--t-slow) var(--ease);
+}
+
+.veil[data-open="true"] .console { transform: translateY(0) scale(1); opacity: 1; }
+
+.console__row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--hair); padding: 0 16px; }
+
+.console__prompt { font-family: var(--mono); font-size: 13px; color: var(--tung); }
+
+.console__input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 14px 0;
+}
+
+.console__input::placeholder { color: var(--faint); }
+
+.console__list { max-height: 300px; overflow-y: auto; padding: 6px 0; }
+
+.console__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  color: var(--dim);
+  border-left: 2px solid transparent;
+}
+
+.console__item[data-hot="true"] {
+  background: var(--tung-ghost);
+  border-left-color: var(--tung);
+  color: var(--text);
+}
+
+.console__item kbd { margin-left: auto; }
+.console__empty { padding: 16px; font-size: 12px; color: var(--faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="deck">
+  <div class="deck__brand">Translunar<em>夜航</em></div>
+  <div class="deck__doc">调色手册.docx</div>
+  <div class="deck__spacer"></div>
+  <div class="deck__pair">EN &gt; ZH-CN</div>
+  <button class="deck__cmd" id="cmdBtn">控制台 <kbd>⌘K</kbd></button>
+</header>
+
+<div class="reel">
+  <span class="lbl reel__label">卷</span>
+  <div class="reel__strip" id="reelStrip"></div>
+  <div class="reel__tc" id="reelTc"></div>
+</div>
+
+<div class="stage" id="stage">
+
+  <aside class="bin">
+    <span class="lbl">素材</span>
+    <button class="bin__item"><span class="bin__name">摄影机设置.docx</span><span class="bin__meta">32 段 &nbsp;1,204 字 &nbsp;100%</span></button>
+    <button class="bin__item" data-open="true"><span class="bin__name">调色手册.docx</span><span class="bin__meta">5 段 &nbsp;186 字 &nbsp;40%</span></button>
+    <button class="bin__item"><span class="bin__name">交付规范.pdf</span><span class="bin__meta">18 段 &nbsp;822 字 &nbsp;0%</span></button>
+    <div class="bin__sep"></div>
+    <span class="lbl">场记</span>
+    <dl style="margin:0;padding:0">
+      <div class="bin__field"><dt>客户</dt><dd>北纬影业</dd></div>
+      <div class="bin__field"><dt>交付</dt><dd>09-05</dd></div>
+      <div class="bin__field"><dt>记忆库</dt><dd>DI_2024</dd></div>
+      <div class="bin__field"><dt>术语库</dt><dd>调色术语</dd></div>
+    </dl>
+  </aside>
+
+  <main class="gridwrap">
+    <div class="grid__heads">
+      <div></div>
+      <div class="grid__head"><span class="lbl">原文</span><span class="loc">en</span></div>
+      <div class="grid__head" style="border-left:1px solid var(--hair)"><span class="lbl">译文</span><span class="loc">zh-CN</span></div>
+      <div class="grid__head"><span class="lbl">状态</span></div>
+    </div>
+    <div class="rows" id="rows" role="list"></div>
+  </main>
+
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" tabindex="0" aria-label="调整示波器栏宽度"></div>
+
+  <aside class="scopes">
+    <nav class="scopes__tabs" role="tablist">
+      <button class="scopes__tab" role="tab" data-tab="tm" aria-selected="true">记忆 <span class="n" id="tmN"></span></button>
+      <button class="scopes__tab" role="tab" data-tab="terms" aria-selected="false">术语</button>
+      <button class="scopes__tab" role="tab" data-tab="flags" aria-selected="false">标记 <span class="n" id="qaN">1</span></button>
+    </nav>
+    <div class="scopes__body">
+      <section class="panel" data-panel="tm" data-open="true" id="tmPanel"></section>
+      <section class="panel" data-panel="terms">
+        <div class="term"><span class="term__en">color space</span><span class="term__zh">色彩空间</span><span class="term__src">调色术语</span></div>
+        <div class="term"><span class="term__en">noise floor</span><span class="term__zh">噪声底</span><span class="term__src">调色术语</span></div>
+        <div class="term"><span class="term__en">interpositive</span><span class="term__zh">中间正片</span><span class="term__src">调色术语</span></div>
+        <div class="term"><span class="term__en">conform</span><span class="term__zh">套底</span><span class="term__src">调色术语</span></div>
+      </section>
+      <section class="panel" data-panel="flags">
+        <div class="flag" id="flag1">
+          <div class="flag__head">
+            <span class="flag__rule">term</span>
+            <span class="flag__loc">SEG 003</span>
+          </div>
+          <p class="flag__msg">noise floor 译作 <span class="bad">本底噪声</span>，术语库作 噪声底。</p>
+          <div class="flag__acts">
+            <button class="flag__act flag__act--fix" id="fixBtn">改为噪声底</button>
+            <button class="flag__act" id="jumpBtn">跳转</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+</div>
+
+<footer class="transport">
+  <span>SEG <b id="posNow">004</b> / <b>005</b></span>
+  <span>已定 <b class="ok" id="setPct">40</b><b class="ok">%</b></span>
+  <span>标记 <b class="warn" id="flagCt">1</b></span>
+  <div class="transport__right">
+    <span>字数 <b>186</b></span>
+    <span>DI_2024</span>
+    <span><span class="dot"></span>引擎</span>
+  </div>
+</footer>
+
+<div class="veil" id="veil">
+  <div class="console" role="dialog" aria-label="控制台">
+    <div class="console__row">
+      <span class="console__prompt">&gt;</span>
+      <input class="console__input" id="palIn" placeholder="命令" autocomplete="off" />
+    </div>
+    <div class="console__list" id="palList"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const segs = [
+  {
+    en: "Set the working color space before importing footage.",
+    zh: "导入素材前，先设定工作色彩空间。",
+    state: "set",
+    matches: [
+      { pct: 100, grade: "exact", en: "Set the working color space before importing footage.", zh: "导入素材前，先设定工作色彩空间。", mem: "DI_2024" },
+    ],
+  },
+  {
+    en: "Node one carries the balance; keep looks downstream.",
+    zh: "一号节点负责平衡，风格调整放在下游。",
+    state: "set",
+    matches: [
+      { pct: 85, grade: "fuzzy", en: "The first node carries the balance pass.", zh: "第一个节点承担平衡调整。", mem: "DI_2024" },
+    ],
+  },
+  {
+    en: "Clip the shadows at two percent to protect the noise floor.",
+    zh: "将阴影裁切在 2%，以保护本底噪声。",
+    state: "draft",
+    qa: 1,
+    matches: [
+      { pct: 81, grade: "fuzzy", en: "Lift the shadows to protect the noise floor.", zh: "提升阴影以保护噪声底。", mem: "DI_2024" },
+    ],
+  },
+  {
+    en: "Match the interpositive grain before the final trim pass.",
+    zh: "最终微调之前，先匹配中间正片的颗粒。",
+    state: "draft",
+    matches: [
+      { pct: 94, grade: "exact", en: "Match the interpositive grain before the trim pass.", zh: "微调之前，先匹配中间正片的颗粒。", mem: "DI_2024" },
+      { pct: 78, grade: "fuzzy", en: "Match the grain plate before delivery.", zh: "交付前先匹配颗粒素材。", mem: "修复片库" },
+    ],
+  },
+  {
+    en: "Render proxies overnight and conform at first light.",
+    zh: "",
+    state: "new",
+    matches: [
+      { pct: 72, grade: "fuzzy", en: "Render proxies overnight.", zh: "代理文件连夜渲染。", mem: "修复片库" },
+    ],
+  },
+];
+
+let active = 3;
+const $ = (s, r = document) => r.querySelector(s);
+const rowsEl = $("#rows");
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const STATE_TAG = { set: "已定", draft: "草稿", new: "未译" };
+const pad = (n) => String(n).padStart(3, "0");
+
+/* ---------- reel ---------- */
+function renderReel() {
+  const strip = $("#reelStrip");
+  strip.innerHTML = "";
+  segs.forEach((s, i) => {
+    const c = document.createElement("button");
+    c.className = "clip";
+    c.dataset.state = s.state;
+    c.dataset.hot = String(i === active);
+    c.style.flex = String(Math.max(3, s.en.split(" ").length));
+    c.setAttribute("aria-label", `段 ${i + 1}`);
+    c.innerHTML = `<span class="clip__fill"></span><span class="clip__n">${pad(i + 1)}</span>`;
+    c.addEventListener("click", () => select(i));
+    strip.appendChild(c);
+  });
+  $("#reelTc").innerHTML = `<b>${pad(active + 1)}</b> / ${pad(segs.length)}`;
+}
+
+/* ---------- rows ---------- */
+function renderRows() {
+  rowsEl.innerHTML = "";
+  segs.forEach((s, i) => {
+    const row = document.createElement("article");
+    row.className = "seg";
+    row.dataset.state = s.state;
+    row.setAttribute("role", "listitem");
+    row.tabIndex = 0;
+    if (i === active) row.dataset.active = "true";
+    row.innerHTML = `
+      <div class="seg__no">${pad(i + 1)}</div>
+      <div class="seg__src">${s.en}</div>
+      <div class="seg__tgt" ${i === active ? 'contenteditable="plaintext-only"' : ""} spellcheck="false">${s.zh}</div>
+      <div class="seg__mark">
+        <span class="state-tag">${STATE_TAG[s.state]}</span>
+        ${s.qa ? `<span class="qa-flag">FLAG ${s.qa}</span>` : ""}
+      </div>`;
+    row.addEventListener("mousedown", (e) => {
+      if (i !== active) { select(i); if (!e.target.closest(".seg__tgt")) e.preventDefault(); }
+    });
+    rowsEl.appendChild(row);
+  });
+  syncCounts();
+}
+
+function rowEl(i) { return rowsEl.children[i]; }
+
+function select(i, focus = true) {
+  if (i < 0 || i >= segs.length) return;
+  const prev = rowEl(active);
+  if (prev) {
+    delete prev.dataset.active;
+    const t = prev.querySelector(".seg__tgt");
+    segs[active].zh = t.textContent;
+    t.removeAttribute("contenteditable");
+  }
+  active = i;
+  const row = rowEl(i);
+  row.dataset.active = "true";
+  row.querySelector(".seg__tgt").setAttribute("contenteditable", "plaintext-only");
+  row.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  renderReel();
+  renderMatches();
+  syncCounts();
+  if (focus) focusEditor();
+}
+
+function focusEditor() {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.focus();
+  const r = document.createRange();
+  r.selectNodeContents(t);
+  r.collapse(false);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/* ---------- confirm ---------- */
+function confirmSeg() {
+  const s = segs[active];
+  const row = rowEl(active);
+  s.zh = row.querySelector(".seg__tgt").textContent;
+  if (!s.zh.trim()) return;
+  s.state = "set";
+  row.dataset.state = "set";
+  row.querySelector(".state-tag").textContent = STATE_TAG.set;
+  row.classList.remove("is-passing");
+  void row.offsetWidth;
+  row.classList.add("is-passing");
+  renderReel();
+  syncCounts(true);
+  const next = segs.findIndex((x, j) => j > active && x.state !== "set");
+  setTimeout(() => select(next === -1 ? active : next), reduced ? 0 : 200);
+}
+
+/* ---------- counts ---------- */
+function syncCounts(rolled = false) {
+  const set = segs.filter((s) => s.state === "set").length;
+  const pct = Math.round((set / segs.length) * 100);
+  const el = $("#setPct");
+  el.innerHTML = rolled ? `<span class="tick">${pct}</span>` : pct;
+  $("#posNow").textContent = pad(active + 1);
+  const qa = segs.reduce((n, s) => n + (s.qa || 0), 0);
+  $("#flagCt").textContent = qa;
+  $("#qaN").textContent = qa || "";
+}
+
+/* ---------- scopes ---------- */
+function renderMatches() {
+  const s = segs[active];
+  $("#tmN").textContent = s.matches.length || "";
+  const host = $("#tmPanel");
+  host.innerHTML = s.matches.length ? "" : `<p class="panel__note">此段无匹配。</p>`;
+  s.matches.forEach((m, i) => {
+    const d = document.createElement("div");
+    d.className = "hit";
+    d.dataset.grade = m.grade;
+    d.innerHTML = `
+      <div class="hit__head">
+        <span class="hit__pct">${m.pct}</span>
+        <span class="hit__meter"><i style="width:${m.pct}%; animation-delay:${i * 70}ms"></i></span>
+        <span class="hit__mem">${m.mem}</span>
+      </div>
+      <p class="hit__src">${m.en}</p>
+      <p class="hit__tgt">${m.zh}</p>
+      <button class="hit__ins">插入</button>`;
+    d.querySelector(".hit__ins").addEventListener("click", () => insertMatch(m));
+    host.appendChild(d);
+  });
+}
+
+function insertMatch(m) {
+  const t = rowEl(active).querySelector(".seg__tgt");
+  t.textContent = m.zh;
+  segs[active].zh = m.zh;
+  if (segs[active].state === "new") {
+    segs[active].state = "draft";
+    rowEl(active).dataset.state = "draft";
+    rowEl(active).querySelector(".state-tag").textContent = STATE_TAG.draft;
+    renderReel();
+  }
+  t.classList.remove("is-inserted");
+  void t.offsetWidth;
+  t.classList.add("is-inserted");
+  focusEditor();
+}
+
+/* ---------- tabs ---------- */
+const tabs = [...document.querySelectorAll(".scopes__tab")];
+function openTab(name) {
+  tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
+  document.querySelectorAll(".panel").forEach((p) => {
+    if (p.dataset.panel === name) p.dataset.open = "true";
+    else delete p.dataset.open;
+  });
+}
+tabs.forEach((t) => t.addEventListener("click", () => openTab(t.dataset.tab)));
+
+/* ---------- flag fix ---------- */
+$("#fixBtn").addEventListener("click", () => {
+  const i = 2;
+  segs[i].zh = segs[i].zh.replace("本底噪声", "噪声底");
+  segs[i].qa = 0;
+  const row = rowEl(i);
+  const t = row.querySelector(".seg__tgt");
+  t.textContent = segs[i].zh;
+  row.querySelector(".qa-flag")?.remove();
+  t.classList.add("is-inserted");
+  $("#flag1").dataset.done = "true";
+  $("#fixBtn").disabled = true;
+  syncCounts();
+});
+$("#jumpBtn").addEventListener("click", () => select(2));
+
+/* ---------- splitter ---------- */
+const stage = $("#stage");
+const splitter = $("#splitter");
+let dockW = 324;
+splitter.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  splitter.classList.add("is-dragging");
+  splitter.setPointerCapture(e.pointerId);
+  const startX = e.clientX, startW = dockW;
+  const move = (ev) => {
+    dockW = Math.min(470, Math.max(250, startW + (startX - ev.clientX)));
+    stage.style.setProperty("--dock-w", dockW + "px");
+  };
+  const up = () => {
+    splitter.classList.remove("is-dragging");
+    splitter.removeEventListener("pointermove", move);
+    splitter.removeEventListener("pointerup", up);
+  };
+  splitter.addEventListener("pointermove", move);
+  splitter.addEventListener("pointerup", up);
+});
+splitter.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") dockW = Math.min(470, dockW + 16);
+  else if (e.key === "ArrowRight") dockW = Math.max(250, dockW - 16);
+  else return;
+  e.preventDefault();
+  stage.style.setProperty("--dock-w", dockW + "px");
+});
+
+/* ---------- console ---------- */
+const veil = $("#veil"), palIn = $("#palIn"), palList = $("#palList");
+let palHot = 0;
+const commands = [
+  { label: "确认本段", kbd: "⌘⏎", run: confirmSeg },
+  { label: "插入最佳匹配", kbd: "⌘1", run: () => segs[active].matches[0] && insertMatch(segs[active].matches[0]) },
+  { label: "下一段", kbd: "↓", run: () => select(active + 1) },
+  { label: "上一段", kbd: "↑", run: () => select(active - 1) },
+  { label: "跳到未译段", run: () => { const i = segs.findIndex((s) => s.state === "new"); if (i > -1) select(i); } },
+  { label: "复制原文", run: () => { const t = rowEl(active).querySelector(".seg__tgt"); t.textContent = segs[active].en; segs[active].zh = segs[active].en; t.classList.add("is-inserted"); focusEditor(); } },
+  { label: "示波：记忆", run: () => openTab("tm") },
+  { label: "示波：术语", run: () => openTab("terms") },
+  { label: "示波：标记", run: () => openTab("flags") },
+];
+
+function renderPal(q = "") {
+  const hits = commands.filter((c) => c.label.includes(q));
+  palHot = Math.min(palHot, Math.max(0, hits.length - 1));
+  palList.innerHTML = "";
+  if (!hits.length) { palList.innerHTML = `<div class="console__empty">无此命令</div>`; return; }
+  hits.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "console__item";
+    b.dataset.hot = String(i === palHot);
+    b.innerHTML = `<span>${c.label}</span>${c.kbd ? `<kbd>${c.kbd}</kbd>` : ""}`;
+    b.addEventListener("click", () => { closePal(); c.run(); });
+    b.addEventListener("mousemove", () => { palHot = i; renderPal(palIn.value.trim()); });
+    palList.appendChild(b);
+  });
+}
+
+function openPal() { veil.dataset.open = "true"; palIn.value = ""; palHot = 0; renderPal(); setTimeout(() => palIn.focus(), 30); }
+function closePal() { delete veil.dataset.open; focusEditor(); }
+
+$("#cmdBtn").addEventListener("click", openPal);
+veil.addEventListener("mousedown", (e) => { if (e.target === veil) closePal(); });
+palIn.addEventListener("input", () => { palHot = 0; renderPal(palIn.value.trim()); });
+palIn.addEventListener("keydown", (e) => {
+  const hits = commands.filter((c) => c.label.includes(palIn.value.trim()));
+  if (e.key === "ArrowDown") { e.preventDefault(); palHot = Math.min(palHot + 1, hits.length - 1); renderPal(palIn.value.trim()); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); palHot = Math.max(palHot - 1, 0); renderPal(palIn.value.trim()); }
+  else if (e.key === "Enter") { e.preventDefault(); if (hits[palHot]) { closePal(); hits[palHot].run(); } }
+  else if (e.key === "Escape") closePal();
+});
+
+/* ---------- keys ---------- */
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); veil.dataset.open ? closePal() : openPal(); return; }
+  if (veil.dataset.open) return;
+  if (mod && e.key === "Enter") { e.preventDefault(); confirmSeg(); return; }
+  if (mod && e.key === "1") { e.preventDefault(); const m = segs[active].matches[0]; if (m) insertMatch(m); return; }
+  const inEditor = e.target.closest?.(".seg__tgt");
+  if (!inEditor && e.key === "ArrowDown") { e.preventDefault(); select(active + 1); }
+  if (!inEditor && e.key === "ArrowUp") { e.preventDefault(); select(active - 1); }
+});
+
+/* ---------- boot ---------- */
+renderRows();
+renderReel();
+renderMatches();
+</script>
+</body>
+</html>
