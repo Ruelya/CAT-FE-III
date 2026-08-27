@@ -1611,20 +1611,38 @@
       ${S.toast ? `<div class="toast" role="status">${esc(S.toast)}</div>` : ""}
     `;
 
-    // Auto-size the editor and restore focus.
+    // Auto-size the editor and restore focus. Overlays own the focus:
+    // the palette input first, then the topmost dialog/gate, then whatever
+    // element carried data-refocus, then the grid editor.
     const ta = app.querySelector(".grid textarea");
     if (ta) { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight}px`; }
-    if (refocus) {
-      const el = app.querySelector(refocus);
-      if (el) {
-        el.focus();
-        if (selStart != null && el.setSelectionRange) {
-          try { el.setSelectionRange(selStart, selEnd ?? selStart); } catch { /* selects */ }
-        }
+    const restoreSel = (el) => {
+      if (selStart != null && el.setSelectionRange) {
+        try { el.setSelectionRange(selStart, selEnd ?? selStart); } catch { /* selects */ }
       }
-    } else if (S.paletteOpen) {
+    };
+    if (S.paletteOpen) {
       const inp = app.querySelector("[data-refocus='palette']");
-      if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+      if (inp) {
+        inp.focus();
+        if (focused && focused.dataset && focused.dataset.refocus === "palette") restoreSel(inp);
+        else inp.setSelectionRange(inp.value.length, inp.value.length);
+      }
+    } else if (S.dialog || S.engine !== "ready") {
+      const overlays = app.querySelectorAll(".overlay");
+      const scope = overlays[overlays.length - 1];
+      const wasInOverlay = focused && focused.closest && focused.closest(".overlay");
+      if (scope && wasInOverlay) {
+        const el = refocus ? scope.querySelector(refocus) : null;
+        if (el) { el.focus(); restoreSel(el); }
+      } else if (scope) {
+        const el = scope.querySelector("[data-refocus]")
+          || scope.querySelector("input:not([type='checkbox']), select, textarea, .dialog__foot button, button");
+        if (el) el.focus();
+      }
+    } else if (refocus) {
+      const el = app.querySelector(refocus);
+      if (el) { el.focus(); restoreSel(el); }
     } else if (S.editing && ta) {
       // Keep the keyboard loop in the editor unless something else holds focus.
       if (!document.activeElement || document.activeElement === document.body) ta.focus();
