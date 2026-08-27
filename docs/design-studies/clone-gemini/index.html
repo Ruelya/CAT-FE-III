@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1024, initial-scale=1.0">
+  <title>User_Manual.docx — Translunar CAT Workbench</title>
+  <style>
+    /* CSS Reset & Exact System Tokens */
+    :root {
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --bg-main: #ffffff;
+      --bg-subtle: #f8fafc;
+      --bg-hover: #f1f5f9;
+      --border-grid: #e2e8f0;
+      --border-blue: #3b82f6;
+      
+      --text-dark: #1e293b;
+      --text-gray: #475569;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      
+      --blue-primary: #2563eb;
+      --blue-pill-bg: #dbeafe;
+      --blue-pill-text: #2563eb;
+      
+      --green-pill-bg: #dcfce7;
+      --green-pill-text: #16a34a;
+      --green-progress: #10b981;
+      --green-match-bg: #f0fdf4;
+      --green-match-border: #22c55e;
+      
+      --orange-pill-bg: #fef3c7;
+      --orange-pill-text: #d97706;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font-ui);
+      font-size: 11px;
+      color: var(--text-dark);
+      background-color: #ffffff;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+    }
+
+    .app-root {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+      background: #ffffff;
+    }
+
+    /* 1. Top Windows Bar */
+    .top-bar {
+      height: 25px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px 0 12px;
+      background: #ffffff;
+      border-bottom: 1px solid #f1f5f9;
+      flex-shrink: 0;
+    }
+    .menu-list {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 11px;
+      color: #334155;
+    }
+    .menu-item {
+      cursor: pointer;
+      padding: 1px 3px;
+    }
+    .menu-item:hover {
+      color: #000000;
+    }
+    .win-controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #64748b;
+    }
+
+    /* 2. Ribbon Action Toolbar */
+    .ribbon {
+      height: 50px;
+      display: flex;
+      align-items: center;
+      padding: 2px 10px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      flex-shrink: 0;
+    }
+    .ribbon-group {
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      padding: 0 5px;
+      border-right: 1px solid #e2e8f0;
+      height: 40px;
+    }
+    .ribbon-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 5px;
+      min-width: 34px;
+      height: 40px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      background: transparent;
+      color: #475569;
+      font-size: 9px;
+      font-family: inherit;
+      cursor: pointer;
+      gap: 2px;
+    }
+    .ribbon-btn:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    .ribbon-btn svg {
+      width: 15px;
+      height: 15px;
+      stroke: #2563eb;
+      fill: none;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .ribbon-btn svg.gray {
+      stroke: #64748b;
+    }
+    .ribbon-search {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      position: relative;
+    }
+    .ribbon-search-input {
+      height: 25px;
+      width: 155px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 0 26px 0 8px;
+      font-size: 10.5px;
+      outline: none;
+      color: #1e293b;
+    }
+    .ribbon-search-input::placeholder {
+      color: #94a3b8;
+    }
+    .search-icon {
+      position: absolute;
+      right: 8px;
+      width: 12px;
+      height: 12px;
+      stroke: #64748b;
+      fill: none;
+      stroke-width: 1.8;
+      pointer-events: none;
+    }
+
+    /* 3. Main Workspace Grid */
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: 205px 1fr 225px;
+      flex: 1;
+      min-height: 0;
+      background: #ffffff;
+    }
+
+    /* LEFT PANE */
+    .pane-left {
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .left-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px 2px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .proj-box {
+      padding: 2px 10px 8px 10px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .proj-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .proj-meta {
+      font-size: 10px;
+      color: #475569;
+      margin-bottom: 2px;
+    }
+    .prog-track {
+      height: 4px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .prog-fill {
+      height: 100%;
+      background: var(--green-progress);
+      border-radius: 2px;
+    }
+    .search-files-wrap {
+      padding: 6px 10px 4px 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .search-files-input {
+      flex: 1;
+      height: 22px;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+      padding: 0 6px;
+      font-size: 10.5px;
+      outline: none;
+    }
+
+    /* Tree View */
+    .tree-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2px 0;
+    }
+    .tree-folder-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2.5px 10px;
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #334155;
+      cursor: pointer;
+    }
+    .tree-file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2.5px 10px 2.5px 22px;
+      font-size: 10.5px;
+      color: #334155;
+      cursor: pointer;
+    }
+    .tree-file-row.active {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-weight: 600;
+    }
+    .tree-file-title {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tree-pct {
+      font-size: 9.5px;
+      color: #64748b;
+    }
+
+    /* Project Details */
+    .proj-details {
+      border-top: 1px solid #e2e8f0;
+      padding: 6px 10px;
+      background: #ffffff;
+    }
+    .proj-details-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .details-grid {
+      display: grid;
+      grid-template-columns: 85px 1fr;
+      gap: 2px 4px;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+    .d-label { color: #64748b; }
+    .d-value { color: #1e293b; text-align: right; }
+
+    .left-bottom-bar {
+      border-top: 1px solid #e2e8f0;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      gap: 12px;
+      background: #f8fafc;
+    }
+
+    /* CENTER PANE */
+    .pane-center {
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .center-tabs {
+      height: 28px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      gap: 3px;
+    }
+    .tab-active {
+      background: #ffffff;
+      border-top: 2px solid var(--blue-primary);
+      border-left: 1px solid #e2e8f0;
+      border-right: 1px solid #e2e8f0;
+      border-bottom: 1px solid #ffffff;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #0f172a;
+      border-radius: 3px 3px 0 0;
+      margin-bottom: -1px;
+    }
+    .center-subbar {
+      height: 30px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+    .subbar-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .subbar-search {
+      height: 20px;
+      width: 125px;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+      padding: 0 6px;
+      font-size: 10px;
+      outline: none;
+    }
+
+    /* Bilingual Table */
+    .grid-scroll {
+      flex: 1;
+      overflow-y: auto;
+      background: #ffffff;
+    }
+    .grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .grid-table th {
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 5px 10px;
+      font-size: 10.5px;
+      font-weight: 600;
+      color: #334155;
+      text-align: left;
+    }
+    .th-num { width: 30px; text-align: center; }
+    .th-src { width: 44%; }
+    .th-tgt { width: 44%; }
+    .th-stat { width: 12%; text-align: center; }
+
+    .grid-row {
+      border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+    .grid-cell {
+      padding: 8px 10px;
+      vertical-align: top;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #0f172a;
+    }
+    .cell-num {
+      text-align: center;
+      color: #64748b;
+      font-size: 10.5px;
+      padding-top: 8px;
+    }
+    .cell-src {
+      border-right: 1px solid #e2e8f0;
+    }
+    .cell-tgt {
+      border-right: 1px solid #e2e8f0;
+    }
+
+    .comment-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 9.5px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .status-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding-top: 2px;
+    }
+    .pill {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.15;
+      min-width: 38px;
+    }
+    .pill.green {
+      background: var(--green-pill-bg);
+      color: var(--green-pill-text);
+    }
+    .pill.blue {
+      background: var(--blue-pill-bg);
+      color: var(--blue-pill-text);
+    }
+    .pill.orange {
+      background: var(--orange-pill-bg);
+      color: var(--orange-pill-text);
+    }
+    .pill .sub {
+      font-size: 8px;
+      font-weight: 600;
+    }
+
+    /* Active Segment 6 Frame */
+    .active-editor {
+      border: 1.5px solid var(--border-blue);
+      border-radius: 3px;
+      padding: 6px 8px;
+      min-height: 38px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #0f172a;
+      background: #ffffff;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15);
+    }
+    .caret {
+      display: inline-block;
+      width: 1px;
+      height: 12px;
+      background: #0f172a;
+      vertical-align: -1px;
+      margin-left: 1px;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Bottom Comments Drawer */
+    .drawer {
+      border-top: 1px solid #e2e8f0;
+      background: #ffffff;
+      height: 82px;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .drawer-top-tabs {
+      height: 22px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 10.5px;
+    }
+    .drawer-tab {
+      color: #64748b;
+      cursor: pointer;
+      padding: 2px 0;
+    }
+    .drawer-tab.active {
+      color: var(--blue-primary);
+      font-weight: 600;
+      border-bottom: 2px solid var(--blue-primary);
+    }
+    .drawer-sub-bar {
+      height: 20px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 10px;
+    }
+    .drawer-card {
+      flex: 1;
+      padding: 4px 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #bfdbfe;
+      color: #1d4ed8;
+      font-weight: 700;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+    }
+
+    /* RIGHT PANE */
+    .pane-right {
+      background: #ffffff;
+      border-left: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .right-tabs {
+      height: 28px;
+      display: flex;
+      border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+    .r-tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10.5px;
+      color: #64748b;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .r-tab.active {
+      color: var(--blue-primary);
+      font-weight: 600;
+      border-bottom-color: var(--blue-primary);
+    }
+    .tm-bar {
+      padding: 5px 8px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .tm-picker {
+      flex: 1;
+      height: 22px;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 6px;
+      font-size: 10px;
+      color: #1e293b;
+      background: #ffffff;
+    }
+    .right-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tm-section-h {
+      font-size: 10px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .tm-card-item {
+      padding: 4px 6px;
+      border-radius: 3px;
+      font-size: 10.5px;
+      line-height: 1.35;
+    }
+    .tm-card-item.exact {
+      background: var(--green-match-bg);
+      border-left: 3px solid var(--green-match-border);
+      border-top: 1px solid #dcfce7;
+      border-right: 1px solid #dcfce7;
+      border-bottom: 1px solid #dcfce7;
+    }
+    .fuzzy-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 5px;
+      font-size: 10px;
+      line-height: 1.35;
+      margin-bottom: 4px;
+    }
+    .fuzzy-tag {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #2563eb;
+    }
+
+    .term-h {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #0f172a;
+      padding: 6px 0 3px 0;
+      border-top: 1px solid #e2e8f0;
+      margin-top: 4px;
+    }
+    .term-grid-tbl {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+    .term-grid-tbl th {
+      font-size: 9px;
+      font-weight: 600;
+      color: #64748b;
+      padding: 2px 0;
+      text-align: left;
+    }
+    .term-grid-tbl td {
+      padding: 2px 0;
+      color: #1e293b;
+    }
+
+    /* 4. Bottom Status Bar */
+    .statusbar {
+      height: 22px;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 10px;
+      color: #475569;
+      flex-shrink: 0;
+    }
+    .status-left-grp {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .status-right-grp {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-root">
+
+  <!-- 1. Top Windows Bar -->
+  <header class="top-bar">
+    <nav class="menu-list">
+      <span class="menu-item">File</span>
+      <span class="menu-item">Edit</span>
+      <span class="menu-item">View</span>
+      <span class="menu-item">Project</span>
+      <span class="menu-item">Translate</span>
+      <span class="menu-item">Review</span>
+      <span class="menu-item">Tools</span>
+      <span class="menu-item">Window</span>
+      <span class="menu-item">Help</span>
+    </nav>
+    <div class="win-controls">
+      <div style="cursor: pointer;">
+        <svg width="10" height="1" viewBox="0 0 10 1"><path d="M0 0h10v1H0z" fill="currentColor"/></svg>
+      </div>
+      <div style="cursor: pointer;">
+        <svg width="9" height="9" viewBox="0 0 9 9"><rect x="0.5" y="0.5" width="8" height="8" fill="none" stroke="currentColor"/></svg>
+      </div>
+      <div style="cursor: pointer;">
+        <svg width="9" height="9" viewBox="0 0 9 9"><path d="M1 1l7 7M8 1L1 8" stroke="currentColor" stroke-width="1.2"/></svg>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2. Ribbon Action Toolbar -->
+  <div class="ribbon">
+    <!-- Group 1: New / Open / Save / Import / Export -->
+    <div class="ribbon-group">
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        <span>New</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span>Open</span>
+      </button>
+      <button class="ribbon-btn" style="flex-direction: row; gap: 3px;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
+          <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          <span>Save</span>
+        </div>
+        <svg width="6" height="4" viewBox="0 0 6 4" style="margin-top: 10px;"><path d="M0 0l3 3 3-3" stroke="#64748b" fill="none"/></svg>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m8 17 4 4 4-4"/></svg>
+        <span>Import</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 21v-9"/><path d="m8 16 4-4 4 4"/></svg>
+        <span>Export</span>
+      </button>
+    </div>
+
+    <!-- Group 2: Cut / Copy / Paste -->
+    <div class="ribbon-group">
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span>Cut</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span>Copy</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+        <span>Paste</span>
+      </button>
+    </div>
+
+    <!-- Group 3: Undo / Redo -->
+    <div class="ribbon-group">
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+        <span>Undo</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
+        <span>Redo</span>
+      </button>
+    </div>
+
+    <!-- Group 4: Find / Replace / Filters / Concordance -->
+    <div class="ribbon-group">
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Find</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="m16 14-4 4-2-2"/></svg>
+        <span>Replace</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        <span>Filters</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>Concordance</span>
+      </button>
+    </div>
+
+    <!-- Group 5: Comments / TQA / Segment Actions -->
+    <div class="ribbon-group">
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Comments</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        <span>TQA</span>
+      </button>
+      <button class="ribbon-btn">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Segment Actions</span>
+      </button>
+    </div>
+
+    <!-- Group 6: More -->
+    <div class="ribbon-group" style="border-right: none;">
+      <button class="ribbon-btn">
+        <svg class="gray" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/><circle cx="6" cy="12" r="1.5"/></svg>
+        <span>More</span>
+      </button>
+    </div>
+
+    <!-- Ribbon Search Box -->
+    <div class="ribbon-search">
+      <input type="text" class="ribbon-search-input" placeholder="Search (Ctrl+F)">
+      <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </div>
+  </div>
+
+  <!-- 3. Workspace Main Grid -->
+  <div class="workspace-grid">
+
+    <!-- LEFT PANE: Project Explorer & Tree -->
+    <aside class="pane-left">
+      <div class="left-head">
+        <span>Project</span>
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      </div>
+
+      <div class="proj-box">
+        <div class="proj-title">
+          <span>User Manual Localization</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+        <div class="proj-meta">Languages: EN (US) → DE (DE)</div>
+        <div class="proj-meta">Due: May 30, 2025</div>
+        <div class="proj-meta">Progress: <strong>68%</strong></div>
+        <div class="prog-track">
+          <div class="prog-fill" style="width: 68%;"></div>
+        </div>
+      </div>
+
+      <div class="search-files-wrap">
+        <input type="text" class="search-files-input" placeholder="Search files">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      </div>
+
+      <div class="tree-scroll">
+        <!-- 01_Source -->
+        <div class="tree-folder-row">
+          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>01_Source</span>
+        </div>
+        <div class="tree-file-row active">
+          <div class="tree-file-title">
+            <span style="background: #2563eb; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">W</span>
+            <span>User_Manual.docx</span>
+          </div>
+          <span class="tree-pct" style="color: #0284c7; font-weight: 600;">68%</span>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <span style="background: #dc2626; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 2px; border-radius: 2px;">PDF</span>
+            <span>Quick_Start.pdf</span>
+          </div>
+          <span class="tree-pct">100%</span>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <span style="background: #64748b; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 2px; border-radius: 2px;">TXT</span>
+            <span>Release_Notes.txt</span>
+          </div>
+          <span class="tree-pct">45%</span>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <span style="background: #16a34a; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 2px; border-radius: 2px;">XLS</span>
+            <span>FAQ.xlsx</span>
+          </div>
+          <span class="tree-pct">0%</span>
+        </div>
+
+        <!-- 02_Reference -->
+        <div class="tree-folder-row" style="margin-top: 2px;">
+          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>02_Reference</span>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <span style="background: #16a34a; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 2px; border-radius: 2px;">XLS</span>
+            <span>Glossary_Terms.xlsx</span>
+          </div>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <span style="background: #2563eb; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">W</span>
+            <span>Style_Guide.docx</span>
+          </div>
+        </div>
+
+        <!-- 03_Translation_Memory -->
+        <div class="tree-folder-row" style="margin-top: 2px;">
+          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>03_Translation_Memory</span>
+        </div>
+        <div class="tree-file-row">
+          <div class="tree-file-title">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            <span>TM_En-De.sdltm</span>
+          </div>
+        </div>
+
+        <!-- 04_Deliverables -->
+        <div class="tree-folder-row" style="margin-top: 2px; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>04_Deliverables</span>
+          </div>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        </div>
+      </div>
+
+      <!-- Project Details Box -->
+      <div class="proj-details">
+        <div class="proj-details-title">
+          <span>Project Details</span>
+          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+        </div>
+        <div class="details-grid">
+          <span class="d-label">Name</span>
+          <span class="d-value">User Manual Localization</span>
+          <span class="d-label">Source Language</span>
+          <span class="d-value">English (United States)</span>
+          <span class="d-label">Target Language</span>
+          <span class="d-value">German (Germany)</span>
+          <span class="d-label">Created</span>
+          <span class="d-value">May 15, 2025</span>
+          <span class="d-label">Created by</span>
+          <span class="d-value">Project Manager</span>
+          <span class="d-label">File Count</span>
+          <span class="d-value">4</span>
+          <span class="d-label">Total Segments</span>
+          <span class="d-value">1,248</span>
+          <span class="d-label">Translated Segments</span>
+          <span class="d-value">849 (68%)</span>
+        </div>
+      </div>
+
+      <!-- Left Bottom Nav -->
+      <div class="left-bottom-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" style="background: #e0f2fe; padding: 2px; border-radius: 2px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+    </aside>
+
+    <!-- CENTER PANE: Document Tab, Toolbar, Grid & Bottom Drawer -->
+    <main class="pane-center">
+      <!-- Tab Header -->
+      <div class="center-tabs">
+        <div class="tab-active">
+          <span style="background: #2563eb; color: #fff; font-size: 7.5px; font-weight: 800; padding: 1px 3px; border-radius: 2px;">W</span>
+          <span>User_Manual.docx</span>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer; margin-left: 2px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </div>
+      </div>
+
+      <!-- Subbar -->
+      <div class="center-subbar">
+        <div class="subbar-left">
+          <input type="text" class="subbar-search" placeholder="Search in file">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" style="cursor: pointer;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          <div style="width: 1px; height: 14px; background: #e2e8f0; margin: 0 2px;"></div>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" style="cursor: pointer;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        </div>
+      </div>
+
+      <!-- Bilingual Table -->
+      <div class="grid-scroll">
+        <table class="grid-table">
+          <thead>
+            <tr>
+              <th class="th-num"></th>
+              <th class="th-src">Source: English (United States)</th>
+              <th class="th-tgt">Target: German (Germany)</th>
+              <th class="th-stat">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 1 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">1</td>
+              <td class="grid-cell cell-src">
+                <div style="font-weight: 600; margin-bottom: 2px;">Welcome to the User Manual.</div>
+                <div>This guide provides information about the installation and use of the product.</div>
+                <div class="comment-tag">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  <span>17</span>
+                </div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <div style="font-weight: 600; margin-bottom: 2px;">Willkommen im Benutzerhandbuch.</div>
+                <div>Diese Anleitung enthält Informationen zur Installation und Verwendung des Produkts.</div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill green">
+                    <span>100%</span>
+                    <span class="sub">TM</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 2 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">2</td>
+              <td class="grid-cell cell-src">
+                <div>Before you begin, make sure you read the safety instructions carefully.</div>
+                <div class="comment-tag">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  <span>3</span>
+                </div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <div>Lesen Sie vor Beginn die Sicherheitshinweise sorgfältig durch.</div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill green">
+                    <span>100%</span>
+                    <span class="sub">TM</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 3 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">3</td>
+              <td class="grid-cell cell-src">
+                <div>The software is compatible with Windows 10 and later versions.</div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <div>Die Software ist mit Windows 10 und späteren Versionen kompatibel.</div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill green">
+                    <span>100%</span>
+                    <span class="sub">TM</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 4 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">4</td>
+              <td class="grid-cell cell-src">
+                <div>To install the product, run the setup file as an administrator.</div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <div>Um das Produkt zu installieren, führen Sie die Setup-Datei als Administrator aus.</div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill blue">
+                    <span>95%</span>
+                    <span class="sub">TM</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 5 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">5</td>
+              <td class="grid-cell cell-src">
+                <div>You can customize the installation options in the next step.</div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <div>Im nächsten Schritt können Sie die Installationsoptionen anpassen.</div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill blue">
+                    <span>85%</span>
+                    <span class="sub">TM</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 6 (ACTIVE ROW) -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num" style="font-weight: 700; color: #0f172a;">6</td>
+              <td class="grid-cell cell-src">
+                <div>If you encounter any issues, please refer to the troubleshooting section.</div>
+              </td>
+              <td class="grid-cell cell-tgt" style="padding: 4px 6px;">
+                <div class="active-editor">
+                  Wenn Sie Probleme haben, lesen Sie bitte den Abschnitt zur Fehlerbehebung. <span class="caret"></span>
+                </div>
+              </td>
+              <td class="grid-cell">
+                <div class="status-wrap">
+                  <span class="pill orange">
+                    <span>MT</span>
+                    <span class="sub">62%</span>
+                  </span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="#64748b" style="cursor: pointer;"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+                </div>
+              </td>
+            </tr>
+
+            <!-- 7 -->
+            <tr class="grid-row">
+              <td class="grid-cell cell-num">7</td>
+              <td class="grid-cell cell-src">
+                <div>For more information, visit our website or contact support.</div>
+              </td>
+              <td class="grid-cell cell-tgt">
+                <!-- Empty Target -->
+              </td>
+              <td class="grid-cell" style="text-align: center; color: #94a3b8; font-size: 12px;">
+                —
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Center Bottom Drawer -->
+      <div class="drawer">
+        <div class="drawer-top-tabs">
+          <span class="drawer-tab active">Text</span>
+          <span class="drawer-tab">Preview</span>
+          <span class="drawer-tab">Source</span>
+        </div>
+        <div class="drawer-sub-bar">
+          <div style="display: flex; gap: 12px;">
+            <span style="font-weight: 600; color: #0284c7; border-bottom: 2px solid #0284c7; padding-bottom: 1px;">Comments (1)</span>
+            <span style="color: #64748b;">Messages (2)</span>
+          </div>
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5" style="cursor: pointer;"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="drawer-card">
+          <div class="avatar">R</div>
+          <div style="font-size: 10.5px; color: #1e293b;">
+            <div style="font-weight: 700; color: #0f172a; margin-bottom: 1px;">Reviewer</div>
+            <div>Please check terminology consistency.</div>
+            <div style="font-size: 9.5px; color: #94a3b8; margin-top: 2px;">May 16, 2025 10:32</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT PANE: TM & Terminology -->
+    <aside class="pane-right">
+      <div class="right-tabs">
+        <div class="r-tab active">Translation Memory</div>
+        <div class="r-tab">Terminology</div>
+      </div>
+
+      <div class="tm-bar">
+        <div class="tm-picker">
+          <span>TM_En-De.sdltm</span>
+          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="cursor: pointer;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+
+      <div class="right-scroll">
+        <div class="tm-section-h">100% Match (3)</div>
+
+        <!-- Match 1 -->
+        <div class="tm-card-item exact">
+          <div style="color: #0f172a; margin-bottom: 2px;">Welcome to the User Manual.</div>
+          <div style="color: #15803d; font-weight: 500;">Willkommen im Benutzerhandbuch.</div>
+        </div>
+
+        <!-- Match 2 -->
+        <div class="tm-card-item">
+          <div style="color: #0f172a; margin-bottom: 2px;">The software is compatible with Windows 10 and later versions.</div>
+          <div style="color: #475569;">Die Software ist mit Windows 10 und späteren Versionen kompatibel.</div>
+        </div>
+
+        <!-- Match 3 -->
+        <div class="tm-card-item">
+          <div style="color: #0f172a; margin-bottom: 2px;">If you encounter any issues, please refer to the troubleshooting section.</div>
+          <div style="color: #475569;">Wenn Sie Probleme haben, lesen Sie bitte den Abschnitt zur Fehlerbehebung.</div>
+        </div>
+
+        <!-- Fuzzy Matches -->
+        <div class="tm-section-h" style="margin-top: 4px;">Fuzzy Matches</div>
+
+        <div class="fuzzy-item">
+          <span class="fuzzy-tag">95%</span>
+          <div>
+            <div style="color: #0f172a;">To install the product, run the setup file as an administrator.</div>
+            <div style="color: #64748b; font-size: 9.5px;">Um das Produkt zu installieren, führen Sie die Setup-Datei als Administrator aus.</div>
+          </div>
+        </div>
+
+        <div class="fuzzy-item">
+          <span class="fuzzy-tag">85%</span>
+          <div>
+            <div style="color: #0f172a;">You can customize the installation options in the next step.</div>
+            <div style="color: #64748b; font-size: 9.5px;">Im nächsten Schritt können Sie die Installationsoptionen anpassen.</div>
+          </div>
+        </div>
+
+        <!-- Term Suggestions -->
+        <div class="term-h">
+          <span>Term Suggestions</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+
+        <table class="term-grid-tbl">
+          <thead>
+            <tr>
+              <th>English (United States)</th>
+              <th>German (Germany)</th>
+              <th style="width: 12px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>installation</td>
+              <td>Installation</td>
+              <td><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></td>
+            </tr>
+            <tr>
+              <td>setup file</td>
+              <td>Setup-Datei</td>
+              <td><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></td>
+            </tr>
+            <tr>
+              <td>administrator</td>
+              <td>Administrator</td>
+              <td><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></td>
+            </tr>
+            <tr>
+              <td>compatibility</td>
+              <td>Kompatibilität</td>
+              <td><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></td>
+            </tr>
+            <tr>
+              <td>troubleshooting</td>
+              <td>Fehlerbehebung</td>
+              <td><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 4. Bottom Status Bar -->
+  <footer class="statusbar">
+    <div class="status-left-grp">
+      <span>Segments: <strong>1,248</strong></span>
+      <span>Translated: <strong>849 (68%)</strong></span>
+      <span>Remaining: <strong>399 (32%)</strong></span>
+      <span>Words: <strong>18,732</strong></span>
+    </div>
+    <div class="status-right-grp">
+      <div style="display: flex; align-items: center; gap: 3px; color: #16a34a;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>No issues</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 3px; color: #475569;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>100%</span>
+      </div>
+      <span>INS</span>
+      <div style="display: flex; align-items: center; gap: 4px; color: #64748b;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </div>
+      <div style="display: flex; align-items: center; gap: 3px;">
+        <span>—</span>
+        <div style="width: 36px; height: 3px; background: #cbd5e1; border-radius: 2px; position: relative;">
+          <div style="position: absolute; left: 60%; top: -3px; width: 8px; height: 8px; background: #2563eb; border-radius: 50%;"></div>
+        </div>
+        <span>+</span>
+        <span style="font-weight: 600; color: #0f172a; margin-left: 2px;">120%</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+</body>
+</html>
