@@ -1,6 +1,6 @@
 # saas-opus — full-fidelity Workbench prototypes
 
-Nine visual systems for the Translunar CAT Workbench, built for visual
+Sixteen visual systems for the Translunar CAT Workbench, built for visual
 selection. They share one information architecture, byte for byte: the same
 fixtures, the same renderer, the same keymap, the same twenty-six reachable
 states. Only the stylesheet differs — plus, for the art studies, one small
@@ -9,22 +9,36 @@ here is therefore a preference about visual language and nothing else.
 
 **Modern SaaS** — quiet chrome, one system, high clarity.
 
-| Study                                         | Open                                                         |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| quarry — warm stone, most generous            | [`saas-opus-quarry/index.html`](saas-opus-quarry/index.html) |
-| cobalt — dark console, medium density         | [`saas-opus-cobalt/index.html`](saas-opus-cobalt/index.html) |
-| ledger — achromatic Swiss data sheet, densest | [`saas-opus-ledger/index.html`](saas-opus-ledger/index.html) |
+| Study                                         | Open                                                                 |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| compact — cool gray, indigo, densest of all   | [`saas-opus-compact/index.html`](saas-opus-compact/index.html)       |
+| comfortable — air and capsules, deep teal     | [`saas-opus-comfortable/index.html`](saas-opus-comfortable/index.html) |
+| dark — blue-cast dark, separation by luminance | [`saas-opus-dark/index.html`](saas-opus-dark/index.html)             |
+| quarry — warm stone, most generous            | [`saas-opus-quarry/index.html`](saas-opus-quarry/index.html)         |
+| cobalt — dark console, medium density         | [`saas-opus-cobalt/index.html`](saas-opus-cobalt/index.html)         |
+| ledger — achromatic Swiss data sheet, densest | [`saas-opus-ledger/index.html`](saas-opus-ledger/index.html)         |
 
 **Art** — the browser as a material, at the same feature depth.
 
 | Study          | Material                                 | Open                                                                                 |
 | -------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| terra          | thumbed clay on a mineral bench          | [`saas-opus-art-terra/index.html`](saas-opus-art-terra/index.html)                   |
+| aurora         | frosted glass over a drifting light field | [`saas-opus-art-aurora/index.html`](saas-opus-art-aurora/index.html)                 |
+| blueprint      | white line on Prussian blue paper        | [`saas-opus-art-blueprint/index.html`](saas-opus-art-blueprint/index.html)           |
+| acid           | hard black line on gallery off-white     | [`saas-opus-art-acid/index.html`](saas-opus-art-acid/index.html)                     |
 | riso           | two-ink risograph on newsprint           | [`saas-opus-art-riso/index.html`](saas-opus-art-riso/index.html)                     |
 | atelier        | night gallery, serif and brass           | [`saas-opus-art-atelier/index.html`](saas-opus-art-atelier/index.html)               |
 | phosphor       | CRT tube, all-monospace                  | [`saas-opus-art-phosphor/index.html`](saas-opus-art-phosphor/index.html)             |
 | vitrine        | liquid glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html)               |
 | atelier-light  | the same gallery in daylight             | [`saas-opus-art-atelier-light/index.html`](saas-opus-art-atelier-light/index.html)   |
 | phosphor-light | the same terminal, reflective            | [`saas-opus-art-phosphor-light/index.html`](saas-opus-art-phosphor-light/index.html) |
+
+`compact`, `comfortable`, `dark`, `terra`, `aurora`, `blueprint` and `acid` are
+the visual systems of the Fable studies, moved onto this base. Their palettes,
+type, radii, motion curves and material rules are Fable's; their markup,
+fixtures, keymap, file tree, proofreading chips, stacked ribbon and dialog set
+are this family's, so all sixteen studies are the same prototype wearing
+sixteen skins. Fable's own `saas-shared` base is not carried over.
 
 The two light studies are built as override layers: `art-atelier-light.css`
 loads after `art-atelier.css` and restates only what the change of light
@@ -42,6 +56,79 @@ which was written from the shipped source on `cursor/gf-workbench-s3d-2398`
 and the engine gate).
 
 ## Design read
+
+### compact — density as hierarchy
+
+Cool gray scale, one calibrated indigo, Geist over Geist Mono at 12.5px, 30px
+rows, 4px radii, almost no shadow.
+
+The argument is that a dense tool does not need colour or elevation to be
+readable — it needs the gray scale to be honest and the weights to be few.
+Nothing floats; separation is a hairline, and the only saturated thing on
+screen is the state you are in. It fits the most rows of any study here, which
+is the point: a reviewer scanning three hundred segments should see them.
+
+### comfortable — the same system with air
+
+Neutral gray with a cool-green cast, deep teal accent, Figtree over Spline Sans
+Mono at 13.5px, 38px rows, 7–12px radii, soft shadows.
+
+Where compact argues with density, this one argues with room. Surfaces lift by
+a real shadow rather than a rule, badges and filter chips are capsules, and the
+dock tabs read as a segmented control. It is the study to pick if the reader is
+working on a laptop panel rather than a 27-inch monitor.
+
+### dark — separation by luminance
+
+Blue-cast dark grays, Hanken Grotesk over JetBrains Mono at 13px, 6px radii.
+
+The rule that makes a dark UI work is stated here and then obeyed everywhere: a
+float is _lighter_ than the panel behind it, never a glow around it. Borders
+stay crisp instead of dissolving, so a dialog over a panel over the desk is
+three legible planes rather than one dark blur with halos.
+
+### terra — thumbed clay
+
+Mineral gray-green bench, terracotta accent, Onest over Sometype Mono, 14px
+radii, motion on a spring with a small overshoot.
+
+Every control is extruded: a highlight along the top edge, an earth-coloured
+shadow beneath, and a real inset when pressed. Because the accent is a warm
+earth red, QA's rose has to be kept away from it, and it is — the danger colour
+sits several steps cooler so a failing rule never reads as a primary action.
+This is the product's default theme.
+
+### aurora — frosted glass
+
+A low-resolution light field drifts behind the window and the whole workbench is
+one sheet of frosted glass over it. Schibsted Grotesk over DM Mono, one mint
+accent, a focus ring that glows.
+
+Panels separate by transparency rather than by fill, and a float is a second
+layer of glass on the first. The field is the study's signature and also the
+first thing a tired reader would turn off, which is why in the product it is a
+switch (`fx.ambient`) rather than a fact.
+
+### blueprint — the drawing
+
+White line on Prussian blue paper. Bricolage Grotesque over Martian Mono at
+12.5px, 2px radii — a technical pen does not round corners.
+
+The ground is a two-layer coordinate grid, 6px fine under 30px coarse, and the
+panels are zones drawn on that one sheet rather than objects sitting on top of
+it: every surface is the paper at a different transparency. Headings are drawing
+titles, tracked-out caps anchored to a leader tick, and focus is a dashed
+construction line instead of a glow.
+
+### acid — hard line
+
+Black 1.5px stroke on gallery off-white, hard offset shadows that do not blur,
+every radius zero. Familjen Grotesk over Space Mono, panel titles in Unbounded.
+
+International Klein blue carries the whole active action; acid yellow-green
+appears only as selection and search hit, never as decoration. Motion is the
+layout's physics — a control displaces a pixel on hover and its shadow follows,
+then it presses back in on click.
 
 ### quarry — the long shift
 
@@ -317,9 +404,11 @@ cd docs/design-studies
 node src/build.mjs                       # src/* -> saas-opus-*/index.html
 
 export PW=$(npm root -g)/playwright/index.mjs
-node src/shots.mjs                       # 27 states x 9 systems -> /tmp/opus-shots
+node src/shots.mjs                       # 27 states x 16 systems -> /tmp/opus-shots
 node src/walk.mjs                        # walkthrough recordings  -> /tmp/opus-video
 bash src/publish.sh                      # -> <study>/shots + /opt/cursor/artifacts
+
+node src/emit-themes.mjs                 # :root -> packages/ui/src/themes/*.css
 ```
 
 `src/shots.mjs` doubles as the smoke test: it drives every scenario and dialog
@@ -346,3 +435,35 @@ every state change. That constraint is what lets grain, noise and light survive
 a keystroke. Overlay entrance animations are latched in `app.js` (`entering()`)
 so they play when a surface appears rather than on every re-render, and every
 study honours `prefers-reduced-motion`.
+
+## In the product
+
+All sixteen ship in the Electron app. A theme is three things there:
+
+- **Tokens** — `packages/ui/src/themes/<id>.css`, generated from the study's
+  `:root` by `src/emit-themes.mjs`. A palette can only be wrong in one place.
+- **Material** — `packages/ui/src/theme-surfaces.css`, hand-written, keyed on
+  `[data-theme]`. Clay pressing, blueprint's leader ticks, acid's offset
+  shadows, glass, ledger's black masthead, the terminal's monospace: things
+  that target product class names the studies do not have.
+- **Effects** — `packages/ui/src/fx.css`, keyed on `[data-fx-*]`. Scanlines and
+  the refresh roll, paper fibre and the coordinate grid, the drifting field.
+
+`packages/ui/src/theme.ts` is the registry: id, label, group, `color-scheme`,
+and which effects the theme ships on. `apps/desktop/src/renderer/lib/theme.tsx`
+is the single writer of `data-theme` and `data-fx-*` on `<html>`, backed by a
+module store so any component can read the theme without a provider.
+
+The reader switches theme from the status bar (主题), from 命令搜索, or from
+外观 (`AppearanceDialog`). The choice and every effect override persist in
+`localStorage`; overrides are stored per theme, so silencing phosphor's
+scanlines does not silence atelier's grain. `prefers-reduced-motion` suppresses
+the drifting field without discarding the stored choice.
+
+The default is `terra`.
+
+`apps/desktop/tests/e2e/themes.spec.ts` holds the contract: terra on a first
+launch, sixteen workbenches that do not converge on the same paint, an effect
+switched off that stays off after a theme round-trip, and a choice that
+survives a restart. `theme-gallery.spec.ts` in the same folder captures one
+screenshot per theme into `app-themes/`.
