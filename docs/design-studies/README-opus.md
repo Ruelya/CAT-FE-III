@@ -9,22 +9,22 @@ here is therefore a preference about visual language and nothing else.
 
 **Modern SaaS** — quiet chrome, one system, high clarity.
 
-| Study | Open |
-| --- | --- |
-| quarry — warm stone, most generous | [`saas-opus-quarry/index.html`](saas-opus-quarry/index.html) |
-| cobalt — dark console, medium density | [`saas-opus-cobalt/index.html`](saas-opus-cobalt/index.html) |
+| Study                                         | Open                                                         |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| quarry — warm stone, most generous            | [`saas-opus-quarry/index.html`](saas-opus-quarry/index.html) |
+| cobalt — dark console, medium density         | [`saas-opus-cobalt/index.html`](saas-opus-cobalt/index.html) |
 | ledger — achromatic Swiss data sheet, densest | [`saas-opus-ledger/index.html`](saas-opus-ledger/index.html) |
 
 **Art** — the browser as a material, at the same feature depth.
 
-| Study | Material | Open |
-| --- | --- | --- |
-| riso | two-ink risograph on newsprint | [`saas-opus-art-riso/index.html`](saas-opus-art-riso/index.html) |
-| atelier | night gallery, serif and brass | [`saas-opus-art-atelier/index.html`](saas-opus-art-atelier/index.html) |
-| phosphor | CRT tube, all-monospace | [`saas-opus-art-phosphor/index.html`](saas-opus-art-phosphor/index.html) |
-| vitrine | liquid glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html) |
-| atelier-light | the same gallery in daylight | [`saas-opus-art-atelier-light/index.html`](saas-opus-art-atelier-light/index.html) |
-| phosphor-light | the same terminal, reflective | [`saas-opus-art-phosphor-light/index.html`](saas-opus-art-phosphor-light/index.html) |
+| Study          | Material                                 | Open                                                                                 |
+| -------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| riso           | two-ink risograph on newsprint           | [`saas-opus-art-riso/index.html`](saas-opus-art-riso/index.html)                     |
+| atelier        | night gallery, serif and brass           | [`saas-opus-art-atelier/index.html`](saas-opus-art-atelier/index.html)               |
+| phosphor       | CRT tube, all-monospace                  | [`saas-opus-art-phosphor/index.html`](saas-opus-art-phosphor/index.html)             |
+| vitrine        | liquid glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html)               |
+| atelier-light  | the same gallery in daylight             | [`saas-opus-art-atelier-light/index.html`](saas-opus-art-atelier-light/index.html)   |
+| phosphor-light | the same terminal, reflective            | [`saas-opus-art-phosphor-light/index.html`](saas-opus-art-phosphor-light/index.html) |
 
 The two light studies are built as override layers: `art-atelier-light.css`
 loads after `art-atelier.css` and restates only what the change of light
@@ -106,7 +106,7 @@ poster type over Public Sans, hard offset shadows, zero radius anywhere.
 The premise is that this is a proof pulled off a duplicator, so nothing on
 screen is brighter than the sheet it is printed on. The paper is real: a fibre
 tile is generated at load and multiplied over the whole window, so every ink
-sits *in* the stock instead of glowing out of a backlight. There is no such
+sits _in_ the stock instead of glowing out of a backlight. There is no such
 thing as a flat fill — every tinted surface carries a staggered 45° dot screen
 at 4px, which is why a chip reads as printed rather than as painted.
 
@@ -239,6 +239,18 @@ of them can be entered directly, or by URL: `index.html?scene=qa`.
   查找下一个 替换 检索 运行 QA 预览 命令搜索; `Ctrl+K` palette over commands,
   dock jumps and documents; status bar with progress meter, 字数, clickable
   草稿/QA jumps, 行列, INS and engine identity.
+
+  The ribbon is a shared **layout** and nothing else: the icon sits above its
+  label, and the verbs divide into four groups — 历史, 文档, 翻译, 审校 —
+  separated by vertical rules and named underneath. Colour is not shared. Each
+  study paints the toolbar from its own tokens, and 确认 is simply the check
+  action in that study's accent or ink: pine in quarry, blue in cobalt, ink
+  black in ledger, Ink B orange in riso, brass in atelier, amber in phosphor,
+  teal in vitrine, antique brass in atelier-light, ochre in phosphor-light.
+  `shots.mjs` asserts the layout per study and then fails the run if any two
+  studies land on the same ribbon background or the same colour for 确认, so a
+  single colorway cannot be forced across systems that exist to differ.
+
 - **Left** — project, language pair, aggregate progress, file search, an
   **IDE file tree**, document tabs, seven closable filter chips (未译 草稿
   已确认 QA 锁定 有术语 有标签), import affordance, project details.
@@ -284,16 +296,16 @@ of them can be entered directly, or by URL: `index.html?scene=qa`.
 
 ## Scenarios
 
-| id | 场景 | shows |
-| --- | --- | --- |
-| `projects` | 空项目列表 | no project open: menus degrade, ribbon hidden, minimal status bar |
-| `grid` | 导入后的网格 | working state, memory dock, editor mounted on #10 |
-| `confirmed` | 确认写入 TM | #10 confirmed, origin becomes `100 TM`, propagation reported |
-| `locked` | 锁定句段 | #11 read-only, no editor, confirm refused |
-| `qa` | 模糊未改 QA | QA filter chip on, `qa.unedited-fuzzy` on a 95% match |
-| `ai` | AI 未配置 | provider form, agent disabled, honest 未配置 |
-| `agent` | Agent 待审核 | run summary, step log with one failure, human gate |
-| `gate` | 导出 QA 门 | export blocked, failing rules named |
+| id          | 场景         | shows                                                             |
+| ----------- | ------------ | ----------------------------------------------------------------- |
+| `projects`  | 空项目列表   | no project open: menus degrade, ribbon hidden, minimal status bar |
+| `grid`      | 导入后的网格 | working state, memory dock, editor mounted on #10                 |
+| `confirmed` | 确认写入 TM  | #10 confirmed, origin becomes `100 TM`, propagation reported      |
+| `locked`    | 锁定句段     | #11 read-only, no editor, confirm refused                         |
+| `qa`        | 模糊未改 QA  | QA filter chip on, `qa.unedited-fuzzy` on a 95% match             |
+| `ai`        | AI 未配置    | provider form, agent disabled, honest 未配置                      |
+| `agent`     | Agent 待审核 | run summary, step log with one failure, human gate                |
+| `gate`      | 导出 QA 门   | export blocked, failing rules named                               |
 
 Scenario switches also reset the tree: `legal` collapsed, search cleared,
 `onboarding-guide.docx` active.
@@ -313,8 +325,10 @@ bash src/publish.sh                      # -> <study>/shots + /opt/cursor/artifa
 `src/shots.mjs` doubles as the smoke test: it drives every scenario and dialog
 through real clicks and fails the run on any console error, page exception,
 missing shell region, a file tree that has lost its nesting, its chevrons or
-its active-file marker, or a proofreading view whose four segment states do not
-resolve to four distinct fills.
+its active-file marker, a proofreading view whose four segment states do not
+resolve to four distinct fills, a ribbon that has stopped stacking its icons
+over its labels or lost its group rules, or two studies that have converged on
+the same ribbon paint.
 
 Sources: `src/data.js` (fixtures), `src/app.js` (state, dispatcher, markup,
 keymap), `src/base.css` (structure and the variable contract),
