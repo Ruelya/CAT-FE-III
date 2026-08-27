@@ -230,6 +230,7 @@ kbd,
 
 .proto {
   height: var(--proto-h);
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -276,9 +277,15 @@ kbd,
 
 /* ------------------------------------------------------------- shell */
 
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .app {
   position: relative;
-  height: calc(100% - var(--proto-h));
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr) var(--status-h);
   background: var(--bg);
@@ -1102,11 +1109,10 @@ kbd,
 .grid tbody tr[data-locked] td.c-tgt {
   color: var(--text-faint);
 }
+/* An open finding ticks the target cell it belongs to, so the warning sits
+   on the text it is about rather than on the row as a whole. */
 .grid tbody tr[data-qa] td.c-tgt {
-  box-shadow: inset 0 -2px 0 -1px var(--warn);
-}
-.grid tbody tr[data-qa][data-active] td.c-tgt {
-  box-shadow: none;
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 
 .tok {
@@ -1147,21 +1153,26 @@ kbd,
   font-size: inherit;
 }
 
+/* State, provenance and lock read as three fixed columns so the eye can
+   scan one of them down the page without the others shifting under it. */
 .statecell {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  justify-content: flex-end;
 }
 .lockglyph {
+  order: 3;
   display: grid;
   place-items: center;
   color: var(--text-faint);
   flex: none;
 }
 .statechip {
+  order: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
+  min-width: 62px;
   gap: 3px;
   height: 18px;
   padding: 0 var(--s2);
@@ -1195,8 +1206,11 @@ kbd,
 }
 
 .origin {
+  order: 2;
   display: inline-flex;
   align-items: baseline;
+  justify-content: center;
+  min-width: 52px;
   gap: 2px;
   padding: 0 var(--s2);
   height: 18px;
@@ -1235,6 +1249,8 @@ kbd,
 }
 
 .rowmenu-wrap {
+  order: 4;
+  margin-left: auto;
   position: relative;
   flex: none;
 }
@@ -1378,7 +1394,7 @@ tr[data-active] .rowmenu__btn,
   flex-direction: column;
   background: var(--surface);
   border-top: var(--hair-strong);
-  max-height: 46%;
+  max-height: 31%;
 }
 .preview[data-open] {
   flex: 0 0 auto;
@@ -1885,8 +1901,12 @@ tr[data-active] .rowmenu__btn,
 }
 .issue__acts {
   display: flex;
-  gap: var(--s1);
+  gap: var(--s2);
   flex-wrap: wrap;
+  padding-top: var(--s1);
+}
+.issue__acts:empty {
+  display: none;
 }
 .issue__msg {
   font-size: var(--fs-sm);
@@ -2386,17 +2406,23 @@ tr[data-active] .rowmenu__btn,
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: var(--s6);
+  padding: 7vh var(--s6) var(--s6);
   display: flex;
   flex-direction: column;
   gap: var(--s5);
   background: var(--surface-2);
 }
+/* One centred content column, so the empty state reads as a deliberate
+   landing rather than as a page that failed to fill. */
+.projects > * {
+  width: 100%;
+  max-width: 860px;
+  margin-inline: auto;
+}
 .projects__toolbar {
   display: flex;
   align-items: flex-end;
   gap: var(--s3);
-  max-width: 860px;
   padding: var(--s4);
   border: var(--hair-strong);
   border-radius: var(--r-md);
@@ -2407,7 +2433,6 @@ tr[data-active] .rowmenu__btn,
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s3);
-  max-width: 860px;
   padding-bottom: var(--s2);
   border-bottom: var(--hair-strong);
 }
@@ -2421,7 +2446,11 @@ tr[data-active] .rowmenu__btn,
   font-weight: 400;
 }
 .bigempty {
-  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 210px;
   padding: var(--s6);
   text-align: center;
   border: 1px dashed var(--border);
@@ -2437,7 +2466,6 @@ tr[data-active] .rowmenu__btn,
   margin-top: var(--s2);
 }
 .projlist {
-  max-width: 860px;
   display: flex;
   flex-direction: column;
 }
@@ -2690,7 +2718,7 @@ const DOCUMENTS = [
     total: 26,
     confirmed: 14,
     draft: 8,
-    open: 6,
+    open: 7,
     words: 612,
   },
   {
@@ -2798,9 +2826,9 @@ const SEGMENTS = [
   {
     n: 12,
     src: "The memory panel lists up to {count} matches for the selected segment.",
-    tgt: "记忆面板会为选中句段列出匹配项。",
+    tgt: "记忆面板会为选中句段列出匹配项,按分值排序。",
     state: "draft",
-    qa: ["q-token"],
+    qa: ["q-token", "q-punct2"],
   },
   {
     n: 13,
@@ -2942,6 +2970,19 @@ const ISSUES = [
     fix: {
       label: "标点改全角",
       text: "忽略只记录人工判断，不会修改译文，也不会写入记忆库。",
+    },
+  },
+  {
+    id: "q-punct2",
+    seg: 12,
+    rule: "qa.cjk-halfwidth-punctuation",
+    severity: "warning",
+    status: "open",
+    message: "中文译文使用了半角标点",
+    evidence: { source: [], target: [","] },
+    fix: {
+      label: "标点改全角",
+      text: "记忆面板会为选中句段列出匹配项，按分值排序。",
     },
   },
   {
@@ -3088,7 +3129,7 @@ const AGENT_STEPS = [
   { i: 3, kind: "AI 起草", status: "done", detail: "句段 #23 起草完成（gpt-4o-mini，1.2s）", seg: "3f9a41c8" },
   { i: 4, kind: "AI 起草", status: "done", detail: "句段 #24 起草完成（gpt-4o-mini，0.9s）", seg: "7b21d05e" },
   { i: 5, kind: "AI 起草", status: "failed", detail: "句段 #25 起草失败：provider timeout（已保留原译文）", seg: "c40e8812" },
-  { i: 6, kind: "质检", status: "done", detail: "检查 26 个句段，6 个未解决问题" },
+  { i: 6, kind: "质检", status: "done", detail: "检查 26 个句段，7 个未解决问题" },
   { i: 7, kind: "总结", status: "done", detail: "TM 5 / AI 草稿 6 / 失败 1，等待人工审核" },
 ];
 
@@ -3493,7 +3534,7 @@ function applyScenario(id) {
     S.active = 9;
     S.dock = "qa";
     S.filters = ["qa"];
-    S.status = "QA 完成：检查 26 个句段，6 个未解决问题";
+    S.status = `QA 完成：检查 ${S.segments.length} 个句段，${counts().open} 个未解决问题`;
   } else if (id === "ai") {
     S.ai.configured = false;
     S.dock = "ai";
@@ -3503,7 +3544,7 @@ function applyScenario(id) {
     S.dock = "ai";
     S.agent = "awaitingReview";
     S.active = 23;
-    S.status = "Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 6";
+    S.status = `Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 ${counts().open}`;
   } else if (id === "gate") {
     S.banner = "gate";
     S.dock = "qa";
@@ -3819,7 +3860,7 @@ function dispatch(cmd, arg) {
       break;
     case "agent-start":
       S.agent = "awaitingReview";
-      status("Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 6");
+      status(`Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 ${counts().open}`);
       break;
     case "agent-cancel":
       S.agent = null;
@@ -4421,13 +4462,7 @@ function vIssue(i, ruleCount, segCount) {
         <span class="pill" data-tone="${i.status === "open" ? "danger" : i.status === "waived" ? "warn" : "ok"}">${STATUS_CN[i.status]}</span>
         <code class="rule">${i.rule}</code>
       </span>
-      <span class="issue__acts">
-        ${i.status === "open" ? `<button class="btn btn--ghost btn--xs" data-cmd="waive" data-arg="${i.id}">忽略</button>` : ""}
-        ${i.status === "open" && ruleCount > 1 ? `<button class="btn btn--ghost btn--xs" data-cmd="waive-rule" data-arg="${i.id}">忽略同类</button>` : ""}
-        ${i.status === "open" && segCount > 1 ? `<button class="btn btn--ghost btn--xs" data-cmd="waive-segment" data-arg="${i.id}">忽略本句</button>` : ""}
-        ${i.status === "waived" ? `<button class="btn btn--ghost btn--xs" data-cmd="restore" data-arg="${i.id}">恢复</button>` : ""}
-        <button class="btn btn--ghost btn--xs" data-jump="${i.seg}">定位句段 <span class="num">#${i.seg}</span></button>
-      </span>
+      <button class="btn btn--ghost btn--xs" data-jump="${i.seg}">句段 <span class="num">#${i.seg}</span></button>
     </div>
     <p class="issue__msg">${esc(i.message)}</p>
     ${ev ? `<p class="issue__ev">源 [<span class="num">${(i.evidence.source || []).map(esc).join(", ")}</span>] ≠ 译 [<span class="num">${(i.evidence.target || []).map(esc).join(", ")}</span>]</p>` : ""}
@@ -4440,6 +4475,12 @@ function vIssue(i, ruleCount, segCount) {
         : ""
     }
     ${i.note ? `<p class="issue__note">备注：${esc(i.note)}</p>` : ""}
+    <div class="issue__acts">
+      ${i.status === "open" ? `<button class="btn btn--outline btn--xs" data-cmd="waive" data-arg="${i.id}">忽略</button>` : ""}
+      ${i.status === "open" && ruleCount > 1 ? `<button class="btn btn--outline btn--xs" data-cmd="waive-rule" data-arg="${i.id}" title="忽略同一规则的 ${ruleCount} 个问题">忽略同类 <span class="num">${ruleCount}</span></button>` : ""}
+      ${i.status === "open" && segCount > 1 ? `<button class="btn btn--outline btn--xs" data-cmd="waive-segment" data-arg="${i.id}" title="忽略句段 #${i.seg} 的 ${segCount} 个问题">忽略本句 <span class="num">${segCount}</span></button>` : ""}
+      ${i.status === "waived" ? `<button class="btn btn--outline btn--xs" data-cmd="restore" data-arg="${i.id}">恢复为未解决</button>` : ""}
+    </div>
   </article>`;
 }
 
@@ -4556,7 +4597,7 @@ function vAiDock() {
           ? `<div class="agentsum">
         <span>计划 <b class="num">12</b></span><span>TM <b class="num">5</b></span>
         <span>AI 草稿 <b class="num">6</b></span><span>失败 <b class="num">1</b></span>
-        <span>QA 未解决 <b class="num">6</b></span>
+        <span>QA 未解决 <b class="num">${counts().open}</b></span>
       </div>
       <div class="gate">
         <button class="btn btn--primary btn--sm" data-act="agent-review">去工作台查看草稿</button>
@@ -4973,7 +5014,26 @@ let refocus = null;
 function render() {
   const el = document.activeElement;
   if (el && el.id) refocus = { id: el.id, pos: el.selectionStart };
+  const prevGrid = document.getElementById("grid");
+  const keepScroll = prevGrid ? prevGrid.scrollTop : 0;
   ROOT.innerHTML = view();
+
+  /* Keep the caller's scroll position, then pull the active segment back
+     into view — a jump from the palette, a QA finding or F4 is useless if
+     the row it selected is off-screen. */
+  const grid = document.getElementById("grid");
+  const row = grid && grid.querySelector("tr[data-active]");
+  if (grid) {
+    grid.scrollTop = keepScroll;
+    if (row) {
+      const head = grid.querySelector("thead").offsetHeight;
+      const top = row.offsetTop - head;
+      const bottom = row.offsetTop + row.offsetHeight;
+      if (top < grid.scrollTop || bottom > grid.scrollTop + grid.clientHeight) {
+        grid.scrollTop = Math.max(0, top - grid.clientHeight / 3);
+      }
+    }
+  }
   if (refocus) {
     const t = document.getElementById(refocus.id);
     if (t) {
@@ -5117,7 +5177,7 @@ function onClick(e) {
         break;
       case "agent-review":
         S.dock = "qa";
-        status("已跳转到工作台：6 个 QA 问题待处理");
+        status(`已跳转到工作台：${counts().open} 个 QA 问题待处理`);
         break;
       case "tm-cascade":
         S.cascade = true;

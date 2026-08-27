@@ -200,7 +200,7 @@ function applyScenario(id) {
     S.active = 9;
     S.dock = "qa";
     S.filters = ["qa"];
-    S.status = "QA 完成：检查 26 个句段，6 个未解决问题";
+    S.status = `QA 完成：检查 ${S.segments.length} 个句段，${counts().open} 个未解决问题`;
   } else if (id === "ai") {
     S.ai.configured = false;
     S.dock = "ai";
@@ -210,7 +210,7 @@ function applyScenario(id) {
     S.dock = "ai";
     S.agent = "awaitingReview";
     S.active = 23;
-    S.status = "Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 6";
+    S.status = `Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 ${counts().open}`;
   } else if (id === "gate") {
     S.banner = "gate";
     S.dock = "qa";
@@ -526,7 +526,7 @@ function dispatch(cmd, arg) {
       break;
     case "agent-start":
       S.agent = "awaitingReview";
-      status("Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 6");
+      status(`Agent 已完成：TM 5，AI 草稿 6，失败 1，QA 未解决 ${counts().open}`);
       break;
     case "agent-cancel":
       S.agent = null;
@@ -1128,13 +1128,7 @@ function vIssue(i, ruleCount, segCount) {
         <span class="pill" data-tone="${i.status === "open" ? "danger" : i.status === "waived" ? "warn" : "ok"}">${STATUS_CN[i.status]}</span>
         <code class="rule">${i.rule}</code>
       </span>
-      <span class="issue__acts">
-        ${i.status === "open" ? `<button class="btn btn--ghost btn--xs" data-cmd="waive" data-arg="${i.id}">忽略</button>` : ""}
-        ${i.status === "open" && ruleCount > 1 ? `<button class="btn btn--ghost btn--xs" data-cmd="waive-rule" data-arg="${i.id}">忽略同类</button>` : ""}
-        ${i.status === "open" && segCount > 1 ? `<button class="btn btn--ghost btn--xs" data-cmd="waive-segment" data-arg="${i.id}">忽略本句</button>` : ""}
-        ${i.status === "waived" ? `<button class="btn btn--ghost btn--xs" data-cmd="restore" data-arg="${i.id}">恢复</button>` : ""}
-        <button class="btn btn--ghost btn--xs" data-jump="${i.seg}">定位句段 <span class="num">#${i.seg}</span></button>
-      </span>
+      <button class="btn btn--ghost btn--xs" data-jump="${i.seg}">句段 <span class="num">#${i.seg}</span></button>
     </div>
     <p class="issue__msg">${esc(i.message)}</p>
     ${ev ? `<p class="issue__ev">源 [<span class="num">${(i.evidence.source || []).map(esc).join(", ")}</span>] ≠ 译 [<span class="num">${(i.evidence.target || []).map(esc).join(", ")}</span>]</p>` : ""}
@@ -1147,6 +1141,12 @@ function vIssue(i, ruleCount, segCount) {
         : ""
     }
     ${i.note ? `<p class="issue__note">备注：${esc(i.note)}</p>` : ""}
+    <div class="issue__acts">
+      ${i.status === "open" ? `<button class="btn btn--outline btn--xs" data-cmd="waive" data-arg="${i.id}">忽略</button>` : ""}
+      ${i.status === "open" && ruleCount > 1 ? `<button class="btn btn--outline btn--xs" data-cmd="waive-rule" data-arg="${i.id}" title="忽略同一规则的 ${ruleCount} 个问题">忽略同类 <span class="num">${ruleCount}</span></button>` : ""}
+      ${i.status === "open" && segCount > 1 ? `<button class="btn btn--outline btn--xs" data-cmd="waive-segment" data-arg="${i.id}" title="忽略句段 #${i.seg} 的 ${segCount} 个问题">忽略本句 <span class="num">${segCount}</span></button>` : ""}
+      ${i.status === "waived" ? `<button class="btn btn--outline btn--xs" data-cmd="restore" data-arg="${i.id}">恢复为未解决</button>` : ""}
+    </div>
   </article>`;
 }
 
@@ -1263,7 +1263,7 @@ function vAiDock() {
           ? `<div class="agentsum">
         <span>计划 <b class="num">12</b></span><span>TM <b class="num">5</b></span>
         <span>AI 草稿 <b class="num">6</b></span><span>失败 <b class="num">1</b></span>
-        <span>QA 未解决 <b class="num">6</b></span>
+        <span>QA 未解决 <b class="num">${counts().open}</b></span>
       </div>
       <div class="gate">
         <button class="btn btn--primary btn--sm" data-act="agent-review">去工作台查看草稿</button>
@@ -1680,7 +1680,26 @@ let refocus = null;
 function render() {
   const el = document.activeElement;
   if (el && el.id) refocus = { id: el.id, pos: el.selectionStart };
+  const prevGrid = document.getElementById("grid");
+  const keepScroll = prevGrid ? prevGrid.scrollTop : 0;
   ROOT.innerHTML = view();
+
+  /* Keep the caller's scroll position, then pull the active segment back
+     into view — a jump from the palette, a QA finding or F4 is useless if
+     the row it selected is off-screen. */
+  const grid = document.getElementById("grid");
+  const row = grid && grid.querySelector("tr[data-active]");
+  if (grid) {
+    grid.scrollTop = keepScroll;
+    if (row) {
+      const head = grid.querySelector("thead").offsetHeight;
+      const top = row.offsetTop - head;
+      const bottom = row.offsetTop + row.offsetHeight;
+      if (top < grid.scrollTop || bottom > grid.scrollTop + grid.clientHeight) {
+        grid.scrollTop = Math.max(0, top - grid.clientHeight / 3);
+      }
+    }
+  }
   if (refocus) {
     const t = document.getElementById(refocus.id);
     if (t) {
@@ -1824,7 +1843,7 @@ function onClick(e) {
         break;
       case "agent-review":
         S.dock = "qa";
-        status("已跳转到工作台：6 个 QA 问题待处理");
+        status(`已跳转到工作台：${counts().open} 个 QA 问题待处理`);
         break;
       case "tm-cascade":
         S.cascade = true;

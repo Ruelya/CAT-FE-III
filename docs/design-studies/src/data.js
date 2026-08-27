@@ -28,7 +28,7 @@ const DOCUMENTS = [
     total: 26,
     confirmed: 14,
     draft: 8,
-    open: 6,
+    open: 7,
     words: 612,
   },
   {
@@ -136,9 +136,9 @@ const SEGMENTS = [
   {
     n: 12,
     src: "The memory panel lists up to {count} matches for the selected segment.",
-    tgt: "记忆面板会为选中句段列出匹配项。",
+    tgt: "记忆面板会为选中句段列出匹配项,按分值排序。",
     state: "draft",
-    qa: ["q-token"],
+    qa: ["q-token", "q-punct2"],
   },
   {
     n: 13,
@@ -280,6 +280,19 @@ const ISSUES = [
     fix: {
       label: "标点改全角",
       text: "忽略只记录人工判断，不会修改译文，也不会写入记忆库。",
+    },
+  },
+  {
+    id: "q-punct2",
+    seg: 12,
+    rule: "qa.cjk-halfwidth-punctuation",
+    severity: "warning",
+    status: "open",
+    message: "中文译文使用了半角标点",
+    evidence: { source: [], target: [","] },
+    fix: {
+      label: "标点改全角",
+      text: "记忆面板会为选中句段列出匹配项，按分值排序。",
     },
   },
   {
@@ -426,7 +439,7 @@ const AGENT_STEPS = [
   { i: 3, kind: "AI 起草", status: "done", detail: "句段 #23 起草完成（gpt-4o-mini，1.2s）", seg: "3f9a41c8" },
   { i: 4, kind: "AI 起草", status: "done", detail: "句段 #24 起草完成（gpt-4o-mini，0.9s）", seg: "7b21d05e" },
   { i: 5, kind: "AI 起草", status: "failed", detail: "句段 #25 起草失败：provider timeout（已保留原译文）", seg: "c40e8812" },
-  { i: 6, kind: "质检", status: "done", detail: "检查 26 个句段，6 个未解决问题" },
+  { i: 6, kind: "质检", status: "done", detail: "检查 26 个句段，7 个未解决问题" },
   { i: 7, kind: "总结", status: "done", detail: "TM 5 / AI 草稿 6 / 失败 1，等待人工审核" },
 ];
 

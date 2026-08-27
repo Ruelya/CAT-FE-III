@@ -221,6 +221,7 @@ kbd,
 
 .proto {
   height: var(--proto-h);
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -267,9 +268,15 @@ kbd,
 
 /* ------------------------------------------------------------- shell */
 
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
 .app {
   position: relative;
-  height: calc(100% - var(--proto-h));
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-rows: var(--titlebar-h) auto minmax(0, 1fr) var(--status-h);
   background: var(--bg);
@@ -1093,11 +1100,10 @@ kbd,
 .grid tbody tr[data-locked] td.c-tgt {
   color: var(--text-faint);
 }
+/* An open finding ticks the target cell it belongs to, so the warning sits
+   on the text it is about rather than on the row as a whole. */
 .grid tbody tr[data-qa] td.c-tgt {
-  box-shadow: inset 0 -2px 0 -1px var(--warn);
-}
-.grid tbody tr[data-qa][data-active] td.c-tgt {
-  box-shadow: none;
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 
 .tok {
@@ -1138,21 +1144,26 @@ kbd,
   font-size: inherit;
 }
 
+/* State, provenance and lock read as three fixed columns so the eye can
+   scan one of them down the page without the others shifting under it. */
 .statecell {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  justify-content: flex-end;
 }
 .lockglyph {
+  order: 3;
   display: grid;
   place-items: center;
   color: var(--text-faint);
   flex: none;
 }
 .statechip {
+  order: 1;
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
+  min-width: 62px;
   gap: 3px;
   height: 18px;
   padding: 0 var(--s2);
@@ -1186,8 +1197,11 @@ kbd,
 }
 
 .origin {
+  order: 2;
   display: inline-flex;
   align-items: baseline;
+  justify-content: center;
+  min-width: 52px;
   gap: 2px;
   padding: 0 var(--s2);
   height: 18px;
@@ -1226,6 +1240,8 @@ kbd,
 }
 
 .rowmenu-wrap {
+  order: 4;
+  margin-left: auto;
   position: relative;
   flex: none;
 }
@@ -1369,7 +1385,7 @@ tr[data-active] .rowmenu__btn,
   flex-direction: column;
   background: var(--surface);
   border-top: var(--hair-strong);
-  max-height: 46%;
+  max-height: 31%;
 }
 .preview[data-open] {
   flex: 0 0 auto;
@@ -1876,8 +1892,12 @@ tr[data-active] .rowmenu__btn,
 }
 .issue__acts {
   display: flex;
-  gap: var(--s1);
+  gap: var(--s2);
   flex-wrap: wrap;
+  padding-top: var(--s1);
+}
+.issue__acts:empty {
+  display: none;
 }
 .issue__msg {
   font-size: var(--fs-sm);
@@ -2377,17 +2397,23 @@ tr[data-active] .rowmenu__btn,
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: var(--s6);
+  padding: 7vh var(--s6) var(--s6);
   display: flex;
   flex-direction: column;
   gap: var(--s5);
   background: var(--surface-2);
 }
+/* One centred content column, so the empty state reads as a deliberate
+   landing rather than as a page that failed to fill. */
+.projects > * {
+  width: 100%;
+  max-width: 860px;
+  margin-inline: auto;
+}
 .projects__toolbar {
   display: flex;
   align-items: flex-end;
   gap: var(--s3);
-  max-width: 860px;
   padding: var(--s4);
   border: var(--hair-strong);
   border-radius: var(--r-md);
@@ -2398,7 +2424,6 @@ tr[data-active] .rowmenu__btn,
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s3);
-  max-width: 860px;
   padding-bottom: var(--s2);
   border-bottom: var(--hair-strong);
 }
@@ -2412,7 +2437,11 @@ tr[data-active] .rowmenu__btn,
   font-weight: 400;
 }
 .bigempty {
-  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 210px;
   padding: var(--s6);
   text-align: center;
   border: 1px dashed var(--border);
@@ -2428,7 +2457,6 @@ tr[data-active] .rowmenu__btn,
   margin-top: var(--s2);
 }
 .projlist {
-  max-width: 860px;
   display: flex;
   flex-direction: column;
 }
