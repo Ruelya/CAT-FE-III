@@ -895,7 +895,7 @@ mark {
   border-bottom: 1px solid var(--border);
 }
 .dtab {
-  flex: 1;
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -909,13 +909,14 @@ mark {
   min-width: 0;
 }
 .dtab > span { overflow: hidden; text-overflow: ellipsis; }
+.dtab .ic { width: 13px; height: 13px; }
 .dtab:hover { color: var(--text); background: var(--bg-hover); }
 .dtab[data-active="true"] { color: var(--accent-text); font-weight: 500; }
 .dtab__chip {
   display: inline-flex;
   align-items: center;
   height: 15px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 999px;
   font-size: 9.5px;
   font-weight: 600;
@@ -1201,7 +1202,8 @@ button.stat:hover { background: var(--status-hover); color: var(--status-text-st
 .dialog__lead { font-size: calc(var(--fs-ui) + 0.5px); font-weight: 500; }
 
 .settings, .tmm { display: flex; flex-direction: column; gap: var(--u4); }
-.set__sec { display: flex; flex-direction: column; gap: var(--u2); }
+.set__sec { display: flex; flex-direction: column; gap: var(--u2); align-items: flex-start; }
+.set__sec > .fieldrow, .set__sec > .checkrow, .set__sec > h3, .set__sec > .stack, .set__sec > .pathnote, .set__sec > .pager { align-self: stretch; }
 .set__sec h3 {
   font-size: 11px;
   font-weight: 600;
