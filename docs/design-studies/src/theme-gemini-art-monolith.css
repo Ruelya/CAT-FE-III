@@ -1,0 +1,164 @@
+/* GEMINI-ART-MONOLITH — Constructivist Brutalist Monolith / Raw Concrete & Bauhaus Safety Orange.
+   Raw constructivist architectural monolith, tactile concrete & warm basalt stone palette (#e6e2dc, #1c1b18),
+   heavy 2px structural black ink rules, bold industrial typography, vivid Bauhaus international safety orange (#ff5500)
+   accents, stamped industrial badges, uncompromising mechanical density. */
+
+:root {
+  --bg: #dcd7ce;
+  --surface: #eae5dc;
+  --surface-2: #f4f0e8;
+  --surface-3: #ffffff;
+  --sunken: #d2ccc1;
+  --chrome: #1c1a17;
+  --chrome-text: #eae5dc;
+
+  --border: #1c1a17;
+  --border-soft: #c2bbb0;
+  --border-strong: #1c1a17;
+  --hair: 1.5px solid #1c1a17;
+  --hair-strong: 2px solid #1c1a17;
+
+  --text: #1c1a17;
+  --text-muted: #57534e;
+  --text-faint: #78716c;
+
+  --accent: #ff5500;
+  --accent-strong: #d94800;
+  --accent-soft: rgba(255, 85, 0, 0.18);
+  --accent-faint: rgba(255, 85, 0, 0.08);
+  --on-accent: #ffffff;
+
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
+  --warn: #ff5500;
+  --warn-soft: #ffedd5;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --info: #1c1a17;
+  --info-soft: #e7e2d8;
+
+  --font-ui: "Arial Black", "Helvetica Neue", "Impact", "PingFang SC", sans-serif;
+  --font-num: "Courier New", "SF Mono", monospace;
+  --font-mono: "Courier New", "SF Mono", monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12.5px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --lh: 1.4;
+  --lh-tight: 1.2;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.1em;
+  --label-weight: 900;
+  --label-size: 9.5px;
+  --label-color: #1c1a17;
+  --strong-weight: 800;
+  --heading-tracking: 0.04em;
+
+  --u: 4px;
+  --titlebar-h: 32px;
+  --ribbon-h: 52px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 34px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --rail-left: 260px;
+  --rail-right: 340px;
+  --brand-w: 136px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 10px;
+
+  --r-sm: 0px;
+  --r-md: 0px;
+  --r-lg: 0px;
+  --r-pill: 0px;
+
+  --shadow-1: none;
+  --shadow-2: 3px 3px 0px #1c1a17;
+  --shadow-3: 6px 6px 0px #1c1a17;
+  --focus: 0 0 0 2px #ff5500;
+  --scrim: rgba(28, 26, 23, 0.7);
+
+  --row-hover: rgba(255, 85, 0, 0.05);
+  --row-active: #ffffff;
+  --row-marker: #ff5500;
+  --row-marker-w: 4px;
+}
+
+/* Brutalist raw constructivist styling */
+.titlebar {
+  background: #1c1a17;
+  border-bottom: 2px solid #1c1a17;
+}
+.titlebar__brand .mark {
+  background: #ff5500;
+  border-radius: 0;
+}
+
+.statusbar {
+  background: #1c1a17;
+  color: #eae5dc;
+  border-top: 2px solid #1c1a17;
+}
+.statusbar .num {
+  color: #ff5500;
+}
+
+.grid thead {
+  background: #1c1a17;
+  color: #ffffff;
+}
+.grid thead th {
+  color: #ffffff;
+  border-bottom: 2px solid #1c1a17;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.grid tbody tr[data-active] {
+  background: #ffffff;
+  box-shadow: inset 4px 0 0 #ff5500;
+}
+
+.btn {
+  border: 1.5px solid #1c1a17;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.btn--primary {
+  background: #ff5500;
+  color: #ffffff;
+  border-color: #1c1a17;
+  box-shadow: 2px 2px 0px #1c1a17;
+}
+.btn--primary:hover {
+  background: #e64d00;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px #1c1a17;
+}
+
+.chip {
+  border: 1.5px solid #1c1a17;
+  border-radius: 0px;
+}
+.chip[data-active] {
+  background: #ff5500;
+  color: #ffffff;
+  border-color: #1c1a17;
+}
+
+.scenbar {
+  background: #1c1a17;
+  border-bottom: 2px solid #1c1a17;
+}
+.scenbar__chip[data-active] {
+  background: #ff5500;
+  color: #ffffff;
+  border-color: #ff5500;
+}

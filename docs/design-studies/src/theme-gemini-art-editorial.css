@@ -1,0 +1,174 @@
+/* GEMINI-ART-EDITORIAL — Swiss High Editorial Luxury / Alabaster & Haute-Couture Vermilion.
+   High-contrast editorial catalog look, warm natural alabaster canvas (#fbf9f5),
+   deep ink black (#111111) and vermilion red accents (#ff3300), high-contrast display serif headers,
+   dramatic oversized ordinals, razor-thin borders, haute-couture typography. */
+
+:root {
+  --bg: #f5f2eb;
+  --surface: #fbf9f5;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --sunken: #ede8de;
+  --chrome: #111111;
+  --chrome-text: #fbf9f5;
+
+  --border: #111111;
+  --border-soft: #dcd6cb;
+  --border-strong: #111111;
+  --hair: 1px solid #111111;
+  --hair-strong: 1.5px solid #111111;
+
+  --text: #111111;
+  --text-muted: #55524c;
+  --text-faint: #8a857b;
+
+  --accent: #ff3300;
+  --accent-strong: #cc2900;
+  --accent-soft: rgba(255, 51, 0, 0.15);
+  --accent-faint: rgba(255, 51, 0, 0.05);
+  --on-accent: #ffffff;
+
+  --ok: #0d6338;
+  --ok-soft: #e2f0e8;
+  --warn: #c26900;
+  --warn-soft: #fcf1e0;
+  --danger: #ff3300;
+  --danger-soft: #ffebe6;
+  --info: #111111;
+  --info-soft: #ede8de;
+
+  --font-ui: "Playfair Display", "Didot", "Bodoni MT", "Songti SC", "SimSun", Georgia, serif;
+  --font-num: "Nimbus Sans", "Helvetica Neue", "Arial", sans-serif;
+  --font-mono: "Nimbus Sans", "Helvetica Neue", "Arial", monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 16px;
+  --fs-xl: 22px;
+  --lh: 1.5;
+  --lh-tight: 1.25;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.12em;
+  --label-weight: 700;
+  --label-size: 9.5px;
+  --label-color: #ff3300;
+  --strong-weight: 700;
+  --heading-tracking: 0.02em;
+
+  --u: 4px;
+  --titlebar-h: 34px;
+  --ribbon-h: 54px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 36px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 22px;
+  --rail-left: 270px;
+  --rail-right: 340px;
+  --brand-w: 140px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 10px;
+  --cell-pad-x: 14px;
+
+  --r-sm: 0px;
+  --r-md: 0px;
+  --r-lg: 0px;
+  --r-pill: 0px;
+
+  --shadow-1: none;
+  --shadow-2: 4px 4px 0px #111111;
+  --shadow-3: 8px 8px 0px #111111;
+  --focus: 0 0 0 2px #ff3300;
+  --scrim: rgba(17, 17, 17, 0.6);
+
+  --row-hover: rgba(255, 51, 0, 0.03);
+  --row-active: #ffffff;
+  --row-marker: #ff3300;
+  --row-marker-w: 4px;
+}
+
+/* Haute-couture editorial contrast */
+.titlebar {
+  background: #111111;
+  color: #fbf9f5;
+  border-bottom: 2px solid #111111;
+}
+.titlebar__brand {
+  font-family: var(--font-ui);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+.titlebar__brand .mark {
+  background: #ff3300;
+}
+
+.statusbar {
+  background: #111111;
+  color: #fbf9f5;
+  border-top: 2px solid #111111;
+}
+.statusbar .num {
+  color: #ff3300;
+}
+
+.grid thead {
+  background: #111111;
+  color: #ffffff;
+}
+.grid thead th {
+  color: #ffffff;
+  border-bottom: 2px solid #111111;
+  font-family: var(--font-num);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.grid tbody td.num {
+  font-weight: 800;
+  font-size: 13px;
+  color: #111111;
+}
+
+.grid tbody tr[data-active] {
+  background: #ffffff;
+  box-shadow: inset 4px 0 0 #ff3300;
+}
+.grid tbody tr[data-active] td.num {
+  background: #111111;
+  color: #ffffff;
+}
+
+.btn {
+  border: 1px solid #111111;
+  font-family: var(--font-num);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.btn--primary {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+.btn--primary:hover {
+  background: #ff3300;
+  border-color: #ff3300;
+}
+
+.scenbar {
+  background: #111111;
+  border-bottom: 1px solid #333333;
+}
+.scenbar__chip {
+  color: #fbf9f5;
+  border: 1px solid #444444;
+}
+.scenbar__chip[data-active] {
+  background: #ff3300;
+  color: #ffffff;
+  border-color: #ff3300;
+}
