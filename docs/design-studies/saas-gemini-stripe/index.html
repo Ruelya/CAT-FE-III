@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Translunar CAT Workbench — Stripe Dashboard Edition</title>
+  <style>
+    /* Stripe Dashboard Design System Tokens */
+    :root {
+      --bg-body: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-surface-subtle: #f1f5f9;
+      --bg-sidebar: #0f172a;
+      --bg-sidebar-hover: #1e293b;
+      --bg-sidebar-active: #334155;
+      --border-light: #e2e8f0;
+      --border-subtle: #cbd5e1;
+      --border-focus: #635bff;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --stripe-indigo: #635bff;
+      --stripe-indigo-hover: #5348eb;
+      --stripe-indigo-soft: #ede9fe;
+      --ok: #059669;
+      --ok-soft: #ecfdf5;
+      --warn: #d97706;
+      --warn-soft: #fffbeb;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+      --shadow-pop: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      --trans: 140ms ease-in-out;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      background-color: var(--bg-body);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top App Navigation Bar */
+    .app-header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      box-shadow: var(--shadow-sm);
+    }
+    .top-navbar {
+      height: 48px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+    }
+    .brand-logo-badge {
+      width: 22px;
+      height: 22px;
+      border-radius: var(--radius-sm);
+      background: linear-gradient(135deg, #635bff, #00d4ff);
+      display: inline-block;
+    }
+    .nav-breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .nav-breadcrumbs strong {
+      color: var(--text-primary);
+    }
+    .locale-pill {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 2px 8px;
+      background: var(--stripe-indigo-soft);
+      color: var(--stripe-indigo);
+      border-radius: 12px;
+    }
+
+    /* Action Ribbon Strip */
+    .action-strip {
+      height: 40px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface-subtle);
+      border-top: 1px solid var(--border-light);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: all var(--trans);
+      white-space: nowrap;
+    }
+    .btn:hover {
+      color: var(--text-primary);
+      border-color: var(--border-subtle);
+      background: #fafafa;
+    }
+    .btn-primary {
+      background: var(--stripe-indigo);
+      color: #ffffff;
+      border-color: var(--stripe-indigo);
+    }
+    .btn-primary:hover {
+      background: var(--stripe-indigo-hover);
+      color: #ffffff;
+      border-color: var(--stripe-indigo-hover);
+    }
+    .btn-danger {
+      background: var(--danger);
+      color: #ffffff;
+      border-color: var(--danger);
+    }
+    .btn kbd {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      background: rgba(0, 0, 0, 0.06);
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin-left: 4px;
+      font-weight: normal;
+    }
+
+    /* 3-Column Split Workbench */
+    .workbench-layout {
+      display: grid;
+      grid-template-columns: 260px 1fr 360px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* Left Sidebar: Slate Tone */
+    .sidebar-left {
+      background: var(--bg-sidebar);
+      color: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #1e293b;
+    }
+    .sidebar-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .sidebar-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .project-name-h {
+      font-weight: 600;
+      font-size: 14px;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+    .progress-bar-wrap {
+      height: 6px;
+      background: #334155;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 8px 0 4px 0;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--stripe-indigo);
+      border-radius: 3px;
+    }
+
+    /* Left Document List */
+    .doc-nav-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 10px 12px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .doc-nav-item {
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      color: #cbd5e1;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      transition: background var(--trans);
+    }
+    .doc-nav-item:hover {
+      background: var(--bg-sidebar-hover);
+      color: #ffffff;
+    }
+    .doc-nav-item.active {
+      background: var(--bg-sidebar-active);
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .doc-nav-title {
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .doc-nav-sub {
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: normal;
+    }
+
+    /* Center Translation Grid */
+    .center-panel {
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+    .center-top-bar {
+      height: 38px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-light);
+    }
+    .grid-tabs {
+      display: flex;
+      gap: 4px;
+    }
+    .grid-tab {
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .grid-tab.active {
+      background: var(--bg-surface-subtle);
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .table-container {
+      flex: 1;
+      overflow: auto;
+      background: var(--bg-body);
+      padding: 12px 16px;
+    }
+    .stripe-card-table {
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-card);
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .stripe-card-table th {
+      background: #fafafa;
+      border-bottom: 1px solid var(--border-light);
+      padding: 8px 12px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: left;
+    }
+    .stripe-row {
+      border-bottom: 1px solid var(--border-light);
+      transition: background var(--trans);
+      cursor: pointer;
+    }
+    .stripe-row:hover {
+      background: #fdfdfd;
+    }
+    .stripe-row.active {
+      background: #f5f3ff;
+    }
+    .stripe-cell {
+      padding: 12px;
+      vertical-align: top;
+      font-size: 13.5px;
+    }
+    .cell-ord {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      width: 48px;
+    }
+    .cell-src {
+      width: 42%;
+      color: var(--text-primary);
+      border-right: 1px solid var(--border-light);
+    }
+    .cell-tgt {
+      width: 42%;
+      color: var(--text-primary);
+      border-right: 1px solid var(--border-light);
+    }
+    .cell-status {
+      width: 16%;
+    }
+
+    .token-chip {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 6px;
+      background: #e0e7ff;
+      color: #4338ca;
+      border-radius: 4px;
+      display: inline-block;
+      font-weight: 600;
+    }
+
+    .editor-textarea {
+      width: 100%;
+      min-height: 60px;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border-focus);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-ui);
+      font-size: 13.5px;
+      color: var(--text-primary);
+      outline: none;
+      box-shadow: 0 0 0 3px var(--stripe-indigo-soft);
+      resize: vertical;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-ok { background: var(--ok-soft); color: var(--ok); }
+    .badge-warn { background: var(--warn-soft); color: var(--warn); }
+    .badge-draft { background: #fef3c7; color: #b45309; }
+    .badge-locked { background: #f1f5f9; color: #64748b; }
+
+    /* Right Utility Rail */
+    .sidebar-right {
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-light);
+      display: flex;
+      flex-direction: column;
+    }
+    .right-nav-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-light);
+      background: #fafafa;
+    }
+    .right-tab-btn {
+      flex: 1;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all var(--trans);
+    }
+    .right-tab-btn:hover {
+      color: var(--stripe-indigo);
+    }
+    .right-tab-btn.active {
+      color: var(--stripe-indigo);
+      border-bottom-color: var(--stripe-indigo);
+      background: var(--bg-surface);
+    }
+
+    .right-content {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .stripe-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* Bottom Status Bar */
+    .app-statusbar {
+      height: 26px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    /* Scenario Switcher */
+    .scenario-bar {
+      position: fixed;
+      bottom: 34px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ffffff;
+      border: 1px solid var(--border-subtle);
+      border-radius: 24px;
+      box-shadow: var(--shadow-pop);
+      padding: 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      z-index: 9999;
+    }
+    .scenario-btn {
+      padding: 4px 12px;
+      border-radius: 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .scenario-btn.active {
+      background: var(--stripe-indigo);
+      color: #ffffff;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(2px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay.active {
+      display: flex;
+    }
+    .modal-card {
+      background: #ffffff;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-modal);
+      width: 500px;
+      overflow: hidden;
+      border: 1px solid var(--border-light);
+    }
+    .modal-card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .modal-card-body {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-card-footer {
+      padding: 12px 20px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border-light);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="app-header">
+    <div class="top-navbar">
+      <div class="brand-logo">
+        <span class="brand-logo-badge"></span>
+        <span>Translunar</span>
+      </div>
+      <div class="nav-breadcrumbs">
+        <span>项目</span> / 
+        <strong>Stripe Payments Integration</strong>
+        <span class="locale-pill">en-US → zh-CN</span>
+      </div>
+      <div style="margin-left: auto; display: flex; gap: 8px;">
+        <button class="btn" onclick="openModal('modal-settings')">项目设置</button>
+        <button class="btn btn-primary" onclick="openModal('modal-qa-gate')">导出译文</button>
+      </div>
+    </div>
+
+    <!-- Ribbon Actions -->
+    <div class="action-strip">
+      <button class="btn" onclick="openModal('modal-import')">导入文档 <kbd>Ctrl+O</kbd></button>
+      <button class="btn" onclick="confirmSegment()">确认句段 <kbd>Ctrl+Enter</kbd></button>
+      <button class="btn" onclick="toggleLock()">锁定 <kbd>Ctrl+L</kbd></button>
+      <button class="btn" onclick="switchRightTab('qa')">运行 QA</button>
+      <button class="btn" onclick="switchRightTab('memory')">语料检索 <kbd>F3</kbd></button>
+      <button class="btn" onclick="alert('Summon Command Palette')">命令搜索 <kbd>Ctrl+K</kbd></button>
+    </div>
+  </header>
+
+  <!-- Split Workbench -->
+  <main class="workbench-layout">
+
+    <!-- Left Slate Sidebar -->
+    <aside class="sidebar-left">
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>当前项目</span>
+          <span style="color: #60a5fa; cursor: pointer;" onclick="openModal('modal-settings')">设置</span>
+        </div>
+        <div class="project-name-h">Stripe Payments Integration</div>
+        <div style="font-size: 12px; color: #94a3b8;">创建于 2026-08-20</div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width: 75%;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 11.5px; color: #cbd5e1;">
+          <span>已确认 15/20</span>
+          <span>75%</span>
+        </div>
+      </div>
+
+      <ul class="doc-nav-list">
+        <li class="doc-nav-item active">
+          <div class="doc-nav-title">
+            <span>checkout-flow.md</span>
+            <span style="font-size: 10px; background: #334155; padding: 1px 4px; border-radius: 3px;">md</span>
+          </div>
+          <div class="doc-nav-sub">确认 6/8 · QA 1</div>
+        </li>
+        <li class="doc-nav-item">
+          <div class="doc-nav-title">
+            <span>webhooks.docx</span>
+            <span style="font-size: 10px; background: #334155; padding: 1px 4px; border-radius: 3px;">docx</span>
+          </div>
+          <div class="doc-nav-sub">确认 9/12</div>
+        </li>
+      </ul>
+    </aside>
+
+    <!-- Center Translation Table -->
+    <section class="center-panel">
+      <div class="center-top-bar">
+        <div class="grid-tabs">
+          <span class="grid-tab active">checkout-flow.md</span>
+          <span class="grid-tab">webhooks.docx</span>
+        </div>
+        <span style="font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);">
+          可见句段 4 / 4
+        </span>
+      </div>
+
+      <div class="table-container">
+        <table class="stripe-card-table">
+          <thead>
+            <tr>
+              <th style="width: 48px; text-align: center;">#</th>
+              <th>源文 (en-US)</th>
+              <th>译文 (zh-CN)</th>
+              <th style="width: 140px;">状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1: Confirmed -->
+            <tr class="stripe-row" id="row-1" onclick="selectRow(1)">
+              <td class="stripe-cell cell-ord">1</td>
+              <td class="stripe-cell cell-src">Create a <span class="token-chip">{PaymentIntent}</span> before confirming the customer's checkout session.</td>
+              <td class="stripe-cell cell-tgt">在确认客户结账会话之前，先创建一个 <span class="token-chip">{PaymentIntent}</span>。</td>
+              <td class="stripe-cell cell-status">
+                <span class="badge badge-ok">✓ 已确认</span>
+                <div style="font-size: 11px; color: var(--stripe-indigo); margin-top: 4px; font-weight: 600;">100% TM</div>
+              </td>
+            </tr>
+            <!-- Row 2: Active Draft with QA Warning -->
+            <tr class="stripe-row active" id="row-2" onclick="selectRow(2)">
+              <td class="stripe-cell cell-ord">2</td>
+              <td class="stripe-cell cell-src">Supply your publishable API key in the request header to authenticate.</td>
+              <td class="stripe-cell cell-tgt">
+                <textarea class="editor-textarea" id="main-editor">在请求头中提供您的公钥 API key 以进行身份验证。</textarea>
+              </td>
+              <td class="stripe-cell cell-status">
+                <span class="badge badge-draft">✎ 草稿</span>
+                <div style="font-size: 11px; color: var(--danger); margin-top: 4px; font-weight: 600;">⚠ 1 QA 问题</div>
+              </td>
+            </tr>
+            <!-- Row 3: Locked -->
+            <tr class="stripe-row" id="row-3" onclick="selectRow(3)">
+              <td class="stripe-cell cell-ord">3</td>
+              <td class="stripe-cell cell-src">Stripe, Inc. All rights reserved.</td>
+              <td class="stripe-cell cell-tgt">Stripe, Inc. 保留所有权利。</td>
+              <td class="stripe-cell cell-status">
+                <span class="badge badge-locked">🔒 已锁定</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Right Resource Dock -->
+    <aside class="sidebar-right">
+      <nav class="right-nav-tabs">
+        <div class="right-tab-btn" id="tab-memory" onclick="switchRightTab('memory')">记忆库</div>
+        <div class="right-tab-btn" id="tab-term" onclick="switchRightTab('term')">术语</div>
+        <div class="right-tab-btn active" id="tab-qa" onclick="switchRightTab('qa')">QA 质检</div>
+        <div class="right-tab-btn" id="tab-ai" onclick="switchRightTab('ai')">AI / Agent</div>
+      </nav>
+
+      <div class="right-content" id="right-content-body">
+        <!-- QA View -->
+        <div id="view-qa">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong style="font-size: 13px;">QA 检查结果 (1)</strong>
+            <button class="btn" style="height: 24px; padding: 0 8px; font-size: 11px;">重新运行</button>
+          </div>
+          <div class="stripe-card" style="border-left: 3px solid var(--warn);">
+            <div style="display: flex; justify-content: space-between;">
+              <strong style="color: var(--warn); font-size: 12px;">qa.unedited-fuzzy</strong>
+              <span class="badge badge-warn">警告</span>
+            </div>
+            <p style="font-size: 12px; color: var(--text-secondary);">
+              模糊匹配（90%）未修改即确认。建议检查 <code>publishable API key</code> 的术语翻译。
+            </p>
+            <div style="display: flex; gap: 6px; margin-top: 6px;">
+              <button class="btn" style="height: 22px; font-size: 11px;" onclick="alert('已忽略')">忽略</button>
+              <button class="btn" style="height: 22px; font-size: 11px;" onclick="alert('已忽略同类')">忽略同类</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TM View (Hidden) -->
+        <div id="view-memory" style="display: none;">
+          <div class="stripe-card">
+            <div style="display: flex; justify-content: space-between;">
+              <span class="badge badge-ok">95% 匹配</span>
+              <span style="font-size: 11px; color: var(--text-muted);">Stripe_Core_TM</span>
+            </div>
+            <strong style="font-size: 13px; color: var(--stripe-indigo);">在请求头中提供您的公钥以完成身份验证。</strong>
+            <div style="font-size: 11.5px; color: var(--text-muted);">源：Supply your publishable key in request header to authenticate.</div>
+            <button class="btn btn-primary" style="margin-top: 6px;" onclick="alert('已套用 TM 译文')">应用为草稿</button>
+          </div>
+        </div>
+
+        <!-- Term View (Hidden) -->
+        <div id="view-term" style="display: none;">
+          <div class="stripe-card">
+            <strong style="color: var(--stripe-indigo); font-size: 13px;">PaymentIntent</strong>
+            <p style="font-size: 12px; color: var(--text-secondary);">支付意向 (专有名词，建议保留英文)</p>
+            <button class="btn" style="margin-top: 4px;" onclick="alert('已插入')">插入术语</button>
+          </div>
+        </div>
+
+        <!-- AI View (Hidden) -->
+        <div id="view-ai" style="display: none;">
+          <div class="stripe-card">
+            <strong style="font-size: 13px;">自主翻译 Agent</strong>
+            <span class="badge badge-draft">等待人工审核</span>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+              Agent 已完成全文档预翻译与初审。TM 套用 2 句，AI 起草 2 句。
+            </p>
+            <button class="btn btn-primary" style="margin-top: 8px;" onclick="openModal('modal-qa-gate')">前往审核与导出</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Status Bar -->
+  <footer class="app-statusbar">
+    <div>Translunar CAT 就绪 · 句段 #2 草稿已保存</div>
+    <div style="display: flex; gap: 14px; font-family: var(--font-mono);">
+      <span>句段 <strong>2/4</strong></span>
+      <span>已确认 <strong>1</strong></span>
+      <span>字数 <strong>76</strong></span>
+      <span style="color: var(--danger);">QA <strong>1</strong></span>
+      <span style="color: var(--ok);">● Engine 0.3.1 就绪</span>
+    </div>
+  </footer>
+
+  <!-- Modals -->
+  <div class="modal-overlay" id="modal-import">
+    <div class="modal-card">
+      <div class="modal-card-header">
+        <span>导入文档</span>
+        <button class="btn" onclick="closeModal('modal-import')">×</button>
+      </div>
+      <div class="modal-card-body">
+        <div>
+          <label style="font-size: 12px; font-weight: 600;">文件路径</label>
+          <input type="text" style="width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-light); border-radius: 4px; margin-top: 4px;" value="/docs/checkout-flow.md" readonly>
+        </div>
+        <div>
+          <label style="font-size: 12px; font-weight: 600;">分句模式</label>
+          <select style="width: 100%; height: 32px; border: 1px solid var(--border-light); border-radius: 4px; margin-top: 4px;">
+            <option>标准 SRX 分句</option>
+            <option>按段落分割</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-card-footer">
+        <button class="btn" onclick="closeModal('modal-import')">取消</button>
+        <button class="btn btn-primary" onclick="closeModal('modal-import'); alert('导入成功！')">开始导入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal-card">
+      <div class="modal-card-header">
+        <span>项目设置</span>
+        <button class="btn" onclick="closeModal('modal-settings')">×</button>
+      </div>
+      <div class="modal-card-body">
+        <div>
+          <label style="font-size: 12px; font-weight: 600;">项目名称</label>
+          <input type="text" style="width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-light); border-radius: 4px; margin-top: 4px;" value="Stripe Payments Integration">
+        </div>
+        <div>
+          <label style="font-size: 12px; font-weight: 600;">语言对</label>
+          <input type="text" style="width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-light); border-radius: 4px; margin-top: 4px;" value="en-US → zh-CN" disabled>
+        </div>
+      </div>
+      <div class="modal-card-footer">
+        <button class="btn" onclick="closeModal('modal-settings')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-qa-gate">
+    <div class="modal-card" style="width: 420px;">
+      <div class="modal-card-header" style="color: var(--danger);">
+        <span>QA 质量门禁拦截</span>
+        <button class="btn" onclick="closeModal('modal-qa-gate')">×</button>
+      </div>
+      <div class="modal-card-body">
+        <p style="font-size: 13px; color: var(--text-secondary);">
+          检测到当前文档存在 <strong>1 个 QA 错误或警告</strong>（未修改的模糊匹配）。直接导出可能会降低交付质量。
+        </p>
+      </div>
+      <div class="modal-card-footer">
+        <button class="btn" onclick="closeModal('modal-qa-gate')">返回修改</button>
+        <button class="btn btn-danger" onclick="closeModal('modal-qa-gate'); alert('已强制导出译文！')">仍要导出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scenario Switcher -->
+  <div class="scenario-bar">
+    <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-right: 4px;">场景切换:</span>
+    <button class="scenario-btn active" onclick="setScenario('standard')">1. 标准工作区</button>
+    <button class="scenario-btn" onclick="setScenario('qa')">2. QA 警告</button>
+    <button class="scenario-btn" onclick="setScenario('agent')">3. Agent 审核</button>
+    <button class="scenario-btn" onclick="setScenario('gate')">4. 导出闸门</button>
+  </div>
+
+  <script>
+    function switchRightTab(tab) {
+      document.querySelectorAll('.right-tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + tab).classList.add('active');
+      document.getElementById('view-qa').style.display = tab === 'qa' ? 'block' : 'none';
+      document.getElementById('view-memory').style.display = tab === 'memory' ? 'block' : 'none';
+      document.getElementById('view-term').style.display = tab === 'term' ? 'block' : 'none';
+      document.getElementById('view-ai').style.display = tab === 'ai' ? 'block' : 'none';
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    function confirmSegment() {
+      const row = document.getElementById('row-2');
+      const badge = row.querySelector('.badge');
+      badge.className = 'badge badge-ok';
+      badge.innerHTML = '✓ 已确认';
+      alert('句段 #2 已成功确认并写入 TM！');
+    }
+
+    function toggleLock() {
+      const row = document.getElementById('row-2');
+      const badge = row.querySelector('.badge');
+      badge.className = 'badge badge-locked';
+      badge.innerHTML = '🔒 已锁定';
+      alert('句段 #2 已锁定！');
+    }
+
+    function setScenario(sc) {
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      closeModal('modal-qa-gate');
+      closeModal('modal-import');
+      closeModal('modal-settings');
+
+      if (sc === 'standard') {
+        switchRightTab('memory');
+      } else if (sc === 'qa') {
+        switchRightTab('qa');
+      } else if (sc === 'agent') {
+        switchRightTab('ai');
+      } else if (sc === 'gate') {
+        openModal('modal-qa-gate');
+      }
+    }
+  </script>
+</body>
+</html>
