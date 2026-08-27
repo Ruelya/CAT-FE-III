@@ -140,7 +140,15 @@ test("vertical slice through the workbench", async () => {
   const topLabels = await app.evaluate(({ Menu }) =>
     Menu.getApplicationMenu()?.items.map((item) => item.label),
   );
-  expect(topLabels).toEqual(["文件", "编辑", "视图", "导航", "帮助"]);
+  expect(topLabels).toEqual([
+    "文件",
+    "编辑",
+    "视图",
+    "项目",
+    "翻译",
+    "QA",
+    "帮助",
+  ]);
   expect((await findMenuItem("导入文档…"))?.enabled).toBe(false);
   expect((await findMenuItem("导出译文…"))?.enabled).toBe(false);
   expect(await clickMenuItem("导出译文…")).toBe(false);
@@ -213,7 +221,12 @@ test("vertical slice through the workbench", async () => {
     rows.nth(1).locator('.segment-grid__chip[data-state="draft"]'),
   ).toBeVisible();
   await page.getByRole("button", { name: "QA", exact: true }).click();
-  await page.getByRole("button", { name: "运行 QA" }).click();
+  // The ribbon carries its own 运行 QA (same handler), so target the
+  // panel's button explicitly.
+  await page
+    .locator(".workbench__dock")
+    .getByRole("button", { name: "运行 QA" })
+    .click();
   // The engine now runs the full rule library, so target the number issue
   // card instead of assuming it is the first one.
   const numberIssue = page.locator(".issue-card", { hasText: "1300" }).first();
@@ -819,14 +832,28 @@ test("confirm refreshes QA and locked segments stay read-only", async () => {
 test("application menu mirrors workbench state and shortcuts", async () => {
   // With a document open, every workbench command is enabled.
   for (const label of [
+    "新建项目…",
     "导入文档…",
     "导出译文…",
     "项目设置…",
     "返回项目列表",
+    "记忆库管理…",
+    "术语库管理…",
+    "归档项目",
     "确认当前句段",
     "确认并到下一句段",
     "确认并停留",
     "锁定/解锁句段",
+    "复制源文到译文",
+    "预翻译（TM）",
+    "插入记忆匹配",
+    "插入术语",
+    "运行 QA",
+    "忽略当前问题",
+    "应用引擎修复",
+    "有错误时阻止导出",
+    "折叠左栏",
+    "折叠右栏",
     "预览面板",
     "记忆面板",
     "QA 面板",
@@ -835,6 +862,7 @@ test("application menu mirrors workbench state and shortcuts", async () => {
     "筛选句段",
     "命令面板",
     "检索（取选中文本）",
+    "键盘快捷键…",
   ]) {
     expect((await findMenuItem(label))?.enabled, label).toBe(true);
   }
@@ -842,8 +870,16 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   // Renderer-owned chords (already handled by workbench keydown/textarea
   // handlers) are displayed but not registered, so the menu never swallows
   // them; menu-owned accelerators are registered normally.
+  // 项目设置/导入/返回列表 repeat under 项目 (deliberate prototype
+  // duplicates) without accelerators, so the map keeps the first instance —
+  // the 文件 one that owns the chord.
   const items = await snapshotMenuItems();
-  const byLabel = new Map(items.map((item) => [item.label, item]));
+  const byLabel = new Map<string, MenuItemSnapshot>();
+  for (const item of items) {
+    if (!byLabel.has(item.label)) {
+      byLabel.set(item.label, item);
+    }
+  }
   expect(byLabel.get("检索（取选中文本）")?.accelerator).toBe("F3");
   expect(byLabel.get("检索（取选中文本）")?.registerAccelerator).toBe(false);
   expect(byLabel.get("确认当前句段")?.registerAccelerator).toBe(false);
@@ -859,7 +895,9 @@ test("application menu mirrors workbench state and shortcuts", async () => {
   // Menu clicks reach the renderer over IPC and drive the same commands as
   // the workbench buttons: dock switch, then the preview pane toggle.
   expect(await clickMenuItem("QA 面板")).toBe(true);
-  await expect(page.getByRole("button", { name: "运行 QA" })).toBeVisible();
+  await expect(
+    page.locator(".workbench__dock").getByRole("button", { name: "运行 QA" }),
+  ).toBeVisible();
 
   expect(await clickMenuItem("预览面板")).toBe(true);
   await expect(page.locator(".preview-pane[data-open]")).toBeVisible();
@@ -1048,7 +1086,10 @@ test("unedited fuzzy confirm is flagged and batch waivers clear repeat noise", a
   // Full run: three number errors + one punctuation warning + the
   // behavioral finding. The batch buttons appear only where they would
   // touch more than the row's own 忽略.
-  await page.getByRole("button", { name: "运行 QA" }).click();
+  await page
+    .locator(".workbench__dock")
+    .getByRole("button", { name: "运行 QA" })
+    .click();
   await expect(page.getByText("质量检查（未解决 5）")).toBeVisible();
   await expect(
     page.locator(".issue-card", { hasText: "qa.number-mismatch" }),
@@ -1175,7 +1216,10 @@ test("S3d: QA corrections apply from the panel and TM import targets a named mem
   // previews it verbatim — the 应用修复 button exists only because an
   // engine correction does.
   await page.getByRole("button", { name: "QA", exact: true }).click();
-  await page.getByRole("button", { name: "运行 QA" }).click();
+  await page
+    .locator(".workbench__dock")
+    .getByRole("button", { name: "运行 QA" })
+    .click();
   await expect(page.getByText("质量检查（未解决 1）")).toBeVisible();
   const numberIssue = page.locator(".issue-card", {
     hasText: "qa.number-mismatch",
