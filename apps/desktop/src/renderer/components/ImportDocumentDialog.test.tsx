@@ -112,6 +112,7 @@ describe("ImportDocumentDialog", () => {
         segmentCount: 3,
       });
     });
+    // 自动 (the default) sends no filterId at all: the engine probes.
     expect(spy).toHaveBeenCalledWith("document.import", {
       projectId: "p1",
       sourcePath: "/tmp/manual.docx",
@@ -126,6 +127,56 @@ describe("ImportDocumentDialog", () => {
       clearSrxPath: true,
     });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("sends the exact bilingual filterId when a 双栏 format is picked", async () => {
+    for (const [option, filterId] of [
+      ["双栏 XLSX", "builtin.bilingual-xlsx"],
+      ["双栏 DOCX", "builtin.bilingual-docx"],
+    ] as const) {
+      const spy = installBridge({ sourcePath: "/tmp/bilingual-file" });
+      const { unmount } = render(
+        <ImportDocumentDialog
+          open
+          project={project}
+          onClose={vi.fn()}
+          onImported={vi.fn()}
+        />,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "选择文件…" }));
+      await userEvent.selectOptions(screen.getByLabelText("格式"), option);
+      await userEvent.click(screen.getByRole("button", { name: "导入" }));
+      await waitFor(() => {
+        expect(spy).toHaveBeenCalledWith("document.import", {
+          projectId: "p1",
+          sourcePath: "/tmp/bilingual-file",
+          filterId,
+          segmentation: "sentence",
+          srxPath: null,
+        });
+      });
+      unmount();
+    }
+  });
+
+  it("offers exactly 自动 and the two bilingual filters as formats", () => {
+    installBridge({ sourcePath: null });
+    render(
+      <ImportDocumentDialog
+        open
+        project={project}
+        onClose={vi.fn()}
+        onImported={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText("格式");
+    const options = Array.from(select.querySelectorAll("option")).map(
+      (option) => option.textContent,
+    );
+    // Probe already covers docx/txt/md/html/xliff/xlsx/pptx — no builtin
+    // catalog is repeated here.
+    expect(options).toEqual(["自动", "双栏 XLSX", "双栏 DOCX"]);
+    expect(select).toHaveValue("auto");
   });
 
   it("sends the chosen SRX ruleset in sentence mode", async () => {

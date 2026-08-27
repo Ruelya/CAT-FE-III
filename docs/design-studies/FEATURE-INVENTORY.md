@@ -368,7 +368,11 @@ Empties: `还没有项目`, `没有进行中的项目`. Errors surface verbatim.
 
 ### 12.2 导入文档 (`ImportDocumentDialog.tsx`)
 
-`选择文件…` + basename (`未选择文件` until picked); 分段方式 = `句子（SRX 规则）` /
+`选择文件…` + basename (`未选择文件` until picked); 格式 = `自动` (no `filterId`, the
+engine probes) / `双栏 XLSX` (`builtin.bilingual-xlsx`) / `双栏 DOCX`
+(`builtin.bilingual-docx`) — the two bilingual filters never probe-match, so the
+explicit pick is the only way to run them, and no other builtin is listed (probe
+already covers docx/txt/md/html/xliff/xlsx/pptx); 分段方式 = `句子（SRX 规则）` /
 `段落`; `选择 SRX 规则…` (sentence mode only) + basename + `清除`, else
 `内置规则（<sourceLocale>）`. Footer 取消 / 导入 (`导入中…`). Pre-fills from the stored
 project defaults and auto-saves the successful choice back through `project.update`; a

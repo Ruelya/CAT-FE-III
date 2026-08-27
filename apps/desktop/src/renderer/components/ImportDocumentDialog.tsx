@@ -20,6 +20,14 @@ export interface ImportDocumentDialogProps {
 
 type SegmentationChoice = "sentence" | "paragraph";
 
+/**
+ * 格式 choices: 自动 lets the engine probe registered filters; the two
+ * bilingual filters never probe-match (a two-column table is
+ * indistinguishable from an ordinary one), so they exist only as explicit
+ * `filterId` picks.
+ */
+type FormatChoice = "auto" | "builtin.bilingual-xlsx" | "builtin.bilingual-docx";
+
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
@@ -37,8 +45,10 @@ export function defaultSrxPath(project: Project): string | null {
 }
 
 /**
- * Document import with the engine's real options: segmentation mode
- * (sentence via SRX, or paragraph) and an optional custom SRX ruleset.
+ * Document import with the engine's real options: an explicit format pick
+ * (自动 probes; the bilingual two-column filters only run as an explicit
+ * `filterId`), segmentation mode (sentence via SRX, or paragraph) and an
+ * optional custom SRX ruleset.
  * The form pre-fills from the project's stored defaults
  * (`configuration.segmentation` / `configuration.srxPath`), and after a
  * successful import the chosen options are auto-saved back through
@@ -56,6 +66,7 @@ export function ImportDocumentDialog({
   onProjectUpdated,
 }: ImportDocumentDialogProps) {
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [format, setFormat] = useState<FormatChoice>("auto");
   const [segmentation, setSegmentation] = useState<SegmentationChoice>(() =>
     defaultSegmentation(project),
   );
@@ -93,6 +104,7 @@ export function ImportDocumentDialog({
 
   const reset = useCallback(() => {
     setSourcePath(null);
+    setFormat("auto");
     setSegmentation(defaultSegmentation(project));
     setSrxPath(defaultSrxPath(project));
     setError(null);
@@ -114,6 +126,9 @@ export function ImportDocumentDialog({
       result = await callEngine("document.import", {
         projectId: project.id,
         sourcePath,
+        // 自动 omits filterId (the engine probes); a bilingual pick rides
+        // as the explicit filter id, the only way those filters run.
+        ...(format === "auto" ? {} : { filterId: format }),
         segmentation,
         // The engine only applies SRX rules in sentence mode; never send a
         // ruleset that would silently do nothing.
@@ -155,6 +170,7 @@ export function ImportDocumentDialog({
     onImported(result);
   }, [
     sourcePath,
+    format,
     segmentation,
     srxPath,
     project.id,
@@ -198,6 +214,17 @@ export function ImportDocumentDialog({
             {sourcePath ? baseName(sourcePath) : "未选择文件"}
           </span>
         </div>
+
+        <SelectField
+          label="格式"
+          value={format}
+          disabled={busy}
+          onChange={(event) => setFormat(event.target.value as FormatChoice)}
+        >
+          <option value="auto">自动</option>
+          <option value="builtin.bilingual-xlsx">双栏 XLSX</option>
+          <option value="builtin.bilingual-docx">双栏 DOCX</option>
+        </SelectField>
 
         <SelectField
           label="分段方式"
