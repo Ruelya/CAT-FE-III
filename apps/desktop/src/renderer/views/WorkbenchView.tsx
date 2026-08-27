@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import {
+  IconChevronRight,
   IconClipboardCheck,
   IconDatabase,
+  IconFileText,
+  IconFolder,
+  IconFolderOpen,
   IconSettings,
   IconSparkles,
   IconVocabulary,
@@ -53,6 +57,7 @@ import type {
   SegmentStateFilter,
 } from "../lib/segment-filter.js";
 import { CommandPalette } from "../components/CommandPalette.js";
+import { buildDocTree, docTreeDirKeys } from "../lib/doc-tree.js";
 import { useTheme } from "../lib/theme.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
 import { FindWidget } from "../components/FindWidget.js";
@@ -1346,6 +1351,33 @@ export function WorkbenchView({
     );
   }, [documents, fileQuery]);
 
+  /* Folder state is the reader's, so it is not reset by a reload of the
+     document list. A search flattens the view instead: while filtering, every
+     folder that still has a hit is open, because a match hidden behind a
+     closed folder is a match the reader cannot see. */
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleDir = useCallback((key: string) => {
+    setCollapsedDirs((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(key)) {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+  const searching = fileQuery.trim().length > 0;
+  const docTree = useMemo(
+    () =>
+      buildDocTree(
+        visibleDocuments,
+        documentProgress,
+        searching ? new Set<string>() : collapsedDirs,
+      ),
+    [visibleDocuments, documentProgress, searching, collapsedDirs],
+  );
+
   // Feed the shell status bar. Cleared on unmount (project close) so stale
   // numbers never outlive the workbench that produced them.
   useEffect(() => {
@@ -2109,13 +2141,58 @@ export function WorkbenchView({
             ) : visibleDocuments.length === 0 ? (
               <EmptyState title="无匹配文件" />
             ) : (
-              <div className="document-list">
-                {visibleDocuments.map((document) => {
+              <div className="document-list" role="tree" aria-label="文件树">
+                {docTree.map((node) => {
+                  if (node.kind === "dir") {
+                    const open = !collapsedDirs.has(node.key);
+                    return (
+                      <button
+                        key={node.key}
+                        type="button"
+                        role="treeitem"
+                        aria-expanded={open}
+                        className="document-list__dir"
+                        style={{ paddingLeft: `${6 + node.depth * 12}px` }}
+                        onClick={() => toggleDir(node.key)}
+                      >
+                        <IconChevronRight
+                          size={13}
+                          stroke={2}
+                          className="document-list__chevron"
+                          data-open={open}
+                          aria-hidden
+                        />
+                        {open ? (
+                          <IconFolderOpen size={14} stroke={1.6} aria-hidden />
+                        ) : (
+                          <IconFolder size={14} stroke={1.6} aria-hidden />
+                        )}
+                        <span className="document-list__dir-name">
+                          {node.name}
+                        </span>
+                        {/* Rolled up from every document beneath, so a closed
+                            folder still reports the work left inside it. */}
+                        {node.rollup && node.rollup.total > 0 ? (
+                          <span className="tl-num document-list__dir-count">
+                            {node.rollup.confirmed}/{node.rollup.total}
+                          </span>
+                        ) : (
+                          <span className="tl-num document-list__dir-count">
+                            {node.fileCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  }
+                  const document = node.document;
                   const progress = documentProgress[document.id];
                   return (
                     <div
                       key={document.id}
+                      role="treeitem"
+                      aria-selected={document.id === activeDocumentId}
                       className="document-list__item"
+                      style={{ paddingLeft: `${node.depth * 12}px` }}
                       data-active={document.id === activeDocumentId}
                     >
                       <button
@@ -2124,6 +2201,12 @@ export function WorkbenchView({
                         onClick={() => void loadDocument(document.id)}
                       >
                         <span className="document-list__name">
+                          <IconFileText
+                            size={13}
+                            stroke={1.6}
+                            className="document-list__file-icon"
+                            aria-hidden
+                          />
                           {document.name}
                         </span>
                         <span className="document-list__meta">

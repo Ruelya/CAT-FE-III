@@ -104,6 +104,12 @@ test("the workbench renders and the theme repaints its real surfaces", async () 
   expect(chip.background).not.toBe("rgba(0, 0, 0, 0)");
   expect(chip.underline).toBe("none");
 
+  // The explorer is a tree, not a flat list, and a lone document imported
+  // from one path has no structure to indent for.
+  const tree = page.locator('.document-list[role="tree"]');
+  await expect(tree).toBeVisible();
+  await expect(tree.locator('[role="treeitem"]')).toHaveCount(1);
+
   await page.screenshot({ path: join(shotsDir, "terra.png") });
 });
 

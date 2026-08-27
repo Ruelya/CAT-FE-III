@@ -3,7 +3,9 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    // page.evaluate bodies are compiled into this project but execute in the
+    // renderer, so the DOM lib is part of this file set's real environment.
+    "lib": ["ES2022", "DOM"],
     "types": ["node"]
   },
   "include": ["tests/e2e/**/*.ts", "playwright.config.ts"]

@@ -921,6 +921,55 @@ button.app-statusbar__jump:hover {
   flex-direction: column;
 }
 
+/* Folder rows. The tree is derived from each document's relativePath, so a
+   flat import stays a flat list — the indentation always means something. */
+.document-list__dir {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  width: 100%;
+  height: var(--tl-row-h-list);
+  padding-right: var(--tl-space-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  text-align: left;
+}
+.document-list__dir:hover {
+  background: var(--tl-color-row-hover);
+}
+.document-list__dir:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+.document-list__chevron {
+  flex: none;
+  transition: transform var(--tl-motion-fast) var(--tl-ease-standard);
+}
+.document-list__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+.document-list__dir-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-list__dir-count {
+  flex: none;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+.document-list__file-icon {
+  flex: none;
+  margin-right: var(--tl-space-2);
+  vertical-align: -2px;
+  color: var(--tl-color-text-faint);
+}
+
 .document-list__item {
   width: 100%;
   display: flex;
