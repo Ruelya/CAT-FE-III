@@ -719,88 +719,172 @@ kbd,
   text-align: center;
 }
 
-.doclist {
+/* ---------------------------------------------------------- file tree */
+
+.tree {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   overflow-y: auto;
   min-height: 0;
+  margin: 0 calc(var(--s4) * -1);
+  --tree-indent: 13px;
+  --tree-row-h: 24px;
 }
-.doclist__row {
+.tree__filerow {
   position: relative;
   display: flex;
-  align-items: center;
-  border-radius: var(--r-md);
+  align-items: stretch;
 }
-.doclist__row:hover {
-  background: var(--row-hover);
-}
-.doclist__row[data-active] {
-  background: var(--row-active);
-  box-shadow: inset var(--row-marker-w) 0 0 var(--row-marker);
-}
-.doclist__open {
+.tree__row {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--s3);
-}
-.doclist__name {
-  display: flex;
   align-items: center;
-  gap: var(--s2);
+  gap: var(--s1);
+  height: var(--tree-row-h);
+  padding: 0 var(--s3) 0 var(--s2);
   font-size: var(--fs-sm);
-  font-weight: var(--strong-weight);
+  color: var(--text-muted);
   white-space: nowrap;
+}
+.tree__row:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+/* Indent guides, one hairline per ancestor level. */
+.tree__indent {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+.tree__indent i {
+  width: var(--tree-indent);
+  border-left: 1px solid var(--tree-guide, var(--border-soft));
+}
+.tree__chev {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  flex: none;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease);
+}
+.tree__chev[data-open="1"] {
+  transform: rotate(90deg);
+}
+.tree__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--tree-icon, var(--text-faint));
+  margin-right: 2px;
+}
+.tree__row--dir .tree__icon {
+  color: var(--tree-icon-dir, var(--text-faint));
+}
+.tree__name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doclist__name svg {
-  color: var(--text-faint);
+.tree__row--dir .tree__name {
+  font-weight: var(--strong-weight);
+  color: var(--text);
 }
-.doclist__row[data-active] .doclist__name svg {
+.tree__tail {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+  padding-left: var(--s2);
+}
+.tree__count {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+.tree__qa {
+  min-width: 15px;
+  padding: 0 3px;
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: var(--fs-xs);
+  line-height: 14px;
+  border-radius: var(--r-pill);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+/* Progress rides under the number itself as a fill line, so the badge costs
+   one column instead of two and the file name keeps the width. */
+.tree__prog {
+  position: relative;
+  width: 24px;
+  flex: none;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  line-height: 14px;
+}
+.tree__prog::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--ok) 0 var(--pct),
+    var(--border-soft) var(--pct) 100%
+  );
+}
+.tree__prog[data-done="1"] {
+  color: var(--ok);
+}
+.tree__prog[data-none="1"] {
+  opacity: 0.5;
+}
+.tree__prog[data-none="1"]::after {
+  opacity: 0.5;
+}
+
+/* An open tab is marked; the file being edited is marked harder. */
+.tree__filerow[data-opentab] .tree__name {
+  color: var(--text);
+}
+.tree__filerow[data-active] .tree__row {
+  background: var(--row-active);
+  color: var(--text);
+  font-weight: var(--strong-weight);
+  box-shadow: inset var(--row-marker-w) 0 0 var(--row-marker);
+}
+.tree__filerow[data-active] .tree__icon {
   color: var(--accent);
 }
-.doclist__meta {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.doclist__bar {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  margin-top: 2px;
-}
-.doclist__bar .meter {
-  height: 3px;
-}
-.doclist__bar .num {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  width: 30px;
-  text-align: right;
-}
-.doclist__remove {
+.tree__remove {
   position: absolute;
-  right: var(--s3);
-  top: var(--s3);
+  right: var(--s2);
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
 }
-.doclist__row:hover .doclist__remove,
-.doclist__remove:focus-visible {
+.tree__filerow:hover .tree__remove,
+.tree__remove:focus-visible {
   opacity: 1;
 }
-.doclist__confirm {
+.tree__remove:hover {
+  color: var(--danger);
+}
+.tree__confirm {
   position: absolute;
-  right: var(--s3);
-  top: var(--s3);
+  right: var(--s2);
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: var(--s2);
+  background: var(--surface);
+  padding-left: var(--s2);
 }
 
 .details {
@@ -2685,6 +2769,7 @@ tr[data-active] .rowmenu__btn,
 <div id="root"></div>
 <script>
 const THEME_NAME = "ledger";
+const THEME_FAMILY = "saas-opus";
 </script>
 <script>
 /* ===== data.js — fixtures, identical across systems ===== */
@@ -2710,10 +2795,13 @@ const PROJECTS = [
   { name: "Aster 3.9 文档（归档）", pair: "en-US → zh-CN", archived: true },
 ];
 
+/* `dir` is the folder path the file sits in; the left rail derives its tree
+   from these, so adding a document is enough to grow the tree. */
 const DOCUMENTS = [
   {
     id: "doc-onboarding",
     name: "onboarding-guide.docx",
+    dir: "docs/guides",
     format: "docx",
     total: 26,
     confirmed: 14,
@@ -2722,8 +2810,20 @@ const DOCUMENTS = [
     words: 612,
   },
   {
+    id: "doc-trouble",
+    name: "troubleshooting.docx",
+    dir: "docs/guides",
+    format: "docx",
+    total: 32,
+    confirmed: 0,
+    draft: 0,
+    open: 0,
+    words: 741,
+  },
+  {
     id: "doc-release",
     name: "release-notes-4.2.docx",
+    dir: "docs",
     format: "docx",
     total: 41,
     confirmed: 41,
@@ -2734,12 +2834,35 @@ const DOCUMENTS = [
   {
     id: "doc-api",
     name: "api-reference.md",
+    dir: "reference",
     format: "markdown",
     total: 118,
     confirmed: 32,
     draft: 11,
     open: 4,
     words: 2417,
+  },
+  {
+    id: "doc-strings",
+    name: "console-strings.json",
+    dir: "ui/strings",
+    format: "json",
+    total: 204,
+    confirmed: 61,
+    draft: 18,
+    open: 2,
+    words: 1180,
+  },
+  {
+    id: "doc-terms",
+    name: "terms-of-service.docx",
+    dir: "legal",
+    format: "docx",
+    total: 57,
+    confirmed: 57,
+    draft: 0,
+    open: 0,
+    words: 1642,
   },
 ];
 
@@ -3273,9 +3396,12 @@ const PALETTE = [
   { g: "面板", label: "术语面板", key: "Ctrl+2", cmd: "show-dock-term" },
   { g: "面板", label: "QA 面板", key: "Ctrl+3", cmd: "show-dock-qa" },
   { g: "面板", label: "AI 面板", key: "Ctrl+4", cmd: "show-dock-ai" },
-  { g: "文档", label: "打开文档：onboarding-guide.docx", key: "", cmd: "open-doc-onboarding" },
-  { g: "文档", label: "打开文档：release-notes-4.2.docx", key: "", cmd: "open-doc-release" },
-  { g: "文档", label: "打开文档：api-reference.md", key: "", cmd: "open-doc-api", disabled: false },
+  { g: "文档", label: "打开文档：docs/guides/onboarding-guide.docx", key: "", cmd: "open-doc-onboarding" },
+  { g: "文档", label: "打开文档：docs/guides/troubleshooting.docx", key: "", cmd: "open-doc-trouble" },
+  { g: "文档", label: "打开文档：docs/release-notes-4.2.docx", key: "", cmd: "open-doc-release" },
+  { g: "文档", label: "打开文档：reference/api-reference.md", key: "", cmd: "open-doc-api" },
+  { g: "文档", label: "打开文档：ui/strings/console-strings.json", key: "", cmd: "open-doc-strings" },
+  { g: "文档", label: "打开文档：legal/terms-of-service.docx", key: "", cmd: "open-doc-terms" },
 ];
 
 /* Ribbon rows. `verb` ids reuse the menu command ids so one dispatcher
@@ -3388,6 +3514,12 @@ const ICONS = {
   file: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
   plus: "M12 5v14M5 12h14",
   trash: "M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13",
+  folderOpen: "M4 8a2 2 0 0 1 2-2h3.6l1.8 2H17a2 2 0 0 1 2 2v1|M3.4 12.2A1 1 0 0 1 4.4 11h15.7a1 1 0 0 1 1 1.2l-1.3 5.6a2 2 0 0 1-2 1.6H6.6a2 2 0 0 1-1.9-1.6z",
+  folderShut:
+    "M4 7a2 2 0 0 1 2-2h3.6l1.8 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z",
+  fileDoc: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M8 13h8M8 17h5",
+  fileMd: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M7.5 18v-5l2.2 2.6L11.9 13v5|M14.6 13v3.4m0 0 1.5-1.6m-1.5 1.6L13 14.8",
+  fileJson: "M14 3v4a1 1 0 0 0 1 1h4|M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z|M10 12.5c-1.2 0-1.2 1.6-1.2 2.2 0 .7 0 2.2 1.2 2.2|M14.6 12.5c1.2 0 1.2 1.6 1.2 2.2 0 .7 0 2.2-1.2 2.2",
   cmd: "M9 9h6v6H9z|M9 9V7a2 2 0 1 0-2 2h2zm0 6v2a2 2 0 1 1-2-2h2zm6-6V7a2 2 0 1 1 2 2h-2zm0 6v2a2 2 0 1 0 2-2h-2z",
   agent: "M9 4h6a2 2 0 0 1 2 2v2h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1V6a2 2 0 0 1 2-2z|M9 14h.01|M15 14h.01",
 };
@@ -3397,6 +3529,16 @@ function ic(name, size) {
   if (!d) return "";
   const paths = d.split("|").map((p) => `<path d="${p}"/>`).join("");
   return `<svg class="ic" width="${size || 16}" height="${size || 16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+}
+
+/* The view is re-rendered wholesale on every state change, so an entrance
+   animation keyed on markup alone would replay on every keystroke. Overlays
+   ask here instead and are only marked on the render where they appear. */
+const ENTERED = {};
+function entering(key, value) {
+  const fresh = ENTERED[key] !== value;
+  ENTERED[key] = value;
+  return fresh && value ? ' data-enter="1"' : "";
 }
 
 const kbd = (k) =>
@@ -3441,7 +3583,44 @@ const S = {
   removeArmed: null,
   settingsTab: "info",
   cascade: false,
+  collapsedDirs: ["legal"],
 };
+
+/* ------------------------------------------------------------ file tree */
+
+const FILE_ICON = { docx: "fileDoc", markdown: "fileMd", json: "fileJson" };
+
+/** Folds the flat document list into the nested shape the rail draws. */
+function fileTree(docs) {
+  const root = { dirs: new Map(), files: [] };
+  docs.forEach((d) => {
+    let node = root;
+    let path = "";
+    (d.dir ? d.dir.split("/") : []).forEach((part) => {
+      path = path ? `${path}/${part}` : part;
+      if (!node.dirs.has(part)) node.dirs.set(part, { name: part, path, dirs: new Map(), files: [] });
+      node = node.dirs.get(part);
+    });
+    node.files.push(d);
+  });
+  return root;
+}
+
+/** Aggregate progress for a folder, so a collapsed folder still reports. */
+function dirRollup(node) {
+  const acc = { total: 0, confirmed: 0, open: 0, files: 0 };
+  const walk = (n) => {
+    n.files.forEach((f) => {
+      acc.total += f.total;
+      acc.confirmed += f.confirmed;
+      acc.open += f.open;
+      acc.files += 1;
+    });
+    n.dirs.forEach(walk);
+  };
+  walk(node);
+  return acc;
+}
 
 const FILTER_DEFS = [
   { id: "untranslated", label: "未译" },
@@ -3509,6 +3688,11 @@ function applyScenario(id) {
   S.engine = "ready";
   S.filters = [];
   S.query = "";
+  S.fileQuery = "";
+  S.collapsedDirs = ["legal"];
+  S.activeDoc = "doc-onboarding";
+  S.openDocs = ["doc-onboarding", "doc-release"];
+  S.removeArmed = null;
   S.editing = true;
   S.dock = "memory";
   S.preview.open = true;
@@ -3990,8 +4174,11 @@ function vRibbon() {
 function vLeft() {
   const c = counts();
   const pct = Math.round((c.confirmed / c.total) * 100);
+  /* Search matches the whole path, so typing a folder name narrows to its
+     contents the way it does in an editor. */
+  const q = S.fileQuery.trim().toLowerCase();
   const docs = DOCUMENTS.filter((d) =>
-    d.name.toLowerCase().includes(S.fileQuery.trim().toLowerCase()),
+    `${d.dir ? d.dir + "/" : ""}${d.name}`.toLowerCase().includes(q),
   );
   const totals = DOCUMENTS.reduce(
     (t, d) => ({ total: t.total + d.total, confirmed: t.confirmed + d.confirmed }),
@@ -4026,24 +4213,7 @@ function vLeft() {
       ${
         docs.length === 0
           ? `<p class="empty">无匹配文件</p>`
-          : `<div class="doclist">${docs
-              .map((d) => {
-                const p = Math.round((d.confirmed / d.total) * 100);
-                const armed = S.removeArmed === d.id;
-                return `<div class="doclist__row"${d.id === S.activeDoc ? ' data-active="1"' : ""}>
-            <button class="doclist__open" data-cmd="open-doc-${d.id.replace("doc-", "")}">
-              <span class="doclist__name">${ic("file", 14)}${esc(d.name)}</span>
-              <span class="doclist__meta"><span class="num">${d.format}</span> · 确认 <span class="num">${d.confirmed}/${d.total}</span>${d.draft ? ` · 草稿 <span class="num">${d.draft}</span>` : ""}${d.open ? ` · QA <span class="num">${d.open}</span>` : ""}</span>
-              <span class="doclist__bar"><span class="meter"><span class="meter__confirmed" style="width:${p}%"></span></span><span class="num">${p}%</span></span>
-            </button>
-            ${
-              armed
-                ? `<span class="doclist__confirm"><button class="btn btn--danger btn--xs" data-act="remove-yes">确认移除</button><button class="btn btn--ghost btn--xs" data-act="remove-no">取消</button></span>`
-                : `<button class="doclist__remove btn btn--ghost btn--xs" data-act="remove-arm" data-doc="${d.id}">移除</button>`
-            }
-          </div>`;
-              })
-              .join("")}</div>`
+          : `<div class="tree" role="tree">${vTreeNodes(fileTree(docs), 0, !!S.fileQuery.trim())}</div>`
       }
     </section>
 
@@ -4063,6 +4233,64 @@ function vLeft() {
   </aside>`;
 }
 
+const indent = (d) => `<span class="tree__indent">${'<i></i>'.repeat(d)}</span>`;
+
+/* Folders first, then files, each alphabetical — the ordering an IDE uses.
+   A search forces every folder open so a hit is never hidden behind a
+   collapsed chevron. */
+function vTreeNodes(node, depth, forceOpen) {
+  let out = "";
+  [...node.dirs.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((dir) => {
+      const open = forceOpen || !S.collapsedDirs.includes(dir.path);
+      const roll = dirRollup(dir);
+      const pct = roll.total ? Math.round((roll.confirmed / roll.total) * 100) : 0;
+      out += `<button class="tree__row tree__row--dir" role="treeitem" aria-expanded="${open}"
+        data-dir="${esc(dir.path)}" style="--depth:${depth}" title="${esc(dir.path)} — ${roll.files} 个文件，已确认 ${pct}%">
+        ${indent(depth)}
+        <span class="tree__chev" data-open="${open ? 1 : 0}">${ic("right", 12)}</span>
+        <span class="tree__icon">${ic(open ? "folderOpen" : "folderShut", 15)}</span>
+        <span class="tree__name">${esc(dir.name)}</span>
+        <span class="tree__tail">
+          ${roll.open ? `<span class="tree__qa" data-tone="danger">${roll.open}</span>` : ""}
+          <span class="tree__count num">${roll.files}</span>
+        </span>
+      </button>`;
+      if (open) out += vTreeNodes(dir, depth + 1, forceOpen);
+    });
+
+  [...node.files]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((d) => {
+      const pct = Math.round((d.confirmed / d.total) * 100);
+      const armed = S.removeArmed === d.id;
+      const active = d.id === S.activeDoc;
+      const openTab = S.openDocs.includes(d.id);
+      out += `<div class="tree__filerow"${active ? ' data-active="1"' : ""}${openTab ? ' data-opentab="1"' : ""}>
+        <button class="tree__row tree__row--file" role="treeitem" style="--depth:${depth}"
+          data-cmd="open-doc-${d.id.replace("doc-", "")}"
+          title="${esc((d.dir ? d.dir + "/" : "") + d.name)}&#10;已确认 ${d.confirmed}/${d.total}（${pct}%）${d.draft ? `，草稿 ${d.draft}` : ""}${d.open ? `，QA 未解决 ${d.open}` : ""}">
+          ${indent(depth)}
+          <span class="tree__chev"></span>
+          <span class="tree__icon" data-fmt="${d.format}">${ic(FILE_ICON[d.format] || "fileDoc", 15)}</span>
+          <span class="tree__name">${esc(d.name)}</span>
+          <span class="tree__tail">
+            ${d.open ? `<span class="tree__qa" data-tone="danger">${d.open}</span>` : ""}
+            <span class="tree__prog" data-done="${pct === 100 ? 1 : 0}" data-none="${pct === 0 ? 1 : 0}"
+              style="--pct:${pct}%"><span class="num">${pct}</span></span>
+          </span>
+        </button>
+        ${
+          armed
+            ? `<span class="tree__confirm"><button class="btn btn--danger btn--xs" data-act="remove-yes" data-doc="${d.id}">确认移除</button><button class="btn btn--ghost btn--xs" data-act="remove-no">取消</button></span>`
+            : `<button class="tree__remove iconbtn" data-act="remove-arm" data-doc="${d.id}" aria-label="从项目移除 ${esc(d.name)}">${ic("trash", 13)}</button>`
+        }
+      </div>`;
+    });
+  return out;
+}
+
 function vDocTabs() {
   return `<div class="doctabs" role="tablist">
     ${S.openDocs
@@ -4080,9 +4308,11 @@ function vDocTabs() {
 
 function vBanners() {
   let out = "";
+  if (S.banner !== "gate") ENTERED["banner-gate"] = false;
+  if (S.banner !== "overwrite") ENTERED["banner-over"] = false;
   if (S.banner === "gate") {
     const errs = S.issues.filter((i) => i.status === "open" && i.severity === "error");
-    out += `<div class="banner" data-tone="danger" role="alertdialog">
+    out += `<div class="banner" data-tone="danger" role="alertdialog"${entering("banner-gate", true)}>
       <span class="banner__icon">⛔</span>
       <span class="banner__text"><b>存在 QA 错误，仍要导出吗？</b>
         <span class="banner__sub"><span class="num">${errs.length}</span> 个错误未解决：${errs.map((e) => `<code>${e.rule}</code>`).join("、")}</span></span>
@@ -4092,7 +4322,7 @@ function vBanners() {
       </span></div>`;
   }
   if (S.banner === "overwrite") {
-    out += `<div class="banner" data-tone="warn" role="alertdialog">
+    out += `<div class="banner" data-tone="warn" role="alertdialog"${entering("banner-over", true)}>
       <span class="banner__icon">⚠</span>
       <span class="banner__text"><b>目标已存在，要覆盖吗？</b>
         <span class="banner__sub"><code>/Users/lin/exports/onboarding-guide-translated.docx</code></span></span>
@@ -4671,11 +4901,14 @@ function vStatus() {
 /* ------------------------------------------------------------- overlays */
 
 function vPalette() {
-  if (!S.palette.open) return "";
+  if (!S.palette.open) {
+    ENTERED.palette = false;
+    return "";
+  }
   const q = S.palette.q.trim().toLowerCase();
   const items = PALETTE.filter((p) => p.label.toLowerCase().includes(q));
   let last = null;
-  return `<div class="overlay overlay--palette" data-act="close-palette">
+  return `<div class="overlay overlay--palette" data-act="close-palette"${entering("palette", true)}>
     <div class="palette" role="dialog" aria-modal="true" aria-label="命令面板">
       <div class="palette__inputwrap">${ic("search", 15)}
         <input id="paletteq" placeholder="输入命令名称、面板或文档" aria-label="搜索命令" value="${esc(S.palette.q)}">
@@ -4704,7 +4937,7 @@ function vPalette() {
 }
 
 function dialog(title, body, foot, wide) {
-  return `<div class="overlay" data-act="close-dialog">
+  return `<div class="overlay" data-act="close-dialog"${entering("dialog", S.dialog)}>
     <div class="dialog${wide ? " dialog--wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <header class="dialog__head"><h2>${esc(title)}</h2>
         <button class="iconbtn" data-act="close-dialog" aria-label="关闭">${ic("x", 15)}</button></header>
@@ -4714,7 +4947,10 @@ function dialog(title, body, foot, wide) {
 }
 
 function vDialogs() {
-  if (!S.dialog) return "";
+  if (!S.dialog) {
+    ENTERED.dialog = null;
+    return "";
+  }
   if (S.dialog === "newproject")
     return dialog(
       "新建项目",
@@ -4921,9 +5157,12 @@ function vDialogs() {
 }
 
 function vEngineGate() {
-  if (S.engine === "ready") return "";
+  if (S.engine === "ready") {
+    ENTERED.gate = null;
+    return "";
+  }
   const down = S.engine === "down";
-  return `<div class="overlay overlay--gate">
+  return `<div class="overlay overlay--gate"${entering("gate", S.engine)}>
     <div class="gatecard" role="alertdialog" aria-modal="true">
       <p class="gatecard__title"><span class="dot" data-state="${down ? "down" : "busy"}"></span>
         ${down ? "翻译引擎已停止" : "翻译引擎正在自动重启"}</p>
@@ -4970,7 +5209,7 @@ function view() {
   const work = S.scenario !== "projects";
   return `
   <div class="proto">
-    <span class="proto__brand">saas-opus · <b>${THEME_NAME}</b></span>
+    <span class="proto__brand">${THEME_FAMILY} · <b>${THEME_NAME}</b></span>
     <span class="proto__label">场景</span>
     <div class="proto__scenes">
       ${SCENARIOS.map(
@@ -5058,7 +5297,9 @@ function render() {
 }
 
 function onClick(e) {
-  const t = e.target.closest("[data-scene],[data-cmd],[data-act],[data-filter],[data-dock],[data-jump],[data-menu],[data-settab],[data-row]");
+  const t = e.target.closest(
+    "[data-scene],[data-cmd],[data-act],[data-filter],[data-dock],[data-jump],[data-menu],[data-settab],[data-dir],[data-row]",
+  );
   if (!t) {
     if (S.menu !== null || S.rowMenu !== null) {
       S.menu = null;
@@ -5077,6 +5318,13 @@ function onClick(e) {
   }
   if (t.dataset.settab) {
     S.settingsTab = t.dataset.settab;
+    return render();
+  }
+  if (t.dataset.dir) {
+    const p = t.dataset.dir;
+    S.collapsedDirs = S.collapsedDirs.includes(p)
+      ? S.collapsedDirs.filter((x) => x !== p)
+      : S.collapsedDirs.concat(p);
     return render();
   }
   if (t.dataset.dock) {
@@ -5153,10 +5401,15 @@ function onClick(e) {
       case "remove-no":
         S.removeArmed = null;
         break;
-      case "remove-yes":
-        status("已移除「api-reference.md」：删除 118 个句段、4 条 QA 记录");
+      case "remove-yes": {
+        const d = DOCUMENTS.find((x) => x.id === t.dataset.doc);
+        if (d)
+          status(
+            `已移除「${d.name}」：删除 ${d.total} 个句段${d.open ? `、${d.open} 条 QA 记录` : ""}`,
+          );
         S.removeArmed = null;
         break;
+      }
       case "dismiss-unacked":
         S.unacked = false;
         break;
@@ -5387,5 +5640,6 @@ function boot() {
 document.addEventListener("DOMContentLoaded", boot);
 
 </script>
+
 </body>
 </html>

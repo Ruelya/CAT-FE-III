@@ -1,16 +1,28 @@
 # saas-opus — full-fidelity Workbench prototypes
 
-Three Modern SaaS visual systems for the Translunar CAT Workbench, built for
-visual selection. They share one information architecture, byte for byte: the
-same fixtures, the same renderer, the same keymap. Only the stylesheet differs,
-so a preference expressed here is a preference about visual language and
-nothing else.
+Seven visual systems for the Translunar CAT Workbench, built for visual
+selection. They share one information architecture, byte for byte: the same
+fixtures, the same renderer, the same keymap, the same twenty-six reachable
+states. Only the stylesheet differs — plus, for the art studies, one small
+script that owns material living outside the app root. A preference expressed
+here is therefore a preference about visual language and nothing else.
+
+**Modern SaaS** — quiet chrome, one system, high clarity.
 
 | Study | Open |
 | --- | --- |
 | quarry — warm stone, most generous | [`saas-opus-quarry/index.html`](saas-opus-quarry/index.html) |
 | cobalt — dark console, medium density | [`saas-opus-cobalt/index.html`](saas-opus-cobalt/index.html) |
 | ledger — achromatic Swiss data sheet, densest | [`saas-opus-ledger/index.html`](saas-opus-ledger/index.html) |
+
+**Art** — the browser as a material, at the same feature depth.
+
+| Study | Material | Open |
+| --- | --- | --- |
+| riso | two-ink risograph on newsprint | [`saas-opus-art-riso/index.html`](saas-opus-art-riso/index.html) |
+| atelier | night gallery, serif and brass | [`saas-opus-art-atelier/index.html`](saas-opus-art-atelier/index.html) |
+| phosphor | CRT tube, all-monospace | [`saas-opus-art-phosphor/index.html`](saas-opus-art-phosphor/index.html) |
+| vitrine | frosted glass over a drifting light field | [`saas-opus-art-vitrine/index.html`](saas-opus-art-vitrine/index.html) |
 
 Each `index.html` is self-contained — no server, no build step, no network.
 Open it from disk and click.
@@ -79,6 +91,94 @@ the white sheet so the document, not the application, reads as the subject.
 
 Pick ledger if the job is review and QA at volume.
 
+### riso — the proof sheet
+
+Newsprint cream, federal blue and fluorescent orange-red, URW Gothic set as
+poster type over Public Sans, hard offset shadows, zero radius anywhere.
+
+The premise is that this is a proof pulled off a duplicator, so nothing on
+screen is brighter than the sheet it is printed on. The paper is real: a fibre
+tile is generated at load and multiplied over the whole window, so every ink
+sits *in* the stock instead of glowing out of a backlight. There is no such
+thing as a flat fill — every tinted surface carries a staggered 45° dot screen
+at 4px, which is why a chip reads as printed rather than as painted.
+
+Two drums, two jobs. Ink A (blue) carries structure and text. Ink B (orange)
+carries **the live and the counted**: the segment ordinal column, the progress
+readouts, the status bar numerals, the active row, every selected filter chip
+and every primary action. Because the second ink appears nowhere else, the
+whole sheet answers "where am I and how far in" without a legend. The active
+row is the second pull, deliberately one pixel out of register on the source
+cell — misregistration as a state, which is the only honest way to use it.
+Registration targets sit in the trim at the bottom corners.
+
+Pick riso if the studio wants the tool to have a graphic voice.
+
+### atelier — the night gallery
+
+Warm charcoal walls, ivory setting, brass fittings. P052 for display and C059
+for text, so the Latin runs serif and reads as caption matter around the
+Chinese. 34px rows, long easings.
+
+Material here is pressed and struck rather than printed. Inputs are debossed
+into the wall — an inner shadow with a lit edge underneath — and anything
+raised carries the reverse. Every horizontal rule is a fillet: a dark line with
+a 7%-white edge below it, which is what a moulding does in a lit room.
+
+The room has one light source and it is the pointer. A script publishes the
+cursor as `--mx/--my`, eased rather than snapped, and the wall wash plus the
+specular band on every brass surface point at it. Move across the window and
+different fittings catch the light; hold still and the room settles. The work
+itself is matted and framed — the grid sits on a plate held off the wall by a
+brass fillet and a long shadow, the way a print hangs. Ornament is rationed to
+exactly one lozenge, centred on the dialog head rule.
+
+Pick atelier if the work is precious and the room is dark.
+
+### phosphor — the tube
+
+Near-black glass, pale green-white emission, an amber gun for "you are here"
+and a cyan gun for reference. Everything is monospaced, Chinese included, so
+source and target land on one cell grid. 30px rows, `steps()` easing.
+
+Nothing here is printed or lit from behind; it is emitted. Glyphs bleed into
+the glass, scanlines multiply across the window, and a refresh bar rolls down
+the tube on a 7.5-second period. A noise field redraws at 12fps from baked
+tiles — never per-frame, and at 5% over a screen blend, because this has to
+read as a tube under load and not as texture over the text. Roughly every
+seventy frames the raster tears once and recovers.
+
+Convergence is the state channel. The row you are working splits into red and
+cyan the way a mistuned gun does, and its ordinal cell grows a blinking caret
+block — so the live line is identifiable from across the room without a single
+extra pixel of chrome. Panels are drawn in cyan hairlines rather than filled,
+and glow is capped below the legibility threshold throughout: the tube is the
+effect, the text is the product.
+
+Pick phosphor if the operator wants the machine to feel like a machine.
+
+### vitrine — the case
+
+Ice daylight, a deep teal accent, one warm rim. Inter pushed to its optical
+extremes — 9.5px labels at 0.19em against headings at −0.026em. 15px radii,
+long settle easings.
+
+A cold light field drifts behind the window on a canvas: five soft sources on
+mutually prime periods, parallaxed against the pointer by depth, so the widest
+source moves least. It is drawn at an eighth resolution and blown back up,
+which is both cheap and exactly the softness wanted, because every pane in
+front of it is frosted anyway.
+
+One rule keeps the study usable: **glass is chrome only.** Rails, ribbon,
+titlebar, status bar and every overlay are translucent and blurred, so the
+light reads across the whole frame. The segment grid is the single near-solid
+object in the composition, floated clear of the chrome on all four sides with
+a rounded edge and a long shadow — the thing in the case. Text a translator
+reads for six hours never sits on moving colour. Buttons take a specular band
+that crosses on hover; cards lift a pixel and deepen their shadow.
+
+Pick vitrine if the product wants to look like light.
+
 ## What every study contains
 
 Identical in all three. The eight scenarios in the top bar reset state, so any
@@ -89,10 +189,17 @@ of them can be entered directly, or by URL: `index.html?scene=qa`.
   查找下一个 替换 检索 运行 QA 预览 命令搜索; `Ctrl+K` palette over commands,
   dock jumps and documents; status bar with progress meter, 字数, clickable
   草稿/QA jumps, 行列, INS and engine identity.
-- **Left** — project, language pair, aggregate and per-document progress, file
-  search, document list with arm-then-confirm removal, document tabs, seven
-  closable filter chips (未译 草稿 已确认 QA 锁定 有术语 有标签), import
-  affordance, project details.
+- **Left** — project, language pair, aggregate progress, file search, an
+  **IDE file tree**, document tabs, seven closable filter chips (未译 草稿
+  已确认 QA 锁定 有术语 有标签), import affordance, project details.
+  The tree nests six documents under `docs/guides`, `docs`, `reference`,
+  `ui/strings` and `legal`: folders sort before files, chevrons expand and
+  collapse, one indent guide is drawn per ancestor level, icons follow the
+  format (`docx` / `md` / `json`), a folder rolls up its descendants' file
+  count and open-QA count, a file shows its confirmed percentage over a fill
+  line, the open tab and the active file are marked separately, and removal is
+  still arm-then-confirm on hover. Search matches the whole path and forces
+  every folder open, so a hit is never hidden behind a collapsed chevron.
 - **Centre** — grid of `# / 源文 / 译文 / 状态`, where 状态 carries the state
   chip, the open-QA count, the lock glyph and the origin chip (`100 TM`,
   `95 TM`, `AI`, and a struck-through muted chip once a match has been
@@ -129,6 +236,9 @@ of them can be entered directly, or by URL: `index.html?scene=qa`.
 | `agent` | Agent 待审核 | run summary, step log with one failure, human gate |
 | `gate` | 导出 QA 门 | export blocked, failing rules named |
 
+Scenario switches also reset the tree: `legal` collapsed, search cleared,
+`onboarding-guide.docx` active.
+
 ## Rebuilding
 
 ```sh
@@ -136,14 +246,24 @@ cd docs/design-studies
 node src/build.mjs                       # src/* -> saas-opus-*/index.html
 
 export PW=$(npm root -g)/playwright/index.mjs
-node src/shots.mjs                       # 24 states x 3 systems -> /tmp/opus-shots
-node src/walk.mjs                        # walkthrough recordings -> /tmp/opus-video
+node src/shots.mjs                       # 26 states x 7 systems -> /tmp/opus-shots
+node src/walk.mjs                        # walkthrough recordings  -> /tmp/opus-video
+bash src/publish.sh                      # -> <study>/shots + /opt/cursor/artifacts
 ```
 
 `src/shots.mjs` doubles as the smoke test: it drives every scenario and dialog
-through real clicks and fails the run on any console error, page exception, or
-missing shell region.
+through real clicks and fails the run on any console error, page exception,
+missing shell region, or a file tree that has lost its nesting, its chevrons or
+its active-file marker.
 
 Sources: `src/data.js` (fixtures), `src/app.js` (state, dispatcher, markup,
 keymap), `src/base.css` (structure and the variable contract),
-`src/theme-*.css` (one visual system each).
+`src/theme-*.css` and `src/art-*.css` (one visual system each), `src/art-*.js`
+(art layers).
+
+An art layer is a plain script appended after `app.js`. It may only touch
+`<body>` and `<html>` — never `#root`, which the renderer replaces wholesale on
+every state change. That constraint is what lets grain, noise and light survive
+a keystroke. Overlay entrance animations are latched in `app.js` (`entering()`)
+so they play when a surface appears rather than on every re-render, and every
+study honours `prefers-reduced-motion`.

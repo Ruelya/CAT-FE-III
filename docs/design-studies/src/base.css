@@ -710,88 +710,172 @@ kbd,
   text-align: center;
 }
 
-.doclist {
+/* ---------------------------------------------------------- file tree */
+
+.tree {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   overflow-y: auto;
   min-height: 0;
+  margin: 0 calc(var(--s4) * -1);
+  --tree-indent: 13px;
+  --tree-row-h: 24px;
 }
-.doclist__row {
+.tree__filerow {
   position: relative;
   display: flex;
-  align-items: center;
-  border-radius: var(--r-md);
+  align-items: stretch;
 }
-.doclist__row:hover {
-  background: var(--row-hover);
-}
-.doclist__row[data-active] {
-  background: var(--row-active);
-  box-shadow: inset var(--row-marker-w) 0 0 var(--row-marker);
-}
-.doclist__open {
+.tree__row {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--s3);
-}
-.doclist__name {
-  display: flex;
   align-items: center;
-  gap: var(--s2);
+  gap: var(--s1);
+  height: var(--tree-row-h);
+  padding: 0 var(--s3) 0 var(--s2);
   font-size: var(--fs-sm);
-  font-weight: var(--strong-weight);
+  color: var(--text-muted);
   white-space: nowrap;
+}
+.tree__row:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+/* Indent guides, one hairline per ancestor level. */
+.tree__indent {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+.tree__indent i {
+  width: var(--tree-indent);
+  border-left: 1px solid var(--tree-guide, var(--border-soft));
+}
+.tree__chev {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  flex: none;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease);
+}
+.tree__chev[data-open="1"] {
+  transform: rotate(90deg);
+}
+.tree__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--tree-icon, var(--text-faint));
+  margin-right: 2px;
+}
+.tree__row--dir .tree__icon {
+  color: var(--tree-icon-dir, var(--text-faint));
+}
+.tree__name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doclist__name svg {
-  color: var(--text-faint);
+.tree__row--dir .tree__name {
+  font-weight: var(--strong-weight);
+  color: var(--text);
 }
-.doclist__row[data-active] .doclist__name svg {
+.tree__tail {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+  padding-left: var(--s2);
+}
+.tree__count {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+.tree__qa {
+  min-width: 15px;
+  padding: 0 3px;
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: var(--fs-xs);
+  line-height: 14px;
+  border-radius: var(--r-pill);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+/* Progress rides under the number itself as a fill line, so the badge costs
+   one column instead of two and the file name keeps the width. */
+.tree__prog {
+  position: relative;
+  width: 24px;
+  flex: none;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  line-height: 14px;
+}
+.tree__prog::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--ok) 0 var(--pct),
+    var(--border-soft) var(--pct) 100%
+  );
+}
+.tree__prog[data-done="1"] {
+  color: var(--ok);
+}
+.tree__prog[data-none="1"] {
+  opacity: 0.5;
+}
+.tree__prog[data-none="1"]::after {
+  opacity: 0.5;
+}
+
+/* An open tab is marked; the file being edited is marked harder. */
+.tree__filerow[data-opentab] .tree__name {
+  color: var(--text);
+}
+.tree__filerow[data-active] .tree__row {
+  background: var(--row-active);
+  color: var(--text);
+  font-weight: var(--strong-weight);
+  box-shadow: inset var(--row-marker-w) 0 0 var(--row-marker);
+}
+.tree__filerow[data-active] .tree__icon {
   color: var(--accent);
 }
-.doclist__meta {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.doclist__bar {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  margin-top: 2px;
-}
-.doclist__bar .meter {
-  height: 3px;
-}
-.doclist__bar .num {
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-  width: 30px;
-  text-align: right;
-}
-.doclist__remove {
+.tree__remove {
   position: absolute;
-  right: var(--s3);
-  top: var(--s3);
+  right: var(--s2);
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
 }
-.doclist__row:hover .doclist__remove,
-.doclist__remove:focus-visible {
+.tree__filerow:hover .tree__remove,
+.tree__remove:focus-visible {
   opacity: 1;
 }
-.doclist__confirm {
+.tree__remove:hover {
+  color: var(--danger);
+}
+.tree__confirm {
   position: absolute;
-  right: var(--s3);
-  top: var(--s3);
+  right: var(--s2);
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: var(--s2);
+  background: var(--surface);
+  padding-left: var(--s2);
 }
 
 .details {

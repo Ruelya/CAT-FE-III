@@ -1,0 +1,481 @@
+/* PHOSPHOR — a CRT translation terminal.
+   Nothing here is printed or lit from behind; it is emitted. Glyphs bloom
+   into the glass, the tube has a refresh bar rolling down it, and the live
+   row splits into red and cyan the way a mistuned gun does. Everything is
+   monospaced — WenQuanYi Micro Hei Mono carries the Chinese — so source and
+   target land on the same cell grid. Glow is kept under the legibility
+   threshold: the tube is an effect, the text is the product. */
+
+:root {
+  --bg: #04060a;
+  --surface: #070b10;
+  --surface-2: #0a1017;
+  --surface-3: #0e151d;
+  --sunken: #020407;
+  --chrome: #020407;
+  --chrome-text: #cfe3d6;
+
+  --border: #1d2c33;
+  --border-soft: #131e24;
+  --border-strong: #2f4750;
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
+
+  --text: #cfe3d6;
+  --text-muted: #8ba79a;
+  --text-faint: #5b7269;
+
+  /* Amber gun for "you are here", cyan gun for reference. */
+  --accent: #ffb340;
+  --accent-strong: #ffcd7a;
+  --accent-soft: rgba(255, 179, 64, 0.2);
+  --accent-faint: rgba(255, 179, 64, 0.08);
+  --on-accent: #140c02;
+
+  --ok: #3ee08f;
+  --ok-soft: rgba(62, 224, 143, 0.13);
+  --warn: #ffd166;
+  --warn-soft: rgba(255, 209, 102, 0.13);
+  --danger: #ff5f56;
+  --danger-soft: rgba(255, 95, 86, 0.14);
+  --info: #5ad1e6;
+  --info-soft: rgba(90, 209, 230, 0.13);
+
+  --font-ui: "JetBrains Mono", "Cascadia Mono", "WenQuanYi Micro Hei Mono",
+    ui-monospace, monospace;
+  --font-display: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", "WenQuanYi Micro Hei Mono", ui-monospace, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 14px;
+  --fs-xl: 18px;
+  --lh: 1.52;
+  --lh-tight: 1.36;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.22em;
+  --label-weight: 500;
+  --label-size: 9.5px;
+  --label-color: var(--accent);
+  --strong-weight: 600;
+  --heading-tracking: 0.06em;
+
+  --u: 4px;
+  --titlebar-h: 28px;
+  --ribbon-h: 52px;
+  --status-h: 24px;
+  --tab-h: 28px;
+  --row-h: 30px;
+  --ctl-h: 24px;
+  --ctl-h-sm: 20px;
+  --rail-left: 272px;
+  --rail-right: 340px;
+  --brand-w: 128px;
+  --menu-item-w: 50px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 10px;
+
+  --r-sm: 0px;
+  --r-md: 0px;
+  --r-lg: 0px;
+  --r-pill: 0px;
+
+  --shadow-1: none;
+  --shadow-2: 0 0 0 1px rgba(90, 209, 230, 0.16), 0 14px 44px rgba(0, 0, 0, 0.86);
+  --shadow-3: 0 0 0 1px rgba(90, 209, 230, 0.22), 0 34px 90px rgba(0, 0, 0, 0.92);
+  --focus: 0 0 0 1px var(--accent), 0 0 12px rgba(255, 179, 64, 0.55);
+  --scrim: rgba(2, 4, 7, 0.8);
+
+  --row-hover: rgba(90, 209, 230, 0.06);
+  --row-active: rgba(255, 179, 64, 0.1);
+  --row-marker: var(--accent);
+  --row-marker-w: 2px;
+
+  --tree-guide: rgba(90, 209, 230, 0.15);
+
+  --dur: 70ms;
+  --ease: steps(4, end);
+
+  --glow: 0 0 5px;
+}
+
+body {
+  background: var(--bg);
+}
+
+/* The tube. Scanlines, a slow refresh bar, and a vignette that curves the
+   corners away. Fixed to the window, so a re-render never interrupts it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.3) 0px,
+    rgba(0, 0, 0, 0.3) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20% -6%;
+  z-index: 9998;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(160, 255, 220, 0.045) 46%,
+      rgba(160, 255, 220, 0.075) 50%,
+      rgba(160, 255, 220, 0.045) 54%,
+      transparent 100%
+    ),
+    radial-gradient(118% 104% at 50% 48%, transparent 68%, rgba(0, 0, 0, 0.5) 100%);
+  background-size:
+    100% 34%,
+    100% 100%;
+  background-repeat: no-repeat;
+  background-position:
+    0 -34%,
+    0 0;
+  animation: crt-roll 7.5s linear infinite;
+}
+@keyframes crt-roll {
+  from {
+    background-position:
+      0 -40%,
+      0 0;
+  }
+  to {
+    background-position:
+      0 140%,
+      0 0;
+  }
+}
+
+/* Emission: everything that carries meaning bleeds a little into the glass. */
+.app,
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu {
+  text-shadow: 0 0 6px rgba(160, 220, 190, 0.28);
+}
+.titlebar__brand,
+.railsec__head h2,
+.panel__head h3,
+.rgroup__label,
+.gridbar__label,
+.docktabs [role="tab"][data-active],
+.statechip,
+.pill,
+.score,
+.origin,
+.tree__qa {
+  text-shadow: var(--glow) currentColor;
+}
+.mark {
+  border-radius: 0;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+.titlebar,
+.statusbar {
+  background: var(--chrome);
+  border-color: var(--border);
+}
+.titlebar__brand {
+  color: var(--accent);
+  letter-spacing: 0.16em;
+}
+
+/* Chrome is drawn, not filled: single hairlines in cyan at low alpha. */
+.ribbon,
+.gridbar,
+.doctabs,
+.docktabs,
+.railsec,
+.panel,
+.preview,
+.rail--left,
+.rail--right {
+  border-color: var(--border);
+}
+.panel__head,
+.grid thead th {
+  background: #060a0e;
+  border-bottom: 1px solid var(--border);
+}
+.grid tbody tr {
+  border-bottom: 1px solid rgba(90, 209, 230, 0.055);
+}
+
+/* The gun is slightly out of convergence on the row you are working. */
+.grid tbody tr[data-active] td.c-src,
+.grid tbody tr[data-active] td.c-tgt .tgtcell__text {
+  text-shadow:
+    -0.7px 0 rgba(255, 60, 90, 0.5),
+    0.7px 0 rgba(60, 230, 255, 0.45),
+    0 0 8px rgba(255, 179, 64, 0.28);
+}
+.grid tbody tr[data-active] {
+  background: var(--row-active);
+  box-shadow: inset 0 0 26px rgba(255, 179, 64, 0.09);
+}
+.grid tbody tr[data-active] td.c-n {
+  color: var(--accent);
+}
+/* The caret block a terminal would leave at the head of the live line. */
+.grid tbody tr[data-active] td.c-n::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 5px;
+  vertical-align: -1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: crt-caret 1.05s steps(2, end) infinite;
+}
+@keyframes crt-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.editor textarea {
+  background: #02050a;
+  outline: 1px solid var(--accent);
+  box-shadow:
+    inset 0 0 22px rgba(255, 179, 64, 0.11),
+    0 0 18px rgba(255, 179, 64, 0.24);
+  caret-color: var(--accent);
+}
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: #02050a;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.field select {
+  color-scheme: dark;
+}
+.check input {
+  accent-color: var(--accent);
+  color-scheme: dark;
+}
+
+.btn {
+  border-radius: 0;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.btn--primary {
+  background: rgba(255, 179, 64, 0.14);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  text-shadow: var(--glow) var(--accent);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+  text-shadow: none;
+  box-shadow: 0 0 18px rgba(255, 179, 64, 0.5);
+}
+.btn--outline:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(90, 209, 230, 0.09);
+  border-color: var(--info);
+  color: var(--info);
+}
+.btn--danger {
+  background: rgba(255, 95, 86, 0.16);
+  border-color: var(--danger);
+  color: #ffb3ae;
+}
+.rbtn:hover:not(:disabled) {
+  background: rgba(90, 209, 230, 0.08);
+  color: var(--info);
+}
+.rbtn--primary {
+  color: var(--accent);
+}
+.rgroup {
+  border-right: 1px solid var(--border);
+}
+
+/* Chips are bracketed the way a status line brackets a field. */
+.chip {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+.chip--on {
+  background: rgba(255, 179, 64, 0.16);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.statechip,
+.origin,
+.pill {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+.tree__qa {
+  border-radius: 0;
+  border: 1px solid var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+.tree__row--dir .tree__name {
+  letter-spacing: 0.1em;
+  color: var(--info);
+}
+.tree__icon {
+  color: var(--text-faint);
+}
+.tree__filerow[data-active] .tree__icon {
+  color: var(--accent);
+}
+
+.card,
+.issue,
+.agentsum {
+  background: rgba(90, 209, 230, 0.028);
+  border-color: var(--border);
+}
+.card--match[data-best] {
+  border-color: var(--ok);
+  box-shadow: inset 0 0 22px rgba(62, 224, 143, 0.08);
+}
+.docktabs [role="tab"][data-active] {
+  background: rgba(255, 179, 64, 0.09);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.doctab[data-active]::after {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+}
+
+/* --------------------------------------------------------- overlays */
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: #060a10;
+  border: 1px solid var(--info);
+  border-radius: 0;
+}
+.dialog__head,
+.dialog__foot,
+.palette__inputwrap,
+.palette__foot {
+  border-color: var(--border);
+  background: #04070c;
+}
+.palette__item[data-sel],
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+  text-shadow: none;
+}
+.vtabs button[data-active] {
+  background: rgba(255, 179, 64, 0.1);
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.gatecard {
+  border-color: var(--danger);
+  box-shadow:
+    0 0 0 1px rgba(255, 95, 86, 0.3),
+    0 0 60px rgba(255, 95, 86, 0.16),
+    var(--shadow-3);
+}
+
+/* A surface arriving is the tube being driven: it overscans, then locks. */
+@keyframes crt-on {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.006) scaleX(1.04);
+    filter: brightness(3.5);
+  }
+  38% {
+    opacity: 1;
+    transform: scaleY(0.02) scaleX(1);
+    filter: brightness(2.6);
+  }
+  62% {
+    transform: scaleY(1.03);
+    filter: brightness(1.5);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+[data-enter] .dialog,
+[data-enter] .palette,
+[data-enter] .gatecard {
+  animation: crt-on 200ms linear both;
+}
+[data-enter].banner {
+  animation: crt-on 150ms linear both;
+}
+.banner {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: rgba(255, 95, 86, 0.08);
+}
+.banner[data-tone="warn"] {
+  background: rgba(255, 209, 102, 0.08);
+}
+.bigempty {
+  border: 1px dashed var(--border-strong);
+}
+.preview__page {
+  background: #050a0d;
+  border: 1px solid var(--border);
+}
+.meter {
+  border-radius: 0;
+}
+.meter__confirmed {
+  box-shadow: 0 0 7px var(--ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  body::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

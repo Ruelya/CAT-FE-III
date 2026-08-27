@@ -1,0 +1,518 @@
+/* ATELIER — a night gallery.
+   Warm charcoal walls, ivory serif setting, brass fittings. The material is
+   pressed and struck rather than printed: inputs are debossed into the wall,
+   raised things carry a lit top edge, and every brass surface has a real
+   specular band that tracks the pointer (art-atelier.js writes --mx/--my).
+   Type is the loudest instrument — Palatino for display, Century Schoolbook
+   for setting, so the Latin reads as caption text around the Chinese. */
+
+:root {
+  --bg: #100f0b;
+  --surface: #1a1813;
+  --surface-2: #211e18;
+  --surface-3: #262219;
+  --sunken: #14120e;
+  --chrome: #0d0c09;
+  --chrome-text: #efe7d6;
+
+  --border: #3a342a;
+  --border-soft: #292419;
+  --border-strong: #554c3a;
+  --hair: 1px solid var(--border-soft);
+  --hair-strong: 1px solid var(--border);
+
+  --text: #efe7d6;
+  --text-muted: #b1a68f;
+  --text-faint: #7d745f;
+
+  /* Brass. Not yellow — a warm metal that darkens in shadow. */
+  --brass: #c8a24a;
+  --brass-lit: #f0d79a;
+  --brass-dark: #7a5f22;
+  --accent: var(--brass);
+  --accent-strong: var(--brass-lit);
+  --accent-soft: rgba(200, 162, 74, 0.26);
+  --accent-faint: rgba(200, 162, 74, 0.1);
+  --on-accent: #171308;
+
+  --ok: #86b98a;
+  --ok-soft: rgba(134, 185, 138, 0.14);
+  --warn: #d9a566;
+  --warn-soft: rgba(217, 165, 102, 0.14);
+  --danger: #d97a72;
+  --danger-soft: rgba(217, 122, 114, 0.14);
+  --info: #9fb3c8;
+  --info-soft: rgba(159, 179, 200, 0.14);
+
+  --font-ui: "C059", "Century Schoolbook", "Noto Serif", "PingFang SC",
+    "Noto Sans CJK SC", "WenQuanYi Micro Hei", serif;
+  --font-display: "P052", Palatino, "Palatino Linotype", "C059", serif;
+  --font-num: "Nimbus Mono PS", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "Nimbus Mono PS", "JetBrains Mono", ui-monospace, monospace;
+
+  --fs-xs: 10.5px;
+  --fs-sm: 12px;
+  --fs-md: 13.5px;
+  --fs-lg: 16px;
+  --fs-xl: 23px;
+  --lh: 1.58;
+  --lh-tight: 1.4;
+
+  /* Small caps, wide, in brass — the museum label voice. */
+  --label-transform: uppercase;
+  --label-tracking: 0.2em;
+  --label-weight: 400;
+  --label-size: 9.5px;
+  --label-color: var(--brass);
+  --strong-weight: 700;
+  --heading-tracking: 0.005em;
+
+  --u: 4px;
+  --titlebar-h: 32px;
+  --ribbon-h: 58px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 34px;
+  --ctl-h: 27px;
+  --ctl-h-sm: 22px;
+  --rail-left: 262px;
+  --rail-right: 346px;
+  --brand-w: 134px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 9px;
+  --cell-pad-x: 12px;
+
+  --r-sm: 1px;
+  --r-md: 2px;
+  --r-lg: 3px;
+  --r-pill: 999px;
+
+  --shadow-1: 0 1px 0 rgba(255, 240, 210, 0.045);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --shadow-3: 0 40px 90px rgba(0, 0, 0, 0.78);
+  --focus: 0 0 0 1px var(--brass), 0 0 14px rgba(200, 162, 74, 0.4);
+  --scrim: rgba(8, 7, 5, 0.74);
+
+  --row-hover: rgba(240, 215, 154, 0.045);
+  --row-active: rgba(200, 162, 74, 0.09);
+  --row-marker: var(--brass);
+  --row-marker-w: 2px;
+
+  --tree-guide: rgba(200, 162, 74, 0.16);
+
+  --dur: 200ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --mx: 50%;
+  --my: 30%;
+}
+
+/* The wall: a warm gradient lit from wherever the pointer is, so moving
+   across the window changes which fittings catch the light. */
+body {
+  background:
+    radial-gradient(
+      460px 340px at var(--mx) var(--my),
+      rgba(255, 226, 160, 0.14),
+      transparent 70%
+    ),
+    radial-gradient(
+      1100px 760px at var(--mx) var(--my),
+      rgba(200, 162, 74, 0.16),
+      transparent 64%
+    ),
+    radial-gradient(1300px 900px at 84% 110%, rgba(140, 92, 34, 0.16), transparent 72%),
+    var(--bg);
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  pointer-events: none;
+  background: radial-gradient(
+    134% 116% at 50% 44%,
+    transparent 58%,
+    rgba(0, 0, 0, 0.42) 100%
+  );
+}
+
+/* The whole app stack is see-through down to the light behind the window;
+   base.css paints --bg on .app and .body, which would seal it off. */
+.app,
+.body {
+  background: transparent;
+}
+.titlebar,
+.statusbar,
+.ribbon,
+.rail,
+.center,
+.preview,
+.doctabs,
+.docktabs {
+  background-color: transparent;
+}
+/* The plate: the work is framed and matted the way a print on the wall is,
+   with a brass fillet holding it off the surrounding stone. */
+.center {
+  margin: var(--s3) var(--s3) var(--s3) 0;
+  background: linear-gradient(180deg, rgba(38, 34, 26, 0.9), rgba(24, 22, 17, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(200, 162, 74, 0.2),
+    inset 0 1px 0 rgba(240, 215, 154, 0.12),
+    0 24px 60px -26px rgba(0, 0, 0, 0.85);
+}
+.rail--left {
+  margin-right: var(--s3);
+  border-right: 0;
+}
+.rail--right {
+  border-left: 0;
+}
+.rail--left,
+.rail--right {
+  background: linear-gradient(180deg, rgba(26, 24, 19, 0.7), rgba(16, 15, 11, 0.78));
+}
+.titlebar,
+.ribbon,
+.statusbar,
+.doctabs,
+.docktabs,
+.gridbar,
+.preview {
+  background-color: rgba(13, 12, 9, 0.6);
+}
+
+/* Every horizontal rule is a brass fillet: dark line, lit edge under it. */
+.titlebar,
+.ribbon,
+.gridbar,
+.doctabs,
+.docktabs,
+.panel__head,
+.railsec__head {
+  box-shadow: 0 1px 0 rgba(240, 215, 154, 0.07);
+}
+.statusbar {
+  box-shadow: 0 -1px 0 rgba(240, 215, 154, 0.07);
+}
+
+/* ------------------------------------------------------------- type */
+
+.titlebar__brand,
+.dialog__head h2,
+.projects__head h2,
+.bigempty__title,
+.preview__page h3,
+.gatecard__title,
+.proj__name {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: var(--heading-tracking);
+}
+.proj__name {
+  font-size: 17px;
+  line-height: 1.25;
+  color: var(--text);
+}
+.titlebar__brand {
+  font-size: 14px;
+  letter-spacing: 0.09em;
+  color: var(--brass-lit);
+}
+.mark {
+  border-radius: 999px;
+  background: linear-gradient(140deg, var(--brass-lit), var(--brass-dark));
+  box-shadow: 0 0 8px rgba(200, 162, 74, 0.5);
+}
+
+/* Museum-label rule under each section heading. */
+.railsec__head,
+.dsec h3 {
+  border-bottom: 1px solid rgba(200, 162, 74, 0.22);
+  padding-bottom: var(--s3);
+}
+.panel__head {
+  background: rgba(13, 12, 9, 0.55);
+  border-bottom: 1px solid rgba(200, 162, 74, 0.2);
+}
+
+.grid thead th {
+  background: rgba(13, 12, 9, 0.7);
+  border-bottom: 1px solid rgba(200, 162, 74, 0.24);
+}
+.grid tbody tr {
+  border-bottom: 1px solid rgba(240, 215, 154, 0.055);
+}
+.grid td.c-src {
+  font-family: var(--font-display);
+  color: var(--text-muted);
+}
+.grid tbody tr[data-active] {
+  background: linear-gradient(
+    90deg,
+    rgba(200, 162, 74, 0.13),
+    rgba(200, 162, 74, 0.02)
+  );
+}
+.grid tbody tr[data-active] .rowbar {
+  background: linear-gradient(180deg, var(--brass-lit), var(--brass-dark));
+  box-shadow: 0 0 10px rgba(200, 162, 74, 0.55);
+}
+
+/* --------------------------------------------------- pressed material */
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input,
+.issue__ev,
+.diff {
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(240, 215, 154, 0.06);
+  color: var(--text);
+}
+.field input::placeholder,
+.field textarea::placeholder,
+.searchbox input::placeholder,
+.railsearch input::placeholder,
+.findwidget__input::placeholder {
+  color: var(--text-faint);
+}
+.field select {
+  color-scheme: dark;
+}
+.editor textarea {
+  background: rgba(0, 0, 0, 0.4);
+  outline: 1px solid var(--brass);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.6),
+    0 0 16px rgba(200, 162, 74, 0.28);
+}
+.check input {
+  accent-color: var(--brass);
+  color-scheme: dark;
+}
+
+/* Brass fittings: a metal gradient with a specular band that follows the
+   pointer, so the primary action is the one object in the room that shines. */
+.btn--primary {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(178deg, #e2c580, #a8842f 62%, #7c5f21);
+  border: 1px solid #6d5320;
+  color: #1b1508;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 215, 0.65),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.btn--primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    60% 160% at var(--mx) 0%,
+    rgba(255, 250, 230, 0.55),
+    transparent 60%
+  );
+  pointer-events: none;
+}
+.btn--primary:hover:not(:disabled) {
+  background: linear-gradient(178deg, #f0d79a, #b8933a 62%, #8a6b26);
+}
+.btn--outline {
+  background: rgba(240, 215, 154, 0.035);
+  border-color: rgba(200, 162, 74, 0.34);
+  color: var(--text);
+}
+.btn--outline:hover:not(:disabled) {
+  background: rgba(200, 162, 74, 0.14);
+  border-color: var(--brass);
+  color: var(--brass-lit);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(240, 215, 154, 0.06);
+  color: var(--brass-lit);
+}
+.btn--danger {
+  background: linear-gradient(178deg, #c96b62, #8e3f38);
+  border-color: #6f2f2a;
+  color: #fdf3f0;
+}
+
+.rbtn:hover:not(:disabled) {
+  background: rgba(240, 215, 154, 0.06);
+  color: var(--brass-lit);
+}
+.rbtn--primary {
+  color: var(--brass);
+}
+.rgroup {
+  border-right: 1px solid rgba(240, 215, 154, 0.08);
+}
+
+.chip {
+  background: rgba(240, 215, 154, 0.035);
+  border-color: rgba(200, 162, 74, 0.3);
+  color: var(--text-muted);
+}
+.chip--on {
+  background: linear-gradient(178deg, #d9bb74, #9c7c2c);
+  border-color: #6d5320;
+  color: #1b1508;
+}
+
+.card,
+.issue,
+.agentsum {
+  background: rgba(240, 215, 154, 0.028);
+  border-color: rgba(240, 215, 154, 0.11);
+  box-shadow: inset 0 1px 0 rgba(240, 215, 154, 0.06);
+}
+.card--match[data-best] {
+  border-color: rgba(134, 185, 138, 0.5);
+}
+.docktabs [role="tab"][data-active] {
+  background: rgba(200, 162, 74, 0.08);
+  color: var(--brass-lit);
+  border-bottom-color: var(--brass);
+}
+.doctab[data-active] {
+  background: rgba(200, 162, 74, 0.07);
+}
+.doctab[data-active]::after {
+  background: linear-gradient(90deg, var(--brass-dark), var(--brass-lit), var(--brass-dark));
+}
+kbd,
+.kbdi,
+.dchip {
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.tree__row--dir .tree__name {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+/* --------------------------------------------------------- overlays */
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: linear-gradient(180deg, #262219, #17150f);
+  border: 1px solid rgba(200, 162, 74, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(240, 215, 154, 0.14),
+    var(--shadow-2);
+}
+.dialog,
+.palette,
+.gatecard {
+  box-shadow:
+    inset 0 1px 0 rgba(240, 215, 154, 0.16),
+    var(--shadow-3);
+}
+/* A brass lozenge centred on the head rule — the only ornament. */
+.dialog__head {
+  position: relative;
+  border-bottom: 1px solid rgba(200, 162, 74, 0.24);
+}
+.dialog__head::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 44px;
+  height: 5px;
+  transform: translateX(-50%) rotate(45deg);
+  border: 1px solid rgba(200, 162, 74, 0.4);
+  background: #1b180f;
+}
+.dialog__foot,
+.palette__foot {
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(200, 162, 74, 0.2);
+}
+.palette__item[data-sel],
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: linear-gradient(178deg, #d9bb74, #9c7c2c);
+  color: #1b1508;
+}
+.vtabs button[data-active] {
+  background: rgba(200, 162, 74, 0.1);
+  color: var(--brass-lit);
+  box-shadow: inset 2px 0 0 var(--brass);
+}
+.gatecard {
+  border-top: 2px solid var(--danger);
+}
+
+/* Weight settles: surfaces rise into the light and stop without bouncing. */
+@keyframes atelier-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes atelier-wash {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+[data-enter] .dialog,
+[data-enter] .palette,
+[data-enter] .gatecard {
+  animation: atelier-rise 420ms var(--ease) both;
+}
+[data-enter] {
+  animation: atelier-wash 260ms linear both;
+}
+
+.banner {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent);
+}
+.banner[data-tone="danger"] {
+  background-color: rgba(217, 122, 114, 0.12);
+}
+.banner[data-tone="warn"] {
+  background-color: rgba(217, 165, 102, 0.12);
+}
+.bigempty {
+  border: 1px solid rgba(200, 162, 74, 0.26);
+}
+.preview__page {
+  background: #efe7d6;
+  color: #1c1a14;
+  border: 0;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+.preview__page h3 {
+  color: #1c1a14;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

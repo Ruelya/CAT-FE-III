@@ -10,7 +10,15 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const studies = join(here, "..");
 const outDir = "/tmp/opus-video";
-const THEMES = ["quarry", "cobalt", "ledger"];
+const THEMES = [
+  "saas-opus-quarry",
+  "saas-opus-cobalt",
+  "saas-opus-ledger",
+  "saas-opus-art-riso",
+  "saas-opus-art-atelier",
+  "saas-opus-art-phosphor",
+  "saas-opus-art-vitrine",
+];
 const VIEW = { width: 1640, height: 1000 };
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -28,9 +36,26 @@ for (const theme of THEMES) {
     recordVideo: { dir, size: VIEW },
   });
   const page = await ctx.newPage();
-  await page.goto(`file://${join(studies, `saas-opus-${theme}`, "index.html")}`);
+  await page.goto(`file://${join(studies, theme, "index.html")}`);
   await page.waitForSelector(".app");
   await wait(1200);
+
+  /* Walk the file tree first: collapse a folder, open a file three levels
+     down, come back. */
+  await page.click('[data-dir="docs/guides"]');
+  await wait(800);
+  await page.click('[data-dir="docs/guides"]');
+  await wait(700);
+  await page.click('[data-dir="legal"]');
+  await wait(700);
+  await page.click('[data-cmd="open-doc-strings"]');
+  await wait(1100);
+  await page.fill("#filesearch", "guides");
+  await wait(1100);
+  await page.fill("#filesearch", "");
+  await wait(500);
+  await page.click('[data-cmd="open-doc-onboarding"]');
+  await wait(900);
 
   /* Draft, then confirm — the confirm writes memory and moves on. */
   await page.click('tr[data-row="10"] .c-tgt');

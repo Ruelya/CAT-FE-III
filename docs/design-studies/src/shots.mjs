@@ -13,7 +13,15 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const studies = join(here, "..");
 const tmp = "/tmp/opus-shots";
-const THEMES = ["quarry", "cobalt", "ledger"];
+const THEMES = [
+  "saas-opus-quarry",
+  "saas-opus-cobalt",
+  "saas-opus-ledger",
+  "saas-opus-art-riso",
+  "saas-opus-art-atelier",
+  "saas-opus-art-phosphor",
+  "saas-opus-art-vitrine",
+];
 const VIEW = { width: 1640, height: 1000 };
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -145,6 +153,21 @@ const SHOTS = [
     },
   ],
   [
+    "25-file-tree-expanded",
+    async (p) => {
+      await scene(p, "grid");
+      await p.click('[data-dir="legal"]');
+      await p.click('[data-cmd="open-doc-strings"]');
+    },
+  ],
+  [
+    "26-file-tree-search",
+    async (p) => {
+      await scene(p, "grid");
+      await p.fill("#filesearch", "doc");
+    },
+  ],
+  [
     "24-engine-gate",
     async (p) => {
       await scene(p, "grid");
@@ -186,7 +209,7 @@ for (const theme of THEMES) {
   });
   page.on("pageerror", (e) => errors.push(`${theme}: pageerror ${e.message}`));
 
-  await page.goto(`file://${join(studies, `saas-opus-${theme}`, "index.html")}`);
+  await page.goto(`file://${join(studies, theme, "index.html")}`);
   await page.waitForSelector(".app");
 
   for (const [name, setup] of SHOTS) {
@@ -196,13 +219,29 @@ for (const theme of THEMES) {
 
   /* Sanity: the shell must render every required region in the work scene. */
   await scene(page, "grid");
+  const tree = await page.evaluate(() => {
+    const depth = (r) => r.querySelectorAll(".tree__indent i").length;
+    const rows = [...document.querySelectorAll(".tree__row")];
+    return {
+      dirs: rows.filter((r) => r.classList.contains("tree__row--dir")).length,
+      files: rows.filter((r) => r.classList.contains("tree__row--file")).length,
+      maxDepth: Math.max(...rows.map(depth)),
+      collapsible: !!document.querySelector('.tree__row--dir[aria-expanded="false"]'),
+    };
+  });
+  if (tree.dirs < 4 || tree.maxDepth < 2 || !tree.collapsible)
+    errors.push(`${theme}: tree shape ${JSON.stringify(tree)}`);
   const missing = await page.evaluate(() => {
     const need = [
       ".titlebar",
       ".menubar__item",
       ".ribbon",
       ".rail--left",
-      ".doclist",
+      ".tree",
+      '.tree__row--dir[aria-expanded="true"]',
+      ".tree__row--file .tree__icon svg",
+      ".tree__indent i",
+      ".tree__filerow[data-active]",
       ".chips .chip",
       ".doctabs .doctab",
       ".grid table tbody tr",
