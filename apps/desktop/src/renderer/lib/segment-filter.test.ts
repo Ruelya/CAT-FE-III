@@ -5,6 +5,7 @@ import type { Segment, SegmentState } from "@translunar/contracts";
 import {
   EMPTY_FILTER,
   filterSegments,
+  findNextSegmentWhere,
   findSegmentMatch,
   isFilterActive,
   replaceSegmentText,
@@ -231,6 +232,58 @@ describe("findSegmentMatch", () => {
     expect(findSegmentMatch(FIND_SEGMENTS, "missing", "s1", "next")).toBeNull();
     expect(findSegmentMatch(FIND_SEGMENTS, "   ", "s1", "next")).toBeNull();
     expect(findSegmentMatch([], "day", null, "next")).toBeNull();
+  });
+});
+
+describe("findNextSegmentWhere", () => {
+  const NAV_SEGMENTS = [
+    segment("s1", 0, "First.", "第一。", "confirmed"),
+    segment("s2", 1, "Second."),
+    segment("s3", 2, "Third.", "第三。", "draft"),
+    segment("s4", 3, "Fourth."),
+  ];
+
+  it("finds the first match after the active segment", () => {
+    const hit = findNextSegmentWhere(
+      NAV_SEGMENTS,
+      "s2",
+      (item) => item.state === "untranslated",
+    );
+    expect(hit?.id).toBe("s4");
+  });
+
+  it("wraps past the end to cover the whole document", () => {
+    const hit = findNextSegmentWhere(
+      NAV_SEGMENTS,
+      "s4",
+      (item) => item.state === "confirmed",
+    );
+    expect(hit?.id).toBe("s1");
+  });
+
+  it("starts from the first row when nothing is active", () => {
+    const hit = findNextSegmentWhere(
+      NAV_SEGMENTS,
+      null,
+      (item) => item.state === "untranslated",
+    );
+    expect(hit?.id).toBe("s2");
+  });
+
+  it("offers the active row itself as the last candidate", () => {
+    const hit = findNextSegmentWhere(
+      NAV_SEGMENTS,
+      "s3",
+      (item) => item.state === "draft",
+    );
+    expect(hit?.id).toBe("s3");
+  });
+
+  it("returns null when no segment matches or the list is empty", () => {
+    expect(
+      findNextSegmentWhere(NAV_SEGMENTS, "s1", (item) => item.locked === true),
+    ).toBeNull();
+    expect(findNextSegmentWhere([], null, () => true)).toBeNull();
   });
 });
 

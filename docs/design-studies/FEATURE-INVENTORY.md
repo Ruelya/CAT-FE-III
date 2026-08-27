@@ -39,6 +39,11 @@ prototype duplicates; the accelerator stays on the 文件 instance only.
 | 编辑 | 查找上一个 | `find-prev` | Shift+F4 | renderer | document open |
 | 编辑 | 筛选句段 | `focus-filter` | Ctrl+Shift+F | renderer | document open |
 | 编辑 | 检索（取选中文本） | `open-concordance` | F3 | renderer | project open |
+| 编辑 | 转到句段… | `go-to-segment` | Ctrl+G | renderer | document open |
+| 编辑 | 下一未译句段 | `next-untranslated` | — | menu | document open |
+| 编辑 | 下一草稿句段 | `next-draft` | — | menu | document open |
+| 编辑 | 下一 QA 句段 | `next-qa` | F8 | renderer | document open |
+| 编辑 | 下一锁定句段 | `next-locked` | — | menu | document open |
 | 视图 | 命令面板 | `open-command-palette` | Ctrl+Shift+P (Ctrl+K synonym) | renderer | project open |
 | 视图 | 预览面板 | `toggle-preview` | Ctrl+P | menu | document open |
 | 视图 | 折叠左栏 / 折叠右栏 | `toggle-left` / `toggle-right` | — | menu | project open |
@@ -69,7 +74,10 @@ prototype duplicates; the accelerator stays on the 文件 instance only.
 | 帮助 | 重新加载窗口 / 开发者工具 | roles | — | menu | always |
 | 帮助 | 关于 <app> (in-app dialog; macOS keeps role `about`) | `about` | — | menu | always (non-mac) |
 
-`MenuCommand` union (`shared/desktop-api.ts`) — 39 commands, exactly the table above.
+`MenuCommand` union (`shared/desktop-api.ts`) — 47 commands, exactly the table above.
+The go-to family jumps the selection through the whole document (never the filtered
+rows) and never edits the display filter; a miss is a short status (`没有未译句段`
+etc.), and 转到句段… reports `没有句段 #n` inline for out-of-range numbers.
 Shell-handled: `open-project-settings`, `close-project`, `new-project`, `help-keys`,
 `about`; everything else dispatches into the workbench. `MenuContext` carries
 `projectOpen`, `documentOpen`, and `exportGate` (the stored QA gate, for the checkbox).
@@ -230,6 +238,8 @@ Virtualisation kicks in above 120 rows (measured heights, 400 px overscan).
 | --- | --- |
 | F3 | 检索, seeded from the current text selection |
 | F4 / Shift+F4 | 查找下一个 / 上一个 (plain F4 only — never Alt+F4) |
+| F8 | 下一 QA 句段 (plain F8 only) |
+| Ctrl+G | 转到句段… dialog |
 | Ctrl+F / Ctrl+H | find widget (find row / replace row) |
 | Ctrl+Shift+F | focus the ribbon 搜索句段 filter box |
 | Ctrl+K / Ctrl+Shift+P | command palette |

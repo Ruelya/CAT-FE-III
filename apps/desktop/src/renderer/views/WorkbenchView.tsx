@@ -39,6 +39,7 @@ import {
   Dialog,
   EmptyState,
   SegmentProgress,
+  TextField,
   THEME_FX_LABELS,
   THEMES,
 } from "@translunar/ui";
@@ -59,6 +60,7 @@ import {
 import {
   EMPTY_FILTER,
   filterSegments,
+  findNextSegmentWhere,
   findSegmentMatch,
   isFilterActive,
   replaceSegmentText,
@@ -335,6 +337,11 @@ export function WorkbenchView({
   const [findOpen, setFindOpen] = useState(false);
   const [findMode, setFindMode] = useState<"find" | "replace">("find");
   const [findSummon, setFindSummon] = useState(0);
+  // 转到句段… (Ctrl+G): one number box; a missing number reports 没有句段
+  // #n inline instead of moving the selection anywhere.
+  const [goToOpen, setGoToOpen] = useState(false);
+  const [goToValue, setGoToValue] = useState("");
+  const [goToNote, setGoToNote] = useState<string | null>(null);
   const [concordanceSeed, setConcordanceSeed] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Rail widths / collapse / preview pane, persisted per project.
@@ -1844,6 +1851,82 @@ export function WorkbenchView({
     ],
   );
 
+  // 转到句段… — the go-to family jumps the selection and never edits the
+  // display filter (jumpToSegment clears one only when it hides the
+  // landing row, which shows more rows, never fewer).
+  const openGoTo = useCallback(() => {
+    if (!activeDocument) {
+      return;
+    }
+    setGoToValue("");
+    setGoToNote(null);
+    setGoToOpen(true);
+  }, [activeDocument]);
+
+  const submitGoTo = useCallback(() => {
+    const raw = goToValue.trim();
+    const number = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : null;
+    const target =
+      number === null
+        ? undefined
+        : segments.find((segment) => segment.ordinal === number - 1);
+    if (!target) {
+      setGoToNote(`没有句段 #${raw}`);
+      return;
+    }
+    setGoToOpen(false);
+    jumpToSegment(target.id);
+  }, [goToValue, segments, jumpToSegment]);
+
+  // 下一未译/草稿/QA/锁定: cycles through the whole document from the row
+  // after the selection (wrapping); a miss is a short status, never a
+  // filter change.
+  const jumpNextSegment = useCallback(
+    (
+      command: "next-untranslated" | "next-draft" | "next-qa" | "next-locked",
+    ) => {
+      if (!activeDocument) {
+        return;
+      }
+      const spec = {
+        "next-untranslated": {
+          predicate: (segment: Segment) => segment.state === "untranslated",
+          empty: "没有未译句段",
+        },
+        "next-draft": {
+          predicate: (segment: Segment) => segment.state === "draft",
+          empty: "没有草稿句段",
+        },
+        "next-qa": {
+          predicate: (segment: Segment) => openIssueSegmentIds.has(segment.id),
+          empty: "没有未解决 QA 问题的句段",
+        },
+        "next-locked": {
+          predicate: (segment: Segment) => segment.locked === true,
+          empty: "没有锁定句段",
+        },
+      }[command];
+      const target = findNextSegmentWhere(
+        segments,
+        activeSegmentId,
+        spec.predicate,
+      );
+      if (target) {
+        jumpToSegment(target.id);
+      } else {
+        onStatusMessage(spec.empty);
+      }
+    },
+    [
+      activeDocument,
+      segments,
+      activeSegmentId,
+      openIssueSegmentIds,
+      jumpToSegment,
+      onStatusMessage,
+    ],
+  );
+
   // Visible segments matching the find query — the widget's honest count
   // (whole segments, not occurrences). Same matching semantics as the
   // filter's text channel, applied to the already-filtered rows.
@@ -2071,6 +2154,28 @@ export function WorkbenchView({
         findMatch(event.shiftKey ? "prev" : "next");
         return;
       }
+      // Plain F8 only — modified F-key chords stay with the OS/menu.
+      if (
+        event.key === "F8" &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        jumpNextSegment("next-qa");
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        (event.key === "g" || event.key === "G")
+      ) {
+        event.preventDefault();
+        openGoTo();
+        return;
+      }
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
@@ -2129,6 +2234,8 @@ export function WorkbenchView({
     focusFilter,
     openFind,
     findMatch,
+    openGoTo,
+    jumpNextSegment,
     moveSelection,
     tmMatches,
     applyTmMatchToActive,
@@ -2199,6 +2306,15 @@ export function WorkbenchView({
           break;
         case "find-prev":
           findMatch("prev");
+          break;
+        case "go-to-segment":
+          openGoTo();
+          break;
+        case "next-untranslated":
+        case "next-draft":
+        case "next-qa":
+        case "next-locked":
+          jumpNextSegment(command);
           break;
         case "confirm-segment":
           confirmActiveSegment("nextUnconfirmed");
@@ -2346,6 +2462,8 @@ export function WorkbenchView({
       focusFilter,
       openFind,
       findMatch,
+      openGoTo,
+      jumpNextSegment,
       confirmActiveSegment,
       layout.previewOpen,
       layout.leftCollapsed,
@@ -2522,6 +2640,11 @@ export function WorkbenchView({
       command("open-replace", "替换…", documentOpen, "Ctrl+H"),
       command("find-next", "查找下一个", documentOpen, "F4"),
       command("find-prev", "查找上一个", documentOpen, "Shift+F4"),
+      command("go-to-segment", "转到句段…", documentOpen, "Ctrl+G"),
+      command("next-untranslated", "下一未译句段", documentOpen),
+      command("next-draft", "下一草稿句段", documentOpen),
+      command("next-qa", "下一 QA 句段", documentOpen, "F8"),
+      command("next-locked", "下一锁定句段", documentOpen),
       command("focus-filter", "筛选句段", documentOpen, "Ctrl+Shift+F"),
       command("open-concordance", "检索（取选中文本）", true, "F3"),
       command("show-dock-memory", "记忆面板", true, "Ctrl+1"),
@@ -3346,6 +3469,52 @@ export function WorkbenchView({
           }
         >
           <p className="archive-confirm__name">归档「{project.name}」。</p>
+        </Dialog>
+
+        {/* 转到句段 (Ctrl+G): jumps the selection by absolute number.
+            Out-of-range or non-numeric input reports 没有句段 #n inline;
+            the display filter is never edited. */}
+        <Dialog
+          title="转到句段"
+          open={goToOpen}
+          onClose={() => setGoToOpen(false)}
+          footer={
+            <>
+              <Button
+                variant="primary"
+                disabled={goToValue.trim().length === 0}
+                onClick={submitGoTo}
+              >
+                转到
+              </Button>
+              <Button variant="ghost" onClick={() => setGoToOpen(false)}>
+                取消
+              </Button>
+            </>
+          }
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitGoTo();
+            }}
+          >
+            <TextField
+              label="句段号"
+              inputMode="numeric"
+              autoFocus
+              value={goToValue}
+              onChange={(event) => {
+                setGoToValue(event.target.value);
+                setGoToNote(null);
+              }}
+            />
+          </form>
+          {goToNote ? (
+            <div className="honest-note" data-tone="danger" role="alert">
+              {goToNote}
+            </div>
+          ) : null}
         </Dialog>
       </main>
     </AiStatusProvider>
