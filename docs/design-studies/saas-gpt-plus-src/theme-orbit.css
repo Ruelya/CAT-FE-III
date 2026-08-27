@@ -1,0 +1,134 @@
+/* ORBIT — graphite control room. Surface steps replace noisy rules; cyan
+   marks location, while green, amber, and red remain dedicated to state. */
+:root {
+  color-scheme: dark;
+  --bg: #080b11;
+  --surface: #10151d;
+  --surface-2: #151b24;
+  --surface-3: #1a222d;
+  --sunken: #222c38;
+  --chrome: #0b0f15;
+  --chrome-text: #edf5ff;
+  --border: #2b3745;
+  --border-soft: #202a35;
+  --border-strong: #415064;
+  --text: #e7edf5;
+  --text-muted: #a4afbd;
+  --text-faint: #748194;
+  --accent: #63b9ff;
+  --accent-strong: #90ccff;
+  --accent-soft: rgba(99, 185, 255, 0.24);
+  --accent-faint: rgba(99, 185, 255, 0.1);
+  --on-accent: #07111a;
+  --ok: #55d49a;
+  --ok-soft: rgba(85, 212, 154, 0.14);
+  --warn: #f0b44c;
+  --warn-soft: rgba(240, 180, 76, 0.15);
+  --danger: #ff756b;
+  --danger-soft: rgba(255, 117, 107, 0.15);
+  --info: #a5bde2;
+  --info-soft: rgba(165, 189, 226, 0.14);
+  --font-ui: "Inter", "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-num: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --lh: 1.5;
+  --lh-tight: 1.34;
+  --label-transform: none;
+  --label-tracking: 0.015em;
+  --label-weight: 560;
+  --label-size: 10.5px;
+  --label-color: #7e8ca0;
+  --strong-weight: 620;
+  --heading-tracking: -0.01em;
+  --u: 4px;
+  --titlebar-h: 31px;
+  --ribbon-h: 55px;
+  --status-h: 25px;
+  --tab-h: 30px;
+  --row-h: 31px;
+  --ctl-h: 26px;
+  --ctl-h-sm: 21px;
+  --rail-left: 282px;
+  --rail-right: 350px;
+  --brand-w: 132px;
+  --menu-item-w: 52px;
+  --cell-pad-y: 7px;
+  --cell-pad-x: 11px;
+  --r-sm: 4px;
+  --r-md: 7px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 14px 34px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 34px 90px rgba(0, 0, 0, 0.7);
+  --focus: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+  --scrim: rgba(3, 5, 9, 0.72);
+  --row-hover: rgba(255, 255, 255, 0.035);
+  --row-active: rgba(99, 185, 255, 0.1);
+  --row-marker: var(--accent);
+  --row-marker-w: 2px;
+}
+
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: #0d1219;
+  border-color: var(--border);
+  color: var(--text);
+}
+.field input::placeholder,
+.field textarea::placeholder,
+.searchbox input::placeholder,
+.railsearch input::placeholder,
+.findwidget__input::placeholder {
+  color: var(--text-faint);
+}
+.check input {
+  color-scheme: dark;
+}
+.grid tbody tr {
+  border-bottom-color: rgba(255, 255, 255, 0.045);
+}
+.grid tbody tr[data-active] {
+  background: linear-gradient(90deg, rgba(99, 185, 255, 0.13), rgba(99, 185, 255, 0.025));
+}
+.editor textarea {
+  background: #0b1016;
+  outline-width: 1px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.treeitem--folder > .treeitem__ico {
+  color: #7fc7ff;
+}
+.treechildren::before {
+  border-color: #263443;
+}
+.palette,
+.dialog,
+.menudrop,
+.rowmenu,
+.findwidget,
+.gatecard {
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), var(--shadow-3);
+}
+.chip,
+.btn--outline {
+  background: rgba(255, 255, 255, 0.025);
+}
+.origin[data-grade="exact"],
+.origin[data-grade="fuzzy"],
+.origin[data-grade="ai"] {
+  border-color: transparent;
+}
+.wincontrol--close:hover {
+  background: var(--danger);
+  color: #130604;
+}
