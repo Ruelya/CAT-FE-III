@@ -1588,6 +1588,16 @@ pub struct GroundingContextSegment {
     pub target: String,
 }
 
+/// One confirmed source/target pair sampled from the active document — the
+/// document-level signal beyond the immediate neighbour window. Callers must
+/// only supply real confirmed pairs from the same document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GroundingDocumentPair {
+    pub source: String,
+    pub target: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GroundingInput {
@@ -1603,6 +1613,8 @@ pub struct GroundingInput {
     #[serde(default)]
     pub corpus_matches: Vec<GroundingCorpusMatch>,
     pub context: Vec<GroundingContextSegment>,
+    #[serde(default)]
+    pub document_sample: Vec<GroundingDocumentPair>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1749,6 +1761,24 @@ pub fn build_grounded_prompt(
                 to_u32(context.len()),
             ));
         }
+    }
+    if options.include_context && !input.document_sample.is_empty() {
+        let pairs = input
+            .document_sample
+            .iter()
+            .map(|pair| {
+                json!({
+                    "source": pair.source,
+                    "target": pair.target,
+                })
+            })
+            .collect::<Vec<_>>();
+        sections.push(section(
+            "document",
+            "Confirmed pairs from this document",
+            serde_json::to_string(&pairs).map_err(|_| AiCoreError::Protocol)?,
+            to_u32(pairs.len()),
+        ));
     }
     sections.push(section(
         "segment",
@@ -2053,6 +2083,7 @@ mod tests {
                 source: "Previous clause.".repeat(600),
                 target: String::new(),
             }],
+            document_sample: Vec::new(),
         };
         let options = GroundingOptions {
             max_chars: 1_000,
@@ -2066,6 +2097,41 @@ mod tests {
         assert!(first.messages[0].text.contains("grounding-section"));
         assert!(first.messages[0].text.contains("执行器"));
         assert!(!first.prompt_hash.is_empty());
+    }
+
+    #[test]
+    fn document_sample_section_renders_only_when_pairs_exist() {
+        let mut input = GroundingInput {
+            source_locale: "en-US".to_string(),
+            target_locale: "zh-CN".to_string(),
+            source_text: "The valve opens.".to_string(),
+            current_target: String::new(),
+            action: "translate".to_string(),
+            freeform_prompt: String::new(),
+            tag_skeleton: Vec::new(),
+            terms: Vec::new(),
+            tm_matches: Vec::new(),
+            corpus_matches: Vec::new(),
+            context: Vec::new(),
+            document_sample: Vec::new(),
+        };
+        let options = GroundingOptions::default();
+        let empty = build_grounded_prompt(&input, &options).expect("build without sample");
+        assert!(empty.sections.iter().all(|section| section.id != "document"));
+        assert!(!empty.messages[0].text.contains("Confirmed pairs"));
+
+        input.document_sample = vec![GroundingDocumentPair {
+            source: "The pump stops.".to_string(),
+            target: "泵停止。".to_string(),
+        }];
+        let with_sample = build_grounded_prompt(&input, &options).expect("build with sample");
+        let section = with_sample
+            .sections
+            .iter()
+            .find(|section| section.id == "document")
+            .expect("document section");
+        assert_eq!(section.item_count, 1);
+        assert!(with_sample.messages[0].text.contains("泵停止。"));
     }
 
     #[test]
@@ -2134,6 +2200,7 @@ mod tests {
                 source: "Previous clause.".to_string(),
                 target: "上一条款。".to_string(),
             }],
+            document_sample: Vec::new(),
         };
         let options = GroundingOptions {
             corpus_top_n: 1,

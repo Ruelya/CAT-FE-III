@@ -606,6 +606,50 @@ impl Store {
         rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
     }
 
+    /// Segments of one document whose ordinal falls within `[min, max]`, in
+    /// grid order — the neighbour window AI prompt grounding reads.
+    pub fn segments_by_ordinal_range(
+        &self,
+        document_id: &str,
+        min_ordinal: u32,
+        max_ordinal: u32,
+    ) -> io::Result<Vec<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS} FROM segments
+                 WHERE document_id = ?1 AND ordinal >= ?2 AND ordinal <= ?3
+                 ORDER BY ordinal, id"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map(
+                params![document_id, i64::from(min_ordinal), i64::from(max_ordinal)],
+                segment_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
+    /// Confirmed segments of one document in grid order — the pool the
+    /// document-level AI prompt sample draws from.
+    pub fn confirmed_document_segments(&self, document_id: &str) -> io::Result<Vec<Segment>> {
+        let mut statement = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT {SEGMENT_COLUMNS} FROM segments
+                 WHERE document_id = ?1 AND state = ?2 ORDER BY ordinal, id"
+            ))
+            .map_err(db_err)?;
+        let rows = statement
+            .query_map(
+                params![document_id, enum_text(&SegmentState::Confirmed)?],
+                segment_from_row,
+            )
+            .map_err(db_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+    }
+
     /// Untranslated segments across one project that share a source hash —
     /// the confirm-time propagation candidates. Walks the source-hash index
     /// joined against the project's documents instead of scanning segments.

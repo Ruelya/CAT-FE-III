@@ -24,8 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use tl_ai::{AiCoreError, AiProviderProfile, SecretString};
-use tl_protocol::AiAssistAction;
+use tl_ai::{AiCoreError, AiMessage, AiProviderProfile, SecretString};
 
 use crate::aiops;
 use crate::events::{AgentDraft, EngineEvent};
@@ -35,19 +34,21 @@ use crate::events::{AgentDraft, EngineEvent};
 /// provider or spawning an unbounded thread herd.
 pub const AGENT_SEGMENT_WORKERS: usize = 4;
 
-/// One TM-missed segment the worker must draft. `terms` are the segment's
-/// real termbase hits, resolved on the engine thread at plan time.
+/// One TM-missed segment the worker must draft. `messages` is the full
+/// grounded prompt, built on the engine thread at plan time from real data
+/// (termbase hits, TM matches, neighbours, document pairs); workers own no
+/// engine state and never fabricate grounding. `source_text` stays alongside
+/// for the provider-side tag-integrity check.
 #[derive(Debug, Clone)]
 pub struct AgentWorkItem {
     pub segment_id: String,
     pub source_text: String,
-    pub terms: Vec<aiops::PromptTerm>,
+    pub messages: Vec<AiMessage>,
 }
 
 pub struct AgentJob {
     pub run_id: String,
     pub items: Vec<AgentWorkItem>,
-    pub instruction: Option<String>,
     pub source_locale: String,
     pub target_locale: String,
     pub profile: AiProviderProfile,
@@ -66,7 +67,6 @@ fn run_job(job: AgentJob) {
     let AgentJob {
         run_id,
         items,
-        instruction,
         source_locale,
         target_locale,
         profile,
@@ -80,7 +80,6 @@ fn run_job(job: AgentJob) {
     for _ in 0..worker_count {
         let context = WorkerContext {
             run_id: run_id.clone(),
-            instruction: instruction.clone(),
             source_locale: source_locale.clone(),
             target_locale: target_locale.clone(),
             profile: profile.clone(),
@@ -104,7 +103,6 @@ fn run_job(job: AgentJob) {
 
 struct WorkerContext {
     run_id: String,
-    instruction: Option<String>,
     source_locale: String,
     target_locale: String,
     profile: AiProviderProfile,
@@ -126,20 +124,11 @@ fn drain_queue(context: WorkerContext) {
             };
             queue.pop_front()
         };
-        let Some(item) = item else { return };
-        let messages = aiops::assist_messages(
-            AiAssistAction::Translate,
-            context.instruction.as_deref(),
-            &context.source_locale,
-            &context.target_locale,
-            &item.source_text,
-            "",
-            &item.terms,
-        );
+        let Some(mut item) = item else { return };
         let outcome = aiops::run_completion(
             &context.profile,
             &context.credential,
-            messages,
+            std::mem::take(&mut item.messages),
             &item.source_text,
             &context.source_locale,
             &context.target_locale,

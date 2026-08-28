@@ -1898,3 +1898,178 @@ fn agent_scope_and_failed_segment_ids_power_precise_reruns() {
     assert_eq!(solo.planned_segments, 1);
     let _ = drive_agent_run(&mut engine, &events, &solo.run_id, &mut notifications);
 }
+
+/// Confirm one segment through the ordinary path (update then confirm),
+/// starting from the revision the caller holds.
+fn confirm_with_target(engine: &mut Engine, segment: &tl_domain::Segment, target: &str) {
+    let updated: SegmentUpdateResult = call(
+        engine,
+        methods::SEGMENT_UPDATE,
+        json!({"segmentId": segment.id, "targetText": target, "baseRevision": segment.revision}),
+    );
+    let confirmed: SegmentConfirmResult = call(
+        engine,
+        methods::SEGMENT_CONFIRM,
+        json!({"segmentId": segment.id, "baseRevision": updated.segment.revision}),
+    );
+    assert_eq!(confirmed.segment.state, tl_domain::SegmentState::Confirmed);
+}
+
+/// The context-awareness contract: every drafting prompt that leaves the
+/// engine carries real TM examples, real neighbour segments (untranslated
+/// targets stay honestly empty), and a confirmed-pair sample from beyond the
+/// neighbour window — and none of those sections when the data is absent.
+#[test]
+fn drafting_prompts_ground_in_real_tm_neighbours_and_document_pairs() {
+    const DRAFT_BODY: &str = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"蓝色阀门控制水流。\"}}]}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Grounded", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let source = write_txt(
+        workspace.path(),
+        "grounded.txt",
+        "Read the manual first.\n\nKeep the area clean.\n\nThe pump starts automatically.\n\n\
+         The red valve controls water flow.\n\nThe blue valve controls water flow.\n\n\
+         Check the pressure gauge daily.\n\nWear protective gloves at all times.\n\n\
+         Store tools in the cabinet.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": source.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    let find = |needle: &str| {
+        listed
+            .segments
+            .iter()
+            .find(|segment| segment.source_text.contains(needle))
+            .expect("segment present")
+            .clone()
+    };
+    let far_confirmed = find("Read the manual");
+    let neighbour_confirmed = find("red valve");
+    let active = find("blue valve");
+
+    // Real data only: one confirmed pair beyond the neighbour window and one
+    // inside it (which doubles as a strong fuzzy TM example for the active
+    // segment).
+    confirm_with_target(&mut engine, &far_confirmed, "先阅读手册。");
+    confirm_with_target(&mut engine, &neighbour_confirmed, "红色阀门控制水流。");
+
+    // Assist path.
+    let (assist_url, assist_captured) = spawn_capturing_sse_server(DRAFT_BODY);
+    configure_loopback_ai(&mut engine, &assist_url);
+    let done = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": active.id, "action": "translate"}),
+    );
+    assert_eq!(done.status, AiAssistRunStatus::Done);
+    assert_eq!(
+        done.result.expect("assist proposal").draft_target,
+        "蓝色阀门控制水流。"
+    );
+    let request = assist_captured.lock().expect("captured assist").clone();
+    assert!(
+        request.contains("Translation memory examples"),
+        "assist prompt carries the TM section, got: {request}"
+    );
+    assert!(
+        request.contains("红色阀门控制水流。"),
+        "the TM example is the real confirmed pair"
+    );
+    assert!(
+        request.contains("Document context"),
+        "assist prompt carries the neighbour section"
+    );
+    assert!(
+        request.contains("Check the pressure gauge daily."),
+        "the untranslated following neighbour appears with its real source"
+    );
+    assert!(
+        request.contains("Confirmed pairs from this document"),
+        "assist prompt carries the document sample section"
+    );
+    assert!(
+        request.contains("先阅读手册。"),
+        "the document sample is the real confirmed pair beyond the window"
+    );
+    assert!(
+        request.contains("The blue valve controls water flow."),
+        "the active segment source is the user payload"
+    );
+
+    // Agent path: the same grounding sections reach the worker's request.
+    let (agent_url, agent_captured) = spawn_capturing_sse_server(DRAFT_BODY);
+    configure_loopback_ai(&mut engine, &agent_url);
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({
+            "documentId": imported.document.id,
+            "approvalMode": "auto",
+            "segmentIds": [active.id],
+        }),
+    );
+    assert_eq!(run.planned_segments, 1);
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.ai_drafted, 1);
+    let request = agent_captured.lock().expect("captured agent").clone();
+    assert!(
+        request.contains("Translation memory examples"),
+        "agent prompt carries the TM section, got: {request}"
+    );
+    assert!(request.contains("红色阀门控制水流。"));
+    assert!(request.contains("Document context"));
+    assert!(request.contains("Confirmed pairs from this document"));
+    assert!(request.contains("先阅读手册。"));
+
+    // Honest absence: a fresh project with a single-segment document and an
+    // empty TM produces a prompt with none of those sections.
+    let bare_project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Bare", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let bare_source = write_txt(workspace.path(), "bare.txt", "A single lonely sentence.\n");
+    let bare_imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": bare_project.id, "sourcePath": bare_source.display().to_string()}),
+    );
+    let bare_listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": bare_imported.document.id}),
+    );
+    let (bare_url, bare_captured) = spawn_capturing_sse_server(DRAFT_BODY);
+    configure_loopback_ai(&mut engine, &bare_url);
+    let done = drive_assist(
+        &mut engine,
+        &events,
+        json!({"segmentId": bare_listed.segments[0].id, "action": "translate"}),
+    );
+    assert_eq!(done.status, AiAssistRunStatus::Done);
+    let request = bare_captured.lock().expect("captured bare").clone();
+    assert!(
+        !request.contains("Translation memory examples"),
+        "no TM data means no TM section, got: {request}"
+    );
+    assert!(!request.contains("Document context"));
+    assert!(!request.contains("Confirmed pairs from this document"));
+    assert!(request.contains("A single lonely sentence."));
+}
