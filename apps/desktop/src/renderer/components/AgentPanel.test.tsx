@@ -37,6 +37,7 @@ function renderPanel(
         onGoExport={vi.fn()}
         onGoQa={vi.fn()}
         onJumpToSegment={vi.fn()}
+        filteredSegmentIds={[]}
         {...overrides}
       />
     </AiStatusProvider>,
@@ -226,7 +227,7 @@ describe("AgentPanel", () => {
       }
     });
     installBridge(invoke);
-    renderPanel();
+    renderPanel({ filteredSegmentIds: ["seg-2", "seg-3"] });
 
     // The three tiers describe themselves with distinct one-liners.
     const manualTab = await screen.findByRole("tab", { name: "手动" });
@@ -258,6 +259,19 @@ describe("AgentPanel", () => {
           maxSegments: 2,
           segmentIds: null,
         }),
+      );
+    });
+
+    // The 当前筛选 scope hands the visible ids to the engine, which
+    // intersects them with the untranslated set.
+    await userEvent.selectOptions(screen.getByLabelText("作用域"), "filtered");
+    await userEvent.click(
+      screen.getByRole("button", { name: "创建任务单并运行" }),
+    );
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "ai.agent.start",
+        expect.objectContaining({ segmentIds: ["seg-2", "seg-3"] }),
       );
     });
   });
@@ -542,6 +556,7 @@ describe("AgentPanel", () => {
       onGoExport: vi.fn(),
       onGoQa: vi.fn(),
       onJumpToSegment: vi.fn(),
+      filteredSegmentIds: [],
     };
     const view = render(
       <AiStatusProvider>

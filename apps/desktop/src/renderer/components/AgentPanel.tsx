@@ -32,6 +32,12 @@ export interface AgentPanelProps {
   onGoQa: () => void;
   /** Steps and proposals carry segment ids; a click lands on the row. */
   onJumpToSegment: (segmentId: string) => void;
+  /**
+   * Segment ids currently visible under the grid filter. The 当前筛选
+   * scope sends them as `segmentIds`; the engine intersects with the
+   * untranslated, unlocked set.
+   */
+  filteredSegmentIds: string[];
 }
 
 const STEP_TONE: Record<AgentStep["status"], BadgeTone> = {
@@ -107,11 +113,13 @@ export function AgentPanel({
   onGoExport,
   onGoQa,
   onJumpToSegment,
+  filteredSegmentIds,
 }: AgentPanelProps) {
   const { configured, profiles, defaultProfileId } = useAiStatus();
   const [instruction, setInstruction] = useState("");
   const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>("manual");
   const [profileId, setProfileId] = useState("");
+  const [scope, setScope] = useState<"all" | "filtered">("all");
   const [maxSegmentsText, setMaxSegmentsText] = useState("");
   // The engine allows concurrent runs on different documents; track the
   // latest run per document so switching documents neither hides a live run
@@ -241,7 +249,9 @@ export function AgentPanel({
             overrides.profileId !== undefined
               ? overrides.profileId
               : profileId || null,
-          segmentIds: overrides.segmentIds ?? null,
+          segmentIds:
+            overrides.segmentIds ??
+            (scope === "filtered" ? filteredSegmentIds : null),
         });
         setRuns((current) => ({ ...current, [view.documentId]: view }));
         const scopeNote =
@@ -271,6 +281,8 @@ export function AgentPanel({
       maxSegmentsText,
       approvalMode,
       profileId,
+      scope,
+      filteredSegmentIds,
       onStatusMessage,
       finishRun,
     ],
@@ -367,7 +379,13 @@ export function AgentPanel({
             </button>
           ))}
         </div>
-        <p className="agent-modes__note">{MODE_NOTE[approvalMode]}</p>
+        {approvalMode === "turbo" ? (
+          <div className="honest-note" role="note">
+            {MODE_NOTE.turbo}
+          </div>
+        ) : (
+          <p className="agent-modes__note">{MODE_NOTE[approvalMode]}</p>
+        )}
         {profiles.length > 1 ? (
           <SelectField
             label="模型"
@@ -381,6 +399,18 @@ export function AgentPanel({
             ))}
           </SelectField>
         ) : null}
+        <SelectField
+          label="作用域"
+          value={scope}
+          onChange={(event) =>
+            setScope(event.target.value === "filtered" ? "filtered" : "all")
+          }
+        >
+          <option value="all">全部未译句段</option>
+          <option value="filtered">
+            当前筛选可见句段（{filteredSegmentIds.length}）
+          </option>
+        </SelectField>
         <TextAreaField
           label="任务指令（可选）"
           value={instruction}
