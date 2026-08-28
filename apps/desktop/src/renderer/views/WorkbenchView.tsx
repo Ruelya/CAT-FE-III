@@ -1127,9 +1127,13 @@ export function WorkbenchView({
             // a retry never sends a stale baseRevision.
             recordSegments([current]);
           }
+          // The no-TM chord confirms through the engine's explicit
+          // skipTmWrite path: no TM entry, no propagation, QA still runs.
+          const skipTmWrite = mode === "nextUnconfirmedSkipTm";
           const result = await callEngine("segment.confirm", {
             segmentId: current.id,
             baseRevision: current.revision,
+            ...(skipTmWrite ? { skipTmWrite: true } : {}),
           });
           applySegments([result.segment, ...result.propagated]);
           setUnackedWrite((currentAlert) =>
@@ -1157,7 +1161,9 @@ export function WorkbenchView({
               : "";
           const qaNote = openQaCount > 0 ? `，QA ${openQaCount} 个问题` : "";
           onStatusMessage(
-            `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}${qaNote}`,
+            skipTmWrite
+              ? `句段 #${segment.ordinal + 1} 已确认，跳过 TM 写入${qaNote}`
+              : `句段 #${segment.ordinal + 1} 已确认并写入 TM${propagated}${qaNote}`,
           );
           advanceAfterConfirm(
             segment.id,
@@ -2345,6 +2351,9 @@ export function WorkbenchView({
         case "confirm-segment-stay":
           confirmActiveSegment("stay");
           break;
+        case "confirm-segment-skip-tm":
+          confirmActiveSegment("nextUnconfirmedSkipTm");
+          break;
         case "toggle-lock-segment":
           if (activeSegment) {
             void toggleLockSegment(activeSegment);
@@ -2632,6 +2641,12 @@ export function WorkbenchView({
         "确认并停留",
         documentOpen,
         "Ctrl+Alt+Shift+Enter",
+      ),
+      command(
+        "confirm-segment-skip-tm",
+        "确认但跳过 TM 写入",
+        documentOpen,
+        "Ctrl+Shift+Enter",
       ),
       command(
         "toggle-lock-segment",

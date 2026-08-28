@@ -1115,6 +1115,45 @@ describe("WorkbenchView Trados-style editor flow", () => {
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
   });
 
+  it("confirms without the TM write on Ctrl+Shift+Enter", async () => {
+    const handlers = baseHandlers();
+    const confirmCalls: unknown[] = [];
+    handlers["segment.confirm"] = (params) => {
+      confirmCalls.push(params);
+      return {
+        segment: { ...SEGMENT, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(confirmCalls).toHaveLength(1);
+    });
+    expect(confirmCalls[0]).toMatchObject({
+      segmentId: "s1",
+      baseRevision: 1,
+      skipTmWrite: true,
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 已确认，跳过 TM 写入",
+    );
+  });
+
   it("refuses to confirm an empty target with an honest message", async () => {
     const handlers = baseHandlers();
     handlers["segment.list"] = () => ({

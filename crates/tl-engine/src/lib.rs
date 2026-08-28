@@ -1251,28 +1251,42 @@ impl Engine {
             })?;
         let project = self.require_project(&project_id)?.clone();
 
+        // The explicit no-TM variant: skip both the TM upsert and the
+        // duplicate propagation — the confirmed pair spreads nowhere. QA
+        // still runs below; the confirm itself works even when no writable
+        // memory is mounted.
+        let skip_tm_write = params.skip_tm_write.unwrap_or(false);
+
         // Confirm-time TM write goes to the project's single writable mount
         // (the working memory). With none — every mount demoted or detached
         // — the confirm fails honestly instead of picking a memory itself.
-        let memory_id = self.working_memory_id(&project_id)?;
-        let (tm_entry, _) = self.upsert_tm_entry(
-            &mut BTreeMap::new(),
-            &memory_id,
-            &project_id,
-            &confirmed.source_text,
-            &confirmed.target_text,
-            &confirmed.source_hash,
-            &confirmed.document_id,
-            &confirmed.id,
-            now,
-        )?;
+        let tm_entry = if skip_tm_write {
+            None
+        } else {
+            let memory_id = self.working_memory_id(&project_id)?;
+            let (entry, _) = self.upsert_tm_entry(
+                &mut BTreeMap::new(),
+                &memory_id,
+                &project_id,
+                &confirmed.source_text,
+                &confirmed.target_text,
+                &confirmed.source_hash,
+                &confirmed.document_id,
+                &confirmed.id,
+                now,
+            )?;
+            Some(entry)
+        };
 
         // Propagate to untranslated duplicates across the project as drafts.
         // The source-hash index narrows this to the matching rows; the old
         // code scanned every segment of every document in RAM.
-        let mut propagated =
+        let mut propagated = if skip_tm_write {
+            Vec::new()
+        } else {
             self.store
-                .untranslated_siblings(&project_id, &confirmed.source_hash, &confirmed.id)?;
+                .untranslated_siblings(&project_id, &confirmed.source_hash, &confirmed.id)?
+        };
         // SQL filtered on state; whitespace-only targets are a Rust-side
         // check so the trim semantics stay identical to the editor's.
         propagated.retain(|sibling| sibling.target_text.trim().is_empty());
@@ -1299,7 +1313,7 @@ impl Engine {
         let (changed_issues, qa_issues) = self.refresh_segment_qa(&project, &confirmed)?;
         let mut delta = StateDelta {
             segments: vec![confirmed.clone()],
-            tm_entries: vec![tm_entry.clone()],
+            tm_entries: tm_entry.iter().cloned().collect(),
             qa_issues: changed_issues,
             ..Default::default()
         };
@@ -2033,6 +2047,7 @@ impl Engine {
         match self.segment_confirm(SegmentConfirmParams {
             segment_id: segment_id.to_string(),
             base_revision: segment.revision,
+            skip_tm_write: None,
         }) {
             Ok(_) => {
                 view.auto_confirmed += 1;

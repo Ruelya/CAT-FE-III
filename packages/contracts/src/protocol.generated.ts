@@ -1629,6 +1629,14 @@ export interface MethodContract15 {
 export interface SegmentConfirmParams {
   baseRevision: number;
   segmentId: string;
+  /**
+   * Confirm without touching translation memory: the segment still turns
+   * confirmed and confirm-time QA still runs, but no TM entry is written
+   * and no duplicate propagation happens — the pair spreads nowhere.
+   * Also the escape hatch when no writable memory is mounted. Defaults
+   * to false: the ordinary confirm keeps writing TM.
+   */
+  skipTmWrite?: boolean | null;
   [k: string]: unknown;
 }
 export interface SegmentConfirmResult {
@@ -1646,12 +1654,13 @@ export interface SegmentConfirmResult {
    */
   qaIssues?: QaIssue[];
   segment: Segment;
-  tmEntry: TmEntry;
+  /**
+   * The translation-memory entry written by the confirmation; absent
+   * when the confirm skipped the TM write.
+   */
+  tmEntry?: TmEntry | null;
   [k: string]: unknown;
 }
-/**
- * The translation-memory entry written by the confirmation.
- */
 export interface TmEntry {
   confirmedAtMs: number;
   id: string;
@@ -2294,24 +2303,12 @@ export interface TmListResult {
   /**
    * One page of entries, most recently confirmed first.
    */
-  entries: TmEntry2[];
+  entries: TmEntry[];
   /**
    * Entries that matched the filter before `offset`/`limit`, so clients
    * can page honestly.
    */
   total: number;
-  [k: string]: unknown;
-}
-export interface TmEntry2 {
-  confirmedAtMs: number;
-  id: string;
-  memoryId: string;
-  originDocumentId: string;
-  originProjectId: string;
-  originSegmentId: string;
-  sourceHash: string;
-  sourceText: string;
-  targetText: string;
   [k: string]: unknown;
 }
 /**
@@ -2345,7 +2342,7 @@ export interface TmLookupResult {
   [k: string]: unknown;
 }
 export interface TmMatchItem {
-  entry: TmEntry2;
+  entry: TmEntry;
   grade: TmMatchGrade;
   /**
    * Name of the memory the entry lives in (`entry.memoryId` carries the
@@ -2410,7 +2407,7 @@ export interface TmUpdateParams {
   [k: string]: unknown;
 }
 export interface TmUpdateResult {
-  entry: TmEntry2;
+  entry: TmEntry;
   [k: string]: unknown;
 }
 /**

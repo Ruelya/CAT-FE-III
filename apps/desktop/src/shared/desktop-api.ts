@@ -63,6 +63,7 @@ export type MenuCommand =
   | "confirm-segment"
   | "confirm-segment-any"
   | "confirm-segment-stay"
+  | "confirm-segment-skip-tm"
   | "toggle-lock-segment"
   | "copy-source"
   | "clear-target"

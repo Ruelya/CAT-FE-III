@@ -307,7 +307,10 @@ fn vertical_slice_docx_roundtrip() {
         json!({"segmentId": first.id, "baseRevision": updated.segment.revision}),
     );
     assert_eq!(confirmed.segment.state, tl_domain::SegmentState::Confirmed);
-    assert_eq!(confirmed.tm_entry.target_text, "第一句译文。");
+    assert_eq!(
+        confirmed.tm_entry.expect("confirm writes TM").target_text,
+        "第一句译文。"
+    );
 
     // Exact TM lookup hits for the same source text.
     let lookup: TmLookupResult = call(
