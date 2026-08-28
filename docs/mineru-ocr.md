@@ -4,6 +4,12 @@
 > the previous engine, which was removed in the greenfield reset. The current
 > tree has no PDF import and none of the RPC methods or environment variables
 > named here exist.
+>
+> 核对于 `gf-ux-remain-2398`（commit `6c2692f`）+ 日期 2026-08-28：上述声明仍然成立
+> ——当前 crates / tl-protocol / contracts / desktop 对 `pdf` / `ocr` / `mineru` /
+> `keyring` / `TRANSLUNAR_MINERU_*` 均为零匹配，`translunar-engine` 包已不在
+> workspace（下文 `cargo test -p translunar-engine mineru` 无法运行）。逐项对照见
+> `docs/research/pdf-mt-agent.md` §2。
 
 MinerU is selected **only** when import options set `ocrEngine=mineru` (and
 `ocrMode` is not `never`). Configuring a base URL alone does not switch ordinary
