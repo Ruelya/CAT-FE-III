@@ -24,10 +24,10 @@ use tl_protocol::{
     TermbaseAttachResult, TermbaseCreateParams, TermbaseDetachParams, TermbaseDetachResult,
     TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
     TermbaseListParams, TermbaseListResult, TermbaseUpdateParams, TermbaseUpdateResult,
-    TmDeleteParams, TmDeleteResult, TmExchangeFormat,
-    TmExportParams, TmExportResult, TmImportParams, TmImportResult, TmListParams, TmListResult,
-    TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams,
-    TmPretranslateResult, TmUpdateParams, TmUpdateResult,
+    TmDeleteParams, TmDeleteResult, TmExchangeFormat, TmExportParams, TmExportResult,
+    TmImportParams, TmImportResult, TmListParams, TmListResult, TmLookupParams, TmLookupResult,
+    TmMatchGrade, TmMatchItem, TmPretranslateParams, TmPretranslateResult, TmUpdateParams,
+    TmUpdateResult,
 };
 
 use crate::store::StateDelta;
@@ -702,8 +702,7 @@ impl Engine {
                 .termbase_mounts
                 .iter_mut()
                 .find(|mount| {
-                    mount.project_id == params.project_id
-                        && mount.termbase_id == params.termbase_id
+                    mount.project_id == params.project_id && mount.termbase_id == params.termbase_id
                 })
                 .expect("mount just resolved");
             let mut touched = false;

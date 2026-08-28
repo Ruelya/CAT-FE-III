@@ -94,11 +94,15 @@ export const ENGINE_METHODS = [
   "qa.profile.update",
   "ai.configure",
   "ai.status",
+  "ai.profile.add",
+  "ai.profile.list",
+  "ai.profile.remove",
   "ai.assist.start",
   "ai.assist.status",
   "ai.assist.cancel",
   "ai.agent.start",
   "ai.agent.status",
+  "ai.agent.review",
   "ai.agent.cancel",
 ] as const satisfies readonly EngineMethod[];
 

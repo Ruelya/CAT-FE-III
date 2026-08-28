@@ -438,6 +438,7 @@ fn ai_degrades_honestly_without_credentials() {
         segment_id: listed.segments[0].id.clone(),
         action: AiAssistAction::Translate,
         instruction: None,
+        profile_id: None,
     })
     .expect("params");
     assert_eq!(
@@ -450,6 +451,9 @@ fn ai_degrades_honestly_without_credentials() {
         document_id: imported.document.id.clone(),
         instruction: None,
         max_segments: None,
+        approval_mode: Default::default(),
+        segment_ids: None,
+        profile_id: None,
     })
     .expect("params");
     assert_eq!(
@@ -835,7 +839,7 @@ fn agent_run_pretranslates_drafts_and_parks_at_the_human_gate() {
     let run: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id, "instruction": "保持术语一致"}),
+        json!({"documentId": imported.document.id, "instruction": "保持术语一致", "approvalMode": "auto"}),
     );
     assert_eq!(run.status, AgentRunStatus::Running);
     assert_eq!(run.planned_segments, 3);
@@ -916,7 +920,7 @@ fn agent_runs_on_different_documents_proceed_concurrently() {
     let run_a: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported_a.document.id}),
+        json!({"documentId": imported_a.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(run_a.status, AgentRunStatus::Running);
 
@@ -925,7 +929,7 @@ fn agent_runs_on_different_documents_proceed_concurrently() {
         call_err(
             &mut engine,
             methods::AI_AGENT_START,
-            json!({"documentId": imported_a.document.id}),
+            json!({"documentId": imported_a.document.id, "approvalMode": "auto"}),
         ),
         RpcErrorCode::Conflict
     );
@@ -934,7 +938,7 @@ fn agent_runs_on_different_documents_proceed_concurrently() {
     let run_b: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported_b.document.id}),
+        json!({"documentId": imported_b.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(run_b.status, AgentRunStatus::Running);
     assert_ne!(run_a.run_id, run_b.run_id, "each job has its own run id");
@@ -964,7 +968,7 @@ fn agent_runs_on_different_documents_proceed_concurrently() {
     let rerun: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported_a.document.id}),
+        json!({"documentId": imported_a.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(rerun.planned_segments, 0, "nothing left to draft");
 }
@@ -1001,7 +1005,7 @@ fn agent_drafts_segments_in_parallel_within_one_run() {
     let run: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id}),
+        json!({"documentId": imported.document.id, "approvalMode": "auto"}),
     );
     let mut notifications = Vec::new();
     let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
@@ -1047,7 +1051,7 @@ fn agent_cancel_aborts_in_flight_provider_calls_without_waiting_for_the_timeout(
     let run: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id}),
+        json!({"documentId": imported.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(run.status, AgentRunStatus::Running);
 
@@ -1075,7 +1079,7 @@ fn agent_cancel_aborts_in_flight_provider_calls_without_waiting_for_the_timeout(
     let rerun: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id}),
+        json!({"documentId": imported.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(rerun.status, AgentRunStatus::Running);
     let _: AgentRunView = call(
@@ -1115,7 +1119,7 @@ fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
     let run: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id}),
+        json!({"documentId": imported.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(run.status, AgentRunStatus::Running);
 
@@ -1124,7 +1128,7 @@ fn agent_run_cancels_mid_run_and_same_document_run_conflicts() {
         call_err(
             &mut engine,
             methods::AI_AGENT_START,
-            json!({"documentId": imported.document.id}),
+            json!({"documentId": imported.document.id, "approvalMode": "auto"}),
         ),
         RpcErrorCode::Conflict
     );
@@ -1465,7 +1469,7 @@ fn agent_and_assist_leave_locked_segments_alone() {
     let run: AgentRunView = call(
         &mut engine,
         methods::AI_AGENT_START,
-        json!({"documentId": imported.document.id}),
+        json!({"documentId": imported.document.id, "approvalMode": "auto"}),
     );
     assert_eq!(run.planned_segments, 1, "locked row is never planned");
     let mut notifications = Vec::new();
@@ -1486,4 +1490,411 @@ fn agent_and_assist_leave_locked_segments_alone() {
     );
     assert_eq!(after.segments[1].target_text, "机器草稿译文。");
     assert_eq!(after.segments[1].state, tl_domain::SegmentState::Draft);
+}
+
+/// Manual mode (the default) queues AI candidates as proposals and writes
+/// nothing until `ai.agent.review`: apply lands the draft through the same
+/// guards as auto mode, reject records the decision, and a row a human
+/// touched meanwhile turns stale — human state wins.
+#[test]
+fn agent_manual_mode_queues_proposals_until_a_human_reviews_them() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Manual", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(
+        workspace.path(),
+        "manual.txt",
+        "Alpha sentence.\n\nBravo sentence.\n\nCharlie sentence.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    let base_url = spawn_sse_server("人工审批候选。", Duration::ZERO);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    // No approvalMode in the params: manual is the wire default.
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(run.approval_mode, tl_protocol::AgentApprovalMode::Manual);
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.status, AgentRunStatus::AwaitingReview);
+
+    // Nothing was written: candidates are proposals, the grid is untouched.
+    assert_eq!(finished.ai_drafted, 0);
+    assert_eq!(finished.proposals.len(), 3);
+    assert!(
+        finished
+            .proposals
+            .iter()
+            .all(|proposal| proposal.status == tl_protocol::AgentProposalStatus::Pending)
+    );
+    assert_eq!(finished.processed_segments, finished.planned_segments);
+    let untouched: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    for segment in &untouched.segments {
+        assert_eq!(segment.state, tl_domain::SegmentState::Untranslated);
+        assert_eq!(segment.target_text, "");
+    }
+    let first = untouched.segments[0].clone();
+    let second = untouched.segments[1].clone();
+    let third = untouched.segments[2].clone();
+
+    // A human edits the third row before its proposal is applied.
+    let _: SegmentUpdateResult = call(
+        &mut engine,
+        methods::SEGMENT_UPDATE,
+        json!({"segmentId": third.id, "targetText": "人工译文。", "baseRevision": third.revision}),
+    );
+
+    // Approve the first: the draft lands with an aiDraft origin.
+    let reviewed: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_REVIEW,
+        json!({"runId": run.run_id, "segmentIds": [first.id], "decision": "apply"}),
+    );
+    assert_eq!(reviewed.ai_drafted, 1);
+    // Reject the second: recorded, nothing written.
+    let reviewed: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_REVIEW,
+        json!({"runId": run.run_id, "segmentIds": [second.id], "decision": "reject"}),
+    );
+    assert_eq!(reviewed.ai_drafted, 1);
+    // Apply on the human-edited row: stale, the human text survives.
+    let reviewed: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_REVIEW,
+        json!({"runId": run.run_id, "segmentIds": [third.id], "decision": "apply"}),
+    );
+    let status_of = |view: &AgentRunView, id: &str| {
+        view.proposals
+            .iter()
+            .find(|proposal| proposal.segment_id == id)
+            .expect("proposal exists")
+            .status
+    };
+    assert_eq!(
+        status_of(&reviewed, &first.id),
+        tl_protocol::AgentProposalStatus::Applied
+    );
+    assert_eq!(
+        status_of(&reviewed, &second.id),
+        tl_protocol::AgentProposalStatus::Rejected
+    );
+    assert_eq!(
+        status_of(&reviewed, &third.id),
+        tl_protocol::AgentProposalStatus::Stale
+    );
+
+    let after: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(after.segments[0].target_text, "人工审批候选。");
+    assert_eq!(after.segments[0].state, tl_domain::SegmentState::Draft);
+    let origin = after.segments[0].origin.clone().expect("aiDraft origin");
+    assert_eq!(origin.kind, tl_domain::SegmentOriginKind::AiDraft);
+    assert_eq!(
+        after.segments[1].target_text, "",
+        "rejected row stays empty"
+    );
+    assert_eq!(after.segments[2].target_text, "人工译文。");
+
+    // Unknown segment id: invalidParams, no partial mutation.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_AGENT_REVIEW,
+            json!({"runId": run.run_id, "segmentIds": ["missing"], "decision": "apply"}),
+        ),
+        RpcErrorCode::InvalidParams
+    );
+}
+
+/// Turbo mode lands drafts like auto and then walks each one through the
+/// segment-scoped QA gate: clean segments are confirmed through the real
+/// `segment.confirm` path (TM write included), segments with error-severity
+/// QA stay drafts for a human.
+#[test]
+fn agent_turbo_mode_confirms_qa_clean_segments_and_holds_error_segments() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Turbo", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    // The fixture reply carries no numbers: the numeric segment must fail
+    // the number QA gate and stay a draft.
+    let work = write_txt(
+        workspace.path(),
+        "turbo.txt",
+        "Clean alpha sentence.\n\nNumbers 42 stay intact.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    let base_url = spawn_sse_server("极速草稿。", Duration::ZERO);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id, "approvalMode": "turbo"}),
+    );
+    assert_eq!(run.approval_mode, tl_protocol::AgentApprovalMode::Turbo);
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.status, AgentRunStatus::AwaitingReview);
+    assert_eq!(finished.ai_drafted, 2);
+    assert_eq!(finished.auto_confirmed, 1, "only the QA-clean segment");
+    assert!(
+        finished
+            .steps
+            .iter()
+            .any(|step| step.kind == AgentStepKind::Confirm)
+    );
+
+    let after: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    assert_eq!(after.segments[0].state, tl_domain::SegmentState::Confirmed);
+    assert_eq!(
+        after.segments[1].state,
+        tl_domain::SegmentState::Draft,
+        "number-mismatch error holds the confirm"
+    );
+
+    // The confirm was the real one: the TM now answers for the clean source.
+    let lookup: TmLookupResult = call(
+        &mut engine,
+        methods::TM_LOOKUP,
+        json!({"projectId": project.id, "sourceText": "Clean alpha sentence."}),
+    );
+    assert!(
+        lookup
+            .matches
+            .iter()
+            .any(|hit| hit.entry.target_text == "极速草稿。"),
+        "segment.confirm wrote the TM"
+    );
+}
+
+/// The multi-candidate path: profiles are an in-memory list, assist runs for
+/// the same segment through different profiles proceed in parallel, and the
+/// per-(segment, profile) guard still rejects a duplicate. Credentials never
+/// appear in any profile view.
+#[test]
+fn ai_profiles_power_parallel_candidates_per_segment() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Profiles", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(workspace.path(), "profiles.txt", "Candidate sentence.\n");
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+    let segment = listed.segments[0].clone();
+
+    let url_a = spawn_sse_server("候选甲。", Duration::from_millis(200));
+    let url_b = spawn_sse_server("候选乙。", Duration::from_millis(200));
+    let profiles: tl_protocol::AiProfileListResult = call(
+        &mut engine,
+        methods::AI_PROFILE_ADD,
+        json!({"provider": "openaiCompatible", "model": "model-a", "baseUrl": url_a, "apiKey": "fixture-key-alpha"}),
+    );
+    assert_eq!(profiles.profiles.len(), 1);
+    let profiles: tl_protocol::AiProfileListResult = call(
+        &mut engine,
+        methods::AI_PROFILE_ADD,
+        json!({"provider": "openaiCompatible", "model": "model-b", "baseUrl": url_b, "apiKey": "fixture-key-beta"}),
+    );
+    assert_eq!(profiles.profiles.len(), 2);
+    let profile_a = profiles.profiles[0].clone();
+    let profile_b = profiles.profiles[1].clone();
+    assert_eq!(
+        profiles.default_profile_id.as_deref(),
+        Some(profile_a.profile_id.as_str()),
+        "first profile becomes the default"
+    );
+
+    // Status reports the profile count; the list never leaks a credential.
+    let status: AiStatusResult = call(&mut engine, methods::AI_STATUS, json!({}));
+    assert!(status.configured);
+    assert_eq!(status.profile_count, 2);
+    let raw = engine.handle(
+        tl_protocol::RpcRequest {
+            id: 9,
+            method: methods::AI_PROFILE_LIST.to_string(),
+            params: json!({}),
+        },
+        &mut |_notification| {},
+    );
+    let raw_text = serde_json::to_string(&raw.result).expect("serialize list");
+    assert!(!raw_text.contains("fixture-key-alpha"));
+    assert!(!raw_text.contains("fixture-key-beta"));
+
+    // Fan-out: the same segment accepts one run per profile in parallel.
+    let run_a: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_START,
+        json!({"segmentId": segment.id, "action": "translate", "profileId": profile_a.profile_id}),
+    );
+    let run_b: AiAssistRunView = call(
+        &mut engine,
+        methods::AI_ASSIST_START,
+        json!({"segmentId": segment.id, "action": "translate", "profileId": profile_b.profile_id}),
+    );
+    assert_eq!(run_a.profile_id, profile_a.profile_id);
+    assert_eq!(run_b.profile_id, profile_b.profile_id);
+    // Duplicate through the same profile: honest Conflict.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_ASSIST_START,
+            json!({"segmentId": segment.id, "action": "translate", "profileId": profile_a.profile_id}),
+        ),
+        RpcErrorCode::Conflict
+    );
+    // Unknown profile id: NotFound, never a silent fallback.
+    assert_eq!(
+        call_err(
+            &mut engine,
+            methods::AI_ASSIST_START,
+            json!({"segmentId": segment.id, "action": "translate", "profileId": "missing"}),
+        ),
+        RpcErrorCode::NotFound
+    );
+
+    // Both candidates come back with their own real provider/model.
+    let done_a = wait_assist_terminal(&mut engine, &events, &run_a.assist_id);
+    let done_b = wait_assist_terminal(&mut engine, &events, &run_b.assist_id);
+    let result_a = done_a.result.expect("candidate A");
+    let result_b = done_b.result.expect("candidate B");
+    assert_eq!(result_a.model, "model-a");
+    assert_eq!(result_b.model, "model-b");
+    assert_eq!(result_a.draft_target, "候选甲。");
+    assert_eq!(result_b.draft_target, "候选乙。");
+
+    // Removing the default hands the default to the remaining profile.
+    let profiles: tl_protocol::AiProfileListResult = call(
+        &mut engine,
+        methods::AI_PROFILE_REMOVE,
+        json!({"profileId": profile_a.profile_id}),
+    );
+    assert_eq!(profiles.profiles.len(), 1);
+    assert_eq!(
+        profiles.default_profile_id.as_deref(),
+        Some(profile_b.profile_id.as_str())
+    );
+}
+
+/// Scope and failure bookkeeping: `segmentIds` narrows the plan to the
+/// intersection with the untranslated set, `eligibleSegments` makes the
+/// `maxSegments` cap explicit, and `failedSegmentIds` powers a precise rerun
+/// that plans exactly the failed rows.
+#[test]
+fn agent_scope_and_failed_segment_ids_power_precise_reruns() {
+    let workspace = tempfile::tempdir().expect("tempdir");
+    let mut engine = Engine::open(&workspace.path().join("data")).expect("open engine");
+    let events = engine.take_engine_events();
+    let project: tl_domain::Project = call(
+        &mut engine,
+        methods::PROJECT_CREATE,
+        json!({"name": "Scope", "sourceLocale": "en-US", "targetLocale": "zh-CN"}),
+    );
+    let work = write_txt(
+        workspace.path(),
+        "scope.txt",
+        "Alpha sentence.\n\nBravo sentence.\n\nCharlie sentence.\n",
+    );
+    let imported: DocumentImportResult = call(
+        &mut engine,
+        methods::DOCUMENT_IMPORT,
+        json!({"projectId": project.id, "sourcePath": work.display().to_string()}),
+    );
+    let listed: SegmentListResult = call(
+        &mut engine,
+        methods::SEGMENT_LIST,
+        json!({"documentId": imported.document.id}),
+    );
+
+    // An empty SSE reply drafts nothing: every planned segment fails.
+    let base_url = spawn_sse_server("", Duration::ZERO);
+    configure_loopback_ai(&mut engine, &base_url);
+
+    // maxSegments caps the plan while eligibleSegments reports the scope.
+    let run: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({"documentId": imported.document.id, "approvalMode": "auto", "maxSegments": 2}),
+    );
+    assert_eq!(run.eligible_segments, 3);
+    assert_eq!(run.planned_segments, 2);
+    let mut notifications = Vec::new();
+    let finished = drive_agent_run(&mut engine, &events, &run.run_id, &mut notifications);
+    assert_eq!(finished.failed_segments, 2);
+    assert_eq!(finished.failed_segment_ids.len(), 2);
+    assert_eq!(finished.processed_segments, 2);
+
+    // Precise rerun: the failed ids become the scope of a fresh run.
+    let rerun: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({
+            "documentId": imported.document.id,
+            "approvalMode": "auto",
+            "segmentIds": finished.failed_segment_ids,
+        }),
+    );
+    assert_eq!(rerun.eligible_segments, 2);
+    assert_eq!(rerun.planned_segments, 2);
+    assert_ne!(rerun.run_id, finished.run_id, "a rerun is a new task order");
+    let rerun_finished = drive_agent_run(&mut engine, &events, &rerun.run_id, &mut notifications);
+    assert_eq!(rerun_finished.status, AgentRunStatus::AwaitingReview);
+
+    // A single-segment scope plans exactly that segment.
+    let solo: AgentRunView = call(
+        &mut engine,
+        methods::AI_AGENT_START,
+        json!({
+            "documentId": imported.document.id,
+            "approvalMode": "auto",
+            "segmentIds": [listed.segments[2].id],
+        }),
+    );
+    assert_eq!(solo.eligible_segments, 1);
+    assert_eq!(solo.planned_segments, 1);
+    let _ = drive_agent_run(&mut engine, &events, &solo.run_id, &mut notifications);
 }

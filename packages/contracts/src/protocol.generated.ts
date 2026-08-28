@@ -13,13 +13,11 @@ export type RpcErrorCode =
   | "io"
   | "internal";
 /**
- * Lifecycle of an agent run. The run never confirms segments, never signs
- * off, and never exports: it always parks at `awaitingReview` for a human.
+ * Approval tier for one agent run. The tiers govern what happens to
+ * AI-generated drafts only: exact-TM reuse, the tag-integrity gate, the
+ * locked/confirmed shields, and human-only export are identical everywhere.
  */
-export type AgentRunStatus = ("running" | "canceled" | "failed") | "awaitingReview";
-export type AgentStepKind = ("plan" | "qa" | "summary" | "cancel") | "tm" | "translate";
-export type AgentStepStatus = "done" | "failed" | "skipped";
-export type AiAssistAction = "translate" | "refine";
+export type AgentApprovalMode = "manual" | "auto" | "turbo";
 export type AiProviderKind =
   | "openai"
   | "openaiResponses"
@@ -32,6 +30,21 @@ export type AiProviderKind =
   | "kimi"
   | "volcengine"
   | "openaiCompatible";
+/**
+ * One AI candidate held for human review in a manual-mode run. Tag-broken
+ * candidates never become proposals (they are recorded as failures), so a
+ * pending proposal is always applicable.
+ */
+export type AgentProposalStatus = ("pending" | "applied" | "rejected") | "stale";
+/**
+ * Lifecycle of an agent run. The run never confirms segments, never signs
+ * off, and never exports: it always parks at `awaitingReview` for a human.
+ */
+export type AgentRunStatus = ("running" | "canceled" | "failed") | "awaitingReview";
+export type AgentStepKind = ("plan" | "qa" | "summary" | "cancel") | "tm" | "translate" | "proposal" | "confirm";
+export type AgentStepStatus = "done" | "failed" | "skipped";
+export type AgentReviewDecision = "apply" | "reject";
+export type AiAssistAction = "translate" | "refine";
 /**
  * Lifecycle of one asynchronous assist request. `ai.assist.start` validates
  * and returns immediately; the provider call runs off the RPC thread and the
@@ -100,13 +113,17 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract57;
-  "ai.agent.start": MethodContract55;
-  "ai.agent.status": MethodContract56;
-  "ai.assist.cancel": MethodContract54;
-  "ai.assist.start": MethodContract52;
-  "ai.assist.status": MethodContract53;
+  "ai.agent.cancel": MethodContract61;
+  "ai.agent.review": MethodContract60;
+  "ai.agent.start": MethodContract58;
+  "ai.agent.status": MethodContract59;
+  "ai.assist.cancel": MethodContract57;
+  "ai.assist.start": MethodContract55;
+  "ai.assist.status": MethodContract56;
   "ai.configure": MethodContract50;
+  "ai.profile.add": MethodContract52;
+  "ai.profile.list": MethodContract53;
+  "ai.profile.remove": MethodContract54;
   "ai.status": MethodContract51;
   "document.export": MethodContract11;
   "document.import": MethodContract8;
@@ -161,7 +178,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract57 {
+export interface MethodContract61 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -174,20 +191,87 @@ export interface AgentCancelParams {
  */
 export interface AgentRunView {
   aiDrafted: number;
+  approvalMode: AgentApprovalMode;
+  /**
+   * Turbo mode: segments confirmed through `segment.confirm` after the
+   * segment-scoped QA gate found zero open error-severity issues.
+   */
+  autoConfirmed: number;
   cancelRequested: boolean;
   createdAtMs: number;
   documentId: string;
+  /**
+   * Untranslated, unlocked segments in the requested scope before the
+   * cap — makes any truncation explicit.
+   */
+  eligibleSegments: number;
+  /**
+   * Segment ids behind `failedSegments`, for the precise rerun.
+   */
+  failedSegmentIds: string[];
   failedSegments: number;
+  model: string;
   openQaIssues: number;
   /**
-   * Untranslated segments claimed by this run at start time.
+   * Untranslated segments claimed by this run at start time (after the
+   * `maxSegments` cap).
    */
   plannedSegments: number;
+  /**
+   * Planned segments that reached a per-segment outcome (TM applied, AI
+   * draft applied, proposal queued, failed, or skipped). The honest
+   * progress numerator; `plannedSegments` is the denominator.
+   */
+  processedSegments: number;
+  /**
+   * The resolved profile drafting this run.
+   */
+  profileId: string;
+  /**
+   * Manual mode: the review queue. Empty in auto and turbo runs.
+   */
+  proposals: AgentProposal[];
+  provider: AiProviderKind;
   runId: string;
+  /**
+   * Planned segments left untouched because a human edited or locked
+   * them while the run was in flight.
+   */
+  skippedSegments: number;
   status: AgentRunStatus;
   steps: AgentStep[];
   tmApplied: number;
   updatedAtMs: number;
+  [k: string]: unknown;
+}
+export interface AgentProposal {
+  draftTarget: string;
+  elapsedMs: number;
+  model: string;
+  /**
+   * Present for `stale` proposals: why the live row refused the apply.
+   */
+  note?: string | null;
+  provider: AiProviderKind;
+  segmentId: string;
+  sourceText: string;
+  status: AgentProposalStatus;
+  tagCheck: TagIntegrityReport;
+  [k: string]: unknown;
+}
+/**
+ * Verdict on whether a proposal preserves the source's placeholder tokens.
+ *
+ * `missing` lists tokens the proposal dropped, `extra` lists tokens it
+ * invented; both are multiset differences, so a duplicated token counts.
+ * Detection is [`tl_domain::placeholder_mismatch`] — the same detector the
+ * deterministic QA tag rules use, so the AI gate and QA agree token for
+ * token.
+ */
+export interface TagIntegrityReport {
+  extra?: string[];
+  missing?: string[];
+  ok: boolean;
   [k: string]: unknown;
 }
 export interface AgentStep {
@@ -201,23 +285,59 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract55 {
+export interface MethodContract60 {
+  params: AgentReviewParams;
+  result: AgentRunView;
+}
+/**
+ * Human decision on pending manual-mode proposals, one or many at a time.
+ * `apply` writes each draft through the same guards as auto mode (live row
+ * still untranslated and unlocked) and refreshes that segment's QA in the
+ * same transaction; a moved row turns the proposal `stale` instead of
+ * overwriting human work. `reject` records the decision and writes nothing.
+ */
+export interface AgentReviewParams {
+  decision: AgentReviewDecision;
+  runId: string;
+  segmentIds: string[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract58 {
   params: AgentStartParams;
   result: AgentRunView;
 }
 export interface AgentStartParams {
+  /**
+   * Approval tier for one agent run. The tiers govern what happens to
+   * AI-generated drafts only: exact-TM reuse, the tag-integrity gate, the
+   * locked/confirmed shields, and human-only export are identical everywhere.
+   */
+  approvalMode?: "manual" | "auto" | "turbo";
   documentId: string;
   instruction?: string | null;
   /**
    * Upper bound on segments the agent may touch in one run.
    */
   maxSegments?: number | null;
+  /**
+   * Profile to draft with; the default profile when omitted.
+   */
+  profileId?: string | null;
+  /**
+   * Optional scope: only these segments are considered (intersected with
+   * the document's untranslated, unlocked set). Powers "run the current
+   * filter" and the precise failed-segment rerun.
+   */
+  segmentIds?: string[] | null;
   [k: string]: unknown;
 }
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract56 {
+export interface MethodContract59 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -228,7 +348,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract54 {
+export interface MethodContract57 {
   params: AiAssistCancelParams;
   result: AiAssistRunView;
 }
@@ -249,6 +369,10 @@ export interface AiAssistRunView {
    */
   errorMessage?: string | null;
   /**
+   * The resolved profile serving this request.
+   */
+  profileId: string;
+  /**
    * Present exactly when `status` is `done`.
    */
   result?: AiAssistResult | null;
@@ -262,13 +386,19 @@ export interface AiAssistResult {
   elapsedMs: number;
   model: string;
   provider: AiProviderKind;
-  tagCheck: TagIntegrityReport;
+  tagCheck: TagIntegrityReport1;
   [k: string]: unknown;
 }
 /**
- * Placeholder/tag integrity of the draft against the segment source.
+ * Verdict on whether a proposal preserves the source's placeholder tokens.
+ *
+ * `missing` lists tokens the proposal dropped, `extra` lists tokens it
+ * invented; both are multiset differences, so a duplicated token counts.
+ * Detection is [`tl_domain::placeholder_mismatch`] — the same detector the
+ * deterministic QA tag rules use, so the AI gate and QA agree token for
+ * token.
  */
-export interface TagIntegrityReport {
+export interface TagIntegrityReport1 {
   extra?: string[];
   missing?: string[];
   ok: boolean;
@@ -277,20 +407,27 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract52 {
+export interface MethodContract55 {
   params: AiAssistParams;
   result: AiAssistRunView;
 }
 export interface AiAssistParams {
   action: AiAssistAction;
   instruction?: string | null;
+  /**
+   * Profile to call; the default profile when omitted. Requests for the
+   * same segment through *different* profiles run in parallel (the
+   * multi-candidate path); a second request on the same (segment,
+   * profile) pair is a Conflict.
+   */
+  profileId?: string | null;
   segmentId: string;
   [k: string]: unknown;
 }
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract53 {
+export interface MethodContract56 {
   params: AiAssistStatusParams;
   result: AiAssistRunView;
 }
@@ -319,10 +456,84 @@ export interface AiConfigureParams {
   provider: AiProviderKind;
   [k: string]: unknown;
 }
+/**
+ * `provider`/`model` describe the default profile; `profileCount` counts
+ * every configured profile (`ai.profile.list` has the full views).
+ */
 export interface AiStatusResult {
   configured: boolean;
   model?: string | null;
+  profileCount?: number;
   provider?: AiProviderKind | null;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract52 {
+  params: AiProfileAddParams;
+  result: AiProfileListResult;
+}
+/**
+ * Add one provider profile to the engine's in-memory list. Credentials
+ * follow the `ai.configure` rules exactly: engine memory only, never
+ * persisted, never echoed back.
+ */
+export interface AiProfileAddParams {
+  /**
+   * Held in engine memory only; never persisted to disk.
+   */
+  apiKey: string;
+  /**
+   * Overrides the provider's default base URL. Required for
+   * `openaiCompatible`, optional otherwise.
+   */
+  baseUrl?: string | null;
+  /**
+   * Display label; defaults to "provider · model" when omitted.
+   */
+  label?: string | null;
+  model: string;
+  provider: AiProviderKind;
+  [k: string]: unknown;
+}
+export interface AiProfileListResult {
+  defaultProfileId?: string | null;
+  profiles: AiProfileView[];
+  [k: string]: unknown;
+}
+/**
+ * The observable face of one configured profile. The credential is never
+ * part of this view.
+ */
+export interface AiProfileView {
+  baseUrl: string;
+  createdAtMs: number;
+  label: string;
+  model: string;
+  profileId: string;
+  provider: AiProviderKind;
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract53 {
+  params: AiProfileListParams;
+  result: AiProfileListResult;
+}
+export interface AiProfileListParams {
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract54 {
+  params: AiProfileRemoveParams;
+  result: AiProfileListResult;
+}
+export interface AiProfileRemoveParams {
+  profileId: string;
   [k: string]: unknown;
 }
 /**

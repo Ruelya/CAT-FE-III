@@ -39,10 +39,12 @@ use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
 };
 use tl_protocol::{
-    AgentCancelParams, AgentRunStatus, AgentRunView, AgentStartParams, AgentStatusParams,
+    AgentApprovalMode, AgentCancelParams, AgentProposal, AgentProposalStatus, AgentReviewDecision,
+    AgentReviewParams, AgentRunStatus, AgentRunView, AgentStartParams, AgentStatusParams,
     AgentStep, AgentStepKind, AgentStepNotification, AgentStepStatus, AiAssistAction,
     AiAssistCancelParams, AiAssistParams, AiAssistResult, AiAssistRunStatus, AiAssistRunView,
-    AiAssistStatusParams, AiConfigureParams, AiProviderKind, AiStatusResult, DocumentExportParams,
+    AiAssistStatusParams, AiConfigureParams, AiProfileAddParams, AiProfileListResult,
+    AiProfileRemoveParams, AiProfileView, AiProviderKind, AiStatusResult, DocumentExportParams,
     DocumentExportResult, DocumentImportParams, DocumentImportResult, DocumentListParams,
     DocumentListResult, DocumentProgress, DocumentRemoveParams, DocumentRemoveResult,
     EngineCapabilities, EngineReadyNotification, InitializeParams, InitializeResult,
@@ -61,6 +63,10 @@ pub use store::{DocumentRecord, EngineState};
 use store::StateDelta;
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
+/// Upper bound on in-memory provider profiles. Each profile can hold one
+/// assist call in flight per segment (the multi-candidate fan-out), so this
+/// cap bounds parallel provider load. Hitting it is an honest Conflict.
+const MAX_AI_PROFILES: usize = 6;
 /// Upper bound on agent runs in flight at once. Each run owns a small worker
 /// pool ([`agent::AGENT_SEGMENT_WORKERS`] threads), so this cap bounds the
 /// total thread and provider load. Hitting it is an honest Conflict, not a
@@ -147,6 +153,9 @@ struct AssistRunState {
     cancel: Arc<AtomicBool>,
 }
 
+/// Live text of one agent step for reuse across the mode arms.
+const AGENT_SKIPPED_DETAIL: &str = "句段在运行期间被人工修改或锁定，保留人工状态";
+
 pub struct Engine {
     data_dir: PathBuf,
     store: store::Store,
@@ -155,7 +164,12 @@ pub struct Engine {
     /// held here; they are read from SQLite per document / termbase / page.
     state: EngineState,
     registry: FilterRegistry,
-    ai: Option<aiops::AiRuntime>,
+    /// Configured provider profiles, in creation order. Credentials live in
+    /// engine memory only (see [`tl_ai::SecretString`]); nothing here is
+    /// ever persisted or echoed back over the wire.
+    ai_profiles: Vec<aiops::AiRuntime>,
+    /// The profile assist/agent calls use when the request names none.
+    ai_default_profile: Option<String>,
     /// Fuzzy recall indexes, one per translation memory, rebuilt on open by
     /// streaming `(id, memory_id, source_text)` from the store and
     /// maintained on every TM insert. Memory-resident by design: recall
@@ -280,7 +294,8 @@ impl Engine {
             store,
             state,
             registry,
-            ai: None,
+            ai_profiles: Vec::new(),
+            ai_default_profile: None,
             tm_indexes,
             agent_runs: BTreeMap::new(),
             assist_runs: BTreeMap::new(),
@@ -380,11 +395,15 @@ impl Engine {
             methods::QA_PROFILE_UPDATE => to_value(self.qa_profile_update(parse(params)?)?),
             methods::AI_CONFIGURE => to_value(self.ai_configure(parse(params)?)?),
             methods::AI_STATUS => to_value(self.ai_status()),
+            methods::AI_PROFILE_ADD => to_value(self.ai_profile_add(parse(params)?)?),
+            methods::AI_PROFILE_LIST => to_value(self.ai_profile_list()),
+            methods::AI_PROFILE_REMOVE => to_value(self.ai_profile_remove(parse(params)?)?),
             methods::AI_ASSIST_START => to_value(self.ai_assist_start(parse(params)?)?),
             methods::AI_ASSIST_STATUS => to_value(self.ai_assist_status(parse(params)?)?),
             methods::AI_ASSIST_CANCEL => to_value(self.ai_assist_cancel(parse(params)?)?),
             methods::AI_AGENT_START => to_value(self.ai_agent_start(parse(params)?, notify)?),
             methods::AI_AGENT_STATUS => to_value(self.ai_agent_status(parse(params)?)?),
+            methods::AI_AGENT_REVIEW => to_value(self.ai_agent_review(parse(params)?, notify)?),
             methods::AI_AGENT_CANCEL => to_value(self.ai_agent_cancel(parse(params)?)?),
             other => Err(EngineError::InvalidParams(format!(
                 "unknown method: {other}"
@@ -1316,26 +1335,178 @@ impl Engine {
         Ok(SegmentLockResult { segment })
     }
 
+    /// `ai.configure` keeps its historical single-slot semantics: it upserts
+    /// the reserved `default` profile and makes it the default. Profiles
+    /// added through `ai.profile.add` stay untouched.
     fn ai_configure(&mut self, params: AiConfigureParams) -> Result<AiStatusResult, EngineError> {
         let runtime = aiops::build_runtime(params, now_ms())
             .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
-        self.ai = Some(runtime);
+        match self
+            .ai_profiles
+            .iter_mut()
+            .find(|existing| existing.profile.id == aiops::CONFIGURE_PROFILE_ID)
+        {
+            Some(existing) => *existing = runtime,
+            None => self.ai_profiles.push(runtime),
+        }
+        self.ai_default_profile = Some(aiops::CONFIGURE_PROFILE_ID.to_string());
         Ok(self.ai_status())
     }
 
     fn ai_status(&self) -> AiStatusResult {
-        match &self.ai {
-            Some(runtime) => AiStatusResult {
-                configured: true,
-                provider: Some(runtime.profile.kind),
-                model: Some(runtime.profile.model.clone()),
-            },
-            None => AiStatusResult {
-                configured: false,
-                provider: None,
-                model: None,
-            },
+        let default = self.default_ai_profile();
+        AiStatusResult {
+            configured: !self.ai_profiles.is_empty(),
+            provider: default.map(|runtime| runtime.profile.kind),
+            model: default.map(|runtime| runtime.profile.model.clone()),
+            profile_count: self.ai_profiles.len() as u32,
         }
+    }
+
+    fn default_ai_profile(&self) -> Option<&aiops::AiRuntime> {
+        let id = self.ai_default_profile.as_deref()?;
+        self.ai_profiles
+            .iter()
+            .find(|runtime| runtime.profile.id == id)
+    }
+
+    /// Resolve the profile a request names, or the default when it names
+    /// none. Missing default → `aiNotConfigured` (nothing is configured);
+    /// unknown explicit id → `notFound`.
+    fn resolve_ai_profile(
+        &self,
+        requested: Option<&str>,
+    ) -> Result<&aiops::AiRuntime, EngineError> {
+        match requested.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(id) => self
+                .ai_profiles
+                .iter()
+                .find(|runtime| runtime.profile.id == id)
+                .ok_or_else(|| EngineError::NotFound(format!("AI profile {id}"))),
+            None => self
+                .default_ai_profile()
+                .ok_or(EngineError::AiNotConfigured),
+        }
+    }
+
+    fn ai_profile_add(
+        &mut self,
+        params: AiProfileAddParams,
+    ) -> Result<AiProfileListResult, EngineError> {
+        if self.ai_profiles.len() >= MAX_AI_PROFILES {
+            return Err(EngineError::Conflict(format!(
+                "{MAX_AI_PROFILES} AI profiles are already configured; remove one first"
+            )));
+        }
+        let label = params
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "{} · {}",
+                    tl_ai::provider_descriptor(params.provider).display_name,
+                    params.model.trim()
+                )
+            });
+        let runtime = aiops::build_profile_runtime(
+            params.provider,
+            params.model,
+            params.base_url,
+            params.api_key,
+            new_id(),
+            label,
+            now_ms(),
+        )
+        .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
+        if self.ai_default_profile.is_none() {
+            self.ai_default_profile = Some(runtime.profile.id.clone());
+        }
+        self.ai_profiles.push(runtime);
+        Ok(self.ai_profile_list())
+    }
+
+    fn ai_profile_list(&self) -> AiProfileListResult {
+        AiProfileListResult {
+            profiles: self
+                .ai_profiles
+                .iter()
+                .map(|runtime| AiProfileView {
+                    profile_id: runtime.profile.id.clone(),
+                    provider: runtime.profile.kind,
+                    model: runtime.profile.model.clone(),
+                    base_url: runtime.profile.base_url.clone(),
+                    label: runtime.profile.name.clone(),
+                    created_at_ms: runtime.profile.created_at_ms,
+                })
+                .collect(),
+            default_profile_id: self.ai_default_profile.clone(),
+        }
+    }
+
+    /// Remove one profile. In-flight assist/agent calls already duplicated
+    /// their credential, so they finish honestly; removing the default hands
+    /// the default to the earliest remaining profile.
+    fn ai_profile_remove(
+        &mut self,
+        params: AiProfileRemoveParams,
+    ) -> Result<AiProfileListResult, EngineError> {
+        let before = self.ai_profiles.len();
+        self.ai_profiles
+            .retain(|runtime| runtime.profile.id != params.profile_id);
+        if self.ai_profiles.len() == before {
+            return Err(EngineError::NotFound(format!(
+                "AI profile {}",
+                params.profile_id
+            )));
+        }
+        if self.ai_default_profile.as_deref() == Some(params.profile_id.as_str()) {
+            self.ai_default_profile = self
+                .ai_profiles
+                .first()
+                .map(|runtime| runtime.profile.id.clone());
+        }
+        Ok(self.ai_profile_list())
+    }
+
+    /// The segment's real termbase hits, shaped for prompt injection.
+    /// Preferred/allowed translations become "must translate as" lines,
+    /// forbidden ones become "never translate as" lines; entries with no
+    /// target-language translation are skipped. Only mounted-termbase hits
+    /// travel — the model is never asked to invent terminology.
+    fn prompt_terms_for(
+        entries: &[tl_asset::TermEntry],
+        target_locale: &str,
+        source_text: &str,
+    ) -> Vec<aiops::PromptTerm> {
+        let mut terms = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for hit in Self::term_hits(entries, source_text) {
+            if !seen.insert(hit.entry_id.clone()) {
+                continue;
+            }
+            for translation in &hit.translations {
+                if !qacheck::same_language(&translation.locale, target_locale) {
+                    continue;
+                }
+                if translation.forbidden {
+                    terms.push(aiops::PromptTerm {
+                        source: hit.source_term.clone(),
+                        target: translation.term.clone(),
+                        forbidden: true,
+                    });
+                } else if translation.preferred {
+                    terms.push(aiops::PromptTerm {
+                        source: hit.source_term.clone(),
+                        target: translation.term.clone(),
+                        forbidden: false,
+                    });
+                }
+            }
+        }
+        terms
     }
 
     /// Start an assist request: validate on the RPC thread, then hand the
@@ -1365,19 +1536,30 @@ impl Engine {
             ));
         }
         // Honest degradation: without a provider the request must not start.
-        let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
-        // Single flight per segment; a cancel-requested run no longer blocks
-        // a retry (its late result is discarded when the event arrives).
+        // An explicit unknown profile id is NotFound instead.
+        let runtime = self.resolve_ai_profile(params.profile_id.as_deref())?;
+        let profile = runtime.profile.clone();
+        let credential = runtime.credential.duplicate();
+        let profile_id = profile.id.clone();
+        // Single flight per (segment, profile): candidates from *different*
+        // profiles run in parallel (the multi-candidate fan-out), while a
+        // duplicate through the same profile stays an honest Conflict. A
+        // cancel-requested run no longer blocks a retry (its late result is
+        // discarded when the event arrives).
         if let Some(active) = self.assist_runs.values().find(|run| {
             run.view.status == AiAssistRunStatus::Running
                 && !run.view.cancel_requested
                 && run.view.segment_id == params.segment_id
+                && run.view.profile_id == profile_id
         }) {
             return Err(EngineError::Conflict(format!(
-                "assist {} is still running for this segment; cancel it or wait",
+                "assist {} is still running for this segment and profile; cancel it or wait",
                 active.view.assist_id
             )));
         }
+        let term_entries = self.attached_term_entries(&project.id)?;
+        let terms =
+            Self::prompt_terms_for(&term_entries, &project.target_locale, &segment.source_text);
         let messages = aiops::assist_messages(
             params.action,
             params.instruction.as_deref(),
@@ -1385,11 +1567,13 @@ impl Engine {
             &project.target_locale,
             &segment.source_text,
             &segment.target_text,
+            &terms,
         );
         let now = now_ms();
         let view = AiAssistRunView {
             assist_id: new_id(),
             segment_id: segment.id.clone(),
+            profile_id,
             action: params.action,
             status: AiAssistRunStatus::Running,
             cancel_requested: false,
@@ -1405,8 +1589,8 @@ impl Engine {
             source_text: segment.source_text.clone(),
             source_locale: project.source_locale.clone(),
             target_locale: project.target_locale.clone(),
-            profile: runtime.profile.clone(),
-            credential: runtime.credential.duplicate(),
+            profile: profile.clone(),
+            credential,
             cancel: Arc::clone(&cancel),
             events: self.events_tx.clone(),
         });
@@ -1415,8 +1599,8 @@ impl Engine {
             AssistRunState {
                 view: view.clone(),
                 source_text: segment.source_text,
-                provider: runtime.profile.kind,
-                model: runtime.profile.model.clone(),
+                provider: profile.kind,
+                model: profile.model.clone(),
                 cancel,
             },
         );
@@ -1486,7 +1670,9 @@ impl Engine {
         notify: &mut dyn FnMut(RpcNotification),
     ) -> Result<AgentRunView, EngineError> {
         // Honest degradation: without a provider the run must not start.
-        let runtime = self.ai.as_ref().ok_or(EngineError::AiNotConfigured)?;
+        let runtime = self.resolve_ai_profile(params.profile_id.as_deref())?;
+        let profile = runtime.profile.clone();
+        let credential = runtime.credential.duplicate();
         if let Some(active) = self.agent_runs.values().find(|run| {
             run.view.status == AgentRunStatus::Running && run.view.document_id == params.document_id
         }) {
@@ -1508,6 +1694,7 @@ impl Engine {
         let record = self.require_document(&params.document_id)?;
         let project = self.require_project(&record.document.project_id)?.clone();
         let document_id = record.document.id.clone();
+        let approval_mode = params.approval_mode;
         // The read path honors mounts: the exact pass consults the enabled
         // mounts in priority order and the first hit wins.
         let read_memory_ids: Vec<String> = self
@@ -1519,31 +1706,61 @@ impl Engine {
             .max_segments
             .unwrap_or(AGENT_DEFAULT_MAX_SEGMENTS)
             .max(1) as usize;
-        // Only the document's untranslated rows leave SQL, and only up to
-        // the planning cap after the whitespace-target filter. Locked rows
-        // are never planned: the agent must not claim read-only work.
-        let pending: Vec<Segment> = self
+        // Only the document's untranslated rows leave SQL. Locked rows are
+        // never planned: the agent must not claim read-only work. An
+        // explicit segmentIds scope narrows the set further (unknown or
+        // already-translated ids simply fall out of the intersection).
+        let scope: Option<std::collections::BTreeSet<&str>> = params
+            .segment_ids
+            .as_ref()
+            .map(|ids| ids.iter().map(String::as_str).collect());
+        let eligible: Vec<Segment> = self
             .store
             .untranslated_document_segments(&document_id)?
             .into_iter()
             .filter(|segment| segment.target_text.trim().is_empty() && !segment.locked)
-            .take(max_segments)
+            .filter(|segment| {
+                scope
+                    .as_ref()
+                    .is_none_or(|ids| ids.contains(segment.id.as_str()))
+            })
             .collect();
+        let eligible_count = eligible.len() as u32;
+        let pending: Vec<Segment> = eligible.into_iter().take(max_segments).collect();
+
+        // Prompt terminology comes from the mounted termbases, fetched once
+        // per run; per-segment hits are resolved below at plan time.
+        let term_entries = self.attached_term_entries(&project.id)?;
 
         let now = now_ms();
         let mut view = AgentRunView {
             run_id: new_id(),
             document_id: document_id.clone(),
             status: AgentRunStatus::Running,
+            approval_mode,
+            profile_id: profile.id.clone(),
+            provider: profile.kind,
+            model: profile.model.clone(),
             cancel_requested: false,
             planned_segments: pending.len() as u32,
+            eligible_segments: eligible_count,
+            processed_segments: 0,
             tm_applied: 0,
             ai_drafted: 0,
+            skipped_segments: 0,
             failed_segments: 0,
+            failed_segment_ids: Vec::new(),
+            auto_confirmed: 0,
             open_qa_issues: 0,
+            proposals: Vec::new(),
             steps: Vec::new(),
             created_at_ms: now,
             updated_at_ms: now,
+        };
+        let mode_plan = match approval_mode {
+            AgentApprovalMode::Manual => "AI 候选入队等待人工批准",
+            AgentApprovalMode::Auto => "标签完整的 AI 草稿自动落格",
+            AgentApprovalMode::Turbo => "AI 草稿自动落格，句段级 QA 无 error 的自动确认写 TM",
         };
         push_agent_step(
             &mut view,
@@ -1552,13 +1769,18 @@ impl Engine {
             AgentStepStatus::Done,
             None,
             format!(
-                "任务单：{} 个未翻译句段；TM 预翻 → AI 起草未命中段 → QA；结束停在人工审核门",
-                pending.len()
+                "任务单：{} / 范围内 {} 个未翻译句段；TM 预翻 → AI 起草未命中段（{}）→ QA；结束停在人工审核门，导出由人工完成",
+                pending.len(),
+                eligible_count,
+                mode_plan
             ),
         );
 
         // Phase 1 of the run: exact TM pretranslation, cheap and local.
         // Exact hits are point queries on the unique (memory, hash) index.
+        // TM reuse is deterministic recall of human-confirmed material, so
+        // it lands as drafts in every approval mode — the tiers govern
+        // AI-generated content only (see docs/prd/mt-agent-modes.md §1).
         let mut misses: Vec<agent::AgentWorkItem> = Vec::new();
         let mut tm_applied_segments: Vec<Segment> = Vec::new();
         for mut segment in pending {
@@ -1589,6 +1811,7 @@ impl Engine {
                     segment.updated_at_ms = now;
                     tm_applied_segments.push(segment);
                     view.tm_applied += 1;
+                    view.processed_segments += 1;
                     push_agent_step(
                         &mut view,
                         notify,
@@ -1601,14 +1824,31 @@ impl Engine {
                 _ => misses.push(agent::AgentWorkItem {
                     segment_id: segment.id.clone(),
                     source_text: segment.source_text.clone(),
+                    terms: Self::prompt_terms_for(
+                        &term_entries,
+                        &project.target_locale,
+                        &segment.source_text,
+                    ),
                 }),
             }
         }
+        let tm_applied_ids: Vec<String> = tm_applied_segments
+            .iter()
+            .map(|segment| segment.id.clone())
+            .collect();
         if !tm_applied_segments.is_empty() {
             self.store.apply(&StateDelta {
                 segments: tm_applied_segments,
                 ..Default::default()
             })?;
+        }
+        // Turbo: TM drafts go through the same auto-confirm gate as AI
+        // drafts — segment-scoped QA clean → the ordinary segment.confirm
+        // path (TM write, propagation, honest failures).
+        if approval_mode == AgentApprovalMode::Turbo {
+            for segment_id in tm_applied_ids {
+                self.turbo_confirm_segment(&project, &mut view, &segment_id, notify)?;
+            }
         }
 
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1618,8 +1858,8 @@ impl Engine {
             instruction: params.instruction.clone(),
             source_locale: project.source_locale.clone(),
             target_locale: project.target_locale.clone(),
-            profile: runtime.profile.clone(),
-            credential: runtime.credential.duplicate(),
+            profile,
+            credential,
             cancel: Arc::clone(&cancel),
             events: self.events_tx.clone(),
         });
@@ -1635,14 +1875,90 @@ impl Engine {
         Ok(view)
     }
 
+    /// Turbo mode's confirm gate for one freshly drafted segment: run the
+    /// segment-scoped QA rules against the live row; zero open
+    /// error-severity issues sends it through the ordinary
+    /// [`Engine::segment_confirm`] path (TM write, propagation, QA refresh,
+    /// honest failure when no memory is writable). Anything else leaves the
+    /// draft for a human and says so in the step log.
+    fn turbo_confirm_segment(
+        &mut self,
+        project: &Project,
+        view: &mut AgentRunView,
+        segment_id: &str,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<(), EngineError> {
+        let Some(segment) = self.store.segment(segment_id)? else {
+            return Ok(());
+        };
+        if segment.state != SegmentState::Draft || segment.locked {
+            return Ok(());
+        }
+        let (_, all_issues) = self.refresh_segment_qa(project, &segment)?;
+        let open_errors = all_issues
+            .iter()
+            .filter(|issue| {
+                issue.status == tl_domain::QaIssueStatus::Open
+                    && issue.severity == tl_domain::QaSeverity::Error
+            })
+            .count();
+        if open_errors > 0 {
+            push_agent_step(
+                view,
+                notify,
+                AgentStepKind::Confirm,
+                AgentStepStatus::Skipped,
+                Some(segment_id.to_string()),
+                format!("句段级 QA 有 {open_errors} 个 error，留在草稿等待人工"),
+            );
+            return Ok(());
+        }
+        match self.segment_confirm(SegmentConfirmParams {
+            segment_id: segment_id.to_string(),
+            base_revision: segment.revision,
+        }) {
+            Ok(_) => {
+                view.auto_confirmed += 1;
+                push_agent_step(
+                    view,
+                    notify,
+                    AgentStepKind::Confirm,
+                    AgentStepStatus::Done,
+                    Some(segment_id.to_string()),
+                    "句段级 QA 通过，已自动确认并写入 TM".to_string(),
+                );
+            }
+            Err(error) => {
+                push_agent_step(
+                    view,
+                    notify,
+                    AgentStepKind::Confirm,
+                    AgentStepStatus::Failed,
+                    Some(segment_id.to_string()),
+                    format!("自动确认失败：{error}；草稿保留"),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Drop the oldest terminal agent runs beyond the polling grace window
     /// so the map cannot grow without bound now that runs are concurrent.
-    /// Running runs are never pruned.
+    /// Running runs are never pruned, and neither is a run whose manual
+    /// review queue still has pending proposals — pruning one would silently
+    /// discard work a human was asked to approve.
     fn prune_agent_runs(&mut self) {
         let mut terminal: Vec<(i64, String)> = self
             .agent_runs
             .values()
-            .filter(|run| run.view.status.is_terminal())
+            .filter(|run| {
+                run.view.status.is_terminal()
+                    && !run
+                        .view
+                        .proposals
+                        .iter()
+                        .any(|proposal| proposal.status == AgentProposalStatus::Pending)
+            })
             .map(|run| (run.view.updated_at_ms, run.view.run_id.clone()))
             .collect();
         if terminal.len() <= AGENT_TERMINAL_HISTORY {
@@ -1678,6 +1994,298 @@ impl Engine {
         Ok(run.view.clone())
     }
 
+    /// One drafted-segment event from the agent worker pool. The run state
+    /// is temporarily lifted out of the map so the mode-specific arms can
+    /// use `&mut self` (store writes, QA refresh, the turbo confirm path)
+    /// while mutating the run view; the engine loop is single-threaded, so
+    /// nothing can observe the gap.
+    fn agent_drafted(
+        &mut self,
+        run_id: String,
+        segment_id: String,
+        outcome: Result<events::AgentDraft, String>,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<(), EngineError> {
+        let running = self
+            .agent_runs
+            .get(&run_id)
+            .is_some_and(|run| run.view.status == AgentRunStatus::Running);
+        if !running {
+            return Ok(());
+        }
+        let mut state = self.agent_runs.remove(&run_id).expect("run just resolved");
+        let result = self.apply_agent_draft(&mut state.view, segment_id, outcome, notify);
+        self.agent_runs.insert(run_id, state);
+        result
+    }
+
+    fn apply_agent_draft(
+        &mut self,
+        view: &mut AgentRunView,
+        segment_id: String,
+        outcome: Result<events::AgentDraft, String>,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<(), EngineError> {
+        match outcome {
+            Ok(draft) if !draft.target.trim().is_empty() => {
+                // Fetch the live row: a human may have edited or locked it
+                // while the provider call was in flight.
+                let stored = self.store.segment(&segment_id)?;
+                let still_pending = stored.as_ref().is_some_and(|segment| {
+                    segment.state == SegmentState::Untranslated
+                        && segment.target_text.trim().is_empty()
+                        && !segment.locked
+                });
+                let Some(mut stored) = stored.filter(|_| still_pending) else {
+                    view.skipped_segments += 1;
+                    view.processed_segments += 1;
+                    push_agent_step(
+                        view,
+                        notify,
+                        AgentStepKind::Translate,
+                        AgentStepStatus::Skipped,
+                        Some(segment_id),
+                        AGENT_SKIPPED_DETAIL.to_string(),
+                    );
+                    return Ok(());
+                };
+                let integrity = check_tag_integrity(&stored.source_text, &draft.target);
+                if !integrity.ok {
+                    view.failed_segments += 1;
+                    view.failed_segment_ids.push(segment_id.clone());
+                    view.processed_segments += 1;
+                    push_agent_step(
+                        view,
+                        notify,
+                        AgentStepKind::Translate,
+                        AgentStepStatus::Failed,
+                        Some(segment_id),
+                        format!(
+                            "标签完整性校验未通过（缺失 {}，多余 {}），不落草稿",
+                            integrity.missing.len(),
+                            integrity.extra.len()
+                        ),
+                    );
+                    return Ok(());
+                }
+                // Manual tier: the candidate queues for human review; the
+                // segment stays untouched until `ai.agent.review` approves.
+                if view.approval_mode == AgentApprovalMode::Manual {
+                    view.proposals.push(AgentProposal {
+                        segment_id: segment_id.clone(),
+                        source_text: stored.source_text.clone(),
+                        draft_target: draft.target.clone(),
+                        provider: view.provider,
+                        model: draft.model.clone(),
+                        elapsed_ms: draft.elapsed_ms,
+                        tag_check: integrity,
+                        status: AgentProposalStatus::Pending,
+                        note: None,
+                    });
+                    view.processed_segments += 1;
+                    push_agent_step(
+                        view,
+                        notify,
+                        AgentStepKind::Proposal,
+                        AgentStepStatus::Done,
+                        Some(segment_id),
+                        format!(
+                            "候选已入队（{}，{} ms），等待人工批准",
+                            draft.model, draft.elapsed_ms
+                        ),
+                    );
+                    return Ok(());
+                }
+                // Auto and turbo tiers: the tag-checked draft lands now.
+                let now = now_ms();
+                stored.target_text = draft.target;
+                stored.state = SegmentState::Draft;
+                stored.origin = Some(SegmentOrigin {
+                    kind: SegmentOriginKind::AiDraft,
+                    score: None,
+                    model: Some(draft.model.clone()),
+                    edited: false,
+                });
+                stored.revision += 1;
+                stored.updated_at_ms = now;
+                view.ai_drafted += 1;
+                view.processed_segments += 1;
+                push_agent_step(
+                    view,
+                    notify,
+                    AgentStepKind::Translate,
+                    AgentStepStatus::Done,
+                    Some(segment_id.clone()),
+                    format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
+                );
+                self.store.apply(&StateDelta {
+                    segments: vec![stored],
+                    ..Default::default()
+                })?;
+                if view.approval_mode == AgentApprovalMode::Turbo {
+                    let record = self.require_document(&view.document_id)?;
+                    let project = self.require_project(&record.document.project_id)?.clone();
+                    self.turbo_confirm_segment(&project, view, &segment_id, notify)?;
+                }
+            }
+            Ok(_) => {
+                view.failed_segments += 1;
+                view.failed_segment_ids.push(segment_id.clone());
+                view.processed_segments += 1;
+                push_agent_step(
+                    view,
+                    notify,
+                    AgentStepKind::Translate,
+                    AgentStepStatus::Failed,
+                    Some(segment_id),
+                    "AI 返回空译文，不落草稿".to_string(),
+                );
+            }
+            Err(message) => {
+                view.failed_segments += 1;
+                view.failed_segment_ids.push(segment_id.clone());
+                view.processed_segments += 1;
+                push_agent_step(
+                    view,
+                    notify,
+                    AgentStepKind::Translate,
+                    AgentStepStatus::Failed,
+                    Some(segment_id),
+                    format!("AI 调用失败：{message}"),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// `ai.agent.review`: the human decision on manual-mode proposals, one
+    /// or many at a time, while the run is in flight or after it parked.
+    /// `apply` writes each draft through the same guards as auto mode and
+    /// refreshes that segment's QA in the same transaction; a live row a
+    /// human touched meanwhile turns the proposal `stale` — human state
+    /// always wins. `reject` records the decision and writes nothing.
+    fn ai_agent_review(
+        &mut self,
+        params: AgentReviewParams,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<AgentRunView, EngineError> {
+        if params.segment_ids.is_empty() {
+            return Err(EngineError::InvalidParams(
+                "segmentIds must name at least one proposal".to_string(),
+            ));
+        }
+        {
+            let run = self
+                .agent_runs
+                .get(&params.run_id)
+                .ok_or_else(|| EngineError::NotFound(format!("agent run {}", params.run_id)))?;
+            for segment_id in &params.segment_ids {
+                if !run
+                    .view
+                    .proposals
+                    .iter()
+                    .any(|proposal| proposal.segment_id == *segment_id)
+                {
+                    return Err(EngineError::InvalidParams(format!(
+                        "segment {segment_id} has no proposal in this run"
+                    )));
+                }
+            }
+        }
+        let mut state = self
+            .agent_runs
+            .remove(&params.run_id)
+            .expect("run just resolved");
+        let outcome = self.apply_agent_review(&mut state.view, &params, notify);
+        let view = state.view.clone();
+        self.agent_runs.insert(params.run_id.clone(), state);
+        outcome.map(|_| view)
+    }
+
+    fn apply_agent_review(
+        &mut self,
+        view: &mut AgentRunView,
+        params: &AgentReviewParams,
+        notify: &mut dyn FnMut(RpcNotification),
+    ) -> Result<(), EngineError> {
+        let record = self.require_document(&view.document_id)?;
+        let project = self.require_project(&record.document.project_id)?.clone();
+        for segment_id in &params.segment_ids {
+            let index = view
+                .proposals
+                .iter()
+                .position(|proposal| proposal.segment_id == *segment_id)
+                .expect("proposal validated by the caller");
+            if view.proposals[index].status != AgentProposalStatus::Pending {
+                // Already decided (double click, replayed batch): the view
+                // carries the recorded outcome; a decision never flips.
+                continue;
+            }
+            match params.decision {
+                AgentReviewDecision::Reject => {
+                    view.proposals[index].status = AgentProposalStatus::Rejected;
+                    push_agent_step(
+                        view,
+                        notify,
+                        AgentStepKind::Proposal,
+                        AgentStepStatus::Skipped,
+                        Some(segment_id.clone()),
+                        "候选已被人工拒绝，未写入句段".to_string(),
+                    );
+                }
+                AgentReviewDecision::Apply => {
+                    let stored = self.store.segment(segment_id)?;
+                    let still_pending = stored.as_ref().is_some_and(|segment| {
+                        segment.state == SegmentState::Untranslated
+                            && segment.target_text.trim().is_empty()
+                            && !segment.locked
+                    });
+                    let Some(mut stored) = stored.filter(|_| still_pending) else {
+                        view.proposals[index].status = AgentProposalStatus::Stale;
+                        view.proposals[index].note = Some(AGENT_SKIPPED_DETAIL.to_string());
+                        push_agent_step(
+                            view,
+                            notify,
+                            AgentStepKind::Proposal,
+                            AgentStepStatus::Failed,
+                            Some(segment_id.clone()),
+                            "候选作废：句段已被人工修改或锁定".to_string(),
+                        );
+                        continue;
+                    };
+                    let now = now_ms();
+                    stored.target_text = view.proposals[index].draft_target.clone();
+                    stored.state = SegmentState::Draft;
+                    stored.origin = Some(SegmentOrigin {
+                        kind: SegmentOriginKind::AiDraft,
+                        score: None,
+                        model: Some(view.proposals[index].model.clone()),
+                        edited: false,
+                    });
+                    stored.revision += 1;
+                    stored.updated_at_ms = now;
+                    let (changed_issues, _) = self.refresh_segment_qa(&project, &stored)?;
+                    self.store.apply(&StateDelta {
+                        segments: vec![stored],
+                        qa_issues: changed_issues,
+                        ..Default::default()
+                    })?;
+                    view.proposals[index].status = AgentProposalStatus::Applied;
+                    view.ai_drafted += 1;
+                    push_agent_step(
+                        view,
+                        notify,
+                        AgentStepKind::Proposal,
+                        AgentStepStatus::Done,
+                        Some(segment_id.clone()),
+                        format!("已批准，AI 草稿写入句段（{}）", view.proposals[index].model),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Apply one worker event to engine state. The caller (stdio loop or
     /// test) owns event delivery so the engine stays single-threaded.
     pub fn handle_engine_event(
@@ -1690,101 +2298,7 @@ impl Engine {
                 run_id,
                 segment_id,
                 outcome,
-            } => {
-                let Some(run) = self.agent_runs.get_mut(&run_id) else {
-                    return Ok(());
-                };
-                if run.view.status != AgentRunStatus::Running {
-                    return Ok(());
-                }
-                match outcome {
-                    Ok(draft) if !draft.target.trim().is_empty() => {
-                        // Fetch the live row: a human may have edited or
-                        // locked it while the provider call was in flight.
-                        let stored = self.store.segment(&segment_id)?;
-                        let still_pending = stored.as_ref().is_some_and(|segment| {
-                            segment.state == SegmentState::Untranslated
-                                && segment.target_text.trim().is_empty()
-                                && !segment.locked
-                        });
-                        let Some(mut stored) = stored.filter(|_| still_pending) else {
-                            push_agent_step(
-                                &mut run.view,
-                                notify,
-                                AgentStepKind::Translate,
-                                AgentStepStatus::Skipped,
-                                Some(segment_id),
-                                "句段在运行期间被人工修改或锁定，保留人工状态".to_string(),
-                            );
-                            return Ok(());
-                        };
-                        let integrity = check_tag_integrity(&stored.source_text, &draft.target);
-                        if !integrity.ok {
-                            run.view.failed_segments += 1;
-                            push_agent_step(
-                                &mut run.view,
-                                notify,
-                                AgentStepKind::Translate,
-                                AgentStepStatus::Failed,
-                                Some(segment_id),
-                                format!(
-                                    "标签完整性校验未通过（缺失 {}，多余 {}），不落草稿",
-                                    integrity.missing.len(),
-                                    integrity.extra.len()
-                                ),
-                            );
-                            return Ok(());
-                        }
-                        let now = now_ms();
-                        stored.target_text = draft.target;
-                        stored.state = SegmentState::Draft;
-                        stored.origin = Some(SegmentOrigin {
-                            kind: SegmentOriginKind::AiDraft,
-                            score: None,
-                            model: Some(draft.model.clone()),
-                            edited: false,
-                        });
-                        stored.revision += 1;
-                        stored.updated_at_ms = now;
-                        run.view.ai_drafted += 1;
-                        push_agent_step(
-                            &mut run.view,
-                            notify,
-                            AgentStepKind::Translate,
-                            AgentStepStatus::Done,
-                            Some(segment_id),
-                            format!("AI 草稿（{}，{} ms）", draft.model, draft.elapsed_ms),
-                        );
-                        self.store.apply(&StateDelta {
-                            segments: vec![stored],
-                            ..Default::default()
-                        })?;
-                    }
-                    Ok(_) => {
-                        run.view.failed_segments += 1;
-                        push_agent_step(
-                            &mut run.view,
-                            notify,
-                            AgentStepKind::Translate,
-                            AgentStepStatus::Failed,
-                            Some(segment_id),
-                            "AI 返回空译文，不落草稿".to_string(),
-                        );
-                    }
-                    Err(message) => {
-                        run.view.failed_segments += 1;
-                        push_agent_step(
-                            &mut run.view,
-                            notify,
-                            AgentStepKind::Translate,
-                            AgentStepStatus::Failed,
-                            Some(segment_id),
-                            format!("AI 调用失败：{message}"),
-                        );
-                    }
-                }
-                Ok(())
-            }
+            } => self.agent_drafted(run_id, segment_id, outcome, notify),
             EngineEvent::AgentFinished { run_id } => {
                 let Some(run) = self.agent_runs.get(&run_id) else {
                     return Ok(());
@@ -1816,13 +2330,36 @@ impl Engine {
                             ),
                         );
                         run.view.status = AgentRunStatus::AwaitingReview;
-                        let summary = format!(
-                            "TM 复用 {}，AI 草稿 {}，失败 {}，QA 未解决 {}。已停在人工审核门：请到工作台确认或导出，Agent 不会代做。",
-                            run.view.tm_applied,
-                            run.view.ai_drafted,
-                            run.view.failed_segments,
-                            run.view.open_qa_issues
-                        );
+                        let pending_proposals = run
+                            .view
+                            .proposals
+                            .iter()
+                            .filter(|proposal| proposal.status == AgentProposalStatus::Pending)
+                            .count();
+                        let summary = match run.view.approval_mode {
+                            AgentApprovalMode::Manual => format!(
+                                "TM 复用 {}，候选待审批 {}，失败 {}，QA 未解决 {}。请在面板中批准或拒绝候选，再到工作台确认或导出。",
+                                run.view.tm_applied,
+                                pending_proposals,
+                                run.view.failed_segments,
+                                run.view.open_qa_issues
+                            ),
+                            AgentApprovalMode::Auto => format!(
+                                "TM 复用 {}，AI 草稿 {}，失败 {}，QA 未解决 {}。已停在人工审核门：请到工作台确认或导出，Agent 不会代做。",
+                                run.view.tm_applied,
+                                run.view.ai_drafted,
+                                run.view.failed_segments,
+                                run.view.open_qa_issues
+                            ),
+                            AgentApprovalMode::Turbo => format!(
+                                "TM 复用 {}，AI 草稿 {}，自动确认 {}，失败 {}，QA 未解决 {}。QA 有 error 的句段留在草稿；导出由人工完成。",
+                                run.view.tm_applied,
+                                run.view.ai_drafted,
+                                run.view.auto_confirmed,
+                                run.view.failed_segments,
+                                run.view.open_qa_issues
+                            ),
+                        };
                         push_agent_step(
                             &mut run.view,
                             notify,

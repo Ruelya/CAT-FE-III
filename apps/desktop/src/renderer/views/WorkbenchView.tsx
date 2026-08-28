@@ -960,6 +960,13 @@ export function WorkbenchView({
     [segments, filter, openIssueSegmentIds, termSegmentIds],
   );
 
+  // The agent's 当前筛选 scope: the ids on screen right now. The engine
+  // intersects them with the untranslated, unlocked set at plan time.
+  const filteredSegmentIds = useMemo(
+    () => filteredSegments.map((segment) => segment.id),
+    [filteredSegments],
+  );
+
   // Trados-style flow: after a confirm, the selection steps to the next
   // visible segment per the chord's navigation policy, so the keyboard
   // loop stays type → Ctrl+Enter → type. `written` carries the freshly
@@ -3475,6 +3482,9 @@ export function WorkbenchView({
                   }}
                   onStatusMessage={onStatusMessage}
                   onGoExport={() => void exportDocument()}
+                  onGoQa={() => setTab("qa")}
+                  onJumpToSegment={jumpToSegment}
+                  filteredSegmentIds={filteredSegmentIds}
                 />
               </>
             ) : null}

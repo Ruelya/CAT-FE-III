@@ -1,6 +1,7 @@
 /**
- * Centralized AI availability. One provider fetches `ai.status` and every
- * panel reads the same value instead of polling the engine on its own.
+ * Centralized AI availability. One provider fetches `ai.status` plus the
+ * profile list and every panel reads the same values instead of polling the
+ * engine on its own.
  */
 
 import {
@@ -13,7 +14,11 @@ import {
   type ReactNode,
 } from "react";
 
-import type { AiStatusResult } from "@translunar/contracts";
+import type {
+  AiProfileListResult,
+  AiProfileView,
+  AiStatusResult,
+} from "@translunar/contracts";
 
 import { callEngine } from "./engine.js";
 
@@ -22,24 +27,44 @@ export interface AiAvailability {
   status: AiStatusResult | null;
   /** True only when the engine confirmed a configured provider. */
   configured: boolean;
+  /** Every configured profile, in engine order. Credentials never appear. */
+  profiles: AiProfileView[];
+  /** The profile assist and agent runs use when none is named. */
+  defaultProfileId: string | null;
   /** Re-query the engine (e.g. after an engine restart). */
   refresh: () => Promise<void>;
   /** Push a fresh status straight from an `ai.configure` response. */
   setStatus: (status: AiStatusResult) => void;
+  /** Push a fresh list straight from an `ai.profile.*` response. */
+  setProfiles: (list: AiProfileListResult) => void;
 }
 
 const AiStatusContext = createContext<AiAvailability | null>(null);
 
 export function AiStatusProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AiStatusResult | null>(null);
+  const [profileList, setProfileList] = useState<AiProfileListResult>({
+    profiles: [],
+    defaultProfileId: null,
+  });
 
   const refresh = useCallback(async () => {
+    let next: AiStatusResult | null = null;
     try {
-      setStatus(await callEngine("ai.status", {}));
+      next = await callEngine("ai.status", {});
     } catch {
       // The engine is unreachable; treat AI as unavailable, never pretend.
-      setStatus(null);
     }
+    setStatus(next);
+    let list: AiProfileListResult = { profiles: [], defaultProfileId: null };
+    if (next?.configured) {
+      try {
+        list = await callEngine("ai.profile.list", {});
+      } catch {
+        // Status still counts; the panels degrade to the default profile.
+      }
+    }
+    setProfileList(list);
   }, []);
 
   useEffect(() => {
@@ -50,10 +75,13 @@ export function AiStatusProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       configured: status?.configured === true,
+      profiles: Array.isArray(profileList.profiles) ? profileList.profiles : [],
+      defaultProfileId: profileList.defaultProfileId ?? null,
       refresh,
       setStatus,
+      setProfiles: setProfileList,
     }),
-    [status, refresh],
+    [status, profileList, refresh],
   );
 
   return (
