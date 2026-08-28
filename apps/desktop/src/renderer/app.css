@@ -2277,6 +2277,185 @@ button.app-statusbar__jump:hover {
   color: var(--tl-color-text-faint);
 }
 
+/* Inline jump affordance inside step/proposal meta rows. */
+.agent-step__jump {
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--tl-color-accent-strong);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-step__jump:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+/* Approval tiers share the underline-tab grammar of the preview tabs. */
+.agent-modes {
+  display: flex;
+  gap: var(--tl-space-1);
+}
+
+.agent-modes button {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.agent-modes button:hover:not([data-active="true"]):not(:disabled) {
+  color: var(--tl-color-text);
+}
+
+.agent-modes button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.agent-modes button[data-active="true"] {
+  color: var(--tl-color-accent-strong);
+  border-bottom-color: var(--tl-color-accent);
+  font-weight: 600;
+}
+
+.agent-modes button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.agent-modes__note {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  line-height: 1.5;
+}
+
+/* Run progress: real numerator over real denominator, nothing invented. */
+.agent-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.agent-progress .tl-meter {
+  flex: 1;
+  width: auto;
+}
+
+.agent-progress__text {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-progress__model {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 10em;
+}
+
+/* Manual-tier review queue. */
+.agent-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.agent-proposals__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.agent-proposals__head span {
+  margin-right: auto;
+}
+
+.agent-proposal {
+  border-left: 2px solid var(--tl-status-warn);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.agent-proposal__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+.agent-proposal__model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-proposal__source {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.agent-proposal__draft {
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* Configured provider profiles: flat rows, credentials never shown. */
+.ai-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+  align-items: flex-start;
+}
+
+.ai-profiles__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  width: 100%;
+}
+
+.ai-profiles__label {
+  margin-right: auto;
+  font-size: var(--tl-text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-draft__elapsed {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
 .form-stack {
   display: flex;
   flex-direction: column;

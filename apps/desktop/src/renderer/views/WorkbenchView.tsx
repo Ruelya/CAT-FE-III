@@ -3475,6 +3475,8 @@ export function WorkbenchView({
                   }}
                   onStatusMessage={onStatusMessage}
                   onGoExport={() => void exportDocument()}
+                  onGoQa={() => setTab("qa")}
+                  onJumpToSegment={jumpToSegment}
                 />
               </>
             ) : null}

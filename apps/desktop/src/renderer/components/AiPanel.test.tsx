@@ -53,7 +53,12 @@ function renderPanel(
 
 const CONFIGURED_STATUS: EngineInvokeResponse = {
   ok: true,
-  result: { configured: true, provider: "openai", model: "gpt-test" },
+  result: {
+    configured: true,
+    provider: "openai",
+    model: "gpt-test",
+    profileCount: 1,
+  },
 };
 
 const RUNNING_ASSIST = {
@@ -61,6 +66,7 @@ const RUNNING_ASSIST = {
   segmentId: "s1",
   action: "translate",
   status: "running",
+  profileId: "p-default",
   cancelRequested: false,
   createdAtMs: 1,
   updatedAtMs: 1,
@@ -95,58 +101,71 @@ describe("AiPanel", () => {
     expect(screen.queryByText("AI 翻译")).not.toBeInTheDocument();
   });
 
-  it("submits provider configuration through ai.configure", async () => {
-    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> =>
-      Promise.resolve(
-        method === "ai.status"
-          ? {
-              ok: true,
-              result: { configured: false, provider: null, model: null },
-            }
-          : CONFIGURED_STATUS,
-      ),
-    );
-    installBridge(invoke);
-    renderPanel();
-    await waitFor(() => {
-      expect(screen.getByLabelText("模型")).toBeInTheDocument();
-    });
-    await userEvent.type(screen.getByLabelText("模型"), "gpt-test");
-    await userEvent.type(screen.getByLabelText("API Key"), "sk-test");
-    await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith(
-        "ai.configure",
-        expect.objectContaining({
-          provider: "openai",
-          model: "gpt-test",
-          apiKey: "sk-test",
-        }),
-      );
-    });
-    // The configured badge replaces the credential form.
-    await waitFor(() => {
-      expect(screen.getByText(/openai · gpt-test/)).toBeInTheDocument();
-    });
-  });
-
-  it("sends a non-default provider and base URL through ai.configure", async () => {
-    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> =>
-      Promise.resolve(
-        method === "ai.status"
-          ? {
-              ok: true,
-              result: { configured: false, provider: null, model: null },
-            }
-          : {
-              ok: true,
-              result: {
-                configured: true,
-                provider: "gemini",
-                model: "gemini-2.5-flash",
-              },
+  it("adds the first profile through ai.profile.add and never echoes the key", async () => {
+    let added = false;
+    const invoke = vi.fn(
+      (method: string, params: unknown): Promise<EngineInvokeResponse> => {
+        if (method === "ai.status") {
+          return Promise.resolve(
+            added
+              ? {
+                  ok: true,
+                  result: {
+                    configured: true,
+                    provider: "gemini",
+                    model: "gemini-2.5-flash",
+                    profileCount: 1,
+                  },
+                }
+              : {
+                  ok: true,
+                  result: { configured: false, provider: null, model: null },
+                },
+          );
+        }
+        if (method === "ai.profile.add") {
+          added = true;
+          void params;
+          return Promise.resolve({
+            ok: true,
+            result: {
+              profiles: [
+                {
+                  profileId: "p1",
+                  provider: "gemini",
+                  model: "gemini-2.5-flash",
+                  label: "Gemini 主力",
+                  baseUrl: "https://gateway.example/v1beta",
+                  createdAtMs: 1,
+                },
+              ],
+              defaultProfileId: "p1",
             },
-      ),
+          });
+        }
+        if (method === "ai.profile.list") {
+          return Promise.resolve({
+            ok: true,
+            result: {
+              profiles: [
+                {
+                  profileId: "p1",
+                  provider: "gemini",
+                  model: "gemini-2.5-flash",
+                  label: "Gemini 主力",
+                  baseUrl: "https://gateway.example/v1beta",
+                  createdAtMs: 1,
+                },
+              ],
+              defaultProfileId: "p1",
+            },
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          error: { code: "internal", message: `unexpected ${method}` },
+        });
+      },
     );
     installBridge(invoke);
     renderPanel();
@@ -156,71 +175,98 @@ describe("AiPanel", () => {
     await userEvent.selectOptions(screen.getByLabelText("供应商"), "gemini");
     await userEvent.type(screen.getByLabelText("模型"), "gemini-2.5-flash");
     await userEvent.type(
+      screen.getByLabelText("显示名（可选）"),
+      "Gemini 主力",
+    );
+    await userEvent.type(
       screen.getByLabelText("Base URL"),
       "https://gateway.example/v1beta",
     );
     await userEvent.type(screen.getByLabelText("API Key"), "test-key");
     await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("ai.configure", {
+      expect(invoke).toHaveBeenCalledWith("ai.profile.add", {
         provider: "gemini",
         model: "gemini-2.5-flash",
+        label: "Gemini 主力",
         baseUrl: "https://gateway.example/v1beta",
         apiKey: "test-key",
       });
     });
+    // The configured badge and the profile row replace the credential form.
     await waitFor(() => {
       expect(screen.getByText(/gemini · gemini-2.5-flash/)).toBeInTheDocument();
     });
+    expect(screen.getByText("Gemini 主力")).toBeInTheDocument();
+    // The key never comes back: no field or row carries it.
+    expect(screen.queryByDisplayValue("test-key")).not.toBeInTheDocument();
+    expect(screen.queryByText(/test-key/)).not.toBeInTheDocument();
   });
 
-  it("offers the OpenAI Responses provider and sends it through ai.configure", async () => {
-    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> =>
-      Promise.resolve(
-        method === "ai.status"
-          ? {
-              ok: true,
-              result: { configured: false, provider: null, model: null },
-            }
-          : {
-              ok: true,
-              result: {
-                configured: true,
-                provider: "openaiResponses",
-                model: "gpt-5-mini",
-              },
-            },
-      ),
-    );
+  it("removes a profile through ai.profile.remove", async () => {
+    const profileA = {
+      profileId: "p-a",
+      provider: "openai",
+      model: "gpt-a",
+      label: "甲",
+      baseUrl: "",
+      createdAtMs: 1,
+    };
+    const profileB = {
+      profileId: "p-b",
+      provider: "deepseek",
+      model: "ds-b",
+      label: "乙",
+      baseUrl: "",
+      createdAtMs: 2,
+    };
+    let profiles = [profileA, profileB];
+    const invoke = vi.fn((method: string): Promise<EngineInvokeResponse> => {
+      if (method === "ai.status") {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            configured: true,
+            provider: profiles[0]?.provider ?? null,
+            model: profiles[0]?.model ?? null,
+            profileCount: profiles.length,
+          },
+        });
+      }
+      if (method === "ai.profile.list") {
+        return Promise.resolve({
+          ok: true,
+          result: { profiles, defaultProfileId: profiles[0]?.profileId },
+        });
+      }
+      if (method === "ai.profile.remove") {
+        profiles = [profileB];
+        return Promise.resolve({
+          ok: true,
+          result: { profiles, defaultProfileId: "p-b" },
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        error: { code: "internal", message: `unexpected ${method}` },
+      });
+    });
     installBridge(invoke);
     renderPanel();
     await waitFor(() => {
-      expect(screen.getByLabelText("供应商")).toBeInTheDocument();
+      expect(screen.getByText("甲")).toBeInTheDocument();
     });
-    await userEvent.selectOptions(
-      screen.getByLabelText("供应商"),
-      "openaiResponses",
-    );
-    await userEvent.type(screen.getByLabelText("模型"), "gpt-5-mini");
-    await userEvent.type(
-      screen.getByLabelText("Base URL"),
-      "https://gateway.example/v1",
-    );
-    await userEvent.type(screen.getByLabelText("API Key"), "test-key");
-    await userEvent.click(screen.getByRole("button", { name: "保存配置" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "移除" })[0]!);
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("ai.configure", {
-        provider: "openaiResponses",
-        model: "gpt-5-mini",
-        baseUrl: "https://gateway.example/v1",
-        apiKey: "test-key",
+      expect(invoke).toHaveBeenCalledWith("ai.profile.remove", {
+        profileId: "p-a",
       });
     });
+    // The engine's refreshed list drives the rows; the removed row is gone.
     await waitFor(() => {
-      expect(
-        screen.getByText(/openaiResponses · gpt-5-mini/),
-      ).toBeInTheDocument();
+      expect(screen.queryByText("甲")).not.toBeInTheDocument();
     });
+    expect(screen.getByText("乙")).toBeInTheDocument();
   });
 
   it("blocks Apply when the candidate breaks placeholders", async () => {
@@ -473,6 +519,121 @@ describe("AiPanel", () => {
     expect(
       invoke.mock.calls.some(([method]) => method === "ai.assist.start"),
     ).toBe(false);
+  });
+
+  it("fans one request out across profiles and shows one card per model", async () => {
+    const profileA = {
+      profileId: "p-a",
+      provider: "openai",
+      model: "gpt-a",
+      label: "甲",
+      baseUrl: "",
+      createdAtMs: 1,
+    };
+    const profileB = {
+      profileId: "p-b",
+      provider: "deepseek",
+      model: "ds-b",
+      label: "乙",
+      baseUrl: "",
+      createdAtMs: 2,
+    };
+    const doneFor = (profileId: string) => ({
+      assistId: `assist-${profileId}`,
+      segmentId: "s1",
+      action: "translate",
+      status: "done",
+      profileId,
+      cancelRequested: false,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      result:
+        profileId === "p-a"
+          ? {
+              draftTarget: "点击 {button} 甲。",
+              provider: "openai",
+              model: "gpt-a",
+              elapsedMs: 11,
+              tagCheck: { ok: true, missing: [], extra: [] },
+            }
+          : {
+              draftTarget: "点击 {button} 乙。",
+              provider: "deepseek",
+              model: "ds-b",
+              elapsedMs: 22,
+              tagCheck: { ok: true, missing: [], extra: [] },
+            },
+    });
+    const invoke = vi.fn(
+      (method: string, params: unknown): Promise<EngineInvokeResponse> => {
+        if (method === "ai.status") {
+          return Promise.resolve({
+            ok: true,
+            result: {
+              configured: true,
+              provider: "openai",
+              model: "gpt-a",
+              profileCount: 2,
+            },
+          });
+        }
+        if (method === "ai.profile.list") {
+          return Promise.resolve({
+            ok: true,
+            result: { profiles: [profileA, profileB], defaultProfileId: "p-a" },
+          });
+        }
+        if (method === "ai.assist.start") {
+          const { profileId } = params as { profileId: string };
+          return Promise.resolve({ ok: true, result: doneFor(profileId) });
+        }
+        return Promise.resolve({
+          ok: false,
+          error: { code: "internal", message: `unexpected ${method}` },
+        });
+      },
+    );
+    installBridge(invoke);
+    const onApplyDraft = vi.fn();
+    renderPanel({ onApplyDraft });
+    await waitFor(() => {
+      expect(screen.getByText("AI 翻译")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "AI 翻译" }));
+
+    // One start per profile: the engine runs them in parallel per profile.
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "ai.assist.start",
+        expect.objectContaining({ segmentId: "s1", profileId: "p-a" }),
+      );
+    });
+    expect(invoke).toHaveBeenCalledWith(
+      "ai.assist.start",
+      expect.objectContaining({ segmentId: "s1", profileId: "p-b" }),
+    );
+
+    // Two cards, each carrying its own engine-reported provider/model and
+    // elapsed time — no scores, no ranking.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("ai-candidate")).toHaveLength(2);
+    });
+    const cards = screen.getAllByTestId("ai-candidate");
+    expect(cards[0]).toHaveTextContent("openai · gpt-a");
+    expect(cards[0]).toHaveTextContent("11ms");
+    expect(cards[1]).toHaveTextContent("deepseek · ds-b");
+    expect(cards[1]).toHaveTextContent("22ms");
+    expect(screen.queryByText(/最佳/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/排名/)).not.toBeInTheDocument();
+
+    // 拒绝 clears one card, the other stays.
+    await userEvent.click(screen.getAllByRole("button", { name: "拒绝" })[0]!);
+    expect(screen.getAllByTestId("ai-candidate")).toHaveLength(1);
+
+    // Applying hands the chosen candidate's text and model to the write.
+    await userEvent.click(screen.getByRole("button", { name: "应用为草稿" }));
+    expect(onApplyDraft).toHaveBeenCalledWith("点击 {button} 乙。", "ds-b");
+    expect(screen.queryByTestId("ai-candidate")).not.toBeInTheDocument();
   });
 
   it("drops a menu refine request when the target is empty", async () => {
