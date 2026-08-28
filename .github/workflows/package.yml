@@ -1,10 +1,11 @@
 name: package
 
-# Manual packaging lane: produces the unsigned, unpackaged Linux directory
+# Manual packaging lanes: each produces an unsigned, unpackaged directory
 # artifact and verifies it carries the engine binary where packaged Electron
-# main looks (resources/engine/tl-engine). Deliberately workflow_dispatch-only
-# so packaging can never break PR CI. Windows/macOS packaging is config-only
-# and has no lane here; see docs/packaging.md.
+# main looks (resources/engine/tl-engine, tl-engine.exe on Windows).
+# Deliberately workflow_dispatch-only so packaging can never break PR CI.
+# One dispatch runs both the Linux and the native Windows lane; macOS stays
+# config-only. See docs/packaging.md.
 on:
   workflow_dispatch:
 
@@ -23,6 +24,8 @@ jobs:
           version: 10.18.3
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Packaging-script Windows semantics tests
+        run: pnpm test:package-scripts
       # Builds the release engine, the renderer + electron main/preload,
       # stages the engine binary, packages the dir target, and fails unless
       # the artifact contains resources/engine/tl-engine.
@@ -33,4 +36,40 @@ jobs:
         with:
           name: translunar-cat-linux-unpacked
           path: apps/desktop/release/linux-unpacked/
+          if-no-files-found: error
+
+  # Native Windows packaging on windows-latest (MSVC host toolchain): builds
+  # the release tl-engine.exe with stable Rust, then reuses the exact same
+  # `pnpm package:dir` contract as Linux (clean dist -> build -> stage engine
+  # -> electron-builder --dir -> package:check). package:check fails the job
+  # unless win-unpacked/ contains resources/app.asar and
+  # resources/engine/tl-engine.exe; the smoke-run step proves the packaged
+  # engine actually executes on Windows.
+  package-windows-dir:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Packaging-script Windows semantics tests
+        run: pnpm test:package-scripts
+      - name: Package unpackaged directory
+        run: pnpm package:dir
+      - name: Smoke-run packaged engine
+        run: ./apps/desktop/release/win-unpacked/resources/engine/tl-engine.exe --version
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: translunar-cat-windows-unpacked
+          path: apps/desktop/release/win-unpacked/
           if-no-files-found: error

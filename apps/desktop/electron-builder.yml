@@ -30,9 +30,11 @@ linux:
   target:
     - dir
   artifactName: translunar-cat-${version}-linux-${arch}.${ext}
-# The win/mac sections below are config-only: this repository packages on
-# Linux and has never exercised them. They stay on the honest `dir` target
-# until a native-runner packaging task proves out real installers.
+# The win section runs natively on the windows-latest lane of
+# .github/workflows/package.yml; scripts/desktop-package-win-semantics.test.mjs
+# pins its dir target and the relative extraResources mapping. The mac section
+# is config-only: this repository has no macOS lane. Both stay on the honest
+# `dir` target until a packaging task proves out real installers.
 win:
   target:
     - dir
