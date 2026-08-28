@@ -82,11 +82,15 @@ pub mod methods {
     pub const QA_PROFILE_UPDATE: &str = "qa.profile.update";
     pub const AI_CONFIGURE: &str = "ai.configure";
     pub const AI_STATUS: &str = "ai.status";
+    pub const AI_PROFILE_ADD: &str = "ai.profile.add";
+    pub const AI_PROFILE_LIST: &str = "ai.profile.list";
+    pub const AI_PROFILE_REMOVE: &str = "ai.profile.remove";
     pub const AI_ASSIST_START: &str = "ai.assist.start";
     pub const AI_ASSIST_STATUS: &str = "ai.assist.status";
     pub const AI_ASSIST_CANCEL: &str = "ai.assist.cancel";
     pub const AI_AGENT_START: &str = "ai.agent.start";
     pub const AI_AGENT_STATUS: &str = "ai.agent.status";
+    pub const AI_AGENT_REVIEW: &str = "ai.agent.review";
     pub const AI_AGENT_CANCEL: &str = "ai.agent.cancel";
 }
 
@@ -210,6 +214,12 @@ pub struct RpcMethodCatalog {
     pub ai_configure: MethodContract<AiConfigureParams, AiStatusResult>,
     #[serde(rename = "ai.status")]
     pub ai_status: MethodContract<AiStatusParams, AiStatusResult>,
+    #[serde(rename = "ai.profile.add")]
+    pub ai_profile_add: MethodContract<AiProfileAddParams, AiProfileListResult>,
+    #[serde(rename = "ai.profile.list")]
+    pub ai_profile_list: MethodContract<AiProfileListParams, AiProfileListResult>,
+    #[serde(rename = "ai.profile.remove")]
+    pub ai_profile_remove: MethodContract<AiProfileRemoveParams, AiProfileListResult>,
     #[serde(rename = "ai.assist.start")]
     pub ai_assist_start: MethodContract<AiAssistParams, AiAssistRunView>,
     #[serde(rename = "ai.assist.status")]
@@ -220,6 +230,8 @@ pub struct RpcMethodCatalog {
     pub ai_agent_start: MethodContract<AgentStartParams, AgentRunView>,
     #[serde(rename = "ai.agent.status")]
     pub ai_agent_status: MethodContract<AgentStatusParams, AgentRunView>,
+    #[serde(rename = "ai.agent.review")]
+    pub ai_agent_review: MethodContract<AgentReviewParams, AgentRunView>,
     #[serde(rename = "ai.agent.cancel")]
     pub ai_agent_cancel: MethodContract<AgentCancelParams, AgentRunView>,
 }
@@ -312,11 +324,15 @@ mod tests {
             methods::QA_PROFILE_UPDATE,
             methods::AI_CONFIGURE,
             methods::AI_STATUS,
+            methods::AI_PROFILE_ADD,
+            methods::AI_PROFILE_LIST,
+            methods::AI_PROFILE_REMOVE,
             methods::AI_ASSIST_START,
             methods::AI_ASSIST_STATUS,
             methods::AI_ASSIST_CANCEL,
             methods::AI_AGENT_START,
             methods::AI_AGENT_STATUS,
+            methods::AI_AGENT_REVIEW,
             methods::AI_AGENT_CANCEL,
         ];
         assert_eq!(properties.len(), expected.len());

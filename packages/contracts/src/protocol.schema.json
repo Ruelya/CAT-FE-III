@@ -33,6 +33,26 @@
     "notifications"
   ],
   "$defs": {
+    "AgentApprovalMode": {
+      "description": "Approval tier for one agent run. The tiers govern what happens to\nAI-generated drafts only: exact-TM reuse, the tag-integrity gate, the\nlocked/confirmed shields, and human-only export are identical everywhere.",
+      "oneOf": [
+        {
+          "description": "Default. AI drafts queue as proposals; nothing is written until a\nhuman approves them through `ai.agent.review`.",
+          "type": "string",
+          "const": "manual"
+        },
+        {
+          "description": "AI drafts that pass the tag gate land in the grid as drafts.\nConfirmation and export stay human.",
+          "type": "string",
+          "const": "auto"
+        },
+        {
+          "description": "Explicit high-trust tier: drafts land like `auto`, and segments whose\nsegment-scoped QA has zero open error-severity issues are confirmed\nthrough the ordinary `segment.confirm` path (TM write included).\nExport stays human; the run still parks at `awaitingReview`.",
+          "type": "string",
+          "const": "turbo"
+        }
+      ]
+    },
     "AgentCancelParams": {
       "type": "object",
       "properties": {
@@ -42,6 +62,102 @@
       },
       "required": [
         "runId"
+      ]
+    },
+    "AgentProposal": {
+      "type": "object",
+      "properties": {
+        "draftTarget": {
+          "type": "string"
+        },
+        "elapsedMs": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "model": {
+          "type": "string"
+        },
+        "note": {
+          "description": "Present for `stale` proposals: why the live row refused the apply.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        },
+        "segmentId": {
+          "type": "string"
+        },
+        "sourceText": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/AgentProposalStatus"
+        },
+        "tagCheck": {
+          "$ref": "#/$defs/TagIntegrityReport"
+        }
+      },
+      "required": [
+        "segmentId",
+        "sourceText",
+        "draftTarget",
+        "provider",
+        "model",
+        "elapsedMs",
+        "tagCheck",
+        "status"
+      ]
+    },
+    "AgentProposalStatus": {
+      "description": "One AI candidate held for human review in a manual-mode run. Tag-broken\ncandidates never become proposals (they are recorded as failures), so a\npending proposal is always applicable.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pending",
+            "applied",
+            "rejected"
+          ]
+        },
+        {
+          "description": "The live segment moved (edited, locked, or confirmed by a human)\nbefore the proposal was applied; the human state wins.",
+          "type": "string",
+          "const": "stale"
+        }
+      ]
+    },
+    "AgentReviewDecision": {
+      "type": "string",
+      "enum": [
+        "apply",
+        "reject"
+      ]
+    },
+    "AgentReviewParams": {
+      "description": "Human decision on pending manual-mode proposals, one or many at a time.\n`apply` writes each draft through the same guards as auto mode (live row\nstill untranslated and unlocked) and refreshes that segment's QA in the\nsame transaction; a moved row turns the proposal `stale` instead of\noverwriting human work. `reject` records the decision and writes nothing.",
+      "type": "object",
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/AgentReviewDecision"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "segmentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "runId",
+        "segmentIds",
+        "decision"
       ]
     },
     "AgentRunStatus": {
@@ -71,6 +187,15 @@
           "format": "uint32",
           "minimum": 0
         },
+        "approvalMode": {
+          "$ref": "#/$defs/AgentApprovalMode"
+        },
+        "autoConfirmed": {
+          "description": "Turbo mode: segments confirmed through `segment.confirm` after the\nsegment-scoped QA gate found zero open error-severity issues.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
         "cancelRequested": {
           "type": "boolean"
         },
@@ -81,10 +206,26 @@
         "documentId": {
           "type": "string"
         },
+        "eligibleSegments": {
+          "description": "Untranslated, unlocked segments in the requested scope before the\ncap — makes any truncation explicit.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "failedSegmentIds": {
+          "description": "Segment ids behind `failedSegments`, for the precise rerun.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "failedSegments": {
           "type": "integer",
           "format": "uint32",
           "minimum": 0
+        },
+        "model": {
+          "type": "string"
         },
         "openQaIssues": {
           "type": "integer",
@@ -92,13 +233,39 @@
           "minimum": 0
         },
         "plannedSegments": {
-          "description": "Untranslated segments claimed by this run at start time.",
+          "description": "Untranslated segments claimed by this run at start time (after the\n`maxSegments` cap).",
           "type": "integer",
           "format": "uint32",
           "minimum": 0
         },
+        "processedSegments": {
+          "description": "Planned segments that reached a per-segment outcome (TM applied, AI\ndraft applied, proposal queued, failed, or skipped). The honest\nprogress numerator; `plannedSegments` is the denominator.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "profileId": {
+          "description": "The resolved profile drafting this run.",
+          "type": "string"
+        },
+        "proposals": {
+          "description": "Manual mode: the review queue. Empty in auto and turbo runs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentProposal"
+          }
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        },
         "runId": {
           "type": "string"
+        },
+        "skippedSegments": {
+          "description": "Planned segments left untouched because a human edited or locked\nthem while the run was in flight.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
         },
         "status": {
           "$ref": "#/$defs/AgentRunStatus"
@@ -123,12 +290,22 @@
         "runId",
         "documentId",
         "status",
+        "approvalMode",
+        "profileId",
+        "provider",
+        "model",
         "cancelRequested",
         "plannedSegments",
+        "eligibleSegments",
+        "processedSegments",
         "tmApplied",
         "aiDrafted",
+        "skippedSegments",
         "failedSegments",
+        "failedSegmentIds",
+        "autoConfirmed",
         "openQaIssues",
+        "proposals",
         "steps",
         "createdAtMs",
         "updatedAtMs"
@@ -137,6 +314,11 @@
     "AgentStartParams": {
       "type": "object",
       "properties": {
+        "approvalMode": {
+          "description": "Approval tier; `manual` when omitted.",
+          "$ref": "#/$defs/AgentApprovalMode",
+          "default": "manual"
+        },
         "documentId": {
           "type": "string"
         },
@@ -154,6 +336,23 @@
           ],
           "format": "uint32",
           "minimum": 0
+        },
+        "profileId": {
+          "description": "Profile to draft with; the default profile when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "segmentIds": {
+          "description": "Optional scope: only these segments are considered (intersected with\nthe document's untranslated, unlocked set). Powers \"run the current\nfilter\" and the precise failed-segment rerun.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -222,6 +421,16 @@
           "description": "AI drafting for a TM miss.",
           "type": "string",
           "const": "translate"
+        },
+        {
+          "description": "Manual mode: an AI candidate queued, approved, rejected, or went\nstale (`ai.agent.review` outcomes included).",
+          "type": "string",
+          "const": "proposal"
+        },
+        {
+          "description": "Turbo mode: the auto-confirm decision for one drafted segment.",
+          "type": "string",
+          "const": "confirm"
         }
       ]
     },
@@ -289,6 +498,13 @@
           "$ref": "#/$defs/AiAssistAction"
         },
         "instruction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profileId": {
+          "description": "Profile to call; the default profile when omitted. Requests for the\nsame segment through *different* profiles run in parallel (the\nmulti-candidate path); a second request on the same (segment,\nprofile) pair is a Conflict.",
           "type": [
             "string",
             "null"
@@ -383,6 +599,10 @@
             "null"
           ]
         },
+        "profileId": {
+          "description": "The resolved profile serving this request.",
+          "type": "string"
+        },
         "result": {
           "description": "Present exactly when `status` is `done`.",
           "anyOf": [
@@ -408,6 +628,7 @@
       "required": [
         "assistId",
         "segmentId",
+        "profileId",
         "action",
         "status",
         "cancelRequested",
@@ -453,6 +674,108 @@
         "apiKey"
       ]
     },
+    "AiProfileAddParams": {
+      "description": "Add one provider profile to the engine's in-memory list. Credentials\nfollow the `ai.configure` rules exactly: engine memory only, never\npersisted, never echoed back.",
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "description": "Held in engine memory only; never persisted to disk.",
+          "type": "string"
+        },
+        "baseUrl": {
+          "description": "Overrides the provider's default base URL. Required for\n`openaiCompatible`, optional otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "Display label; defaults to \"provider · model\" when omitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "apiKey"
+      ]
+    },
+    "AiProfileListParams": {
+      "type": "object"
+    },
+    "AiProfileListResult": {
+      "type": "object",
+      "properties": {
+        "defaultProfileId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AiProfileView"
+          }
+        }
+      },
+      "required": [
+        "profiles"
+      ]
+    },
+    "AiProfileRemoveParams": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "profileId"
+      ]
+    },
+    "AiProfileView": {
+      "description": "The observable face of one configured profile. The credential is never\npart of this view.",
+      "type": "object",
+      "properties": {
+        "baseUrl": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "label": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/AiProviderKind"
+        }
+      },
+      "required": [
+        "profileId",
+        "provider",
+        "model",
+        "baseUrl",
+        "label",
+        "createdAtMs"
+      ]
+    },
     "AiProviderKind": {
       "type": "string",
       "enum": [
@@ -473,6 +796,7 @@
       "type": "object"
     },
     "AiStatusResult": {
+      "description": "`provider`/`model` describe the default profile; `profileCount` counts\nevery configured profile (`ai.profile.list` has the full views).",
       "type": "object",
       "properties": {
         "configured": {
@@ -483,6 +807,12 @@
             "string",
             "null"
           ]
+        },
+        "profileCount": {
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
         },
         "provider": {
           "anyOf": [
@@ -2077,6 +2407,57 @@
       "type": "object",
       "properties": {
         "params": {
+          "$ref": "#/$defs/AiProfileAddParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProfileListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract53": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileListParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProfileListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract54": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AiProfileRemoveParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AiProfileListResult"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract55": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
           "$ref": "#/$defs/AiAssistParams"
         },
         "result": {
@@ -2089,7 +2470,7 @@
         "result"
       ]
     },
-    "MethodContract53": {
+    "MethodContract56": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2106,7 +2487,7 @@
         "result"
       ]
     },
-    "MethodContract54": {
+    "MethodContract57": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2123,7 +2504,7 @@
         "result"
       ]
     },
-    "MethodContract55": {
+    "MethodContract58": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
@@ -2140,29 +2521,12 @@
         "result"
       ]
     },
-    "MethodContract56": {
+    "MethodContract59": {
       "description": "A `{ params, result }` pair for one method. Only used for schema export.",
       "type": "object",
       "properties": {
         "params": {
           "$ref": "#/$defs/AgentStatusParams"
-        },
-        "result": {
-          "$ref": "#/$defs/AgentRunView"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "params",
-        "result"
-      ]
-    },
-    "MethodContract57": {
-      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
-      "type": "object",
-      "properties": {
-        "params": {
-          "$ref": "#/$defs/AgentCancelParams"
         },
         "result": {
           "$ref": "#/$defs/AgentRunView"
@@ -2183,6 +2547,40 @@
         },
         "result": {
           "$ref": "#/$defs/Project"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract60": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentReviewParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "params",
+        "result"
+      ]
+    },
+    "MethodContract61": {
+      "description": "A `{ params, result }` pair for one method. Only used for schema export.",
+      "type": "object",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/AgentCancelParams"
+        },
+        "result": {
+          "$ref": "#/$defs/AgentRunView"
         }
       },
       "additionalProperties": false,
@@ -3152,25 +3550,37 @@
       "type": "object",
       "properties": {
         "ai.agent.cancel": {
-          "$ref": "#/$defs/MethodContract57"
+          "$ref": "#/$defs/MethodContract61"
+        },
+        "ai.agent.review": {
+          "$ref": "#/$defs/MethodContract60"
         },
         "ai.agent.start": {
-          "$ref": "#/$defs/MethodContract55"
+          "$ref": "#/$defs/MethodContract58"
         },
         "ai.agent.status": {
-          "$ref": "#/$defs/MethodContract56"
+          "$ref": "#/$defs/MethodContract59"
         },
         "ai.assist.cancel": {
-          "$ref": "#/$defs/MethodContract54"
+          "$ref": "#/$defs/MethodContract57"
         },
         "ai.assist.start": {
-          "$ref": "#/$defs/MethodContract52"
+          "$ref": "#/$defs/MethodContract55"
         },
         "ai.assist.status": {
-          "$ref": "#/$defs/MethodContract53"
+          "$ref": "#/$defs/MethodContract56"
         },
         "ai.configure": {
           "$ref": "#/$defs/MethodContract50"
+        },
+        "ai.profile.add": {
+          "$ref": "#/$defs/MethodContract52"
+        },
+        "ai.profile.list": {
+          "$ref": "#/$defs/MethodContract53"
+        },
+        "ai.profile.remove": {
+          "$ref": "#/$defs/MethodContract54"
         },
         "ai.status": {
           "$ref": "#/$defs/MethodContract51"
@@ -3376,11 +3786,15 @@
         "qa.profile.update",
         "ai.configure",
         "ai.status",
+        "ai.profile.add",
+        "ai.profile.list",
+        "ai.profile.remove",
         "ai.assist.start",
         "ai.assist.status",
         "ai.assist.cancel",
         "ai.agent.start",
         "ai.agent.status",
+        "ai.agent.review",
         "ai.agent.cancel"
       ]
     },
