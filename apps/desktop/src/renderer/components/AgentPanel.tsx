@@ -129,6 +129,8 @@ export function AgentPanel({
   const [reviewBusy, setReviewBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedRuns = useRef<Set<string>>(new Set());
+  // Runs whose terminal view was already re-fetched (see below).
+  const reconciledRuns = useRef<Set<string>>(new Set());
 
   const run = documentId ? (runs[documentId] ?? null) : null;
   const running = run?.status === "running";
@@ -226,6 +228,31 @@ export function AgentPanel({
       }
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
+  }, [runs, finishRun]);
+
+  // A step notification can flip a run terminal before any poll sees it —
+  // the frame carries the status but not the final counters or proposals.
+  // Fetch the authoritative view once so the queue and numbers are real.
+  useEffect(() => {
+    for (const view of Object.values(runs)) {
+      if (view.status === "running" || reconciledRuns.current.has(view.runId)) {
+        continue;
+      }
+      reconciledRuns.current.add(view.runId);
+      void callEngine("ai.agent.status", { runId: view.runId })
+        .then((fresh) => {
+          setRuns((current) =>
+            current[fresh.documentId]?.runId === fresh.runId
+              ? { ...current, [fresh.documentId]: fresh }
+              : current,
+          );
+          finishRun(fresh);
+        })
+        .catch(() => {
+          // Engine unreachable; finish with the last known view.
+          finishRun(view);
+        });
+    }
   }, [runs, finishRun]);
 
   const start = useCallback(
