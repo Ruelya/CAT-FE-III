@@ -36,7 +36,14 @@ function termbase(id: string, name: string) {
   };
 }
 
-function mount(termbaseId: string) {
+function mount(
+  termbaseId: string,
+  overrides: Partial<{
+    priority: number;
+    enabled: boolean;
+    writable: boolean;
+  }> = {},
+) {
   return {
     projectId: "p1",
     termbaseId,
@@ -46,6 +53,7 @@ function mount(termbaseId: string) {
     revision: 1,
     createdAtMs: 1,
     updatedAtMs: 1,
+    ...overrides,
   };
 }
 
@@ -577,6 +585,142 @@ describe("ProjectSettingsDialog", () => {
     expect(
       screen.queryByRole("button", { name: "导出术语库 产品术语" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("moves a termbase mount up through termbase.update priority", async () => {
+    const calls: Array<[string, unknown]> = [];
+    let moved = false;
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "termbase.update") {
+        moved = true;
+        return Promise.resolve({
+          ok: true,
+          result: {
+            mounts: [
+              mount("tb2", { priority: 0 }),
+              mount("tb1", { priority: 1 }),
+            ],
+          },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          termbases: [termbase("tb1", "产品术语"), termbase("tb2", "参考术语")],
+          // termbase.list serves mounts in priority order, like the engine.
+          mounts: moved
+            ? [mount("tb2", { priority: 0 }), mount("tb1", { priority: 1 })]
+            : [mount("tb1", { priority: 0 }), mount("tb2", { priority: 1 })],
+        },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    // Priority order: the top row's 上移 and the bottom row's 下移 hold.
+    const topUp = await screen.findByRole("button", {
+      name: "上移术语库 产品术语",
+    });
+    expect(topUp).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "下移术语库 参考术语" }),
+    ).toBeDisabled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "上移术语库 参考术语" }),
+    );
+    const updateCall = calls.find(([method]) => method === "termbase.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      termbaseId: "tb2",
+      priority: 0,
+    });
+    // The refetched order flips: the moved mount is now the top row.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "上移术语库 参考术语" }),
+      ).toBeDisabled();
+    });
+    expect(
+      screen.getByRole("button", { name: "上移术语库 产品术语" }),
+    ).toBeEnabled();
+  });
+
+  it("disables a termbase mount through termbase.update enabled", async () => {
+    const calls: Array<[string, unknown]> = [];
+    let disabled = false;
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "termbase.update") {
+        disabled = true;
+        return Promise.resolve({
+          ok: true,
+          result: { mounts: [mount("tb1", { enabled: false })] },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          termbases: [termbase("tb1", "产品术语")],
+          mounts: [mount("tb1", { enabled: !disabled })],
+        },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "停用术语库 产品术语" }),
+    );
+    const updateCall = calls.find(([method]) => method === "termbase.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      termbaseId: "tb1",
+      enabled: false,
+    });
+    // The refetched mount is disabled: the badge says so and the toggle
+    // now offers 启用.
+    await waitFor(() => {
+      expect(screen.getByText("已停用")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: "启用术语库 产品术语" }),
+    ).toBeInTheDocument();
+  });
+
+  it("flips the per-mount writable switch through termbase.update", async () => {
+    const calls: Array<[string, unknown]> = [];
+    let readOnly = false;
+    installBridge((method, params) => {
+      calls.push([method, params]);
+      if (method === "termbase.update") {
+        readOnly = true;
+        return Promise.resolve({
+          ok: true,
+          result: { mounts: [mount("tb1", { writable: false })] },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        result: {
+          termbases: [termbase("tb1", "产品术语")],
+          mounts: [mount("tb1", { writable: !readOnly })],
+        },
+      });
+    });
+    render(<ProjectSettingsDialog open project={project} onClose={vi.fn()} />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "设为只读术语库 产品术语" }),
+    );
+    const updateCall = calls.find(([method]) => method === "termbase.update");
+    expect(updateCall?.[1]).toEqual({
+      projectId: "p1",
+      termbaseId: "tb1",
+      writable: false,
+    });
+    await waitFor(() => {
+      expect(screen.getByText("只读")).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: "设为可写术语库 产品术语" }),
+    ).toBeInTheDocument();
   });
 
   it("imports an external TM through the dedicated file channel", async () => {
@@ -1266,6 +1410,14 @@ describe("ProjectSettingsDialog", () => {
       cjkPunctuation: true,
       requireSentenceFinalPunctuation: true,
     },
+    // The engine-reported static rule ids — the severity table's rows.
+    enabledRuleIds: [
+      "qa.cjk-dash",
+      "qa.edge-whitespace",
+      "qa.empty-target",
+      "qa.repeated-word",
+      "qa.tag-tag_missing",
+    ],
     blockExportOnError: false,
     revision: 1,
   };

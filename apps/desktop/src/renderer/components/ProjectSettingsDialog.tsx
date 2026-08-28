@@ -9,6 +9,7 @@ import type {
   QaSeverity,
   Termbase,
   TermbaseListResult,
+  TermbaseMount,
 } from "@translunar/contracts";
 import { Badge, Button, Dialog, SelectField, TextField } from "@translunar/ui";
 
@@ -27,38 +28,6 @@ type SegmentationChoice = "sentence" | "paragraph";
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
-
-/**
- * The engine's published standard rule ids (tl-qa `profile_with_id`
- * enabled set, expanded to the concrete finding ids severity lookups use).
- * Parameterized findings (`qa.term-required:<id>`, `qa.term-forbidden:<id>`,
- * `qa.regex:<id>`) exist per term/regex definition and get no static row.
- */
-export const QA_STANDARD_RULE_IDS: readonly string[] = [
-  "qa.empty-target",
-  "qa.source-equals-target",
-  "qa.number-mismatch",
-  "qa.unit-mismatch",
-  "qa.tag-tag_missing",
-  "qa.tag-tag_extra",
-  "qa.tag-tag_order",
-  "qa.tag-tag_pair",
-  "qa.tag-placeholder_missing",
-  "qa.tag-placeholder_extra",
-  "qa.unbalanced-delimiter",
-  "qa.edge-whitespace",
-  "qa.repeated-word",
-  "qa.length-ratio",
-  "qa.target-length-limit",
-  "qa.missing-final-punctuation",
-  "qa.same-source-different-target",
-  "qa.different-source-same-target",
-  "qa.unedited-fuzzy",
-  "qa.cjk-halfwidth-punctuation",
-  "qa.cjk-ellipsis",
-  "qa.cjk-dash",
-  "qa.cjk-latin-spacing",
-];
 
 const SEVERITY_LABEL: Record<QaSeverity, string> = {
   error: "错误",
@@ -117,8 +86,12 @@ export interface ProjectSettingsDialogProps {
  * Only the SRX path is stored — a missing file fails at import time.
  * Lifecycle moves through project.archive (archive / restore). The termbase
  * section manages real mounts through termbase.list/create/attach/detach,
- * opens a per-termbase entry manager backed by term.list/update/delete, and
- * moves CSV/TSV/TBX files through termbase.import/export. The TM section
+ * edits mounts through termbase.update (上移/下移 move the mount priority
+ * term.lookup and QA read in; 停用 removes a mount from that read path;
+ * the per-mount writable switch flips freely — several writable termbase
+ * mounts are the normal state), opens a per-termbase entry manager backed
+ * by term.list/update/delete, and moves CSV/TSV/TBX files through
+ * termbase.import/export. The TM section
  * moves TMX/CSV/TSV files through tm.import/export against an explicitly
  * picked mounted memory (memory.list): the picker defaults to the writable
  * working memory, and the chosen memoryId always rides on the call — the
@@ -568,6 +541,34 @@ export function ProjectSettingsDialog({
     [project.id, refreshTermbases],
   );
 
+  // One mount edit (priority move, enable/disable, writable switch): run
+  // termbase.update, then re-read the engine's real mount state. A priority
+  // move renumbers siblings, so the refetch is never optional.
+  const updateTermbaseMount = useCallback(
+    async (
+      termbaseId: string,
+      change: { enabled?: boolean; writable?: boolean; priority?: number },
+    ) => {
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+      try {
+        await callEngine("termbase.update", {
+          projectId: project.id,
+          termbaseId,
+          ...change,
+        });
+        await refreshTermbases();
+      } catch (updateError) {
+        setError(describeError(updateError));
+        await refreshTermbases().catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project.id, refreshTermbases],
+  );
+
   const tmMemoryName = useCallback(
     (memoryId: string) =>
       tmMemories.find((memory) => memory.id === memoryId)?.name ?? memoryId,
@@ -765,14 +766,23 @@ export function ProjectSettingsDialog({
   const tmFileBusy = tmImportPending || tmExportPending;
   const createPending = pending.has("termbase.create");
 
-  const mountedIds = new Set(
-    (termbases?.mounts ?? []).map((mount) => mount.termbaseId),
-  );
-  const mounted = (termbases?.termbases ?? []).filter((termbase) =>
-    mountedIds.has(termbase.id),
-  );
+  // Mounted rows in mount priority order (termbase.list returns mounts
+  // sorted by priority) — the order term.lookup and QA read the mounts in.
+  const termbaseMounts = termbases?.mounts ?? [];
+  const mounted = termbaseMounts
+    .map((mount) => {
+      const termbase = (termbases?.termbases ?? []).find(
+        (item) => item.id === mount.termbaseId,
+      );
+      return termbase ? { mount, termbase } : null;
+    })
+    .filter(
+      (row): row is { mount: TermbaseMount; termbase: Termbase } =>
+        row !== null,
+    );
   const unmounted = (termbases?.termbases ?? []).filter(
-    (termbase) => !mountedIds.has(termbase.id),
+    (termbase) =>
+      !termbaseMounts.some((mount) => mount.termbaseId === termbase.id),
   );
 
   return (
@@ -985,8 +995,12 @@ export function ProjectSettingsDialog({
                 </Button>
               </div>
               <h4 className="settings__subheading">严重度</h4>
+              {/* The rows are the compiled profile's own static rule ids
+                  (qa.profile.get enabledRuleIds) — never a hand-kept copy.
+                  Parameterized findings (qa.term-*:<id>, qa.regex:<id>)
+                  exist per term/regex definition and get no static row. */}
               <div className="qa-rule-grid">
-                {QA_STANDARD_RULE_IDS.map((ruleId) => {
+                {qaProfile.enabledRuleIds.map((ruleId) => {
                   const override = qaProfile.severityOverrides[ruleId];
                   return (
                     <SelectField
@@ -1093,7 +1107,7 @@ export function ProjectSettingsDialog({
           {mounted.length === 0 ? (
             <p className="settings__note">尚未挂载术语库。</p>
           ) : (
-            mounted.map((termbase) => {
+            mounted.map(({ mount, termbase }, index) => {
               const importPending = pending.has(
                 `termbase.import:${termbase.id}`,
               );
@@ -1108,6 +1122,68 @@ export function ProjectSettingsDialog({
                   <div className="settings__row">
                     <span>{termbase.name}</span>
                     <Badge tone="ok">已挂载</Badge>
+                    {mount.enabled ? null : <Badge tone="warn">已停用</Badge>}
+                    {mount.writable ? null : <Badge tone="neutral">只读</Badge>}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy || index === 0}
+                      aria-label={`上移术语库 ${termbase.name}`}
+                      onClick={() =>
+                        void updateTermbaseMount(termbase.id, {
+                          priority: Math.max(0, mount.priority - 1),
+                        })
+                      }
+                    >
+                      上移
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy || index === mounted.length - 1}
+                      aria-label={`下移术语库 ${termbase.name}`}
+                      onClick={() =>
+                        void updateTermbaseMount(termbase.id, {
+                          priority: mount.priority + 1,
+                        })
+                      }
+                    >
+                      下移
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      aria-label={
+                        mount.enabled
+                          ? `停用术语库 ${termbase.name}`
+                          : `启用术语库 ${termbase.name}`
+                      }
+                      onClick={() =>
+                        void updateTermbaseMount(termbase.id, {
+                          enabled: !mount.enabled,
+                        })
+                      }
+                    >
+                      {mount.enabled ? "停用" : "启用"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      aria-label={
+                        mount.writable
+                          ? `设为只读术语库 ${termbase.name}`
+                          : `设为可写术语库 ${termbase.name}`
+                      }
+                      onClick={() =>
+                        void updateTermbaseMount(termbase.id, {
+                          writable: !mount.writable,
+                        })
+                      }
+                    >
+                      {mount.writable ? "设为只读" : "设为可写"}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

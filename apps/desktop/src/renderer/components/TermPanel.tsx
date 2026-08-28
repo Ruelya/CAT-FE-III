@@ -80,19 +80,28 @@ export function TermPanel({
     };
   }, [projectId, activeSegment, refreshKey]);
 
+  const enabledMounts =
+    mounts === null ? [] : mounts.mounts.filter((mount) => mount.enabled);
   const mountedTermbases =
     mounts === null
       ? []
-      : mounts.mounts
-          .filter((mount) => mount.enabled)
+      : enabledMounts
           .map((mount) =>
             mounts.termbases.find(
               (termbase) => termbase.id === mount.termbaseId,
             ),
           )
           .filter((termbase) => termbase !== undefined);
+  // Quick capture targets the first writable mount in priority order —
+  // the per-mount switch termbase.update edits, not the asset row.
+  const writableMount =
+    enabledMounts.find((mount) => mount.writable) ?? null;
   const writableTermbase =
-    mountedTermbases.find((termbase) => termbase.writable) ?? null;
+    writableMount === null
+      ? null
+      : (mounts?.termbases.find(
+          (termbase) => termbase.id === writableMount.termbaseId,
+        ) ?? null);
 
   const addTerm = useCallback(async () => {
     if (!writableTermbase) {
