@@ -4,6 +4,10 @@
 > 性质：**核查**，不实现功能。红线：每条结论给 `文件:行号` 或 RPC 名；NEVER-FAKE 形态不建议去画。
 > 注意：`docs/research/translunar-capability.md` §1.5 与 `docs/research/pdf-mt-agent.md` 的多处结论
 > 在本基线上已过时（多 TM、origin、术语注入、多候选均已落地），过时清单见 §5。
+> **⚠️ 本文 §1–4 自身也已过时**（写于 mt-agent-modes 基线）：「prompt 不注入 TM 例句」与
+> 「aiDraft 无行为型 QA 消费者」两条结论在 gf-tm-context tip 上均已推翻——
+> `prompt_grounding_for` + `aiops::grounded_messages` 已接 TM 分节，`qa.unedited-ai-draft` 已落地。
+> **以 §6「已补」为准**；全量复核见 `docs/research/completeness.md`。
 
 ## 1. 一句话结论
 

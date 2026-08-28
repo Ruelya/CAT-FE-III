@@ -3,6 +3,9 @@
 > 调研基线：分支 `cursor/gf-copy-audit-2398`，commit `8f958ee`（Trados 式编辑器：输入即草稿、Ctrl+Enter 确认；说明性文案已剥离）。
 > 方法：只读代码盘点（`packages/contracts`、`crates/*`、`apps/desktop`），逐文件核对，不做假设。
 > 用途：为后续 PRD 划定"真实能力边界"——凡标注 NEVER-FAKE 的项，PRD 不得以假 chrome 呈现。
+> **⚠️ 严重过时（历史快照，只当目录、不当事实）**：gf-tm-context tip 上协议已是 **61 方法 + 2 通知**
+> （新增 `segment.lock`、`memory.*` 多库、`qa.profile.*`、`ai.profile.*` 等），并已落地 origin 体系、
+> Agent 三档审批与 TM/邻句/文档抽样 grounding。当前事实见 `docs/research/completeness.md`。
 
 ---
 
