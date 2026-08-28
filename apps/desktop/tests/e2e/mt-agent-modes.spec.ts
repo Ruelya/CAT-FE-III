@@ -168,6 +168,7 @@ test("multi-candidate MT and approval tiers against the real engine", async () =
   await expect(dock.getByTestId("agent-progress")).toContainText(
     "已处理 2 / 2",
   );
+  await dock.getByTestId("agent-proposals").scrollIntoViewIfNeeded();
   await shot("21-agent-manual-proposals.png");
 
   // Approve the Bravo proposal, reject the rest: the approved row turns
