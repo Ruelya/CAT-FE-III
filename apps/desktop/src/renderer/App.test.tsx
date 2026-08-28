@@ -179,6 +179,12 @@ describe("App shell menu commands", () => {
     expect(keys).toHaveTextContent("确认当前句段");
     expect(keys).toHaveTextContent("Ctrl+Enter");
     expect(keys).toHaveTextContent("命令面板");
+    // The go-to family the workbench binds (Ctrl+G / F8) is listed too —
+    // the dialog promises anything absent is absent from the product.
+    expect(keys).toHaveTextContent("转到句段");
+    expect(keys).toHaveTextContent("Ctrl+G");
+    expect(keys).toHaveTextContent("下一 QA 句段");
+    expect(keys).toHaveTextContent("F8");
     await userEvent.click(screen.getByRole("button", { name: "关闭" }));
     expect(
       screen.queryByRole("dialog", { name: "键盘快捷键" }),

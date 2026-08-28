@@ -19,6 +19,8 @@ const SHORTCUTS: ReadonlyArray<[string, string]> = [
   ["替换", "Ctrl+H"],
   ["查找下一个 / 上一个", "F4 / Shift+F4"],
   ["筛选句段", "Ctrl+Shift+F"],
+  ["转到句段", "Ctrl+G"],
+  ["下一 QA 句段", "F8"],
   ["检索（取选中文本）", "F3"],
   ["命令面板", "Ctrl+K / Ctrl+Shift+P"],
   ["导入文档", "Ctrl+O"],
