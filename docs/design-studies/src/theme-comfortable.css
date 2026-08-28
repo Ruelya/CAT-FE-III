@@ -1,0 +1,126 @@
+/* COMFORTABLE — 舒适光亮. Ported from the Fable study onto the Opus shared IA.
+   Figtree over Spline Sans Mono at 13.5px, 7–12px radii, soft shadows, and a
+   neutral gray carrying a cool-green cast. One deep-teal accent. Where compact
+   argues with density, this one argues with air: surfaces lift, badges and
+   filter chips are capsules, and the dock tabs are a segmented control. */
+
+:root {
+  --bg: #f3f4f4;
+  --surface: #f8f9f9;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --sunken: #e9ebeb;
+  --chrome: #ffffff;
+  --chrome-text: #1d2422;
+
+  --border: #dcdfde;
+  --border-soft: #e9ebeb;
+  --border-strong: #bcc2c0;
+
+  --text: #1d2422;
+  --text-muted: #576460;
+  --text-faint: #838d8a;
+
+  --accent: #0b7a68;
+  --accent-strong: #085f51;
+  --accent-soft: #d5ebe6;
+  --accent-faint: #ecf6f4;
+  --on-accent: #ffffff;
+
+  --ok: #1c7a4f;
+  --ok-soft: #ddefe5;
+  --warn: #8d5f0f;
+  --warn-soft: #f6ecd6;
+  --danger: #ac3040;
+  --danger-soft: #f8e4e7;
+  --info: #2f6386;
+  --info-soft: #e5eef3;
+
+  --font-ui: "Figtree", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
+  --font-num: "Spline Sans Mono", ui-monospace, monospace;
+  --font-mono: "Spline Sans Mono", ui-monospace, monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 16px;
+  --fs-xl: 21px;
+  --lh: 1.58;
+  --lh-tight: 1.34;
+
+  --label-weight: 600;
+  --label-tracking: 0.02em;
+  --strong-weight: 600;
+
+  --titlebar-h: 34px;
+  --ribbon-h: 62px;
+  --status-h: 28px;
+  --tab-h: 32px;
+  --row-h: 38px;
+  --ctl-h: 30px;
+  --ctl-h-sm: 25px;
+  --rail-left: 276px;
+  --rail-right: 340px;
+  --cell-pad-y: 10px;
+  --cell-pad-x: 13px;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 13px;
+
+  --shadow-1: 0 1px 2px rgba(29, 36, 34, 0.06);
+  --shadow-2: 0 4px 14px rgba(29, 36, 34, 0.1);
+  --shadow-3: 0 20px 50px rgba(29, 36, 34, 0.2);
+  --focus: 0 0 0 3px var(--accent-soft), 0 0 0 4px var(--accent);
+  --scrim: rgba(29, 36, 34, 0.3);
+
+  --row-hover: rgba(11, 122, 104, 0.045);
+  --row-active: var(--accent-faint);
+  --dur: 150ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.3, 1);
+}
+
+/* Surfaces lift instead of being outlined. */
+.card,
+.issue,
+.agentsum,
+.projects__item {
+  box-shadow: var(--shadow-1);
+}
+
+/* Dock tabs are a segmented control: the active pane is a raised card in a
+   track rather than a label with a rule under it. */
+.docktabs {
+  gap: 4px;
+  padding: 0 var(--s3);
+}
+.docktabs [role="tab"] {
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+}
+.docktabs [role="tab"][data-active] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+/* Capsules everywhere a count or a state is named. */
+.chip,
+.statechip,
+.pill,
+.score,
+.tree__qa {
+  border-radius: var(--r-pill);
+}
+.doctab {
+  border: 0;
+  border-radius: var(--r-sm);
+}
+.doctab[data-active] {
+  background: var(--accent-faint);
+  color: var(--accent-strong);
+}
+.doctab[data-active]::after {
+  display: none;
+}

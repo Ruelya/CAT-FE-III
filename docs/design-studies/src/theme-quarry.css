@@ -1,0 +1,133 @@
+/* QUARRY — warm stone, editorial calm, the most generous of the three.
+   Neutrals carry a yellow cast so the only cool thing on screen is a state
+   colour. Separation is done with hairlines and air, never with shadow, so
+   nothing floats and the eye is free to track the target column. */
+
+:root {
+  --bg: #e7e3db;
+  --surface: #f5f2ec;
+  --surface-2: #fffdf8;
+  --surface-3: #fffdf8;
+  --sunken: #e8e3d9;
+  --chrome: #f0ece4;
+  --chrome-text: #24211c;
+
+  --border: #d6cfc2;
+  --border-soft: #e6e0d4;
+  --border-strong: #bcb3a3;
+
+  --text: #24211c;
+  --text-muted: #5f594e;
+  --text-faint: #8b8477;
+
+  /* Deep pine. Dark enough to read as ink until it sits next to a neutral. */
+  --accent: #1f5d4c;
+  --accent-strong: #16463a;
+  --accent-soft: #cbe0d8;
+  --accent-faint: #ebf2ef;
+  --on-accent: #fffdf8;
+
+  --ok: #2c6b4f;
+  --ok-soft: #d9e9df;
+  --warn: #8a5a12;
+  --warn-soft: #f2e6cf;
+  --danger: #a33a2c;
+  --danger-soft: #f4dfda;
+  --info: #3c5875;
+  --info-soft: #e2e7ee;
+
+  --font-ui: "Source Sans 3", "Source Sans Pro", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 16px;
+  --fs-xl: 21px;
+  --lh: 1.55;
+  --lh-tight: 1.4;
+
+  /* Headings read as words, not as tracked-out chrome. */
+  --label-transform: none;
+  --label-tracking: 0;
+  --label-weight: 650;
+  --label-size: 11.5px;
+  --label-color: var(--text-muted);
+  --strong-weight: 650;
+  --heading-tracking: -0.008em;
+
+  --u: 4px;
+  --titlebar-h: 32px;
+  --ribbon-h: 58px;
+  --status-h: 26px;
+  --tab-h: 32px;
+  --row-h: 36px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 23px;
+  --rail-left: 264px;
+  --rail-right: 348px;
+  --brand-w: 132px;
+  --menu-item-w: 54px;
+  --cell-pad-y: 10px;
+  --cell-pad-x: 12px;
+
+  --r-sm: 3px;
+  --r-md: 4px;
+  --r-lg: 6px;
+  --r-pill: 999px;
+
+  --shadow-1: none;
+  --shadow-2: 0 2px 10px rgba(48, 40, 26, 0.1);
+  --shadow-3: 0 20px 52px rgba(48, 40, 26, 0.2);
+  --focus: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
+  --scrim: rgba(40, 34, 24, 0.3);
+
+  --row-hover: rgba(90, 74, 44, 0.045);
+  --row-active: #f0efe6;
+  --row-marker: var(--accent);
+  --row-marker-w: 3px;
+}
+
+/* Section heads sit under a rule instead of being shouted in caps. */
+.railsec__head,
+.dsec h3 {
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: var(--s2);
+}
+.railsec__head h2 {
+  line-height: 1.2;
+}
+
+/* Air, not boxes: panels lean on the rule above them. */
+.panel__head {
+  background: var(--surface);
+}
+.card,
+.issue {
+  background: transparent;
+  border-color: var(--border-soft);
+}
+.card--match[data-best] {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+}
+
+/* Widest of the three, so the state column can afford words. */
+.grid tbody tr[data-active] td.c-tgt {
+  background: #fffdf8;
+}
+.grid thead th {
+  background: var(--surface);
+}
+
+/* The ribbon reads as a set of labelled trays. */
+.rgroup {
+  border-right-color: var(--border-soft);
+}
+.rgroup__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+}

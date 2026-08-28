@@ -1,0 +1,200 @@
+/* ACID — 画廊酸性. Ported from the Fable art study onto the Opus shared IA.
+   Black hard line on gallery off-white. Cards and floats are drawn with a
+   1.5px solid stroke and a hard offset shadow that does not blur, and every
+   radius is zero. International Klein blue carries the whole active action;
+   acid yellow-green appears only as selection and search hit, never as
+   decoration. Panel titles are set in Unbounded. Motion is the physics of the
+   layout — a button displaces one pixel and its shadow deepens — rather than
+   an effect applied to it. Familjen Grotesk over Space Mono. */
+
+:root {
+  --bg: #f2f0e9;
+  --surface: #faf9f4;
+  --surface-2: #fdfcf8;
+  --surface-3: #ffffff;
+  --sunken: #e7e4da;
+  --chrome: #f6f4ee;
+  --chrome-text: #17170f;
+
+  --border: #17170f;
+  --border-soft: #cfcbbc;
+  --border-strong: #17170f;
+
+  --text: #17170f;
+  --text-muted: #55534a;
+  --text-faint: #86837a;
+
+  --accent: #0031ad;
+  --accent-strong: #002278;
+  --accent-soft: rgba(0, 49, 173, 0.12);
+  --accent-faint: rgba(0, 49, 173, 0.06);
+  --on-accent: #ffffff;
+
+  --ok: #157f43;
+  --ok-soft: rgba(21, 127, 67, 0.13);
+  --warn: #b5821b;
+  --warn-soft: rgba(181, 130, 27, 0.15);
+  --danger: #d2232a;
+  --danger-soft: rgba(210, 35, 42, 0.11);
+  --info: #0031ad;
+  --info-soft: rgba(0, 49, 173, 0.1);
+
+  --font-ui: "Familjen Grotesk", "PingFang SC", "Noto Sans CJK SC",
+    "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --font-display: "Unbounded", "Familjen Grotesk", sans-serif;
+  --font-num: "Space Mono", ui-monospace, monospace;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+
+  --fs-xs: 10px;
+  --fs-sm: 11.5px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 22px;
+  --lh: 1.5;
+  --lh-tight: 1.24;
+
+  --label-transform: uppercase;
+  --label-tracking: 0.13em;
+  --label-weight: 700;
+  --strong-weight: 700;
+
+  --titlebar-h: 32px;
+  --ribbon-h: 58px;
+  --status-h: 26px;
+  --tab-h: 31px;
+  --row-h: 34px;
+  --ctl-h: 28px;
+  --ctl-h-sm: 23px;
+  --rail-left: 258px;
+  --rail-right: 332px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 11px;
+
+  --r-sm: 0;
+  --r-md: 0;
+  --r-lg: 0;
+  --r-pill: 0;
+
+  /* Hard offset shadows: a shape sits above the page, it does not glow. */
+  --shadow-1: 2px 2px 0 rgba(23, 23, 15, 0.14);
+  --shadow-2: 4px 4px 0 rgba(23, 23, 15, 0.2);
+  --shadow-3: 8px 8px 0 rgba(23, 23, 15, 0.24);
+  --focus: 0 0 0 3px #d9ff4d, 0 0 0 4px var(--text);
+  --scrim: rgba(23, 23, 15, 0.32);
+
+  --row-hover: rgba(23, 23, 15, 0.045);
+  --row-active: rgba(0, 49, 173, 0.09);
+  --tree-guide: rgba(23, 23, 15, 0.2);
+  --dur: 120ms;
+  --ease: cubic-bezier(0.3, 0.8, 0.3, 1);
+}
+
+/* Acid yellow-green is reserved: selection and search hit, nothing else. */
+::selection {
+  background: #d9ff4d;
+  color: #17170f;
+}
+.mark {
+  background: #d9ff4d;
+  color: #17170f;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The display face names things; the text face says them. */
+.titlebar__brand,
+.panel__head h3,
+.railsec__head h2,
+.dialog__head h2,
+.projects__head h2,
+.bigempty__title,
+.proj__name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.panel__head h3,
+.railsec__head h2 {
+  font-size: 10px;
+  letter-spacing: 0.13em;
+}
+
+/* Hard-line floats: solid stroke, offset shadow, no blur. */
+.menudrop,
+.rowmenu,
+.findwidget,
+.palette,
+.dialog,
+.gatecard {
+  border: 1.5px solid var(--text);
+  box-shadow: var(--shadow-2);
+}
+.dialog,
+.gatecard {
+  box-shadow: var(--shadow-3);
+}
+.card,
+.issue,
+.agentsum {
+  border: 1.5px solid var(--text);
+  box-shadow: var(--shadow-1);
+}
+.card--match[data-best] {
+  box-shadow: var(--shadow-1), inset 0 0 0 2px var(--accent);
+}
+
+/* Buttons displace; that displacement is the whole animation. */
+.btn,
+.chip {
+  border: 1.5px solid var(--text);
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.btn:hover:not(:disabled),
+.chip:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(23, 23, 15, 0.2);
+}
+.btn:active:not(:disabled),
+.chip:active {
+  transform: translate(1px, 1px);
+  box-shadow: 0 0 0 rgba(23, 23, 15, 0.2);
+}
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--text);
+  color: var(--on-accent);
+}
+.chip--on {
+  background: var(--accent);
+  border-color: var(--text);
+  color: var(--on-accent);
+}
+.grid thead th {
+  border-bottom: 1.5px solid var(--text);
+}
+.grid tbody tr[data-active] td.c-n {
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+.ribbon,
+.titlebar {
+  border-bottom: 1.5px solid var(--text);
+}
+.statusbar {
+  border-top: 1.5px solid var(--text);
+}
+.preview__page {
+  background: #ffffff;
+  border: 1.5px solid var(--text);
+  box-shadow: var(--shadow-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover:not(:disabled),
+  .chip:hover,
+  .btn:active:not(:disabled),
+  .chip:active {
+    transform: none;
+  }
+}

@@ -1,0 +1,288 @@
+/* ATELIER LIGHT — the same gallery, opened in the morning.
+   Layered over art-atelier.css, which keeps the type, the spacing, the
+   pressed material and every interaction. Only the light changes: plaster
+   walls instead of charcoal, antique brass instead of lit brass, and a sun
+   patch that follows the pointer instead of a lamp. Anything not restated
+   here is inherited, so the two cannot drift apart. */
+
+:root {
+  --bg: #e6dfd0;
+  --surface: #f7f3ea;
+  --surface-2: #fdfaf3;
+  --surface-3: #fffdf8;
+  --sunken: #ded6c4;
+  --chrome: #f2ede2;
+  --chrome-text: #2b2519;
+
+  --border: #c8bda5;
+  --border-soft: #ded5c1;
+  --border-strong: #a4977b;
+
+  --text: #29231a;
+  --text-muted: #665c4a;
+  --text-faint: #948976;
+
+  /* Brass darkens indoors in daylight; the lit edge is where the sun hits. */
+  --brass: #8a6a1f;
+  --brass-lit: #c19a3d;
+  --brass-dark: #57420f;
+  --accent-soft: rgba(138, 106, 31, 0.18);
+  --accent-faint: rgba(138, 106, 31, 0.08);
+  --on-accent: #fffdf6;
+
+  --ok: #3f7a4b;
+  --ok-soft: rgba(63, 122, 75, 0.16);
+  --warn: #96620f;
+  --warn-soft: rgba(150, 98, 15, 0.16);
+  --danger: #a83a30;
+  --danger-soft: rgba(168, 58, 48, 0.14);
+  --info: #3b5f80;
+  --info-soft: rgba(59, 95, 128, 0.14);
+
+  --shadow-1: 0 1px 2px rgba(70, 58, 34, 0.1);
+  --shadow-2: 0 12px 30px -12px rgba(70, 58, 34, 0.34);
+  --shadow-3: 0 40px 90px -30px rgba(70, 58, 34, 0.45);
+  --focus: 0 0 0 1px var(--brass), 0 0 0 4px rgba(138, 106, 31, 0.22);
+  --scrim: rgba(96, 82, 52, 0.28);
+
+  --row-hover: rgba(138, 106, 31, 0.06);
+  --row-active: rgba(138, 106, 31, 0.13);
+
+  --tree-guide: rgba(110, 92, 52, 0.2);
+}
+
+/* The sun patch: on plaster, light is a warmer and brighter area, and the
+   corners fall into shade instead of into black. */
+body {
+  background:
+    radial-gradient(
+      420px 320px at var(--mx) var(--my),
+      rgba(255, 248, 226, 0.85),
+      transparent 70%
+    ),
+    radial-gradient(
+      1100px 760px at var(--mx) var(--my),
+      rgba(255, 240, 205, 0.6),
+      transparent 66%
+    ),
+    radial-gradient(1300px 900px at 84% 110%, rgba(190, 165, 116, 0.3), transparent 72%),
+    var(--bg);
+}
+body::after {
+  background: radial-gradient(
+    134% 116% at 50% 44%,
+    transparent 60%,
+    rgba(92, 76, 44, 0.16) 100%
+  );
+}
+
+.center {
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.95), rgba(247, 243, 234, 0.97));
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 106, 31, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 20px 50px -26px rgba(70, 58, 34, 0.45);
+}
+.rail--left,
+.rail--right {
+  background: linear-gradient(180deg, rgba(250, 246, 238, 0.72), rgba(238, 232, 220, 0.8));
+}
+.titlebar,
+.ribbon,
+.statusbar,
+.doctabs,
+.docktabs,
+.gridbar,
+.preview {
+  background-color: rgba(250, 246, 238, 0.62);
+}
+
+/* Fillets invert: the lit edge sits above the shadow line on a light wall. */
+.titlebar,
+.ribbon,
+.gridbar,
+.doctabs,
+.docktabs,
+.panel__head,
+.railsec__head {
+  box-shadow: 0 1px 0 rgba(110, 92, 52, 0.12);
+}
+.statusbar {
+  box-shadow: 0 -1px 0 rgba(110, 92, 52, 0.12);
+}
+.panel__head {
+  background: rgba(244, 239, 229, 0.7);
+  border-bottom: 1px solid rgba(138, 106, 31, 0.2);
+}
+.grid thead th {
+  background: rgba(244, 239, 229, 0.92);
+  border-bottom: 1px solid rgba(138, 106, 31, 0.26);
+}
+.grid tbody tr {
+  border-bottom: 1px solid rgba(110, 92, 52, 0.1);
+}
+.grid tbody tr[data-active] {
+  background: linear-gradient(90deg, rgba(138, 106, 31, 0.14), rgba(138, 106, 31, 0.02));
+}
+.titlebar__brand {
+  color: var(--brass-dark);
+}
+
+/* Debossing on a light surface is a grey inset with a white lip below. */
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input,
+.issue__ev,
+.diff {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(110, 92, 52, 0.24);
+  box-shadow:
+    inset 0 2px 3px rgba(90, 74, 42, 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+  color: var(--text);
+}
+.field select {
+  color-scheme: light;
+}
+.check input {
+  color-scheme: light;
+}
+.editor textarea {
+  background: #fffdf7;
+  box-shadow:
+    inset 0 2px 4px rgba(90, 74, 42, 0.14),
+    0 0 0 4px rgba(138, 106, 31, 0.18);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 2px rgba(90, 74, 42, 0.12);
+}
+
+.btn--primary {
+  background: linear-gradient(178deg, #c9a349, #8a6a1f 62%, #6a5015);
+  border-color: #5a440f;
+  color: #fffbef;
+  text-shadow: 0 1px 0 rgba(60, 44, 10, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 210, 0.5),
+    0 2px 5px rgba(70, 58, 34, 0.28);
+}
+.btn--primary:hover:not(:disabled) {
+  background: linear-gradient(178deg, #d8b45c, #9a782a 62%, #7a5d1c);
+}
+.btn--primary::after {
+  background: radial-gradient(
+    60% 160% at var(--mx) 0%,
+    rgba(255, 250, 225, 0.42),
+    transparent 60%
+  );
+}
+.btn--outline {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(138, 106, 31, 0.36);
+  color: var(--text);
+}
+.btn--outline:hover:not(:disabled) {
+  background: rgba(138, 106, 31, 0.12);
+  border-color: var(--brass);
+  color: var(--brass-dark);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(138, 106, 31, 0.09);
+  color: var(--brass-dark);
+}
+.btn--danger {
+  background: linear-gradient(178deg, #bd4c41, #91302a);
+  border-color: #74241f;
+  color: #fff7f5;
+}
+.rbtn:hover:not(:disabled) {
+  background: rgba(138, 106, 31, 0.09);
+  color: var(--brass-dark);
+}
+.rgroup {
+  border-right: 1px solid rgba(110, 92, 52, 0.14);
+}
+.chip {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(138, 106, 31, 0.3);
+  color: var(--text-muted);
+}
+.chip--on {
+  background: linear-gradient(178deg, #c9a349, #8a6a1f);
+  border-color: #5a440f;
+  color: #fffbef;
+}
+.card,
+.issue,
+.agentsum {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(110, 92, 52, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+.docktabs [role="tab"][data-active] {
+  background: rgba(138, 106, 31, 0.1);
+  color: var(--brass-dark);
+}
+.doctab[data-active] {
+  background: rgba(138, 106, 31, 0.09);
+}
+.mark {
+  background: linear-gradient(140deg, #c19a3d, #57420f);
+  box-shadow: 0 1px 3px rgba(70, 58, 34, 0.4);
+}
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: linear-gradient(180deg, #fffdf8, #f4efe4);
+  border: 1px solid rgba(138, 106, 31, 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-2);
+}
+.dialog,
+.palette,
+.gatecard {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    var(--shadow-3);
+}
+.dialog__head::after {
+  background: #fffdf8;
+  border-color: rgba(138, 106, 31, 0.45);
+}
+.dialog__foot,
+.palette__foot {
+  background: rgba(222, 214, 196, 0.4);
+  border-top: 1px solid rgba(138, 106, 31, 0.22);
+}
+.palette__item[data-sel],
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: linear-gradient(178deg, #c9a349, #8a6a1f);
+  color: #fffbef;
+}
+.vtabs button[data-active] {
+  background: rgba(138, 106, 31, 0.12);
+  color: var(--brass-dark);
+}
+.banner {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent);
+}
+.preview__page {
+  background: #fffdf8;
+  color: #29231a;
+  box-shadow: 0 10px 26px -14px rgba(70, 58, 34, 0.4);
+}
+.bigempty {
+  border: 1px solid rgba(138, 106, 31, 0.3);
+}

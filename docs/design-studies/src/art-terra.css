@@ -1,0 +1,216 @@
+/* TERRA — 陶土触感. Ported from the Fable art study onto the Opus shared IA.
+   A mineral gray-green bench on which every control is thumbed clay: a
+   highlight along the top edge, an earth-coloured shadow beneath, and a real
+   inset when pressed. Motion runs on a spring with a small overshoot, so a
+   dialog lands once past its mark and settles. Terracotta is the only accent;
+   QA's rose keeps its distance from it. Onest over Sometype Mono, 14px radii. */
+
+:root {
+  --bg: #e6e3da;
+  --surface: #f1efe8;
+  --surface-2: #f7f6f0;
+  --surface-3: #faf9f4;
+  --sunken: #dcd8cc;
+  --chrome: #ecebe3;
+  --chrome-text: #2e2a23;
+
+  --border: #cfcaba;
+  --border-soft: #dad6c9;
+  --border-strong: #aaa28c;
+
+  --text: #2e2a23;
+  --text-muted: #6a6355;
+  --text-faint: #938b77;
+
+  --accent: #b85c38;
+  --accent-strong: #9c4a29;
+  --accent-soft: rgba(184, 92, 56, 0.13);
+  --accent-faint: rgba(184, 92, 56, 0.07);
+  --on-accent: #ffffff;
+
+  --ok: #4d8b45;
+  --ok-soft: rgba(77, 139, 69, 0.14);
+  --warn: #92660f;
+  --warn-soft: rgba(190, 138, 30, 0.16);
+  --danger: #b93352;
+  --danger-soft: rgba(185, 51, 82, 0.12);
+  --info: #2e7186;
+  --info-soft: rgba(59, 142, 165, 0.14);
+
+  --font-ui: "Onest", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
+  --font-num: "Sometype Mono", ui-monospace, monospace;
+  --font-mono: "Sometype Mono", ui-monospace, monospace;
+
+  --fs-xs: 10.5px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15.5px;
+  --fs-xl: 21px;
+  --lh: 1.55;
+  --lh-tight: 1.32;
+
+  --label-weight: 600;
+  --label-tracking: 0.03em;
+  --strong-weight: 600;
+
+  --titlebar-h: 32px;
+  --ribbon-h: 62px;
+  --status-h: 28px;
+  --tab-h: 32px;
+  --row-h: 36px;
+  --ctl-h: 30px;
+  --ctl-h-sm: 24px;
+  --rail-left: 264px;
+  --rail-right: 336px;
+  --cell-pad-y: 9px;
+  --cell-pad-x: 12px;
+
+  --r-sm: 7px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  /* Clay light: a highlight above, an earth shadow below. */
+  --shadow-1: inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 1px 2px rgba(122, 106, 84, 0.18);
+  --shadow-2: inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 10px 24px rgba(122, 106, 84, 0.24), 0 2px 6px rgba(122, 106, 84, 0.14);
+  --shadow-3: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 26px 60px rgba(96, 82, 62, 0.32), 0 4px 12px rgba(96, 82, 62, 0.16);
+  --focus: 0 0 0 2px rgba(184, 92, 56, 0.24), 0 0 0 3px var(--accent);
+  --scrim: rgba(46, 42, 35, 0.34);
+
+  --row-hover: rgba(122, 106, 84, 0.05);
+  --row-active: rgba(184, 92, 56, 0.09);
+  --tree-guide: rgba(122, 106, 84, 0.22);
+
+  /* The spring. Everything that moves overshoots once and settles. */
+  --dur: 180ms;
+  --ease: cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+
+/* Extruded controls: lit rim, earth shadow, and a true press. */
+.btn,
+.chip,
+.iconbtn {
+  transition:
+    transform var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    background 140ms ease;
+}
+.btn,
+.chip {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(122, 106, 84, 0.22);
+}
+.btn:active:not(:disabled),
+.chip:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 4px rgba(96, 82, 62, 0.28);
+}
+.btn--primary {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 6px rgba(164, 79, 46, 0.4);
+}
+.btn--primary:active:not(:disabled) {
+  box-shadow: inset 0 2px 5px rgba(70, 30, 14, 0.4);
+}
+.btn--ghost,
+.btn--outline {
+  box-shadow: none;
+}
+.btn--outline {
+  background: transparent;
+}
+
+/* Inputs are hollows pressed into the same body. */
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input,
+.editor textarea {
+  box-shadow: inset 0 1.5px 3px rgba(122, 106, 84, 0.18);
+}
+.rail--left,
+.rail--right {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.card,
+.issue,
+.agentsum {
+  box-shadow: var(--shadow-1);
+  border-color: var(--border);
+}
+.menudrop,
+.rowmenu,
+.findwidget,
+.palette {
+  box-shadow: var(--shadow-2);
+}
+.dialog,
+.gatecard {
+  box-shadow: var(--shadow-3);
+}
+
+/* The spring lands once past the mark. */
+@keyframes terra-settle {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.965);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.004);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.dialog[data-enter],
+.gatecard[data-enter],
+.palette[data-enter],
+.banner[data-enter] {
+  animation: terra-settle 300ms var(--ease);
+}
+.tree__chev {
+  transition: transform 240ms var(--ease);
+}
+.doctab[data-active] {
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 3px rgba(122, 106, 84, 0.25);
+}
+.grid tbody tr[data-active] td.c-n {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: var(--sunken);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+  box-shadow: 0 1px 0 var(--border-strong);
+}
+.preview__page {
+  background: #fbfaf6;
+  box-shadow: 0 6px 18px rgba(122, 106, 84, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog[data-enter],
+  .gatecard[data-enter],
+  .palette[data-enter],
+  .banner[data-enter] {
+    animation: none;
+  }
+  .btn:active:not(:disabled),
+  .chip:active {
+    transform: none;
+  }
+}

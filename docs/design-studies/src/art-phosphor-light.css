@@ -1,0 +1,280 @@
+/* PHOSPHOR LIGHT — the same terminal, reflective instead of emissive.
+   Layered over art-phosphor.css, which keeps the all-monospace setting, the
+   zero radii, the caret block, the convergence split and every interaction.
+   What inverts is the physics: this panel absorbs light rather than emitting
+   it, so glow becomes ghosting, the scanline comb darkens instead of
+   brightening, and the refresh pass reads as a shadow crossing the glass. */
+
+:root {
+  --bg: #dfe3da;
+  --surface: #eef1e9;
+  --surface-2: #f5f7f1;
+  --surface-3: #fafbf7;
+  --sunken: #d3d8cd;
+  --chrome: #e7ebe1;
+  --chrome-text: #1b211c;
+
+  --border: #b2bcb0;
+  --border-soft: #c9d1c5;
+  --border-strong: #8b9789;
+
+  --text: #1a211b;
+  --text-muted: #4d574e;
+  --text-faint: #7c877d;
+
+  /* Ochre replaces the amber gun: the same signal, absorbed not emitted. */
+  --accent: #9a5b00;
+  --accent-strong: #7a4700;
+  --accent-soft: rgba(154, 91, 0, 0.16);
+  --accent-faint: rgba(154, 91, 0, 0.07);
+  --on-accent: #fdf6ec;
+
+  --ok: #16794f;
+  --ok-soft: rgba(22, 121, 79, 0.15);
+  --warn: #8a6100;
+  --warn-soft: rgba(138, 97, 0, 0.16);
+  --danger: #b1362c;
+  --danger-soft: rgba(177, 54, 44, 0.14);
+  --info: #17627a;
+  --info-soft: rgba(23, 98, 122, 0.14);
+
+  --shadow-2: 0 0 0 1px rgba(23, 98, 122, 0.16), 0 12px 32px -14px rgba(30, 44, 36, 0.45);
+  --shadow-3: 0 0 0 1px rgba(23, 98, 122, 0.2), 0 30px 70px -26px rgba(30, 44, 36, 0.5);
+  --focus: 0 0 0 1px var(--accent), 0 0 0 3px rgba(154, 91, 0, 0.22);
+  --scrim: rgba(60, 74, 62, 0.3);
+
+  --row-hover: rgba(23, 98, 122, 0.06);
+  --row-active: rgba(154, 91, 0, 0.13);
+
+  --tree-guide: rgba(23, 98, 122, 0.18);
+
+  /* Read by art-phosphor.js: on a reflective panel the grain sits in the
+     glass, so it multiplies down instead of screening up. */
+  --crt-noise-blend: multiply;
+  --crt-noise-alpha: 0.05;
+}
+
+/* The comb darkens the panel; the refresh pass is a shadow, not a glow. */
+body::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(40, 56, 46, 0.16) 0px,
+    rgba(40, 56, 46, 0.16) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.75;
+  mix-blend-mode: multiply;
+}
+body::after {
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(60, 80, 66, 0.05) 46%,
+      rgba(60, 80, 66, 0.09) 50%,
+      rgba(60, 80, 66, 0.05) 54%,
+      transparent 100%
+    ),
+    radial-gradient(118% 104% at 50% 48%, transparent 70%, rgba(60, 80, 66, 0.2) 100%);
+  mix-blend-mode: multiply;
+}
+
+/* Absorption, not emission: ink ghosts a little into the glass. */
+.app,
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu {
+  text-shadow: 0 0 2px rgba(40, 56, 46, 0.16);
+}
+.titlebar__brand,
+.railsec__head h2,
+.panel__head h3,
+.rgroup__label,
+.gridbar__label,
+.docktabs [role="tab"][data-active],
+.statechip,
+.pill,
+.score,
+.origin,
+.tree__qa {
+  text-shadow: 0 0 3px rgba(40, 56, 46, 0.2);
+}
+.mark {
+  background: var(--accent);
+  box-shadow: 0 1px 2px rgba(40, 56, 46, 0.35);
+}
+
+.titlebar,
+.statusbar {
+  background: var(--chrome);
+}
+.panel__head,
+.grid thead th {
+  background: #e4e8de;
+}
+.grid tbody tr {
+  border-bottom: 1px solid rgba(23, 98, 122, 0.1);
+}
+.grid tbody tr[data-active] {
+  background: var(--row-active);
+  box-shadow: inset 0 0 20px rgba(154, 91, 0, 0.08);
+}
+.grid tbody tr[data-active] td.c-src,
+.grid tbody tr[data-active] td.c-tgt .tgtcell__text {
+  text-shadow:
+    -0.6px 0 rgba(190, 40, 70, 0.4),
+    0.6px 0 rgba(0, 130, 160, 0.36),
+    0 0 3px rgba(154, 91, 0, 0.24);
+}
+.grid tbody tr[data-active] td.c-n::after {
+  box-shadow: 0 0 3px rgba(154, 91, 0, 0.5);
+}
+
+.editor textarea {
+  background: #fbfcf8;
+  box-shadow:
+    inset 0 1px 3px rgba(40, 56, 46, 0.16),
+    0 0 0 3px rgba(154, 91, 0, 0.18);
+  caret-color: var(--accent);
+}
+.field input,
+.field select,
+.field textarea,
+.searchbox,
+.railsearch,
+.findwidget__input {
+  background: #fbfcf8;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.field select,
+.check input {
+  color-scheme: light;
+}
+
+.btn {
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+.btn--primary {
+  background: rgba(154, 91, 0, 0.14);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  text-shadow: none;
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 1px 4px rgba(154, 91, 0, 0.4);
+}
+.btn--outline:hover:not(:disabled),
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(23, 98, 122, 0.1);
+  border-color: var(--info);
+  color: var(--info);
+}
+.btn--danger {
+  background: rgba(177, 54, 44, 0.14);
+  border-color: var(--danger);
+  color: #8d2820;
+}
+.rbtn:hover:not(:disabled) {
+  background: rgba(23, 98, 122, 0.09);
+  color: var(--info);
+}
+.chip--on {
+  background: rgba(154, 91, 0, 0.16);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.card,
+.issue,
+.agentsum {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: var(--border);
+}
+.card--match[data-best] {
+  border-color: var(--ok);
+  box-shadow: inset 0 0 18px rgba(22, 121, 79, 0.07);
+}
+.docktabs [role="tab"][data-active] {
+  background: rgba(154, 91, 0, 0.1);
+  color: var(--accent-strong);
+}
+.doctab[data-active]::after {
+  background: var(--accent);
+  box-shadow: none;
+}
+.tree__row--dir .tree__name {
+  color: var(--info);
+}
+kbd,
+.kbdi,
+.dchip {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dialog,
+.palette,
+.gatecard,
+.menudrop,
+.rowmenu,
+.findwidget {
+  background: #f6f8f2;
+  border-color: var(--info);
+}
+.dialog__head,
+.dialog__foot,
+.palette__inputwrap,
+.palette__foot {
+  background: #ecefe6;
+  border-color: var(--border);
+}
+.palette__item[data-sel],
+.menudrop__item:hover:not(:disabled),
+.rowmenu button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.vtabs button[data-active] {
+  background: rgba(154, 91, 0, 0.11);
+  color: var(--accent-strong);
+}
+.gatecard {
+  box-shadow:
+    0 0 0 1px rgba(177, 54, 44, 0.3),
+    var(--shadow-3);
+}
+.banner {
+  background: rgba(177, 54, 44, 0.09);
+}
+.banner[data-tone="warn"] {
+  background: rgba(138, 97, 0, 0.1);
+}
+.preview__page {
+  background: #fbfcf8;
+}
+.meter__confirmed {
+  box-shadow: none;
+}
+/* The overscan flash on a reflective panel is a wipe, not a burst. */
+@keyframes crt-on {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.006) scaleX(1.03);
+  }
+  38% {
+    opacity: 1;
+    transform: scaleY(0.02) scaleX(1);
+  }
+  62% {
+    transform: scaleY(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
