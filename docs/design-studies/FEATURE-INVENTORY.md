@@ -269,8 +269,8 @@ Virtualisation kicks in above 120 rows (measured heights, 400 px overscan).
 - Per hit: source term, then each translation with `首选` / `禁用` badge and an `插入`
   button (disabled for forbidden terms). Insert lands at the caret of the live editor
   without saving; only with no editor mounted does it append to the saved draft.
-- Quick capture form (only when a writable termbase is mounted): 源术语, 目标术语,
-  添加术语 → `term.add`.
+- Quick capture form (only when an enabled mount is writable; targets the first
+  writable mount in priority order): 源术语, 目标术语, 添加术语 → `term.add`.
 - Empties: `尚未挂载术语库`, `未选中句段`, `当前句段无术语命中`.
 
 ### 9.3 QA (Ctrl+3)
@@ -344,7 +344,7 @@ Collapsible bottom pane (Ctrl+P), height persisted, splitter with double-click r
 Ctrl+K or Ctrl+Shift+P. `搜索命令` input, substring filter with match highlight,
 `↑`/`↓`/`Enter`/`Esc`, disabled rows render but never run, `没有匹配的命令` when empty.
 
-Catalog: 导入文档… (Ctrl+O), 导出译文… (Ctrl+E), 项目设置… (Ctrl+,), 记忆库管理…,
+Catalog: 新建项目…, 导入文档… (Ctrl+O), 导出译文… (Ctrl+E), 项目设置… (Ctrl+,), 记忆库管理…,
 术语库管理…, 归档项目, 返回项目列表, 确认当前句段 (Ctrl+Enter), 确认并到下一句段
 (Ctrl+Alt+Enter), 确认并停留 (Ctrl+Alt+Shift+Enter), 锁定/解锁当前句段 (Ctrl+L),
 复制源文到译文, 清空译文, 预翻译（TM）, 插入记忆匹配, 插入术语, AI 翻译当前句段,
@@ -352,7 +352,11 @@ AI 润色当前句段, 运行 QA, 忽略当前问题/同类/本句, 恢复为未
 有错误时阻止导出（开启/关闭）, 预览面板 (Ctrl+P), 折叠/展开左栏, 折叠/展开右栏,
 查找… (Ctrl+F), 替换… (Ctrl+H), 查找下一个 (F4), 查找上一个 (Shift+F4),
 筛选句段 (Ctrl+Shift+F), 检索（取选中文本） (F3), 记忆面板 (Ctrl+1), 术语面板 (Ctrl+2),
-QA 面板 (Ctrl+3), AI 面板 (Ctrl+4), and one `打开文档：<name>` per project document.
+QA 面板 (Ctrl+3), AI 面板 (Ctrl+4), 外观与主题… plus one `主题：<label>（<id>）` per
+theme and `效果：<label>（开启/关闭）` per active-theme effect, 键盘快捷键…,
+关于 Translunar CAT, and one `打开文档：<name>` per project document.
+新建项目… / 键盘快捷键… / 关于 are shell rows: they run the same App handlers the
+application menu's `new-project` / `help-keys` / `about` branch calls.
 Enablement reads live workbench state: write verbs disable on a locked row,
 QA verbs on the active segment's actual findings, the gate row on the stored
 `qa.profile`.
@@ -387,10 +391,10 @@ failed defaults-save keeps the dialog open and says so without pretending.
 | --- | --- |
 | 项目信息 | 项目名称 / 源语言 / 目标语言 → 保存项目信息 (engine refuses a locale change once the project holds content; refusal shown verbatim) |
 | 导入默认 | 默认分段方式; 选择默认 SRX 规则… + basename + 清除, else `内置规则（locale）`; 保存导入默认 |
-| 质量检查 | read-only `基础配置：<baseProfileId>`; `有错误时阻止导出` checkbox; 规则参数 knobs (`CJK 标点` / `CJK 间距` / `句末标点` checkboxes, `最短比（%）` / `最长比（%）` / `字数上限` numbers, 保存规则参数 / 恢复默认 = `clearSettings`); 严重度 grid — one `默认/错误/警告/提示` select per published static ruleId, written as the wholesale `severityOverrides` table (`{}` clears all). Every write rides the stored revision; a conflict rebases on a refetch and retries once |
+| 质量检查 | read-only `基础配置：<baseProfileId>`; `有错误时阻止导出` checkbox; 规则参数 knobs (`CJK 标点` / `CJK 间距` / `句末标点` checkboxes, `最短比（%）` / `最长比（%）` / `字数上限` numbers, 保存规则参数 / 恢复默认 = `clearSettings`); 严重度 grid — one `默认/错误/警告/提示` select per static ruleId reported by `qa.profile.get` `enabledRuleIds` (the engine's compiled profile; parameterized term/regex/tag families excluded), written as the wholesale `severityOverrides` table (`{}` clears all). Every write rides the stored revision; a conflict rebases on a refetch and retries once |
 | 生命周期 | `进行中` / `已归档` + badge + `归档项目` / `恢复项目` |
 | 翻译记忆 | 记忆库 picker (`（可写）` suffix, defaults to the writable mount) + `导入外部 TM…` / `导出 TM…`; without mounts: `未挂载记忆库，无法导入或导出。请先在 TM 管理中挂载。` |
-| 术语库 | per mounted termbase: `管理术语` / `收起术语` (inline `TermManagePanel`), `导入 CSV/TBX…`, `导出…`, `卸载`; unmounted termbases get `挂载`; `新术语库名称` + `新建并挂载` |
+| 术语库 | mounted termbases listed in `mount.priority` order; per mount: `已挂载` badge plus `已停用` / `只读` when set, 上移 / 下移 / 停用\|启用 / 设为可写\|设为只读 (all through `termbase.update`; 停用 removes the mount from the `term.lookup`/QA read path; several writable mounts are allowed — 术语速记 targets the first writable in priority order), `管理术语` / `收起术语` (inline `TermManagePanel`), `导入 CSV/TBX…`, `导出…`, `卸载`; unmounted termbases get `挂载`; `新术语库名称` + `新建并挂载` |
 
 Per-action in-flight tracking (a long TM import never locks the termbase buttons).
 Blocked exports raise the inline overwrite confirm. Result messages carry the engine's
