@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
+  node:
+    name: node-${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22.17.0", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      # The node lane still needs Rust: `contracts:check` regenerates the
+      # schema via tl-protocol, root `lint` includes clippy, and both E2E
+      # suites build and drive the real tl-engine binary.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.3
+      - name: Install a headless display for the Electron E2E
+        # scripts/linux-display.sh wraps commands in xvfb-run when no DISPLAY
+        # is available.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Allow Electron to sandbox itself
+        # Ubuntu 24.04 runners block unprivileged user namespaces, so Chromium
+        # falls back to the SUID sandbox helper and aborts unless that helper is
+        # root-owned and setuid. Fixing the helper keeps the sandbox on instead
+        # of papering over it with --no-sandbox.
+        run: |
+          sandbox="$(realpath apps/desktop/node_modules/electron/dist/chrome-sandbox)"
+          sudo chown root:root "$sandbox"
+          sudo chmod 4755 "$sandbox"
+          ls -l "$sandbox"
+      - name: Contracts
+        run: pnpm contracts:check
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Desktop unit tests
+        run: pnpm --filter @translunar/desktop test
+      - name: Engine E2E
+        run: pnpm test:e2e:engine
+      - name: Desktop E2E
+        run: ./scripts/linux-display.sh pnpm test:e2e:desktop
