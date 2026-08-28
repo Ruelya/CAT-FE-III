@@ -1,6 +1,8 @@
 import type { Segment, TmMatchItem } from "@translunar/contracts";
 import { Button, EmptyState, MatchBadge, Panel } from "@translunar/ui";
 
+import { diffChars } from "../lib/diff.js";
+
 export interface TmPanelProps {
   activeSegment: Segment | null;
   /** Matches for the active segment; the workbench owns the lookup. */
@@ -91,9 +93,40 @@ export function TmPanel({
                 </Button>
               </div>
               <p className="match-card__text">{match.entry.targetText}</p>
-              <span className="match-card__origin">
-                源：{match.entry.sourceText}
-              </span>
+              {match.grade === "fuzzy" ? (
+                // Fuzzy hits show where the stored source deviates from the
+                // active segment: struck parts belong to the TM entry only,
+                // highlighted parts to the active source only.
+                <span className="match-card__origin">
+                  源差异：
+                  <span
+                    className="match-card__diff"
+                    aria-label="记忆源文与当前源文的差异"
+                  >
+                    {diffChars(
+                      match.entry.sourceText,
+                      activeSegment.sourceText,
+                    ).map((part, partIndex) => (
+                      <span
+                        key={`${partIndex}-${part.kind}`}
+                        className={
+                          part.kind === "insert"
+                            ? "ai-diff__ins"
+                            : part.kind === "delete"
+                              ? "ai-diff__del"
+                              : "ai-diff__eq"
+                        }
+                      >
+                        {part.text}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              ) : (
+                <span className="match-card__origin">
+                  源：{match.entry.sourceText}
+                </span>
+              )}
             </div>
           ))}
         </div>
