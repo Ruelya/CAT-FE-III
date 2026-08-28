@@ -1173,35 +1173,58 @@ impl CompiledQaProfile {
         }
     }
 
-    /// Behavioral check: a fuzzy TM match confirmed without a single edit.
-    /// Fires only on engine-stamped facts (`confirmed`, `origin.kind ==
-    /// tmFuzzy`, `origin.edited == false`) — never inferred from text. The
-    /// evidence pins the confirmed target text, so a waiver holds across
+    /// Behavioral checks: a fuzzy TM match or an AI draft confirmed without
+    /// a single edit. Both fire only on engine-stamped facts (`confirmed`,
+    /// `origin.kind`, `origin.edited == false`) — never inferred from text.
+    /// The evidence pins the confirmed target text, so a waiver holds across
     /// reruns of the same text but never carries over to a different
     /// confirmed-unedited translation.
     fn evaluate_behavior(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
         let Some(origin) = &input.origin else {
             return;
         };
-        if !input.confirmed || origin.kind != SegmentOriginKind::TmFuzzy || origin.edited {
+        if !input.confirmed || origin.edited {
             return;
         }
-        let mut params = BTreeMap::new();
-        if let Some(score) = origin.score {
-            params.insert("score".to_string(), score.to_string());
+        match origin.kind {
+            SegmentOriginKind::TmFuzzy => {
+                let mut params = BTreeMap::new();
+                if let Some(score) = origin.score {
+                    params.insert("score".to_string(), score.to_string());
+                }
+                self.push_with_params(
+                    findings,
+                    input,
+                    "qa.unedited-fuzzy",
+                    (QaCategory::Behavior, QaSeverity::Warning),
+                    "Fuzzy TM match was confirmed without edits.",
+                    QaCandidateEvidence {
+                        target_values: vec![input.target_text.clone()],
+                        ..QaCandidateEvidence::default()
+                    },
+                    params,
+                );
+            }
+            SegmentOriginKind::AiDraft => {
+                let mut params = BTreeMap::new();
+                if let Some(model) = &origin.model {
+                    params.insert("model".to_string(), model.clone());
+                }
+                self.push_with_params(
+                    findings,
+                    input,
+                    "qa.unedited-ai-draft",
+                    (QaCategory::Behavior, QaSeverity::Warning),
+                    "AI draft was confirmed without edits.",
+                    QaCandidateEvidence {
+                        target_values: vec![input.target_text.clone()],
+                        ..QaCandidateEvidence::default()
+                    },
+                    params,
+                );
+            }
+            SegmentOriginKind::TmExact | SegmentOriginKind::Human => {}
         }
-        self.push_with_params(
-            findings,
-            input,
-            "qa.unedited-fuzzy",
-            (QaCategory::Behavior, QaSeverity::Warning),
-            "Fuzzy TM match was confirmed without edits.",
-            QaCandidateEvidence {
-                target_values: vec![input.target_text.clone()],
-                ..QaCandidateEvidence::default()
-            },
-            params,
-        );
     }
 
     fn evaluate_regex(&self, input: &QaSegmentInput, findings: &mut Vec<QaFindingCandidate>) {
@@ -1743,6 +1766,7 @@ fn profile_with_id(id: &str, name: &str, cjk: bool) -> QaProfileDefinition {
         "qa.same-source-different-target",
         "qa.different-source-same-target",
         "qa.unedited-fuzzy",
+        "qa.unedited-ai-draft",
     ]
     .into_iter()
     .map(str::to_string)
@@ -2422,6 +2446,59 @@ mod tests {
                 .into_iter()
                 .any(|finding| finding.rule_id == "qa.unedited-fuzzy")
         );
+    }
+
+    #[test]
+    fn unedited_confirmed_ai_draft_is_flagged_with_model_params() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let mut value = input("Save the file.", "保存文件。", "zh-CN");
+        value.confirmed = true;
+        value.origin = Some(SegmentOrigin {
+            kind: SegmentOriginKind::AiDraft,
+            score: None,
+            model: Some("fixture-model".to_string()),
+            edited: false,
+        });
+        let finding = profile
+            .evaluate_segment(&value)
+            .into_iter()
+            .find(|finding| finding.rule_id == "qa.unedited-ai-draft")
+            .expect("unedited-ai-draft finding");
+        assert_eq!(finding.severity, QaSeverity::Warning);
+        assert_eq!(finding.category, QaCategory::Behavior);
+        assert_eq!(
+            finding.params.get("model"),
+            Some(&"fixture-model".to_string())
+        );
+        assert_eq!(
+            finding.evidence.target_values,
+            vec!["保存文件。".to_string()]
+        );
+    }
+
+    #[test]
+    fn unedited_ai_draft_requires_all_three_engine_facts() {
+        let profile = CompiledQaProfile::compile(standard_profile()).expect("profile");
+        let fires = |confirmed: bool, kind: SegmentOriginKind, edited: bool| {
+            let mut value = input("Save the file.", "保存文件。", "zh-CN");
+            value.confirmed = confirmed;
+            value.origin = Some(SegmentOrigin {
+                kind,
+                score: None,
+                model: None,
+                edited,
+            });
+            profile
+                .evaluate_segment(&value)
+                .into_iter()
+                .any(|finding| finding.rule_id == "qa.unedited-ai-draft")
+        };
+        assert!(fires(true, SegmentOriginKind::AiDraft, false));
+        // Draft, edited, human, and TM rows never fire.
+        assert!(!fires(false, SegmentOriginKind::AiDraft, false));
+        assert!(!fires(true, SegmentOriginKind::AiDraft, true));
+        assert!(!fires(true, SegmentOriginKind::Human, false));
+        assert!(!fires(true, SegmentOriginKind::TmFuzzy, false));
     }
 
     #[test]

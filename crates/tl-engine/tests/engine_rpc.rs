@@ -3693,6 +3693,60 @@ fn confirming_an_unedited_fuzzy_match_opens_a_behavioral_warning() {
     );
 }
 
+/// The AI twin of the fuzzy behavioral check: confirming an applied AI
+/// draft without editing it opens `qa.unedited-ai-draft` at confirm time
+/// (warning, model in params), the confirm and its TM write still go
+/// through, and editing before re-confirming resolves it.
+#[test]
+fn confirming_an_unedited_ai_draft_opens_a_behavioral_warning() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "draft.txt", "Send the report.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+
+    // Apply an AI draft: the write stamps aiDraft with the real model.
+    let applied = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segment["id"],
+            "targetText": "发送报告。",
+            "baseRevision": segment["revision"],
+            "origin": { "kind": "aiDraft", "model": "fixture-model" },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(applied["origin"]["edited"], false);
+
+    // Confirm without touching the text: warning opens, confirm not blocked.
+    let confirmed = harness.confirm(&applied);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["tmEntry"]["targetText"], "发送报告。",
+        "the behavioral warning never blocks the confirm or its TM write"
+    );
+    let issues = confirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-ai-draft")
+        .expect("unedited-ai-draft issue");
+    assert_eq!(behavioral["status"], "open");
+    assert_eq!(behavioral["severity"], "warning");
+    assert_eq!(behavioral["params"]["model"], "fixture-model");
+
+    // Editing the target marks the origin edited; re-confirming resolves
+    // the behavioral issue in the same transaction.
+    let current = harness.segments(&document_id)[0].clone();
+    let edited = harness.set_target(&current, "发送该报告。");
+    assert_eq!(edited["origin"]["edited"], true);
+    let reconfirmed = harness.confirm(&edited);
+    let refreshed = reconfirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = refreshed
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-ai-draft")
+        .expect("behavioral row is kept, resolved");
+    assert_eq!(behavioral["status"], "resolved");
+}
+
 /// qa.profile.get/update: the project layer clones and overrides the
 /// built-in profile — severity remaps flow into qa.run results, settings
 /// that cannot compile are refused instead of stored, stale revisions

@@ -342,4 +342,33 @@ describe("QaPanel", () => {
     // The pinned target text is fingerprint evidence, not a 源 ≠ 译 diff.
     expect(document.querySelectorAll(".issue-card__evidence")).toHaveLength(0);
   });
+
+  it("localizes unedited AI draft findings and hides their evidence line", () => {
+    render(
+      <QaPanel
+        issues={[
+          issue("draft-1", "open", {
+            ruleId: "qa.unedited-ai-draft",
+            severity: "warning",
+            message: "AI draft was confirmed without edits.",
+            params: { model: "gpt-fixture" },
+            evidence: {
+              sourceNumbers: [],
+              targetNumbers: [],
+              sourceValues: [],
+              targetValues: ["保存文件。"],
+              relatedSegmentIds: [],
+            },
+          }),
+        ]}
+        disabled={false}
+        pendingKey={null}
+        {...NOOP}
+      />,
+    );
+    expect(
+      screen.getByText("AI 草稿（gpt-fixture）未修改即确认"),
+    ).toBeInTheDocument();
+    expect(document.querySelectorAll(".issue-card__evidence")).toHaveLength(0);
+  });
 });

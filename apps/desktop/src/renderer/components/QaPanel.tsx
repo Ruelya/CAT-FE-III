@@ -97,6 +97,10 @@ function messageFor(issue: QaIssue): string {
       return params.score
         ? `模糊匹配（${params.score}%）未修改即确认`
         : "模糊匹配未修改即确认";
+    case "qa.unedited-ai-draft":
+      return params.model
+        ? `AI 草稿（${params.model}）未修改即确认`
+        : "AI 草稿未修改即确认";
     case "qa.length-ratio":
       if (params.ratio && params.min && params.max) {
         return `译文长度比 ${params.ratio}%，超出 ${params.min}%–${params.max}%`;
@@ -172,7 +176,9 @@ export function QaPanel({
     // Behavioral rules pin the whole confirmed target as evidence
     // (for the waiver fingerprint); a "源 ≠ 译" line would misread
     // that, so it stays off.
-    const behavioral = issue.ruleId === "qa.unedited-fuzzy";
+    const behavioral =
+      issue.ruleId === "qa.unedited-fuzzy" ||
+      issue.ruleId === "qa.unedited-ai-draft";
     const sourceEvidence = behavioral
       ? []
       : [
