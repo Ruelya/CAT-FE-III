@@ -109,6 +109,9 @@
   --tl-ribbon-h: 56px;
   --tl-statusbar-h: 24px;
   --tl-tab-h: 30px;
+  /* Integrated window chrome strip; must equal the main process's native
+     window-button overlay height (window-chrome.ts TITLEBAR_HEIGHT). */
+  --tl-titlebar-h: 32px;
 
   /* Focus and overlays. */
   --tl-focus-ring:

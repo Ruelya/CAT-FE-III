@@ -19,7 +19,12 @@
 
 import type { MenuItemConstructorOptions } from "electron";
 
-import type { MenuCommand, MenuContext } from "../shared/desktop-api.js";
+import { MENU_BAR_ITEMS } from "../shared/desktop-api.js";
+import type {
+  MenuBarItemId,
+  MenuCommand,
+  MenuContext,
+} from "../shared/desktop-api.js";
 
 export interface MenuTemplateOptions {
   platform: NodeJS.Platform;
@@ -53,6 +58,15 @@ export const RENDERER_OWNED_ACCELERATORS: readonly string[] = [
 
 const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
 
+/** The shared menu-bar list is the single owner of the top-level labels. */
+function menuBarLabel(id: MenuBarItemId): string {
+  const item = MENU_BAR_ITEMS.find((entry) => entry.id === id);
+  if (!item) {
+    throw new Error(`unknown menu bar id: ${id}`);
+  }
+  return item.label;
+}
+
 export function buildMenuTemplate(
   options: MenuTemplateOptions,
 ): MenuItemConstructorOptions[] {
@@ -74,7 +88,7 @@ export function buildMenuTemplate(
   });
 
   const fileMenu: MenuItemConstructorOptions = {
-    label: "文件",
+    label: menuBarLabel("file"),
     submenu: [
       // Always enabled: creating a project needs no open project — from
       // inside one it returns to the list with the create form focused.
@@ -104,7 +118,7 @@ export function buildMenuTemplate(
   };
 
   const editMenu: MenuItemConstructorOptions = {
-    label: "编辑",
+    label: menuBarLabel("edit"),
     submenu: [
       { role: "undo", label: "撤销" },
       { role: "redo", label: "重做" },
@@ -178,7 +192,7 @@ export function buildMenuTemplate(
   };
 
   const viewMenu: MenuItemConstructorOptions = {
-    label: "视图",
+    label: menuBarLabel("view"),
     submenu: [
       // Renderer-owned Ctrl+Shift+P (with Ctrl+K as a synonym chord the
       // renderer also listens for) summons the command palette.
@@ -245,7 +259,7 @@ export function buildMenuTemplate(
   // deliberate duplicates (prototype IA); the accelerator stays on the
   // 文件 instance so each chord keeps a single owner.
   const projectMenu: MenuItemConstructorOptions = {
-    label: "项目",
+    label: menuBarLabel("project"),
     submenu: [
       commandItem("项目设置…", "open-project-settings", context.projectOpen),
       commandItem("记忆库管理…", "open-tm-manage", context.projectOpen),
@@ -259,7 +273,7 @@ export function buildMenuTemplate(
   };
 
   const translateMenu: MenuItemConstructorOptions = {
-    label: "翻译",
+    label: menuBarLabel("translate"),
     submenu: [
       // Studio confirm chord family. Same commands as the grid editor's
       // chords; display-only accelerators so the textarea handler stays
@@ -319,7 +333,7 @@ export function buildMenuTemplate(
   };
 
   const qaMenu: MenuItemConstructorOptions = {
-    label: "QA",
+    label: menuBarLabel("qa"),
     submenu: [
       commandItem("运行 QA", "run-qa", context.documentOpen),
       commandItem("QA 面板", "show-dock-qa", context.projectOpen),
@@ -343,7 +357,7 @@ export function buildMenuTemplate(
   };
 
   const helpMenu: MenuItemConstructorOptions = {
-    label: "帮助",
+    label: menuBarLabel("help"),
     submenu: [
       commandItem("键盘快捷键…", "help-keys", true),
       SEPARATOR,
@@ -376,4 +390,24 @@ export function buildMenuTemplate(
     qaMenu,
     helpMenu,
   ];
+}
+
+/**
+ * The named top-level submenu out of the same template the application menu
+ * is built from — the integrated titlebar pops these, so a titlebar menu and
+ * the classic menu bar can never disagree. Null for an unknown id.
+ */
+export function menuBarSubmenu(
+  options: MenuTemplateOptions,
+  menuId: string,
+): MenuItemConstructorOptions[] | null {
+  const index = MENU_BAR_ITEMS.findIndex((item) => item.id === menuId);
+  if (index < 0) {
+    return null;
+  }
+  const template = buildMenuTemplate(options);
+  // macOS prepends the app menu; the menu-bar list starts at 文件 either way.
+  const top = template[options.platform === "darwin" ? index + 1 : index];
+  const submenu = top?.submenu;
+  return Array.isArray(submenu) ? submenu : null;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Project } from "@translunar/contracts";
 import { SegmentProgress, StatusDot } from "@translunar/ui";
@@ -12,6 +12,7 @@ import { AppearanceDialog } from "./components/AppearanceDialog.js";
 import { EngineGate } from "./components/EngineGate.js";
 import { ProjectSettingsDialog } from "./components/ProjectSettingsDialog.js";
 import { ShortcutsDialog } from "./components/ShortcutsDialog.js";
+import { TitleBar } from "./components/TitleBar.js";
 import { TmManageDialog } from "./components/TmManageDialog.js";
 import { useTheme } from "./lib/theme.js";
 import { ProjectsView } from "./views/ProjectsView.js";
@@ -115,18 +116,21 @@ export function App() {
 
   // Window title reports the working object: project — document — langs.
   // Real data only: the project in memory and the workbench-reported
-  // document name; no project means the bare app name.
-  useEffect(() => {
+  // document name; no project means the bare app name. document.title
+  // (taskbar, Alt+Tab) and the integrated titlebar show the same string.
+  const documentName = workbenchStats?.documentName;
+  const windowTitle = useMemo(() => {
     if (!project) {
-      document.title = "Translunar";
-      return;
+      return "Translunar";
     }
     const langs = `(${project.sourceLocale} → ${project.targetLocale})`;
-    const documentName = workbenchStats?.documentName;
-    document.title = documentName
+    return documentName
       ? `${project.name} — ${documentName} ${langs}`
       : `${project.name} ${langs}`;
-  }, [project, workbenchStats?.documentName]);
+  }, [project, documentName]);
+  useEffect(() => {
+    document.title = windowTitle;
+  }, [windowTitle]);
 
   // Shell actions shared by the application menu and the workbench command
   // palette: one handler each so both surfaces run the identical path.
@@ -192,8 +196,14 @@ export function App() {
   const engineState: EngineLifecycleState = engineStatus?.state ?? "starting";
   const engineReady = engineState === "ready";
 
+  // Fixed for the process lifetime: integrated hosts (Windows/Linux) draw
+  // the titlebar strip in here; macOS keeps the system frame and menu bar.
+  const windowChrome =
+    window.tl?.windowChrome === "integrated" ? "integrated" : "system";
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-window-chrome={windowChrome}>
+      {windowChrome === "integrated" ? <TitleBar title={windowTitle} /> : null}
       {/* display:contents wrapper: keeps the grid layout intact while
           `inert` blocks focus and input in the whole surface whenever the
           engine cannot acknowledge writes. */}

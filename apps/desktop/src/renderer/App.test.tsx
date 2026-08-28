@@ -19,7 +19,10 @@ interface Bridge {
   emitMenuCommand: (command: MenuCommand) => void;
 }
 
-function installBridge(initial: EngineStatusPayload): Bridge {
+function installBridge(
+  initial: EngineStatusPayload,
+  extra: Partial<DesktopApi> = {},
+): Bridge {
   let listener: ((status: EngineStatusPayload) => void) | null = null;
   let menuListener: ((command: MenuCommand) => void) | null = null;
   const relaunchEngine = vi.fn().mockResolvedValue({
@@ -47,6 +50,7 @@ function installBridge(initial: EngineStatusPayload): Bridge {
         menuListener = null;
       };
     },
+    ...extra,
   };
   Object.defineProperty(window, "tl", {
     value: api,
@@ -222,5 +226,52 @@ describe("App shell menu commands", () => {
         exportGate: false,
       });
     });
+  });
+});
+
+describe("App window chrome", () => {
+  const READY: EngineStatusPayload = {
+    state: "ready",
+    restarts: 0,
+    pid: 41,
+    engineVersion: "0.1.0",
+  };
+
+  it("integrated hosts get the titlebar strip with the seven menus on the shell's first row", async () => {
+    installBridge(READY, {
+      windowChrome: "integrated",
+      popupAppMenu: vi.fn().mockResolvedValue(undefined),
+      setTitlebarOverlay: vi.fn(),
+    });
+    render(<App />);
+    await waitFor(() => {
+      expect(mainSurface()).not.toHaveAttribute("inert");
+    });
+
+    const shell = document.querySelector(".app-shell");
+    expect(shell).toHaveAttribute("data-window-chrome", "integrated");
+    const menubar = screen.getByRole("menubar", { name: "应用菜单" });
+    expect(
+      // The strip lives outside the inert-able main surface, as shell chrome.
+      menubar.closest(".titlebar")?.parentElement,
+    ).toBe(shell);
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["文件", "编辑", "视图", "项目", "翻译", "QA", "帮助"]);
+    // No project open: the strip titles the bare app.
+    expect(menubar.closest(".titlebar")).toHaveTextContent("Translunar");
+  });
+
+  it("system-chrome hosts (macOS) draw no strip and keep the OS frame", async () => {
+    installBridge(READY, { windowChrome: "system" });
+    render(<App />);
+    await waitFor(() => {
+      expect(mainSurface()).not.toHaveAttribute("inert");
+    });
+    expect(document.querySelector(".titlebar")).toBeNull();
+    expect(document.querySelector(".app-shell")).toHaveAttribute(
+      "data-window-chrome",
+      "system",
+    );
   });
 });
