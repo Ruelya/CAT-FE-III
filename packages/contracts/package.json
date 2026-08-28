@@ -1,0 +1,21 @@
+{
+  "name": "@translunar/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "generate": "json2ts -i src/protocol.schema.json -o src/protocol.generated.ts --bannerComment \"/* eslint-disable -- Generated from the Rust protocol schema. Do not edit. */\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "6.0.3"
+  }
+}

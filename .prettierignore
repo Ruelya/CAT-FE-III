@@ -1,0 +1,24 @@
+target/
+**/dist/
+**/node_modules/
+**/test-results/
+**/playwright-report/
+.local-cache/
+.tools/
+.playwright-cli/
+.agents/
+.claude/
+.cursor/
+.firecrawl/
+AGENTS.md
+docs/**
+!docs/architecture.md
+packages/contracts/src/protocol.generated.ts
+packages/contracts/src/protocol.schema.json
+fixtures/**/*.docx
+# Format sample files are import inputs: reformatting them would change what
+# the filters are being asked to parse.
+fixtures/formats/
+pnpm-lock.yaml
+apps/desktop/release/
+apps/desktop/.package-engine-resource/

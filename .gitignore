@@ -1,0 +1,16 @@
+/target/
+**/node_modules/
+**/dist/
+/apps/desktop/.package-engine/
+/apps/desktop/release/
+**/test-results/
+**/playwright-report/
+/.pnpm-store/
+/.local-cache/
+/.tools/
+/.firecrawl/
+/.translunar-data/
+/.playwright-cli/
+*.tmp
+*.log
+format-matrix.json

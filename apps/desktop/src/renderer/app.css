@@ -1,0 +1,2971 @@
+/* Application shell: light professional workspace.
+   Pane map (matches the reference layout): native menu row above the web
+   contents, then ribbon toolbar / left project explorer / center bilingual
+   grid / right resource rail / bottom status bar. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-md);
+  color: var(--tl-color-text);
+  background: var(--tl-color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) var(--tl-statusbar-h);
+  height: 100%;
+}
+
+/* Bottom status bar: a 24px instrument readout strip. The message renders
+   in the UI stack (CJK never goes through mono); numbers wear .tl-num. */
+.app-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-5);
+  padding: 0 var(--tl-space-4);
+  border-top: var(--tl-border-hairline);
+  background: var(--tl-color-surface);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  min-width: 0;
+}
+
+.app-statusbar__message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Right-aligned live stats: progress is chrome, not panel content. */
+.app-statusbar__stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-4);
+  flex: none;
+}
+
+.app-statusbar__stat {
+  white-space: nowrap;
+}
+
+.app-statusbar__stat[data-tone="danger"] {
+  color: var(--tl-status-danger);
+}
+
+/* 草稿/QA readouts double as buttons: clicking applies the grid filter. */
+button.app-statusbar__jump {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.app-statusbar__jump:hover {
+  text-decoration: underline;
+}
+
+.app-statusbar__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.app-statusbar__progress .tl-progress {
+  width: 96px;
+}
+
+.app-statusbar__engine {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  white-space: nowrap;
+  padding-left: var(--tl-space-4);
+  border-left: var(--tl-border-hairline);
+}
+
+/* Inert wrapper around the main surface; display:contents keeps the
+   app-shell grid rows intact while the engine gate is up. */
+.app-main {
+  display: contents;
+}
+
+/* Engine gate: honest blocking surface above the status bar while the
+   engine is starting, restarting, or down. */
+
+.engine-gate {
+  position: fixed;
+  top: 0;
+  bottom: var(--tl-statusbar-h);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tl-space-6);
+  background: rgba(27, 32, 43, 0.42);
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
+}
+
+.engine-gate__card {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-5);
+  border: 1px solid var(--tl-color-border-strong);
+  border-left: 3px solid var(--tl-status-warn);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface);
+  box-shadow: var(--tl-shadow-overlay);
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.engine-gate__card[data-state="down"] {
+  border-left-color: var(--tl-status-danger);
+}
+
+.engine-gate__title {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin: 0;
+  font-size: var(--tl-text-md);
+  font-weight: 600;
+  color: var(--tl-color-text);
+}
+
+.engine-gate__body {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  line-height: 1.6;
+  color: var(--tl-color-text-muted);
+}
+
+.engine-gate__error {
+  margin: 0;
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.engine-gate__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Unacked write alert inside the center pane. */
+.workbench-unacked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  margin: var(--tl-space-3) var(--tl-space-3) 0;
+}
+
+/* Projects view: full-bleed working surface at workbench density — a
+   form toolbar over a flat hairline-separated list, no centered card. */
+
+.projects-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--tl-color-surface-raised);
+}
+
+.projects-view__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+  background: var(--tl-color-surface);
+  flex: none;
+}
+
+.projects-view__toolbar .tl-field {
+  flex: 0 1 240px;
+  min-width: 0;
+}
+
+.projects-view__error {
+  margin: var(--tl-space-2) var(--tl-space-4) 0;
+}
+
+.projects-view__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-2) var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+  flex: none;
+}
+
+.projects-view__caption {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-faint);
+}
+
+.projects-view .project-list {
+  overflow-y: auto;
+}
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  width: 100%;
+  min-height: var(--tl-row-h-list);
+  text-align: left;
+  padding: var(--tl-space-2) var(--tl-space-4);
+  background: transparent;
+  border: none;
+  border-bottom: var(--tl-border-hairline);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  box-shadow: inset 2px 0 0 transparent;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    box-shadow var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.project-list__item:hover {
+  background: var(--tl-color-sunken);
+}
+
+.project-list__item:focus-visible {
+  outline: none;
+  background: var(--tl-color-surface-active);
+  box-shadow:
+    inset 2px 0 0 var(--tl-color-accent),
+    inset 0 0 0 1px var(--tl-color-accent);
+}
+
+.project-list__name {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.project-list__locales {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+/* Archived projects stay reachable but off by default; the toggle sits in
+   the list header so the count is honest even while they are hidden. */
+.project-list__archived-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  user-select: none;
+}
+
+/* Workbench: ribbon on top, explorer | grid | resource rail below.
+   Panes are flat surfaces split by hairline borders — no floating cards. */
+
+.workbench {
+  /* Rail widths are splitter-driven per project (useWorkbenchLayout);
+     the inline style on .workbench sets these two variables. */
+  --tl-rail-left: 260px;
+  --tl-rail-right: 336px;
+  display: grid;
+  grid-template-columns: var(--tl-rail-left) 4px minmax(0, 1fr) 4px var(
+      --tl-rail-right
+    );
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  background: var(--tl-color-surface-raised);
+}
+
+/* Pane splitters: 4px hit area, hover/drag accent, keyboard-resizable
+   (arrows), double-click resets, chevron collapses. */
+.splitter {
+  position: relative;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color 120ms var(--tl-ease-standard);
+}
+
+.splitter[data-orientation="horizontal"] {
+  cursor: row-resize;
+  height: 4px;
+  flex: none;
+}
+
+.splitter:hover,
+.splitter:focus-visible {
+  background: var(--tl-color-accent);
+  outline: none;
+}
+
+.splitter[data-collapsed] {
+  cursor: default;
+}
+
+.splitter__chevron {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 28px;
+  padding: 0;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+}
+
+.splitter[data-orientation="horizontal"] .splitter__chevron {
+  width: 28px;
+  height: 14px;
+}
+
+.splitter:hover .splitter__chevron,
+.splitter:focus-visible .splitter__chevron,
+.splitter[data-collapsed] .splitter__chevron {
+  display: inline-flex;
+}
+
+.splitter__chevron:hover {
+  color: var(--tl-color-accent-strong);
+  border-color: var(--tl-color-accent);
+}
+
+/* Explicit grid placement: a collapsed rail is display:none, so the
+   remaining children must not shift into its column. */
+.workbench > .workbench__explorer {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.workbench > .splitter--left {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.workbench > .workbench__center {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.workbench > .splitter--right {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.workbench > .workbench__dock {
+  grid-column: 5;
+  grid-row: 2;
+}
+
+/* A collapsed rail renders nothing: the splitter chevron is the way back. */
+.workbench__explorer[data-collapsed],
+.workbench__dock[data-collapsed] {
+  display: none;
+}
+
+/* Ribbon toolbar: labeled icon groups, hairline group dividers,
+   far-right search. Items that do not fit fold into the trailing 更多
+   menu — the ribbon never scrolls. */
+
+.ribbon {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-2);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  background: var(--tl-color-surface);
+  border-bottom: var(--tl-border-hairline);
+  min-height: var(--tl-ribbon-h);
+  overflow: hidden;
+}
+
+.ribbon__commands {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+  min-width: 0;
+}
+
+.ribbon__slot {
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+}
+
+/* Groups: a labeled column of stacked buttons, separated by a hairline.
+   The label is the same caption the application menu uses, so the toolbar
+   and the menu name the same four regions of work. */
+.ribbon__group {
+  display: flex;
+  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0;
+}
+.ribbon__group-items {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tl-space-1);
+}
+.ribbon__group-label {
+  flex-basis: 100%;
+  order: 3;
+  padding-top: 1px;
+  text-align: center;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: var(--tl-color-text-faint);
+  user-select: none;
+}
+.ribbon__divider {
+  width: 1px;
+  margin: var(--tl-space-2) var(--tl-space-2);
+  background: var(--tl-color-border);
+  flex: none;
+  align-self: stretch;
+}
+
+.ribbon__more {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.ribbon__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--tl-space-1);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  box-shadow: var(--tl-shadow-pop);
+}
+
+.ribbon__menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ribbon__menu-item:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.ribbon__menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ribbon__button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 52px;
+  padding: var(--tl-space-2) var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.ribbon__button:hover:not(:disabled) {
+  background: var(--tl-color-accent-faint);
+  color: var(--tl-color-text);
+}
+
+.ribbon__button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.ribbon__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ribbon__icon {
+  display: inline-flex;
+  color: var(--tl-color-accent);
+}
+
+.ribbon__button:disabled .ribbon__icon {
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__label {
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------- theme picker */
+
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-5);
+}
+.theme-picker__caption {
+  margin: 0 0 var(--tl-space-3);
+  font-size: var(--tl-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--tl-color-text-faint);
+}
+.theme-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: var(--tl-space-3);
+}
+.theme-picker__swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--tl-space-3);
+  text-align: left;
+  background: var(--tl-color-surface);
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-md);
+  cursor: pointer;
+  font-family: var(--tl-font-ui);
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    background-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+.theme-picker__swatch:hover {
+  background: var(--tl-color-sunken);
+}
+.theme-picker__swatch[data-active="true"] {
+  border-color: var(--tl-color-accent);
+  box-shadow: inset 0 0 0 1px var(--tl-color-accent);
+}
+.theme-picker__swatch:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+/* The swatch is painted by the theme it selects: the token block is scoped
+   to [data-theme], so a preview attribute on the button is enough. */
+.theme-picker__chip {
+  display: block;
+  height: 44px;
+  border-radius: var(--tl-radius-sm);
+  border: 1px solid var(--tl-color-border);
+  background: var(--tl-color-bg);
+  font-family: var(--tl-font-ui);
+  overflow: hidden;
+}
+.theme-picker__chip-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 13px;
+  padding: 0 4px;
+  background: var(--tl-color-chrome);
+  border-bottom: 1px solid var(--tl-color-border);
+}
+.theme-picker__chip-bar::before,
+.theme-picker__chip-bar::after {
+  content: "";
+  width: 9px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--tl-color-accent);
+}
+.theme-picker__chip-bar::after {
+  width: 16px;
+  background: var(--tl-color-text-faint);
+}
+.theme-picker__chip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 5px;
+  background: var(--tl-color-surface);
+}
+.theme-picker__chip-accent {
+  display: block;
+  height: 5px;
+  width: 62%;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-accent);
+}
+.theme-picker__chip-line {
+  display: block;
+  height: 3px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-text-faint);
+  opacity: 0.6;
+}
+.theme-picker__chip-line:last-child {
+  width: 74%;
+}
+.theme-picker__name {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+.theme-picker__id {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+.theme-picker__fx {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-2) 0;
+  cursor: pointer;
+}
+.theme-picker__fx-label {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+.theme-picker__fx-hint {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+.theme-picker__reset {
+  align-self: flex-start;
+  margin-top: var(--tl-space-2);
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent);
+  cursor: pointer;
+}
+.app-statusbar__theme {
+  color: var(--tl-color-text);
+}
+
+.ribbon__spacer {
+  flex: 1;
+}
+
+.ribbon__search {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  flex: none;
+}
+
+.ribbon__search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding: 0 var(--tl-space-3);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-color-surface-raised);
+  height: 28px;
+}
+
+.ribbon__search-box:focus-within {
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.ribbon__search-icon {
+  display: inline-flex;
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ribbon__search-input {
+  width: 180px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+
+.ribbon__search-input::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.ribbon__search-input:disabled {
+  color: var(--tl-color-text-faint);
+  cursor: not-allowed;
+}
+
+/* Left project explorer */
+
+.workbench__explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--tl-color-surface);
+  border-right: var(--tl-border-hairline);
+}
+
+.explorer__section {
+  padding: var(--tl-space-3) 0 var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+}
+
+.explorer__section--files {
+  flex: none;
+}
+
+.explorer__section--details {
+  border-bottom: none;
+  margin-top: auto;
+}
+
+.explorer__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--tl-space-4);
+  margin-bottom: var(--tl-space-2);
+}
+
+.explorer__caption {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-faint);
+}
+
+/* Local file search (PRD §3.5): filters the in-memory document list. */
+.explorer__search {
+  display: block;
+  width: calc(100% - 2 * var(--tl-space-4));
+  margin: 0 var(--tl-space-4) var(--tl-space-2);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+}
+
+.explorer__search::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.explorer__search:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.explorer__gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.explorer__gear:hover {
+  background: var(--tl-color-accent-faint);
+  color: var(--tl-color-accent-strong);
+}
+
+.explorer__gear:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.project-explorer__name {
+  margin: 0 var(--tl-space-4) var(--tl-space-1);
+  font-size: var(--tl-text-md);
+  font-weight: 700;
+  color: var(--tl-color-text);
+  word-break: break-word;
+}
+
+.explorer__langs {
+  margin: 0 var(--tl-space-4) var(--tl-space-2);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.explorer__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+  margin: 0 var(--tl-space-4);
+}
+
+.explorer__progress-label {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+.explorer__details {
+  margin: 0;
+  padding: 0 var(--tl-space-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.explorer__detail {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  padding: 3px 0;
+  font-size: var(--tl-text-xs);
+}
+
+.explorer__detail dt {
+  color: var(--tl-color-text-faint);
+  white-space: nowrap;
+}
+
+.explorer__detail dd {
+  margin: 0;
+  color: var(--tl-color-text);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* File list inside the explorer. */
+
+.document-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Folder rows. The tree is derived from each document's relativePath, so a
+   flat import stays a flat list — the indentation always means something. */
+.document-list__dir {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  width: 100%;
+  height: var(--tl-row-h-list);
+  padding-left: 6px;
+  padding-right: var(--tl-space-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  text-align: left;
+}
+
+/* Indent guides: one hairline per ancestor level (VS Code style), full row
+   height, drawn from the theme's border token. */
+.document-list__guides {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+.document-list__guide {
+  flex: none;
+  width: 12px;
+  border-left: 1px solid var(--tl-color-border);
+}
+.document-list__dir:hover {
+  background: var(--tl-color-row-hover);
+}
+.document-list__dir:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+.document-list__chevron {
+  flex: none;
+  transition: transform var(--tl-motion-fast) var(--tl-ease-standard);
+}
+.document-list__chevron[data-open="true"] {
+  transform: rotate(90deg);
+}
+.document-list__dir-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-list__dir-count {
+  flex: none;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+/* Open-QA rollup on a folder: the same danger chip the dock tab wears, so
+   a closed folder still reports the findings inside it. */
+.document-list__dir-qa {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--tl-radius-sm);
+  font-size: var(--tl-text-xs);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+}
+.document-list__file-icon {
+  flex: none;
+  margin-right: var(--tl-space-2);
+  vertical-align: -2px;
+  color: var(--tl-color-text-faint);
+}
+
+.document-list__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding-right: var(--tl-space-2);
+  border-left: 2px solid transparent;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.document-list__item:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.document-list__item[data-active="true"] {
+  background: var(--tl-color-accent-faint);
+  border-left-color: var(--tl-color-accent);
+}
+
+/* Open in a tab but not the one on screen: stronger than a closed file,
+   weaker than the active accent. */
+.document-list__item[data-open="true"] {
+  background: var(--tl-color-sunken);
+  border-left-color: var(--tl-color-border-strong);
+}
+
+/* The open-this-document hit area; the remove controls sit beside it. */
+.document-list__select {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: var(--tl-space-2) var(--tl-space-4);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.document-list__select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--tl-color-accent);
+}
+
+/* Per-document progress: bar plus numeric percent, never color-only. */
+.document-list__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin-top: var(--tl-space-1);
+  align-self: stretch;
+}
+
+.document-list__progress .tl-progress {
+  flex: 1;
+}
+
+.document-list__pct {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  min-width: 30px;
+  text-align: right;
+}
+
+.document-list__confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+  flex-shrink: 0;
+}
+
+.document-list__remove {
+  flex-shrink: 0;
+}
+
+.document-list__name {
+  font-weight: 600;
+  font-size: var(--tl-text-sm);
+  word-break: break-all;
+}
+
+.document-list__meta {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+/* Center pane: file tabs, toolbar, bilingual grid, view tabs. */
+
+.workbench__center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--tl-color-surface-raised);
+}
+
+.workbench__center-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Open-document tabs. Closing a tab never removes the document — the
+   explorer keeps it and the × label says so. */
+
+.doc-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  padding: var(--tl-space-2) var(--tl-space-2) 0;
+  background: var(--tl-color-bg);
+  border-bottom: var(--tl-border-hairline);
+  overflow-x: auto;
+  flex: none;
+}
+
+.doc-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+  padding: 0 var(--tl-space-2) 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--tl-radius-sm) var(--tl-radius-sm) 0 0;
+  background: transparent;
+  box-shadow: inset 0 2px 0 transparent;
+  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
+  white-space: nowrap;
+}
+
+.doc-tabs__tab:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.doc-tabs__tab[data-active="true"] {
+  background: var(--tl-color-surface-raised);
+  border-color: var(--tl-color-border);
+  box-shadow: inset 0 2px 0 var(--tl-color-accent);
+  /* Merge into the pane below: the active tab and the grid read as one. */
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.doc-tabs__select {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  padding: var(--tl-space-2) var(--tl-space-2) var(--tl-space-2)
+    var(--tl-space-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.doc-tabs__tab[data-active="true"] .doc-tabs__select {
+  color: var(--tl-color-text);
+  font-weight: 600;
+}
+
+.doc-tabs__select:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+  border-radius: var(--tl-radius-sm);
+}
+
+.doc-tabs__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--tl-color-text-faint);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.doc-tabs__close:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.doc-tabs__close:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+/* Docked bottom preview pane (PRD §7.4): a slim always-present bar under
+   the grid; expanding reveals the proofread/layout body, whose height is
+   dragged via the horizontal splitter and persisted per project. */
+
+.preview-pane {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border-top: var(--tl-border-hairline);
+  background: var(--tl-color-surface);
+}
+
+.preview-pane__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  padding: 0 var(--tl-space-3);
+  min-height: var(--tl-tab-h);
+  flex: none;
+}
+
+.preview-pane__title {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.preview-pane[data-open] .preview-pane__title {
+  color: var(--tl-color-text);
+}
+
+.preview-pane__spacer {
+  flex: 1;
+}
+
+.preview-pane__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.preview-pane__toggle:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.preview-pane__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.preview-pane__body {
+  overflow: auto;
+  padding: var(--tl-space-3) var(--tl-space-4);
+  border-top: var(--tl-border-hairline);
+  flex: none;
+}
+
+/* Segment grid toolbar: state filter + removable filter chips on the
+   left, the resident visible/total count on the right. Find/replace has
+   no permanent chrome here — it lives in the summonable find widget. */
+
+.grid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border-bottom: var(--tl-border-hairline);
+  background: var(--tl-color-surface);
+  flex: none;
+  min-width: 0;
+}
+
+.grid-toolbar__select {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+}
+
+.grid-toolbar__select:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+/* Boolean filter toggles (锁定 / 有术语 / 有标签) beside the state select;
+   an active channel also shows as a removable chip in the same row. */
+.grid-toolbar__toggle {
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.grid-toolbar__toggle:hover {
+  background: var(--tl-color-row-hover);
+}
+
+.grid-toolbar__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.grid-toolbar__toggle[aria-pressed="true"] {
+  color: var(--tl-color-accent-strong);
+  background: var(--tl-color-accent-faint);
+  border-color: var(--tl-color-accent);
+}
+
+.grid-toolbar__spacer {
+  flex: 1;
+}
+
+/* Resident visible/total readout — always on, even with no filter. */
+.grid-toolbar__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+}
+
+/* Removable filter chips: one per active filter channel; × clears it. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-accent-strong);
+  background: var(--tl-color-accent-faint);
+  border: 1px solid var(--tl-color-accent);
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--tl-motion-fast) var(--tl-ease-out);
+}
+
+.filter-chip:hover {
+  background: var(--tl-color-surface-raised);
+}
+
+.filter-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.filter-chip__x {
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+}
+
+/* 帮助 ▸ 键盘快捷键: one row per real chord — action label, then keys. */
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.shortcuts__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  padding: var(--tl-space-1) 0;
+  border-bottom: var(--tl-border-hairline);
+}
+
+.shortcuts__row dt {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+}
+
+.shortcuts__row dd {
+  margin: 0;
+}
+
+.shortcuts kbd {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  background: var(--tl-color-sunken);
+  border: 1px solid var(--tl-color-border);
+  border-radius: var(--tl-radius-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* 帮助 ▸ 关于: the app name and version, nothing else. */
+.about__line {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+}
+
+/* Floating find/replace widget (Ctrl+F / Ctrl+H, VS Code form). The
+   zero-height anchor keeps it overlaying the grid's top-right corner
+   without magic offsets; entry uses the shared overlay rise-in. */
+
+.find-widget-anchor {
+  position: relative;
+  height: 0;
+  z-index: 30;
+  flex: none;
+}
+
+.find-widget {
+  position: absolute;
+  top: var(--tl-space-2);
+  right: 20px;
+  display: flex;
+  align-items: stretch;
+  gap: var(--tl-space-1);
+  padding: var(--tl-space-2);
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  box-shadow: var(--tl-shadow-pop);
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.find-widget__toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__toggle:hover {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+}
+
+.find-widget__input {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: var(--tl-ctl-h-sm);
+  padding: 0 8px;
+  width: 200px;
+}
+
+.find-widget__input:focus-visible {
+  outline: none;
+  border-color: var(--tl-color-accent);
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__input::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.find-widget__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  min-width: 34px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.find-widget__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  cursor: pointer;
+}
+
+.find-widget__button:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.find-widget__button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__action {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text);
+  background: var(--tl-color-surface);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-sm);
+  height: 22px;
+  padding: 0 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.find-widget__action:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.find-widget__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.find-widget__action:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.find-widget__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Segment grid */
+
+.segment-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.segment-grid tbody tr.segment-grid__spacer {
+  cursor: default;
+  border-bottom: none;
+}
+
+.segment-grid tbody tr.segment-grid__spacer:hover {
+  background: transparent;
+}
+
+.segment-grid__spacer td {
+  padding: 0;
+  border: none;
+}
+
+.segment-grid table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.segment-grid thead th {
+  position: sticky;
+  top: 0;
+  background: var(--tl-color-surface);
+  border-bottom: 1px solid var(--tl-color-border-strong);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-muted);
+  text-align: left;
+  z-index: 1;
+}
+
+/* Row states are three separate readings: hover is neutral gray, the
+   selected row is a neutral-blue surface with a left accent spine, and the
+   editing row (currently the same row — the editor mounts on selection)
+   adds a 1px accent perimeter. Never the same color for two states. */
+.segment-grid tbody tr {
+  border-bottom: var(--tl-border-hairline);
+  height: var(--tl-row-h-grid);
+  vertical-align: top;
+  transition: background-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.segment-grid tbody tr:hover:not([data-active="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.segment-grid tbody tr[data-active="true"] {
+  background: var(--tl-color-surface-active);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+/* The 1px accent perimeter belongs to the editing state only; a row
+   selected in navigation mode (Esc) keeps just the spine + surface. */
+.segment-grid tbody tr[data-editing="true"] {
+  box-shadow:
+    inset 2px 0 0 var(--tl-color-accent),
+    inset 0 0 0 1px var(--tl-color-accent);
+}
+
+/* Keyboard navigation mode: the focused row is the selection; the focus
+   ring is drawn inside the row so it never collides with neighbors. */
+.segment-grid tbody tr:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: -2px;
+}
+
+.segment-grid td {
+  padding: 6px var(--tl-space-3);
+  font-size: var(--tl-text-md);
+  line-height: 1.5;
+}
+
+.segment-grid__ordinal {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  width: 42px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status spine on the ordinal cell: a scannable color column that mirrors
+   the state badge (never the only signal — the badge carries the words).
+   QA problems override the state color; the active accent sits on the row
+   itself, one pixel to the left of this spine. */
+.segment-grid tbody tr[data-state="draft"] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0
+    color-mix(in srgb, var(--tl-color-accent) 45%, transparent);
+}
+
+.segment-grid tbody tr[data-state="confirmed"] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0
+    color-mix(in srgb, var(--tl-status-ok) 55%, transparent);
+}
+
+.segment-grid tbody tr[data-qa] > .segment-grid__ordinal {
+  box-shadow: inset 3px 0 0 var(--tl-status-danger);
+}
+
+.segment-grid__source {
+  width: 42%;
+}
+
+.segment-grid__target {
+  width: 42%;
+}
+
+/* Geometry-stable inline editing: the textarea sits in the exact text box
+   of the cell (same font, same line-height, zero chrome), so entering edit
+   mode never changes the row box. Height follows content only; the row's
+   1px accent perimeter carries the editing signal. */
+.segment-grid__target-editor {
+  display: flex;
+  flex-direction: column;
+}
+
+.segment-grid__target-editor textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  line-height: 1.5;
+  border: none;
+  outline: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+}
+
+/* Language tags in the column headers: lowercase BCP-47, deliberately
+   quieter than the uppercase column titles. */
+.segment-grid__locale {
+  margin-left: var(--tl-space-2);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--tl-color-text-faint);
+}
+
+.segment-grid__state {
+  width: 72px;
+}
+
+/* One combined status chip per row: the glyph is the information, the
+   color is the second channel. QA problems overlay a counted badge; the
+   active row's live TM score chip sits beside it. */
+.segment-grid__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.segment-grid__chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 3px;
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface-raised);
+  color: var(--tl-color-text-faint);
+}
+
+.segment-grid__chip[data-state="draft"] {
+  color: var(--tl-color-accent);
+  border-color: var(--tl-color-accent-soft);
+}
+
+.segment-grid__chip[data-state="confirmed"] {
+  color: var(--tl-status-ok);
+  border-color: var(--tl-status-ok-soft);
+}
+
+.segment-grid__chip-qa {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 3px;
+  border: 1px solid var(--tl-status-danger);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+  white-space: nowrap;
+}
+
+/* Placeholder tokens ({name}, {{var}}, %s, <b>, &amp;) render as mono
+   glyph chips in both text columns — same token grammar as the engine's
+   qa.tag-placeholder_* rules. A QA-flagged token turns its border danger. */
+.tl-token {
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 0 3px;
+  border: var(--tl-border-hairline);
+  border-radius: 2px;
+  background: var(--tl-color-sunken);
+  white-space: pre;
+}
+
+.tl-token[data-danger] {
+  border-color: var(--tl-status-danger);
+  color: var(--tl-status-danger);
+}
+
+/* Row ⋯ menu (right-click / status-cell dots): copy source, clear target.
+   No confirm in the menu — confirming stays a keyboard/editor act. */
+.segment-grid__menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.segment-grid__menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text-faint);
+  cursor: pointer;
+}
+
+.segment-grid__menu-button:hover {
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text);
+}
+
+.segment-grid__menu-button:focus-visible {
+  outline: 2px solid var(--tl-color-accent);
+  outline-offset: 1px;
+}
+
+.segment-grid__menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: var(--tl-space-1);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-color-surface-raised);
+  box-shadow: var(--tl-shadow-pop);
+}
+
+.segment-grid__menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px var(--tl-space-2);
+  border: none;
+  border-radius: var(--tl-radius-sm);
+  background: transparent;
+  color: var(--tl-color-text);
+  font-size: var(--tl-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.segment-grid__menu-item:hover:not(:disabled) {
+  background: var(--tl-color-sunken);
+}
+
+.segment-grid__menu-item:disabled {
+  color: var(--tl-color-text-faint);
+  cursor: default;
+}
+
+.segment-grid__menu-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--tl-space-1);
+  vertical-align: -2px;
+}
+
+/* Locked rows: the glyph is the signal (its own icon before the state
+   chip, never a recolor of it); the faint target text is only the second
+   channel on top of the disabled editor. */
+.segment-grid__lock {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tl-color-text-faint);
+}
+
+.segment-grid tbody tr[data-locked] .segment-grid__target {
+  color: var(--tl-color-text-faint);
+}
+
+/* Right resource rail */
+
+.workbench__dock {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--tl-color-surface);
+  border-left: var(--tl-border-hairline);
+}
+
+/* Rail tabs: underlined text tabs across the top of the rail. */
+.dock-tabs {
+  display: flex;
+  background: var(--tl-color-surface);
+  border-bottom: var(--tl-border-hairline);
+  flex: none;
+  overflow-x: auto;
+}
+
+/* Icon + label, width from content — never flex:1 equal splits (§3.7). */
+.dock-tabs button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tl-space-1);
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  font-weight: 600;
+  color: var(--tl-color-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--tl-space-3) var(--tl-space-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    background-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.dock-tabs button:hover:not([data-active="true"]) {
+  color: var(--tl-color-text);
+  background: var(--tl-color-accent-faint);
+}
+
+.dock-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.dock-tabs button[data-active="true"] {
+  color: var(--tl-color-accent-strong);
+  border-bottom-color: var(--tl-color-accent);
+}
+
+/* Live counters on dock tabs (QA open issues, best TM score). */
+.dock-tabs__chip {
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-sunken);
+  color: var(--tl-color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dock-tabs__chip[data-tone="ok"] {
+  background: var(--tl-status-ok-soft);
+  color: var(--tl-status-ok);
+}
+
+.dock-tabs__chip[data-tone="accent"] {
+  background: var(--tl-color-accent-soft);
+  color: var(--tl-color-accent-strong);
+}
+
+.dock-tabs__chip[data-tone="danger"] {
+  background: var(--tl-status-danger-soft);
+  color: var(--tl-status-danger);
+}
+
+.dock-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.dock-view {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Rail panels sit flush inside the rail: the rail border is the frame.
+   A dock group may stack two panels (记忆 = TM + 检索, AI = 辅助 +
+   Agent); they split the rail and scroll independently. */
+.dock-view > .tl-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.dock-view > .tl-panel + .tl-panel {
+  border-top: 1px solid var(--tl-color-border-strong);
+}
+
+.dock-tabs__icon {
+  display: inline-flex;
+  color: inherit;
+}
+
+.dock-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dock hits and issues are flat hairline-separated rows, not cards. */
+.match-card,
+.issue-card,
+.agent-step {
+  border-bottom: var(--tl-border-hairline);
+  padding: var(--tl-space-3) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.match-card:last-child,
+.issue-card:last-child,
+.agent-step:last-child {
+  border-bottom: none;
+}
+
+/* The best (first) hit leads with a grade spine: exact green, fuzzy blue. */
+.match-card[data-grade] {
+  padding-left: var(--tl-space-3);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+.match-card[data-grade="exact"] {
+  box-shadow: inset 2px 0 0 var(--tl-status-ok);
+}
+
+.match-card__grade-label {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+.match-card__memory {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  border: 1px solid var(--tl-color-border);
+  border-radius: var(--tl-radius-sm);
+  padding: 0 var(--tl-space-1);
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+}
+
+.match-card__text {
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.match-card__origin {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+/* Fuzzy source diff inside a match card: inline, reusing the ai-diff
+   character tones (ins = active-only, del = TM-entry-only). */
+.match-card__diff {
+  line-height: 1.6;
+  color: var(--tl-color-text-muted);
+}
+
+.issue-card[data-resolved="true"] {
+  opacity: 0.55;
+}
+
+/* Waived issues stay readable — they are parked, not gone. */
+.issue-card[data-status="waived"] {
+  opacity: 0.8;
+}
+
+.issue-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-1);
+}
+
+.issue-card__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  min-width: 0;
+}
+
+/* Severity is glyph + accessible label, color as the second channel. */
+.issue-card__severity {
+  font-size: var(--tl-text-sm);
+  line-height: 1;
+}
+
+.issue-card__severity[data-severity="error"] {
+  color: var(--tl-status-danger);
+}
+
+.issue-card__severity[data-severity="warning"] {
+  color: var(--tl-status-warn);
+}
+
+.issue-card__rule {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-card__message {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.issue-card__evidence {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+.issue-card__note {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+/* Resolve-style rule groups: monospace rule id + count as the group head. */
+.issue-group__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding-top: var(--tl-space-2);
+  border-bottom: var(--tl-border-hairline);
+  padding-bottom: var(--tl-space-1);
+}
+
+.issue-group__count {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Engine-proposed correction: verbatim preview + the apply action. */
+.issue-card__fix {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-2);
+}
+
+.issue-card__fix-preview {
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Single-line banner grammar: left spine + text, no color fill. */
+.honest-note {
+  border-left: 2px solid var(--tl-status-warn);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  font-size: var(--tl-text-sm);
+  line-height: 1.5;
+  color: var(--tl-color-text-muted);
+}
+
+.honest-note[data-tone="danger"] {
+  border-left-color: var(--tl-status-danger);
+}
+
+.honest-note[data-tone="ok"] {
+  border-left-color: var(--tl-status-ok);
+}
+
+/* Inline export-overwrite confirm (exportBlocked -> user decision). */
+
+.export-overwrite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  margin: var(--tl-space-3) var(--tl-space-3) 0;
+}
+
+.export-overwrite__message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+}
+
+.export-overwrite__path {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  word-break: break-all;
+}
+
+.export-overwrite__actions {
+  display: flex;
+  gap: var(--tl-space-2);
+  flex-shrink: 0;
+}
+
+.ai-draft {
+  border-left: 2px solid var(--tl-color-accent);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.ai-draft__text {
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-draft__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.ai-diff {
+  margin: 0;
+  padding: var(--tl-space-2);
+  border: 1px dashed var(--tl-color-border);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-color-surface);
+  line-height: 1.6;
+  word-break: break-word;
+  font-size: var(--tl-text-sm);
+}
+
+.ai-diff__ins {
+  background: color-mix(in srgb, var(--tl-status-ok) 18%, transparent);
+  text-decoration: none;
+}
+
+.ai-diff__del {
+  background: color-mix(in srgb, var(--tl-status-danger) 14%, transparent);
+  text-decoration: line-through;
+  color: var(--tl-color-text-muted);
+}
+
+.agent-run-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tl-space-3);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+}
+
+.agent-gate {
+  border-left: 2px solid var(--tl-color-accent);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.agent-gate__text {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  line-height: 1.5;
+}
+
+.agent-step__detail {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.agent-step__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+/* Inline jump affordance inside step/proposal meta rows. */
+.agent-step__jump {
+  font: inherit;
+  border: none;
+  background: transparent;
+  color: var(--tl-color-accent-strong);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-step__jump:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+/* Approval tiers share the underline-tab grammar of the preview tabs. */
+.agent-modes {
+  display: flex;
+  gap: var(--tl-space-1);
+}
+
+.agent-modes button {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  padding: var(--tl-space-1) var(--tl-space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.agent-modes button:hover:not([data-active="true"]):not(:disabled) {
+  color: var(--tl-color-text);
+}
+
+.agent-modes button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.agent-modes button[data-active="true"] {
+  color: var(--tl-color-accent-strong);
+  border-bottom-color: var(--tl-color-accent);
+  font-weight: 600;
+}
+
+.agent-modes button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.agent-modes__note {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  line-height: 1.5;
+}
+
+/* Run progress: real numerator over real denominator, nothing invented. */
+.agent-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.agent-progress .tl-meter {
+  flex: 1;
+  width: auto;
+}
+
+.agent-progress__text {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-progress__model {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 10em;
+}
+
+/* Manual-tier review queue. */
+.agent-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.agent-proposals__head {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.agent-proposals__head span {
+  margin-right: auto;
+}
+
+.agent-proposal {
+  border-left: 2px solid var(--tl-status-warn);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.agent-proposal__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+.agent-proposal__model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-proposal__source {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.agent-proposal__draft {
+  margin: 0;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* Configured provider profiles: flat rows, credentials never shown. */
+.ai-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-1);
+  align-items: flex-start;
+}
+
+.ai-profiles__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  width: 100%;
+}
+
+.ai-profiles__label {
+  margin-right: auto;
+  font-size: var(--tl-text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-draft__elapsed {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+}
+
+.form-row {
+  display: flex;
+  gap: var(--tl-space-3);
+  align-items: end;
+}
+
+.form-row > * {
+  flex: 1;
+  /* Text inputs have a large intrinsic min-width; without this the row
+     overflows its column and grows a horizontal scrollbar. */
+  min-width: 0;
+}
+
+/* Concordance */
+
+.concordance__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.concordance__ordinal {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-xs);
+  color: var(--tl-color-text-faint);
+}
+
+.concordance__hit {
+  background: var(--tl-color-accent-soft);
+  color: var(--tl-color-accent-strong);
+  border-radius: var(--tl-radius-sm);
+  padding: 0 1px;
+}
+
+.concordance__tm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-3);
+}
+
+.concordance__tm-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+/* Term dock */
+
+.match-card__grade {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.term-hit__target {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  word-break: break-word;
+}
+
+/* Preview views: underline tab grammar, same as the dock tabs. Hosted in
+   the preview pane's bar, so no bottom margin or divider of their own. */
+
+.preview__tabs {
+  display: flex;
+  gap: var(--tl-space-1);
+  align-self: stretch;
+}
+
+.preview__tabs button {
+  font: inherit;
+  font-size: var(--tl-text-sm);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--tl-color-text-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--tl-motion-fast) var(--tl-ease-standard),
+    color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.preview__tabs button:hover:not([data-active="true"]) {
+  color: var(--tl-color-text);
+}
+
+.preview__tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.preview__tabs button[data-active="true"] {
+  color: var(--tl-color-accent-strong);
+  border-bottom-color: var(--tl-color-accent);
+  font-weight: 600;
+}
+
+.preview__summary {
+  margin: 0 0 var(--tl-space-4);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  font-family: var(--tl-font-mono);
+}
+
+.preview__empty {
+  margin: 0;
+  color: var(--tl-color-text-faint);
+}
+
+.preview__document {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+  background: var(--tl-color-surface-raised);
+  border: var(--tl-border-hairline);
+  border-radius: var(--tl-radius-sm);
+  padding: var(--tl-space-6);
+}
+
+.preview__block {
+  margin: 0;
+  line-height: 1.7;
+}
+
+/*
+ * Proofreading chips. Segment state is a filled block, not a line under the
+ * text: an underline competes with the punctuation of the language being
+ * proofread and disappears entirely at the end of a wrapped line. Each state
+ * gets its own fill, the active segment gets a white card with a solid
+ * outline, and no state is ever expressed as a strike-through.
+ */
+.preview__segment {
+  display: inline;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: var(--tl-chip-untranslated);
+  border: 1px solid transparent;
+  border-radius: var(--tl-radius-md);
+  padding: 2px 6px;
+  margin: 0 0.18em 3px 0;
+  cursor: pointer;
+  text-align: left;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition:
+    background-color var(--tl-motion-fast) var(--tl-ease-standard),
+    border-color var(--tl-motion-fast) var(--tl-ease-standard);
+}
+
+.preview__segment:hover {
+  border-color: var(--tl-color-accent);
+}
+
+.preview__segment:focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+}
+
+.preview__segment[data-state="confirmed"] {
+  background: var(--tl-chip-confirmed);
+}
+
+.preview__segment[data-state="draft"] {
+  background: var(--tl-chip-draft);
+}
+
+/* Untranslated shows the source instead, so it keeps the untranslated fill
+   and drops to muted ink — the reader can see it is a stand-in without a
+   dashed rule doing the telling. */
+.preview__segment[data-fallback="true"] {
+  color: var(--tl-color-text-muted);
+  background: var(--tl-chip-untranslated);
+}
+
+.preview__segment[data-active="true"] {
+  background: var(--tl-chip-active-bg);
+  border-color: var(--tl-chip-active-line);
+}
+
+.preview__block {
+  line-height: 2.15;
+}
+
+/* docx-preview renders its own page chrome inside this container. */
+.preview__docx {
+  overflow: auto;
+}
+
+.preview__docx .docx-wrapper {
+  background: var(--tl-color-sunken);
+  padding: var(--tl-space-5);
+}
+
+/* Paragraphs carrying an export-embedded segment anchor are click-to-jump.
+   The affordance keys on the real bookmark span, so unanchored chrome
+   (page margins, empty paragraphs) never pretends to be clickable. */
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]) {
+  cursor: pointer;
+}
+
+.preview__docx[data-jumpable="true"] p:has(> span[id^="tlseg-"]):hover {
+  background: var(--tl-color-accent-faint);
+}
+
+.preview__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  flex: none;
+  font-size: var(--tl-text-xs);
+}
+
+/* Project settings dialog */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-5);
+}
+
+.settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-3);
+  padding-bottom: var(--tl-space-5);
+  border-bottom: var(--tl-border-hairline);
+}
+
+.settings__section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings__heading {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-muted);
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+}
+
+.settings__locales {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-md);
+  font-weight: 600;
+}
+
+.settings__note {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  line-height: 1.5;
+  color: var(--tl-color-text-muted);
+}
+
+.settings__subheading {
+  margin: var(--tl-space-2) 0 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--tl-color-text-muted);
+}
+
+/* QA severity remap rows: rule id label over a severity select. */
+.qa-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--tl-space-2) var(--tl-space-3);
+}
+
+.qa-rule-grid__row .tl-field__label {
+  font-family: var(--tl-font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* TM manage dialog */
+
+.tm-manage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+}
+
+.tm-manage__mounts,
+.tm-manage__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-3);
+}
+
+.tm-manage__mounts {
+  padding-bottom: var(--tl-space-4);
+  border-bottom: var(--tl-border-hairline);
+}
+
+.tm-manage__heading {
+  margin: 0;
+  font-size: var(--tl-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-color-text-muted);
+}
+
+.tm-manage__mount {
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}
+
+.tm-manage__mount .tm-manage__actions {
+  margin-left: auto;
+}
+
+.tm-manage__mount-name {
+  font-size: var(--tl-text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-manage__attach {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+}
+
+.tm-manage__attach-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tl-space-3);
+}
+
+.tm-manage__attach-row .tl-field {
+  flex: 1;
+}
+
+.tm-manage__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--tl-space-3);
+}
+
+.tm-manage__toolbar .tl-field {
+  flex: 1;
+}
+
+.tm-manage__count {
+  margin: 0;
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+.tm-manage__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tl-space-2);
+}
+
+.tm-manage__confirm {
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  margin-right: auto;
+}
+
+.tm-manage__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tl-space-3);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+}
+
+/* Document import dialog. */
+
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-4);
+}
+
+.import-form__path {
+  font-family: var(--tl-font-mono);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-muted);
+  word-break: break-all;
+}
+
+/* Command palette: the searchable catalog of every command. A floating
+   overlay surface (sanctioned entrance), fixed 28px result rows, shortcut
+   chips on the right, no decoration. */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 96px;
+  background: rgba(27, 32, 43, 0.28);
+  animation: tl-fade-in var(--tl-motion-base) var(--tl-ease-out);
+}
+
+.palette {
+  width: min(560px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--tl-color-surface-raised);
+  border: 1px solid var(--tl-color-border-strong);
+  border-radius: var(--tl-radius-md);
+  box-shadow: var(--tl-shadow-overlay);
+  overflow: hidden;
+  animation: tl-rise-in var(--tl-motion-slow) var(--tl-ease-out);
+}
+
+.palette__input {
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-md);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  outline: none;
+  border-bottom: var(--tl-border-hairline);
+  padding: var(--tl-space-3) var(--tl-space-4);
+}
+
+.palette__input::placeholder {
+  color: var(--tl-color-text-faint);
+}
+
+.palette__list {
+  max-height: 336px;
+  overflow-y: auto;
+  padding: var(--tl-space-1) 0;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tl-space-3);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--tl-space-4);
+  font-family: var(--tl-font-ui);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.palette__item[data-selected="true"] {
+  background: var(--tl-color-surface-active);
+  box-shadow: inset 2px 0 0 var(--tl-color-accent);
+}
+
+.palette__item:hover:not([data-selected="true"]) {
+  background: var(--tl-color-sunken);
+}
+
+.palette__item[aria-disabled="true"] {
+  color: var(--tl-color-text-faint);
+  cursor: default;
+}
+
+.palette__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette__label mark {
+  background: transparent;
+  color: var(--tl-color-accent-strong);
+  font-weight: 600;
+}
+
+.palette__empty {
+  padding: var(--tl-space-3) var(--tl-space-4);
+  font-size: var(--tl-text-sm);
+  color: var(--tl-color-text-faint);
+}

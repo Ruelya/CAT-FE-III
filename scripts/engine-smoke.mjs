@@ -1,0 +1,528 @@
+// End-to-end smoke of the tl-engine stdio protocol: handshake, project,
+// DOCX import, grid edit/confirm, exact + fuzzy TM, termbases, pretranslate,
+// project update/archive with the pinned-language rule, termbase detach,
+// QA rule library, export, the honest AI degradation path, the
+// asynchronous agent run against a loopback SSE fixture, and the provider
+// selector switching to the native Gemini protocol against a second mock.
+// Run with: pnpm test:e2e:engine
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { clearTimeout, setTimeout } from "node:timers";
+
+const root = resolve(import.meta.dirname, "..");
+const binary =
+  process.env.TL_ENGINE_BIN ??
+  join(
+    root,
+    "target",
+    "debug",
+    process.platform === "win32" ? "tl-engine.exe" : "tl-engine",
+  );
+const fixture = join(root, "fixtures", "docx", "m0-source.docx");
+
+if (!existsSync(binary)) {
+  throw new Error(
+    `engine binary not found: ${binary} (run cargo build -p tl-engine)`,
+  );
+}
+if (!existsSync(fixture)) {
+  throw new Error(`DOCX fixture not found: ${fixture}`);
+}
+
+const dataDir = mkdtempSync(join(tmpdir(), "tl-engine-smoke-"));
+const outputPath = join(dataDir, "translated.docx");
+
+const child = spawn(binary, ["--data-dir", join(dataDir, "data")], {
+  stdio: ["pipe", "pipe", "inherit"],
+});
+
+let nextId = 1;
+const pending = new Map();
+const notifications = [];
+let buffer = "";
+child.stdout.setEncoding("utf8");
+child.stdout.on("data", (chunk) => {
+  buffer += chunk;
+  let index = buffer.indexOf("\n");
+  while (index >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    index = buffer.indexOf("\n");
+    if (!line) continue;
+    const frame = JSON.parse(line);
+    if (frame.kind === "notification") {
+      notifications.push(frame);
+      continue;
+    }
+    if (frame.kind === "response" && typeof frame.id === "number") {
+      const entry = pending.get(frame.id);
+      if (entry) {
+        pending.delete(frame.id);
+        clearTimeout(entry.timer);
+        entry.resolve(frame);
+      }
+    }
+  }
+});
+
+function request(method, params) {
+  const id = nextId++;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(
+      () => rejectPromise(new Error(`${method} timed out`)),
+      30_000,
+    );
+    pending.set(id, { resolve: resolvePromise, timer });
+    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+  });
+}
+
+async function call(method, params) {
+  const response = await request(method, params);
+  if (response.error) {
+    throw new Error(`${method} failed: ${JSON.stringify(response.error)}`);
+  }
+  return response.result;
+}
+
+async function expectError(method, params, code) {
+  const response = await request(method, params);
+  if (!response.error) {
+    throw new Error(`${method} unexpectedly succeeded`);
+  }
+  if (response.error.code !== code) {
+    throw new Error(
+      `${method} failed with ${response.error.code}, expected ${code}`,
+    );
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(`assertion failed: ${message}`);
+}
+
+try {
+  // Handshake.
+  const ready = await call("engine.initialize", {
+    protocolVersion: 1,
+    clientName: "engine-smoke",
+    clientVersion: "0",
+  });
+  assert(ready.engineName === "tl-engine", "engine name");
+  assert(ready.capabilities.filters.includes("builtin.docx"), "docx filter");
+  assert(
+    notifications.some((frame) => frame.method === "notify.engine.ready"),
+    "ready notification emitted",
+  );
+
+  // Project + import.
+  const project = await call("project.create", {
+    name: "Smoke",
+    sourceLocale: "en-US",
+    targetLocale: "zh-CN",
+  });
+  const imported = await call("document.import", {
+    projectId: project.id,
+    sourcePath: fixture,
+  });
+  assert(imported.segmentCount > 0, "segments imported");
+
+  // Edit + confirm + TM.
+  const { segments } = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const first = segments[0];
+  const updated = await call("segment.update", {
+    segmentId: first.id,
+    targetText: "冒烟测试译文。",
+    baseRevision: first.revision,
+  });
+  const confirmed = await call("segment.confirm", {
+    segmentId: first.id,
+    baseRevision: updated.segment.revision,
+  });
+  assert(confirmed.segment.state === "confirmed", "segment confirmed");
+  const lookup = await call("tm.lookup", {
+    projectId: project.id,
+    sourceText: first.sourceText,
+  });
+  assert(
+    lookup.matches.length === 1 && lookup.matches[0].score === 100,
+    "exact TM hit",
+  );
+  assert(lookup.matches[0].grade === "exact", "exact TM grade");
+
+  // Fuzzy TM: a paraphrase of the confirmed source is recalled and reranked.
+  const fuzzy = await call("tm.lookup", {
+    projectId: project.id,
+    sourceText: `${first.sourceText} indeed`,
+    minScore: 50,
+  });
+  assert(
+    fuzzy.matches.length >= 1 && fuzzy.matches[0].grade === "fuzzy",
+    "fuzzy TM recall",
+  );
+
+  // Termbase: create, attach, add a term, and get an in-text hit.
+  const termbase = await call("termbase.create", {
+    name: "Smoke terms",
+    sourceLocale: "en-US",
+  });
+  await call("termbase.attach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
+  await call("term.add", {
+    termbaseId: termbase.id,
+    sourceTerm: "retention period",
+    targetTerm: "保留期",
+    targetLocale: "zh-CN",
+  });
+  const termHits = await call("term.lookup", {
+    projectId: project.id,
+    sourceText: "The retention period is 30 days.",
+  });
+  assert(
+    termHits.matches.length === 1 &&
+      termHits.matches[0].sourceTerm === "retention period",
+    "term hit over source text",
+  );
+
+  // Project settings surface: rename always works, a language change is
+  // rejected once assets pin the pair, archive stamps archivedAtMs and
+  // restore clears it, and termbase detach removes the mount for real.
+  const renamed = await call("project.update", {
+    projectId: project.id,
+    name: "Smoke (renamed)",
+  });
+  assert(renamed.name === "Smoke (renamed)", "project renamed");
+  await expectError(
+    "project.update",
+    { projectId: project.id, targetLocale: "fr-FR" },
+    "conflict",
+  );
+  const archived = await call("project.archive", { projectId: project.id });
+  assert(archived.lifecycle === "archived", "project archived");
+  assert(
+    typeof archived.archivedAtMs === "number",
+    "archive stamps archivedAtMs",
+  );
+  const restored = await call("project.archive", {
+    projectId: project.id,
+    archived: false,
+  });
+  assert(restored.lifecycle === "active", "project restored");
+  assert(restored.archivedAtMs == null, "restore clears archivedAtMs");
+  await call("termbase.detach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
+  const detachedHits = await call("term.lookup", {
+    projectId: project.id,
+    sourceText: "The retention period is 30 days.",
+  });
+  assert(
+    detachedHits.matches.length === 0,
+    "detached termbase stops term hits",
+  );
+  await call("termbase.attach", {
+    projectId: project.id,
+    termbaseId: termbase.id,
+  });
+
+  // TM import + pretranslate fill untranslated segments as drafts.
+  const tmCsvPath = join(dataDir, "smoke-tm.csv");
+  const pretranslatable = segments.find(
+    (segment) => segment.id !== first.id && !/\d/.test(segment.sourceText),
+  );
+  if (pretranslatable) {
+    writeFileSync(
+      tmCsvPath,
+      `source,target\n"${pretranslatable.sourceText.replaceAll('"', '""')}",冒烟预翻译。\n`,
+    );
+    const tmImport = await call("tm.import", {
+      projectId: project.id,
+      path: tmCsvPath,
+    });
+    assert(tmImport.imported === 1, "TM CSV import");
+    const pretranslated = await call("tm.pretranslate", {
+      documentId: imported.document.id,
+    });
+    assert(pretranslated.pretranslated >= 1, "pretranslate fills drafts");
+  }
+
+  // TM export round-trips through TMX.
+  const tmxPath = join(dataDir, "smoke-tm.tmx");
+  const tmExport = await call("tm.export", {
+    projectId: project.id,
+    path: tmxPath,
+  });
+  assert(tmExport.exported >= 1, "TM TMX export");
+  assert(existsSync(tmxPath), "TMX file exists");
+
+  // Number QA catches a wrong number. Re-list first: pretranslation may have
+  // bumped segment revisions.
+  const { segments: refreshed } = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const numeric = refreshed.find((segment) => /\d/.test(segment.sourceText));
+  if (numeric && numeric.id !== first.id) {
+    await call("segment.update", {
+      segmentId: numeric.id,
+      targetText: "错误数字 987654。",
+      baseRevision: numeric.revision,
+    });
+  }
+  const qa = await call("qa.run", { documentId: imported.document.id });
+  assert(qa.openIssues >= 1, "number QA finds the mismatch");
+
+  // Export.
+  const exported = await call("document.export", {
+    documentId: imported.document.id,
+    outputPath,
+  });
+  assert(existsSync(outputPath), "export file exists");
+  assert(statSync(outputPath).size > 0, "export file is not empty");
+  assert(exported.translatedSegments >= 1, "translated units exported");
+
+  // Honest AI degradation without a key.
+  const untranslated = segments.find(
+    (segment) => segment.id !== first.id && !/\d/.test(segment.sourceText),
+  );
+  assert(untranslated, "fixture keeps an untranslated segment");
+  const aiStatus = await call("ai.status", {});
+  assert(aiStatus.configured === false, "AI unconfigured by default");
+  await expectError(
+    "ai.assist.start",
+    { segmentId: untranslated.id, action: "translate" },
+    "aiNotConfigured",
+  );
+  await expectError(
+    "ai.agent.start",
+    { documentId: imported.document.id },
+    "aiNotConfigured",
+  );
+
+  // Loopback OpenAI-compatible SSE fixture: no real key ever leaves the box.
+  const aiReply = "冒烟代理草稿。";
+  const aiServer = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      const payload = JSON.stringify({
+        choices: [{ delta: { content: aiReply } }],
+      });
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.end(`data: ${payload}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise((resolveListen) =>
+    aiServer.listen(0, "127.0.0.1", resolveListen),
+  );
+  // A failed assertion must not leave the mock server holding the event
+  // loop open after the child is killed.
+  aiServer.unref();
+  const configured = await call("ai.configure", {
+    provider: "openaiCompatible",
+    model: "fixture-model",
+    baseUrl: `http://127.0.0.1:${aiServer.address().port}`,
+    apiKey: "fixture-key",
+  });
+  assert(configured.configured === true, "loopback provider configured");
+
+  // Assist starts off the RPC thread and returns immediately; other RPC
+  // traffic keeps answering while the run is polled to its terminal state.
+  const assistStarted = await call("ai.assist.start", {
+    segmentId: untranslated.id,
+    action: "translate",
+  });
+  assert(assistStarted.status === "running", "assist starts asynchronously");
+  const duringAssist = await call("project.list", {});
+  assert(
+    duringAssist.projects.length === 1,
+    "RPC loop answers while assist is in flight",
+  );
+  let assistView = assistStarted;
+  const assistDeadline = Date.now() + 30_000;
+  while (assistView.status === "running") {
+    assert(Date.now() < assistDeadline, "assist run finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+    assistView = await call("ai.assist.status", {
+      assistId: assistStarted.assistId,
+    });
+  }
+  assert(assistView.status === "done", "assist run completes");
+  assert(
+    assistView.result.draftTarget === aiReply,
+    "assist streams the fixture reply",
+  );
+  assert(
+    assistView.result.tagCheck.ok === true,
+    "assist reports tag integrity",
+  );
+  await expectError(
+    "ai.assist.start",
+    { segmentId: first.id, action: "translate" },
+    "conflict",
+  );
+
+  // Agent run: async task order that parks at the human gate.
+  const beforeAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const pendingBefore = beforeAgent.segments.filter(
+    (segment) => segment.state === "untranslated" && !segment.targetText.trim(),
+  ).length;
+  assert(pendingBefore >= 1, "agent has untranslated segments to draft");
+  const startedRun = await call("ai.agent.start", {
+    documentId: imported.document.id,
+  });
+  assert(startedRun.status === "running", "agent run starts asynchronously");
+  assert(
+    startedRun.plannedSegments === pendingBefore,
+    "task order claims the pending segments",
+  );
+  let runView = startedRun;
+  const runDeadline = Date.now() + 30_000;
+  while (runView.status === "running") {
+    assert(Date.now() < runDeadline, "agent run finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 200));
+    runView = await call("ai.agent.status", { runId: startedRun.runId });
+  }
+  assert(
+    runView.status === "awaitingReview",
+    "agent parks at the human review gate",
+  );
+  // Default manual tier: AI candidates queue as proposals and nothing is
+  // written to the grid until a human applies them through ai.agent.review.
+  assert(
+    runView.approvalMode === "manual",
+    "agent defaults to the manual tier",
+  );
+  const pendingProposals = runView.proposals.filter(
+    (proposal) => proposal.status === "pending",
+  );
+  assert(
+    runView.tmApplied + pendingProposals.length === pendingBefore,
+    "every pending segment was TM-applied or proposed for review",
+  );
+  assert(
+    runView.aiDrafted === 0,
+    "no AI draft lands before the human decision",
+  );
+  runView = await call("ai.agent.review", {
+    runId: startedRun.runId,
+    segmentIds: pendingProposals.map((proposal) => proposal.segmentId),
+    decision: "apply",
+  });
+  assert(
+    runView.tmApplied + runView.aiDrafted === pendingBefore,
+    "every pending segment was drafted via TM or AI",
+  );
+  assert(runView.failedSegments === 0, "no drafting failures");
+  assert(
+    notifications.some((frame) => frame.method === "notify.ai.agent.step"),
+    "agent steps stream as notification frames",
+  );
+
+  // Human gate: drafts landed, nothing got confirmed or exported by the
+  // agent itself.
+  const afterAgent = await call("segment.list", {
+    documentId: imported.document.id,
+  });
+  const confirmedAfter = afterAgent.segments.filter(
+    (segment) => segment.state === "confirmed",
+  ).length;
+  assert(
+    confirmedAfter === 1,
+    "only the human-confirmed segment stays confirmed",
+  );
+  assert(
+    afterAgent.segments.every(
+      (segment) =>
+        segment.state !== "untranslated" || !segment.targetText.trim(),
+    ),
+    "agent drafts are drafts, not silent confirmations",
+  );
+  aiServer.close();
+
+  // Provider selector over stdio: reconfigure to native Gemini against a
+  // loopback mock. The captured request path proves the engine switched to
+  // the Generative Language API instead of re-using the OpenAI route.
+  const geminiReply = "双子座冒烟草稿。";
+  let geminiRequestUrl = null;
+  const geminiServer = createServer((request, response) => {
+    geminiRequestUrl = request.url;
+    request.resume();
+    request.on("end", () => {
+      const payload = JSON.stringify({
+        candidates: [{ content: { parts: [{ text: geminiReply }] } }],
+      });
+      response.writeHead(200, { "Content-Type": "text/event-stream" });
+      response.end(`data: ${payload}\n\n`);
+    });
+  });
+  await new Promise((resolveListen) =>
+    geminiServer.listen(0, "127.0.0.1", resolveListen),
+  );
+  geminiServer.unref();
+  const geminiStatus = await call("ai.configure", {
+    provider: "gemini",
+    model: "gemini-fixture",
+    baseUrl: `http://127.0.0.1:${geminiServer.address().port}`,
+    apiKey: "fixture-key-gemini",
+  });
+  assert(
+    geminiStatus.configured === true && geminiStatus.provider === "gemini",
+    "provider selector reports gemini",
+  );
+  const geminiStarted = await call("ai.assist.start", {
+    segmentId: untranslated.id,
+    action: "translate",
+  });
+  let geminiView = geminiStarted;
+  const geminiDeadline = Date.now() + 30_000;
+  while (geminiView.status === "running") {
+    assert(Date.now() < geminiDeadline, "gemini assist finished in time");
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 100));
+    geminiView = await call("ai.assist.status", {
+      assistId: geminiStarted.assistId,
+    });
+  }
+  assert(geminiView.status === "done", "gemini assist completes");
+  assert(
+    geminiView.result.draftTarget === geminiReply,
+    "gemini assist streams the fixture reply",
+  );
+  assert(
+    geminiView.result.provider === "gemini",
+    "assist result reports the gemini provider",
+  );
+  assert(
+    typeof geminiRequestUrl === "string" &&
+      geminiRequestUrl.includes("/models/gemini-fixture:streamGenerateContent"),
+    `gemini spoke the native generateContent route, got: ${geminiRequestUrl}`,
+  );
+  assert(geminiRequestUrl.includes("alt=sse"), "gemini asked for SSE framing");
+  assert(
+    !geminiRequestUrl.includes("chat/completions"),
+    "gemini did not fall back to the OpenAI route",
+  );
+  geminiServer.close();
+
+  // Clean shutdown.
+  await call("engine.shutdown", {});
+  await new Promise((resolveExit) => child.once("exit", resolveExit));
+  console.log(
+    "engine-smoke OK — handshake, vertical slice, QA, export, honest AI degradation, async assist, async agent run parked at the human gate, native gemini provider selector",
+  );
+} catch (error) {
+  child.kill();
+  console.error(String(error));
+  process.exitCode = 1;
+} finally {
+  await rm(dataDir, { recursive: true, force: true });
+}

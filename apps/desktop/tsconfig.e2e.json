@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    // page.evaluate bodies are compiled into this project but execute in the
+    // renderer, so the DOM lib is part of this file set's real environment.
+    "lib": ["ES2022", "DOM"],
+    // The specs read the theme registry from @translunar/ui, whose entry
+    // point re-exports .tsx components.
+    "jsx": "react-jsx",
+    "types": ["node"]
+  },
+  "include": ["tests/e2e/**/*.ts", "playwright.config.ts"]
+}

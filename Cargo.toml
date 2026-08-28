@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/tl-domain",
+  "crates/tl-segmentation",
+  "crates/tl-filter-core",
+  "crates/tl-filter-office",
+  "crates/tl-filter-docx",
+  "crates/tl-filter-xliff",
+  "crates/tl-filter-html",
+  "crates/tl-filter-text",
+  "crates/tl-filter-xlsx",
+  "crates/tl-filter-pptx",
+  "crates/tl-qa",
+  "crates/tl-ai-quality",
+  "crates/tl-editor",
+  "crates/tl-asset",
+  "crates/tl-ai",
+  "crates/tl-protocol",
+  "crates/tl-engine",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MPL-2.0"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+csv = "1.4.0"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4.5.54", features = ["derive"] }
+ferrous-opencc = { version = "0.4.0", default-features = false, features = ["s2t-conversion", "t2s-conversion"] }
+quick-xml = "0.41.0"
+regex = "1.12.2"
+reqwest = { version = "0.12.28", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+schemars = { version = "1.2.1", features = ["chrono04", "uuid1"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+tempfile = "3.24.0"
+thiserror = "2.0.17"
+tokio = { version = "1.53.0", default-features = false, features = ["macros", "net", "rt", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
+unicode-normalization = "0.1.25"
+unicode-segmentation = "1.12.0"
+url = "2.5.8"
+uuid = { version = "1.24.0", features = ["serde", "v7"] }
+zeroize = "1.8.2"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+
+# Strip symbols from release engine binaries packaged into the desktop app.
+[profile.release]
+strip = true

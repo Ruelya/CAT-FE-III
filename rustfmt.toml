@@ -1,0 +1,6 @@
+edition = "2024"
+# "Auto" keeps each file's existing line endings, so `cargo fmt --check` is
+# green on both the Windows development lane and the Linux validation lane.
+# A hard "Windows" setting rewrote every file on Linux and kept HB4 red.
+newline_style = "Auto"
+use_field_init_shorthand = true

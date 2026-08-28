@@ -1,0 +1,38 @@
+{
+  "name": "translunar-cat",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=22.17.0 <23 || >=24 <25"
+  },
+  "scripts": {
+    "bootstrap": "pnpm install --frozen-lockfile && cargo build -p tl-engine && pnpm build:desktop",
+    "build:engine": "cargo build --workspace",
+    "build:desktop": "pnpm --filter @translunar/desktop build",
+    "dev:desktop": "pnpm --filter @translunar/desktop dev",
+    "package:dir": "cargo build -p tl-engine --release && pnpm --filter @translunar/desktop package:dir && pnpm --filter @translunar/desktop package:check",
+    "test:engine": "cargo test --workspace",
+    "lint:engine": "cargo clippy --workspace --all-targets -- -D warnings",
+    "format:engine": "cargo fmt --all",
+    "format:engine:check": "cargo fmt --all -- --check",
+    "contracts:generate": "cargo run -p tl-protocol --bin export-schema -- packages/contracts/src/protocol.schema.json && pnpm --filter @translunar/contracts generate",
+    "contracts:check": "node scripts/check-contracts.mjs",
+    "test:e2e:engine": "cargo build -p tl-engine && node scripts/engine-smoke.mjs",
+    "test:live:ai": "cargo build -p tl-engine && node scripts/engine-ai-live.mjs",
+    "test:e2e:desktop": "cargo build -p tl-engine && pnpm --filter @translunar/desktop test:e2e",
+    "prelint": "pnpm --filter @translunar/contracts build",
+    "lint": "eslint apps packages/contracts/src packages/ui/src && cargo clippy --workspace --all-targets -- -D warnings",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test && cargo test --workspace",
+    "format": "prettier --write . && cargo fmt --all",
+    "format:check": "prettier --check . && cargo fmt --all -- --check"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.7.0",
+    "prettier": "3.9.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0"
+  }
+}

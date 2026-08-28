@@ -1,0 +1,962 @@
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
+use regex::Regex;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
+use uuid::Uuid;
+
+static NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?x)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?").expect("valid number regex")
+});
+
+/// URLs and email addresses each count as one word (word-count 口径); they
+/// are extracted before UAX #29 segmentation, which would split them.
+static URL_EMAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?xi)
+        \b(?:https?://|www\.)\S+        # URLs
+        | [^\s@]+@[^\s@]+\.[^\s@.]+     # email addresses
+    ",
+    )
+    .expect("valid url/email regex")
+});
+
+/// Placeholder-like tokens a translation must carry through verbatim:
+/// `{name}` / `{{var}}` braces, printf conversions, markup tags, entities.
+/// This is the only inline tag/placeholder shape the segment model stores —
+/// literal tokens inside the text — shared by AI draft gating and QA.
+static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        \{\{[^{}]*\}\}                                  # {{handlebars}}
+        | \{[^{}\s][^{}]*\}                             # {brace} placeholders
+        | %(?:\d+\$)?[-+ 0\#]*\d*(?:\.\d+)?[sdifucxXeg@] # printf-style
+        | </?[A-Za-z][A-Za-z0-9:._-]*(?:\s[^<>]*)?/?>   # markup tags
+        | &\#?[A-Za-z0-9]+;                             # character entities
+    ",
+    )
+    .expect("valid placeholder regex")
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SegmentState {
+    Untranslated,
+    Draft,
+    Confirmed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectLifecycle {
+    Active,
+    Archived,
+    Trash,
+}
+
+/// Default segmentation mode applied when `document.import` is called without
+/// an explicit segmentation choice. Serialized as `sentence` / `paragraph`,
+/// matching the strings `DocumentImportParams.segmentation` accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectSegmentation {
+    Sentence,
+    Paragraph,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfiguration {
+    #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
+    pub qa_profile_id: Option<String>,
+    #[serde(default)]
+    pub pipeline_id: Option<String>,
+    #[serde(default)]
+    pub engine_allowlist: Vec<String>,
+    #[serde(default)]
+    pub ai_profile_ids: Vec<String>,
+    #[serde(default)]
+    pub analysis_profile_id: Option<String>,
+    #[serde(default)]
+    pub editor_defaults: Option<EditorPreferences>,
+    #[serde(default)]
+    pub task_package: Option<TaskPackageProjectReference>,
+    /// Default segmentation for future imports. `None` means sentence mode.
+    #[serde(default)]
+    pub segmentation: Option<ProjectSegmentation>,
+    /// Default SRX ruleset path for future sentence-mode imports. Only the
+    /// path is stored — a missing or invalid file fails at import time, not
+    /// when the default is saved. Ignored (but kept) while the segmentation
+    /// default is paragraph, so switching back to sentence restores it.
+    #[serde(default)]
+    pub srx_path: Option<String>,
+    /// Project-level QA profile overrides (severity remaps, settings, export
+    /// gate) applied over the built-in profile named by `qa_profile_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qa_profile: Option<QaProfileOverrides>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskPackageProjectReference {
+    pub package_id: String,
+    pub origin_project_id: String,
+    #[serde(default)]
+    pub parent_package_id: Option<String>,
+    #[serde(default)]
+    pub instructions: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub domain: String,
+    pub lifecycle: ProjectLifecycle,
+    pub revision: u64,
+    pub configuration: ProjectConfiguration,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    #[serde(default)]
+    pub archived_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DocumentStatus {
+    Active,
+    Failed,
+    Superseded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Document {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub relative_path: String,
+    pub format: String,
+    pub filter_id: String,
+    pub source_sha256: String,
+    pub current_version: u32,
+    pub status: DocumentStatus,
+    pub revision: u64,
+    pub segment_count: u32,
+    pub degradation: Vec<DegradationFinding>,
+    pub imported_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentVersion {
+    pub id: String,
+    pub document_id: String,
+    pub version: u32,
+    pub source_sha256: String,
+    pub original_source_path: String,
+    pub managed_source_path: String,
+    pub reason: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum TagSide {
+    Source,
+    Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum TagKind {
+    Start,
+    End,
+    Standalone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InlineTag {
+    pub id: String,
+    pub side: TagSide,
+    pub position: u32,
+    pub kind: TagKind,
+    #[serde(default)]
+    pub pair_id: Option<String>,
+    pub payload: String,
+    pub display_text: String,
+    pub protected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentNote {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DegradationSeverity {
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DegradationFinding {
+    pub code: String,
+    pub severity: DegradationSeverity,
+    pub message: String,
+    #[serde(default)]
+    pub structural_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Operation {
+    pub id: String,
+    pub project_id: String,
+    pub sequence: u64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub base_revision: Option<u64>,
+    #[serde(default)]
+    pub result_revision: Option<u64>,
+    pub actor: String,
+    #[serde(default)]
+    pub correlation_id: Option<String>,
+    #[serde(default)]
+    pub before: Option<Value>,
+    #[serde(default)]
+    pub after: Option<Value>,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum HealthSeverity {
+    Info,
+    Warning,
+    Error,
+    Fatal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthFinding {
+    pub code: String,
+    pub severity: HealthSeverity,
+    pub message: String,
+    #[serde(default)]
+    pub entity_type: Option<String>,
+    #[serde(default)]
+    pub entity_id: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DataHealthReport {
+    pub schema_version: u32,
+    pub healthy: bool,
+    pub findings: Vec<HealthFinding>,
+    pub checked_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupFile {
+    pub relative_path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupManifest {
+    pub format_version: u32,
+    pub engine_version: String,
+    pub schema_version: u32,
+    pub created_at_ms: i64,
+    pub files: Vec<BackupFile>,
+}
+
+/// Closed set of places a segment's target text can honestly come from.
+/// `human` exists for completeness; plain human typing normally leaves the
+/// origin absent instead of stamping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SegmentOriginKind {
+    /// Exact TM reuse (apply, pretranslate, confirm-time propagation).
+    TmExact,
+    /// Fuzzy TM reuse; `score` carries the real match score.
+    TmFuzzy,
+    /// AI-proposed draft applied by a human; `model` names the provider model.
+    AiDraft,
+    /// Explicit human authorship. No engine path stamps this today; absent
+    /// means the same thing.
+    Human,
+}
+
+/// Where the current target text came from, stamped by the write that put
+/// it there. Only writes that carry an origin stamp one — rows written
+/// before this field existed stay origin-less forever (no backfill), and an
+/// update that empties the target clears the origin (an empty target has no
+/// origin). Confirming never changes the origin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentOrigin {
+    pub kind: SegmentOriginKind,
+    /// Real TM match score (0-100) as reported at apply time. Present only
+    /// for TM origins; never fabricated for AI or human writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<u8>,
+    /// Provider model that produced an `aiDraft`; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Pollution signal: true once the target was edited after the origin
+    /// write (Studio-style "edited fuzzy"). Engine-owned — the value sent
+    /// by a client is ignored; a stamping write always resets it to false.
+    #[serde(default)]
+    pub edited: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Segment {
+    pub id: String,
+    pub document_id: String,
+    pub ordinal: u32,
+    pub structural_path: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub state: SegmentState,
+    pub revision: u64,
+    pub source_hash: String,
+    pub context_hash: String,
+    pub updated_at_ms: i64,
+    /// Where the current target text came from. Absent for rows written
+    /// before origins existed and for plain human typing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SegmentOrigin>,
+    /// Locked rows are read-only: update/confirm conflict, replace,
+    /// pretranslate, propagation, and AI skip them, and QA leaves their
+    /// issues untouched. Toggled only by `segment.lock`. Defaults false so
+    /// rows serialized before the field existed still parse.
+    #[serde(default)]
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum EditorWorkflowState {
+    #[default]
+    Translation,
+    Review,
+    Signed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ChineseConversionProfile {
+    SimplifiedToTraditional,
+    SimplifiedToTaiwan,
+    SimplifiedToHongKong,
+    TraditionalToSimplified,
+    TaiwanToSimplified,
+    HongKongToSimplified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorTagIssue {
+    pub code: String,
+    pub message: String,
+    #[serde(default)]
+    pub tag_id: Option<String>,
+    #[serde(default)]
+    pub position: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorComment {
+    pub id: String,
+    pub segment_id: String,
+    pub author: String,
+    pub text: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub revision: u64,
+    pub resolved: bool,
+    pub immutable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewStatus {
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRevision {
+    pub id: String,
+    pub segment_id: String,
+    pub base_revision: u64,
+    #[serde(default)]
+    pub before_source: String,
+    pub before_target: String,
+    #[serde(default)]
+    pub proposed_source: Option<String>,
+    pub proposed_target: String,
+    #[serde(default)]
+    pub before_target_tags: Vec<InlineTag>,
+    #[serde(default)]
+    pub proposed_target_tags: Option<Vec<InlineTag>>,
+    pub author: String,
+    pub reason: String,
+    pub status: ReviewStatus,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpellFinding {
+    pub word: String,
+    pub start: u32,
+    pub end: u32,
+    pub suggestions: Vec<String>,
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPreferences {
+    pub theme: String,
+    pub zoom: u16,
+    pub show_nonprinting: bool,
+    pub autocomplete: bool,
+    pub cjk_spacing: bool,
+    pub punctuation_assistance: bool,
+    pub shortcuts: BTreeMap<String, String>,
+}
+
+impl Default for EditorPreferences {
+    fn default() -> Self {
+        Self {
+            theme: "system".to_string(),
+            zoom: 100,
+            show_nonprinting: false,
+            autocomplete: true,
+            cjk_spacing: true,
+            punctuation_assistance: true,
+            shortcuts: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentEditorRow {
+    pub segment: Segment,
+    pub source_tags: Vec<InlineTag>,
+    pub target_tags: Vec<InlineTag>,
+    pub tag_issues: Vec<EditorTagIssue>,
+    pub spell_findings: Vec<SpellFinding>,
+    pub comments: Vec<EditorComment>,
+    pub workflow_state: EditorWorkflowState,
+    #[serde(default)]
+    pub context_before: Option<Segment>,
+    #[serde(default)]
+    pub context_after: Option<Segment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentCounts {
+    pub total: u32,
+    pub untranslated: u32,
+    pub draft: u32,
+    pub confirmed: u32,
+    pub open_issues: u32,
+    /// Total source word count of the counted segments, computed by the
+    /// engine with [`source_word_count`]. 口径：UAX #29 词边界；CJK 统一
+    /// 表意文字与假名逐字计 1；数字串计 1；URL/email 计 1（对齐 Crowdin
+    /// Word Counter）。Absent from older engines — clients must render
+    /// nothing rather than count locally.
+    #[serde(default)]
+    pub source_words: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationMemory {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub source_locale: String,
+    pub target_locale: String,
+    pub writable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TmEntry {
+    pub id: String,
+    pub memory_id: String,
+    pub source_text: String,
+    pub target_text: String,
+    pub source_hash: String,
+    pub origin_project_id: String,
+    pub origin_document_id: String,
+    pub origin_segment_id: String,
+    pub confirmed_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QaSeverity {
+    Error,
+    Warning,
+    Info,
+}
+
+/// Tunable knobs of a QA profile (thresholds and locale-convention toggles).
+/// Lives in the domain crate because project configuration stores a
+/// project-level replacement of these values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaRuleSettings {
+    pub max_target_chars: Option<u32>,
+    pub min_length_ratio_percent: u16,
+    pub max_length_ratio_percent: u16,
+    pub cjk_spacing: bool,
+    pub cjk_punctuation: bool,
+    pub require_sentence_final_punctuation: bool,
+}
+
+impl Default for QaRuleSettings {
+    fn default() -> Self {
+        Self {
+            max_target_chars: None,
+            min_length_ratio_percent: 35,
+            max_length_ratio_percent: 300,
+            cjk_spacing: true,
+            cjk_punctuation: true,
+            require_sentence_final_punctuation: true,
+        }
+    }
+}
+
+/// Project-level QA profile overrides, applied over the resolved built-in
+/// profile (memoQ convention: built-ins are immutable, the project layer is
+/// a clone-then-override). Absent overrides mean the built-in profile runs
+/// exactly as shipped.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaProfileOverrides {
+    /// Per-rule severity remaps (rule id → severity) layered over the base
+    /// profile's table. Keys may name parameterized rules
+    /// (`qa.term-missing:<id>`, `qa.regex:<id>`) as well as fixed ones.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub severity_overrides: BTreeMap<String, QaSeverity>,
+    /// Full replacement of the base profile's tunable settings. `None`
+    /// keeps the base profile's own values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<QaRuleSettings>,
+    /// Export gate: `document.export` refuses while error-severity open
+    /// issues exist (an explicit `overrideQaGate` lets the user pass).
+    /// Off by default — the gate is configured, never ambient.
+    #[serde(default)]
+    pub block_export_on_error: bool,
+}
+
+/// Lifecycle of a persisted QA issue.
+///
+/// - `Open`: the finding reproduced on the latest run and nobody accepted it.
+/// - `Waived`: a user explicitly accepted this exact finding (`qa.waive`).
+///   A waiver is pinned to the issue fingerprint, which hashes the rule,
+///   segment, and evidence — so it holds only while the very same evidence
+///   keeps reproducing. If the evidence changes, the changed finding opens
+///   as a new issue instead of hiding behind the old waiver.
+/// - `Resolved`: the finding stopped reproducing (e.g. the numbers now
+///   actually match). Only `qa.run` moves issues here; waiving never does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum QaIssueStatus {
+    Open,
+    Waived,
+    Resolved,
+}
+
+/// Evidence attached to a QA issue. Historically number-only; general rules
+/// reuse the same shape with free-form source/target values.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NumberEvidence {
+    pub source_numbers: Vec<String>,
+    pub target_numbers: Vec<String>,
+    #[serde(default)]
+    pub source_values: Vec<String>,
+    #[serde(default)]
+    pub target_values: Vec<String>,
+    #[serde(default)]
+    pub related_segment_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QaIssue {
+    pub id: String,
+    pub segment_id: String,
+    pub rule_id: String,
+    pub severity: QaSeverity,
+    pub status: QaIssueStatus,
+    pub message: String,
+    pub fingerprint: String,
+    pub evidence: NumberEvidence,
+    /// Structured message parameters (e.g. `{"expected": "30", "found":
+    /// "40"}`) so clients can localize the finding; `message` stays the
+    /// engine-produced English fallback. Empty for rules with nothing to
+    /// parameterize; rows persisted before the field existed parse as empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+    /// Free-form note recorded with a waiver. Optional by design — waiving
+    /// must not demand a ritual reason. Non-null only while `status` is
+    /// [`QaIssueStatus::Waived`].
+    #[serde(default)]
+    pub waive_note: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+pub fn new_id() -> String {
+    Uuid::now_v7().to_string()
+}
+
+pub fn normalize_text(value: &str) -> String {
+    value
+        .nfkc()
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn sha256_hex(value: impl AsRef<[u8]>) -> String {
+    let digest = Sha256::digest(value.as_ref());
+    format!("{digest:x}")
+}
+
+pub fn segment_hashes(
+    source: &str,
+    previous: Option<&str>,
+    next: Option<&str>,
+) -> (String, String) {
+    let source = normalize_text(source);
+    let previous = previous.map(normalize_text).unwrap_or_default();
+    let next = next.map(normalize_text).unwrap_or_default();
+    let source_hash = sha256_hex(source.as_bytes());
+    let context_hash = sha256_hex(format!("{source}\0{previous}\0{next}").as_bytes());
+    (source_hash, context_hash)
+}
+
+pub fn state_for_target(target: &str) -> SegmentState {
+    if target.trim().is_empty() {
+        SegmentState::Untranslated
+    } else {
+        SegmentState::Draft
+    }
+}
+
+/// Word count 口径 (the only counting rule in the product; the status bar
+/// documents it as 「源文词数 · CJK 按字」):
+///
+/// - UAX #29 word boundaries segment the text (`unicode-segmentation`).
+/// - Each CJK unified ideograph and each kana (hiragana/katakana, incl.
+///   halfwidth) counts as **1**, even inside one boundary segment.
+/// - A number string (`1,200.00`, full-width digits) counts as **1**.
+/// - A URL or email address counts as **1** (extracted before boundary
+///   segmentation, which would otherwise split them).
+///
+/// Aligned with the Crowdin Word Counter rules the PRD adopted.
+pub fn source_word_count(text: &str) -> u32 {
+    let mut count: u32 = 0;
+    // URLs and emails first: UAX #29 would split them at punctuation.
+    let mut remainder = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for found in URL_EMAIL_RE.find_iter(text) {
+        count = count.saturating_add(1);
+        remainder.push_str(&text[cursor..found.start()]);
+        remainder.push(' ');
+        cursor = found.end();
+    }
+    remainder.push_str(&text[cursor..]);
+    for segment in remainder.split_word_bounds() {
+        let cjk = segment.chars().filter(|c| is_countable_cjk(*c)).count();
+        if cjk > 0 {
+            count = count.saturating_add(u32::try_from(cjk).unwrap_or(u32::MAX));
+        } else if segment.chars().any(char::is_alphanumeric) {
+            count = count.saturating_add(1);
+        }
+    }
+    count
+}
+
+/// Characters the 口径 counts one-by-one: CJK unified ideographs (incl.
+/// extensions and compatibility blocks) and kana. The katakana middle dot
+/// `・` is a separator, not a word.
+fn is_countable_cjk(character: char) -> bool {
+    if character == '\u{30FB}' {
+        return false;
+    }
+    matches!(character,
+        '\u{3400}'..='\u{4DBF}'      // CJK Extension A
+        | '\u{4E00}'..='\u{9FFF}'    // CJK Unified Ideographs
+        | '\u{F900}'..='\u{FAFF}'    // CJK Compatibility Ideographs
+        | '\u{20000}'..='\u{2FA1F}'  // CJK Extensions B+ and supplements
+        | '\u{3040}'..='\u{309F}'    // Hiragana
+        | '\u{30A0}'..='\u{30FF}'    // Katakana
+        | '\u{31F0}'..='\u{31FF}'    // Katakana Phonetic Extensions
+        | '\u{FF66}'..='\u{FF9D}'    // Halfwidth Katakana
+    )
+}
+
+pub fn number_tokens(value: &str) -> Vec<String> {
+    let normalized = value.nfkc().collect::<String>();
+    let mut tokens = NUMBER_RE
+        .find_iter(&normalized)
+        .map(|m| normalize_number(m.as_str()))
+        .collect::<Vec<_>>();
+    tokens.sort();
+    tokens
+}
+
+pub fn number_mismatch(source: &str, target: &str) -> Option<NumberEvidence> {
+    let source_numbers = number_tokens(source);
+    let target_numbers = number_tokens(target);
+    if source_numbers == target_numbers {
+        None
+    } else {
+        Some(NumberEvidence {
+            source_numbers,
+            target_numbers,
+            ..NumberEvidence::default()
+        })
+    }
+}
+
+pub fn number_issue_fingerprint(segment_id: &str, evidence: &NumberEvidence) -> String {
+    sha256_hex(
+        format!(
+            "number-mismatch\0{segment_id}\0{}\0{}",
+            evidence.source_numbers.join(","),
+            evidence.target_numbers.join(",")
+        )
+        .as_bytes(),
+    )
+}
+
+pub fn placeholder_tokens(text: &str) -> Vec<String> {
+    PLACEHOLDER_RE
+        .find_iter(text)
+        .map(|found| found.as_str().to_string())
+        .collect()
+}
+
+/// Multiset difference of placeholder tokens between source and target.
+///
+/// `missing` lists tokens the target dropped, `extra` lists tokens it
+/// invented; a duplicated token counts once per missing/extra occurrence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlaceholderMismatch {
+    pub missing: Vec<String>,
+    pub extra: Vec<String>,
+}
+
+pub fn placeholder_mismatch(source: &str, target: &str) -> Option<PlaceholderMismatch> {
+    let mut counts: BTreeMap<String, i64> = BTreeMap::new();
+    for token in placeholder_tokens(source) {
+        *counts.entry(token).or_default() += 1;
+    }
+    for token in placeholder_tokens(target) {
+        *counts.entry(token).or_default() -= 1;
+    }
+    let mut mismatch = PlaceholderMismatch::default();
+    for (token, balance) in counts {
+        for _ in 0..balance.max(0) {
+            mismatch.missing.push(token.clone());
+        }
+        for _ in 0..(-balance).max(0) {
+            mismatch.extra.push(token.clone());
+        }
+    }
+    if mismatch.missing.is_empty() && mismatch.extra.is_empty() {
+        None
+    } else {
+        Some(mismatch)
+    }
+}
+
+fn normalize_number(value: &str) -> String {
+    let without_grouping = value.replace(',', "");
+    match without_grouping.parse::<f64>() {
+        Ok(number) if number.fract() == 0.0 => format!("{number:.0}"),
+        Ok(number) => {
+            let rendered = number.to_string();
+            rendered
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
+        }
+        Err(_) => without_grouping,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_cjk_and_whitespace() {
+        assert_eq!(normalize_text("  保留期为 ６０ 天。\n"), "保留期为 60 天。");
+    }
+
+    #[test]
+    fn detects_number_mismatch() {
+        let evidence = number_mismatch("The retention period is 30 days.", "保留期为 60 天。")
+            .expect("mismatch");
+        assert_eq!(evidence.source_numbers, vec!["30"]);
+        assert_eq!(evidence.target_numbers, vec!["60"]);
+    }
+
+    #[test]
+    fn treats_grouping_and_full_width_as_equal() {
+        assert!(number_mismatch("USD 1,200.00", "１２００ 美元").is_none());
+    }
+
+    #[test]
+    fn detects_missing_and_extra_placeholders_as_multisets() {
+        let mismatch = placeholder_mismatch(
+            "Click {button} to run %s. See <b>docs</b>.",
+            "点击 {button} 运行。<b>见<i>文档</i></b>。",
+        )
+        .expect("mismatch");
+        assert_eq!(mismatch.missing, vec!["%s"]);
+        assert_eq!(mismatch.extra, vec!["</i>", "<i>"]);
+
+        let duplicated = placeholder_mismatch("{{name}} and {{name}}", "{{name}} 已就绪")
+            .expect("duplicated token counts");
+        assert_eq!(duplicated.missing, vec!["{{name}}"]);
+        assert!(duplicated.extra.is_empty());
+    }
+
+    #[test]
+    fn intact_placeholders_and_plain_text_report_no_mismatch() {
+        assert!(placeholder_mismatch("Save {file} as &amp;", "另存 {file} 为 &amp;").is_none());
+        assert!(placeholder_mismatch("Plain sentence.", "普通句子。").is_none());
+        assert!(placeholder_tokens("保留期为 30 天。").is_empty());
+    }
+
+    #[test]
+    fn hashes_include_context() {
+        let (source_a, context_a) = segment_hashes("Same", Some("Before"), None);
+        let (source_b, context_b) = segment_hashes("Same", Some("Other"), None);
+        assert_eq!(source_a, source_b);
+        assert_ne!(context_a, context_b);
+    }
+
+    #[test]
+    fn counts_pure_latin_words() {
+        assert_eq!(source_word_count("The retention period is 30 days."), 6);
+        // UAX #29 breaks at hyphens; a hyphenated compound is its parts.
+        assert_eq!(source_word_count("state-of-the-art design"), 5);
+        assert_eq!(source_word_count(""), 0);
+        assert_eq!(source_word_count("  …!?  "), 0);
+    }
+
+    #[test]
+    fn counts_cjk_per_character() {
+        // 5 ideographs + the number string 60 = 6; punctuation is free.
+        assert_eq!(source_word_count("保留期为 60 天。"), 6);
+        // Katakana runs stay one UAX#29 segment but still count per kana.
+        assert_eq!(source_word_count("コーヒー"), 4);
+        assert_eq!(source_word_count("ひらがな"), 4);
+    }
+
+    #[test]
+    fn counts_mixed_text_numbers_urls_and_emails() {
+        // 2 ideographs + "GPU" + number string = 4.
+        assert_eq!(source_word_count("使用 GPU 1,200.00"), 4);
+        // URL and email each count 1 regardless of inner punctuation.
+        assert_eq!(
+            source_word_count("见 https://example.com/a?b=c 或 support@example.com"),
+            4
+        );
+        // 4 ideographs + URL + 3 Latin words.
+        assert_eq!(
+            source_word_count("详情请见 www.example.org and click here"),
+            8
+        );
+    }
+
+    #[test]
+    fn segment_origin_roundtrips_and_defaults() {
+        let origin = SegmentOrigin {
+            kind: SegmentOriginKind::TmFuzzy,
+            score: Some(85),
+            model: None,
+            edited: false,
+        };
+        let json = serde_json::to_value(&origin).expect("serialize origin");
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "tmFuzzy", "score": 85, "edited": false})
+        );
+        // Clients may omit `edited`; it defaults to false.
+        let parsed: SegmentOrigin =
+            serde_json::from_value(serde_json::json!({"kind": "aiDraft", "model": "gpt-x"}))
+                .expect("deserialize origin");
+        assert_eq!(parsed.kind, SegmentOriginKind::AiDraft);
+        assert_eq!(parsed.model.as_deref(), Some("gpt-x"));
+        assert!(!parsed.edited);
+        // Segments serialized before the field existed still parse.
+        let legacy: SegmentCounts = serde_json::from_str(
+            r#"{"total":1,"untranslated":1,"draft":0,"confirmed":0,"openIssues":0}"#,
+        )
+        .expect("legacy counts");
+        assert_eq!(legacy.source_words, 0);
+    }
+
+    #[test]
+    fn legacy_project_configuration_ignores_removed_review_flag() {
+        let configuration: ProjectConfiguration =
+            serde_json::from_str(r#"{"reviewRequired": true}"#)
+                .expect("deserialize legacy project configuration");
+        assert_eq!(configuration, ProjectConfiguration::default());
+    }
+}

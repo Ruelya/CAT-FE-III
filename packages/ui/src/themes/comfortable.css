@@ -1,0 +1,65 @@
+/* Generated from theme-comfortable.css by
+   docs/design-studies/src/emit-themes.mjs — edit the study, not this file.
+   Material and motion that cannot be a token live in ../theme-surfaces.css. */
+
+[data-theme="comfortable"] {
+  color-scheme: light;
+
+  --tl-color-bg: #f3f4f4;
+  --tl-color-surface: #f8f9f9;
+  --tl-color-surface-raised: #ffffff;
+  --tl-color-surface-float: #ffffff;
+  --tl-color-sunken: #e9ebeb;
+  --tl-color-chrome: #ffffff;
+  --tl-color-surface-active: #ecf6f4;
+  --tl-color-row-hover: rgba(11, 122, 104, 0.045);
+  --tl-color-border: #dcdfde;
+  --tl-color-border-strong: #bcc2c0;
+  --tl-color-field-hover: #bcc2c0;
+  --tl-color-text: #1d2422;
+  --tl-color-text-muted: #576460;
+  --tl-color-text-faint: #838d8a;
+  --tl-color-accent: #0b7a68;
+  --tl-color-accent-strong: #085f51;
+  --tl-color-accent-soft: #d5ebe6;
+  --tl-color-accent-faint: #ecf6f4;
+  --tl-color-on-accent: #ffffff;
+  --tl-status-ok: #1c7a4f;
+  --tl-status-ok-soft: #ddefe5;
+  --tl-status-warn: #8d5f0f;
+  --tl-status-warn-soft: #f6ecd6;
+  --tl-status-danger: #ac3040;
+  --tl-status-danger-soft: #f8e4e7;
+  --tl-status-info: #2f6386;
+  --tl-status-info-soft: #e5eef3;
+  --tl-color-scrim: rgba(29, 36, 34, 0.3);
+  --tl-font-ui:
+    "Figtree", "PingFang SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    system-ui, sans-serif;
+  --tl-font-mono: "Spline Sans Mono", ui-monospace, monospace;
+  --tl-text-xs: 11px;
+  --tl-text-sm: 12.5px;
+  --tl-text-md: 13.5px;
+  --tl-text-lg: 16px;
+  --tl-text-xl: 21px;
+  --tl-radius-sm: 6px;
+  --tl-radius-md: 9px;
+  --tl-row-h-grid: 38px;
+  --tl-ctl-h-md: 30px;
+  --tl-ctl-h-sm: 25px;
+  --tl-ribbon-h: 62px;
+  --tl-statusbar-h: 28px;
+  --tl-tab-h: 32px;
+  --tl-rail-left: 276px;
+  --tl-rail-right: 340px;
+  --tl-shadow-raised: 0 1px 2px rgba(29, 36, 34, 0.06);
+  --tl-shadow-pop: 0 4px 14px rgba(29, 36, 34, 0.1);
+  --tl-shadow-overlay: 0 20px 50px rgba(29, 36, 34, 0.2);
+  --tl-focus-ring: 0 0 0 3px #d5ebe6, 0 0 0 4px #0b7a68;
+  --tl-border-hairline: 1px solid var(--tl-color-border);
+  --tl-motion-fast: 120ms;
+  --tl-motion-base: 180ms;
+  --tl-motion-slow: 255ms;
+  --tl-ease-standard: cubic-bezier(0.2, 0.6, 0.3, 1);
+  --tl-ease-out: cubic-bezier(0.2, 0.6, 0.3, 1);
+}
