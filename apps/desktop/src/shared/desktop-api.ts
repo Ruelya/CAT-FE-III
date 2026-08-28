@@ -90,6 +90,35 @@ export type MenuCommand =
   | "show-dock-ai";
 
 /**
+ * The seven top-level application menus, in menu-bar order. One list feeds
+ * both `menu-template.ts` (the real submenus) and the integrated titlebar's
+ * menu buttons, so the strip can never drift from the template.
+ */
+export type MenuBarItemId =
+  | "file"
+  | "edit"
+  | "view"
+  | "project"
+  | "translate"
+  | "qa"
+  | "help";
+
+export interface MenuBarItem {
+  id: MenuBarItemId;
+  label: string;
+}
+
+export const MENU_BAR_ITEMS: readonly MenuBarItem[] = [
+  { id: "file", label: "文件" },
+  { id: "edit", label: "编辑" },
+  { id: "view", label: "视图" },
+  { id: "project", label: "项目" },
+  { id: "translate", label: "翻译" },
+  { id: "qa", label: "QA" },
+  { id: "help", label: "帮助" },
+];
+
+/**
  * Renderer-reported state that drives menu item enablement, so the menu
  * stays honest: items are disabled when no project/document is open.
  */
@@ -109,6 +138,23 @@ export interface MenuContext {
  * themeable, so the most it can do is agree with the workbench underneath it.
  */
 export type NativeScheme = "light" | "dark";
+
+/**
+ * Which window chrome this host runs: `integrated` draws the prototype
+ * titlebar (menus + title + native overlay buttons on one strip) inside the
+ * web contents on Windows/Linux; `system` keeps the OS frame and the system
+ * menu bar on macOS.
+ */
+export type WindowChromeMode = "integrated" | "system";
+
+/**
+ * Colors for the native window-button overlay, resolved by the renderer
+ * from the active theme's titlebar. Plain `#rrggbb` only.
+ */
+export interface TitlebarOverlayColors {
+  color: string;
+  symbolColor: string;
+}
 
 export interface DesktopApi {
   invoke(method: string, params: unknown): Promise<EngineInvokeResponse>;
@@ -141,6 +187,15 @@ export interface DesktopApi {
   setMenuContext(context: MenuContext): void;
   /** Report the active theme's cast so the native frame matches it. */
   setNativeScheme(scheme: NativeScheme): void;
+  /** Which chrome this host runs; fixed for the process lifetime. */
+  windowChrome: WindowChromeMode;
+  /**
+   * Pop the named application menu (the same `menu-template.ts` submenu the
+   * menu bar uses) at window coordinates; resolves when the menu closes.
+   */
+  popupAppMenu(menuId: MenuBarItemId, x: number, y: number): Promise<void>;
+  /** Repaint the native window-button overlay to match the active theme. */
+  setTitlebarOverlay(colors: TitlebarOverlayColors): void;
 }
 
 export const IPC_CHANNELS = {
@@ -159,7 +214,9 @@ export const IPC_CHANNELS = {
   previewDocx: "tl:preview:docx",
   menuCommand: "tl:menu:command",
   menuContext: "tl:menu:context",
+  menuPopup: "tl:menu:popup",
   nativeScheme: "tl:window:native-scheme",
+  titlebarOverlay: "tl:window:titlebar-overlay",
 } as const;
 
 declare global {

@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { MenuItemConstructorOptions } from "electron";
 
+import { MENU_BAR_ITEMS } from "../shared/desktop-api.js";
 import type { MenuCommand, MenuContext } from "../shared/desktop-api.js";
 import {
   RENDERER_OWNED_ACCELERATORS,
   buildMenuTemplate,
+  menuBarSubmenu,
 } from "./menu-template.js";
 import type { MenuTemplateOptions } from "./menu-template.js";
 
@@ -405,6 +407,82 @@ describe("buildMenuTemplate command dispatch", () => {
       expect(onCommand).toHaveBeenCalledTimes(1);
       expect(onCommand).toHaveBeenCalledWith(spec.command);
     }
+  });
+});
+
+describe("menuBarSubmenu (integrated titlebar popups)", () => {
+  it("the seven titlebar menus are exactly the template's top level", () => {
+    const { template } = build(NO_PROJECT, { platform: "win32" });
+    expect(template.map((item) => item.label)).toEqual(
+      MENU_BAR_ITEMS.map((item) => item.label),
+    );
+  });
+
+  it("pops the same submenu object the application menu carries", () => {
+    const onCommand = vi.fn();
+    const options: MenuTemplateOptions = {
+      platform: "win32",
+      appName: "Translunar CAT",
+      context: DOCUMENT_OPEN,
+      onCommand,
+    };
+    for (const [index, item] of MENU_BAR_ITEMS.entries()) {
+      const submenu = menuBarSubmenu(options, item.id);
+      const top = buildMenuTemplate(options)[index];
+      expect(submenu, item.id).not.toBeNull();
+      expect(top?.label).toBe(item.label);
+      expect(submenu?.map((entry) => entry.label)).toEqual(
+        (top?.submenu as MenuItemConstructorOptions[]).map(
+          (entry) => entry.label,
+        ),
+      );
+    }
+  });
+
+  it("honors the macOS app-menu offset", () => {
+    const onCommand = vi.fn();
+    const options: MenuTemplateOptions = {
+      platform: "darwin",
+      appName: "Translunar CAT",
+      context: NO_PROJECT,
+      onCommand,
+    };
+    const submenu = menuBarSubmenu(options, "file");
+    expect(
+      submenu?.some((entry) => entry.label === "新建项目…"),
+    ).toBe(true);
+  });
+
+  it("returns null for an unknown menu id", () => {
+    const onCommand = vi.fn();
+    expect(
+      menuBarSubmenu(
+        {
+          platform: "win32",
+          appName: "Translunar CAT",
+          context: NO_PROJECT,
+          onCommand,
+        },
+        "settings",
+      ),
+    ).toBeNull();
+  });
+
+  it("popup items dispatch through the same onCommand as the menu bar", () => {
+    const onCommand = vi.fn();
+    const submenu = menuBarSubmenu(
+      {
+        platform: "win32",
+        appName: "Translunar CAT",
+        context: DOCUMENT_OPEN,
+        onCommand,
+      },
+      "qa",
+    );
+    const runQa = submenu?.find((entry) => entry.label === "运行 QA");
+    expect(runQa).toBeDefined();
+    click(runQa!);
+    expect(onCommand).toHaveBeenCalledWith("run-qa");
   });
 });
 

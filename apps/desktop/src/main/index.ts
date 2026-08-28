@@ -13,6 +13,12 @@ import type {
 } from "../shared/desktop-api.js";
 import { EngineRpcError, EngineSupervisor } from "./engine-supervisor.js";
 import { installApplicationMenu } from "./menu.js";
+import {
+  TITLEBAR_HEIGHT,
+  normalizeOverlayColors,
+  windowChromeMode,
+  windowChromeOptions,
+} from "./window-chrome.js";
 
 function resolveEngineBinary(): string {
   const override = process.env.TL_ENGINE_BIN;
@@ -47,12 +53,16 @@ function broadcast(channel: string, payload: unknown): void {
 function createWindow(): void {
   // No static title: the window follows the renderer's document.title,
   // which reports the live project/document (Translunar when none).
+  // Windows/Linux run the integrated titlebar (hidden caption + native
+  // window-button overlay; the renderer draws the strip); macOS keeps the
+  // system frame. See window-chrome.ts.
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 1080,
     minHeight: 640,
     backgroundColor: "#eef0f4",
+    ...windowChromeOptions(process.platform),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -83,6 +93,25 @@ function registerIpc(): void {
     const background = scheme === "dark" ? "#14161a" : "#eef0f4";
     for (const window of BrowserWindow.getAllWindows()) {
       window.setBackgroundColor(background);
+    }
+  });
+
+  // Integrated chrome hosts: the renderer reports the active theme's
+  // titlebar colors so the native window-button overlay repaints with it.
+  ipcMain.on(IPC_CHANNELS.titlebarOverlay, (_event, raw: unknown) => {
+    if (windowChromeMode(process.platform) !== "integrated") {
+      return;
+    }
+    const colors = normalizeOverlayColors(raw);
+    if (!colors) {
+      return;
+    }
+    for (const window of BrowserWindow.getAllWindows()) {
+      try {
+        window.setTitleBarOverlay({ ...colors, height: TITLEBAR_HEIGHT });
+      } catch {
+        // Hosts without overlay support keep their current controls.
+      }
     }
   });
 
@@ -329,11 +358,10 @@ function registerIpc(): void {
 }
 
 void app.whenReady().then(() => {
-  // The window keeps the OS-native frame: on Windows that means DWM caption
-  // buttons, drag, double-click maximize, and Snap Layouts for free. The
-  // frame is not themeable, so the most it can do is agree with the theme
-  // under it; the renderer reports that on IPC_CHANNELS.nativeScheme. Until
-  // it does, light is the cast of the default theme.
+  // The native pieces that remain (macOS frame; the Windows/Linux window-
+  // button overlay before the renderer paints) follow nativeTheme. Until the
+  // renderer reports on IPC_CHANNELS.nativeScheme, light is the cast of the
+  // default theme.
   nativeTheme.themeSource = "light";
   supervisor = new EngineSupervisor({
     binaryPath: resolveEngineBinary(),

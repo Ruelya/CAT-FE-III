@@ -6,9 +6,11 @@ import type {
   EngineInvokeResponse,
   EngineNotificationPayload,
   EngineStatusPayload,
+  MenuBarItemId,
   MenuCommand,
   MenuContext,
   NativeScheme,
+  TitlebarOverlayColors,
 } from "../shared/desktop-api.js";
 
 const CHANNELS = {
@@ -27,7 +29,9 @@ const CHANNELS = {
   previewDocx: "tl:preview:docx",
   menuCommand: "tl:menu:command",
   menuContext: "tl:menu:context",
+  menuPopup: "tl:menu:popup",
   nativeScheme: "tl:window:native-scheme",
+  titlebarOverlay: "tl:window:titlebar-overlay",
 } as const;
 
 const api: DesktopApi = {
@@ -119,6 +123,20 @@ const api: DesktopApi = {
   },
   setNativeScheme(scheme: NativeScheme): void {
     electron.ipcRenderer.send(CHANNELS.nativeScheme, scheme);
+  },
+  // Same platform split as window-chrome.ts: macOS keeps the system frame
+  // and menu bar; everything else runs the integrated titlebar.
+  windowChrome: process.platform === "darwin" ? "system" : "integrated",
+  popupAppMenu(menuId: MenuBarItemId, x: number, y: number): Promise<void> {
+    return electron.ipcRenderer.invoke(
+      CHANNELS.menuPopup,
+      menuId,
+      x,
+      y,
+    ) as Promise<void>;
+  },
+  setTitlebarOverlay(colors: TitlebarOverlayColors): void {
+    electron.ipcRenderer.send(CHANNELS.titlebarOverlay, colors);
   },
 };
 
