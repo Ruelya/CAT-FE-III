@@ -77,6 +77,7 @@ export const ENGINE_METHODS = [
   "termbase.list",
   "termbase.attach",
   "termbase.detach",
+  "termbase.update",
   "termbase.import",
   "termbase.export",
   "term.add",

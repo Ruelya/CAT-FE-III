@@ -23,7 +23,8 @@ use tl_protocol::{
     TermLookupParams, TermLookupResult, TermUpdateParams, TermUpdateResult, TermbaseAttachParams,
     TermbaseAttachResult, TermbaseCreateParams, TermbaseDetachParams, TermbaseDetachResult,
     TermbaseExportParams, TermbaseExportResult, TermbaseImportParams, TermbaseImportResult,
-    TermbaseListParams, TermbaseListResult, TmDeleteParams, TmDeleteResult, TmExchangeFormat,
+    TermbaseListParams, TermbaseListResult, TermbaseUpdateParams, TermbaseUpdateResult,
+    TmDeleteParams, TmDeleteResult, TmExchangeFormat,
     TmExportParams, TmExportResult, TmImportParams, TmImportResult, TmListParams, TmListResult,
     TmLookupParams, TmLookupResult, TmMatchGrade, TmMatchItem, TmPretranslateParams,
     TmPretranslateResult, TmUpdateParams, TmUpdateResult,
@@ -661,6 +662,135 @@ impl Engine {
             ..Default::default()
         })?;
         Ok(TermbaseDetachResult { mount: removed })
+    }
+
+    /// Edit one mount: enable/disable the read path, flip the per-mount
+    /// write switch, and/or move it to a new priority position. Every
+    /// changed sibling persists in the same transaction; the result is the
+    /// project's full mount list. Unlike `memory.update` there is no
+    /// single-writable conflict — attach mounts every termbase writable,
+    /// so several writable mounts are the normal state.
+    pub(crate) fn termbase_update(
+        &mut self,
+        params: TermbaseUpdateParams,
+    ) -> Result<TermbaseUpdateResult, EngineError> {
+        self.require_project(&params.project_id)?;
+        self.require_termbase(&params.termbase_id)?;
+        if params.enabled.is_none() && params.writable.is_none() && params.priority.is_none() {
+            return Err(EngineError::InvalidParams(
+                "nothing to update: pass enabled, writable, or priority".to_string(),
+            ));
+        }
+        self.state
+            .termbase_mounts
+            .iter()
+            .position(|mount| {
+                mount.project_id == params.project_id && mount.termbase_id == params.termbase_id
+            })
+            .ok_or_else(|| {
+                EngineError::NotFound(format!(
+                    "termbase {} is not attached to project {}",
+                    params.termbase_id, params.project_id
+                ))
+            })?;
+
+        let now = now_ms();
+        let mut changed: Vec<TermbaseMount> = Vec::new();
+        {
+            let mount = self
+                .state
+                .termbase_mounts
+                .iter_mut()
+                .find(|mount| {
+                    mount.project_id == params.project_id
+                        && mount.termbase_id == params.termbase_id
+                })
+                .expect("mount just resolved");
+            let mut touched = false;
+            if let Some(enabled) = params.enabled
+                && mount.enabled != enabled
+            {
+                mount.enabled = enabled;
+                touched = true;
+            }
+            if let Some(writable) = params.writable
+                && mount.writable != writable
+            {
+                mount.writable = writable;
+                touched = true;
+            }
+            if touched {
+                mount.revision += 1;
+                mount.updated_at_ms = now;
+                changed.push(mount.clone());
+            }
+        }
+        if let Some(position) = params.priority {
+            for mount in self.move_termbase_mount_priority(
+                &params.project_id,
+                &params.termbase_id,
+                position,
+                now,
+            ) {
+                match changed.iter_mut().find(|existing| {
+                    existing.project_id == mount.project_id
+                        && existing.termbase_id == mount.termbase_id
+                }) {
+                    Some(existing) => *existing = mount,
+                    None => changed.push(mount),
+                }
+            }
+        }
+        self.store.apply(&StateDelta {
+            termbase_mounts: changed,
+            ..Default::default()
+        })?;
+        let mut mounts: Vec<TermbaseMount> = self
+            .state
+            .termbase_mounts
+            .iter()
+            .filter(|mount| mount.project_id == params.project_id)
+            .cloned()
+            .collect();
+        mounts.sort_by_key(|mount| mount.priority);
+        Ok(TermbaseUpdateResult { mounts })
+    }
+
+    /// Move one mount to `position` (clamped to the last slot) and renumber
+    /// the project's mounts contiguously. Returns every mount whose stored
+    /// priority changed. Mirrors the memory-mount move.
+    fn move_termbase_mount_priority(
+        &mut self,
+        project_id: &str,
+        termbase_id: &str,
+        position: u32,
+        now: i64,
+    ) -> Vec<TermbaseMount> {
+        let mut ordered: Vec<&mut TermbaseMount> = self
+            .state
+            .termbase_mounts
+            .iter_mut()
+            .filter(|mount| mount.project_id == project_id)
+            .collect();
+        ordered.sort_by_key(|mount| mount.priority);
+        let from = ordered
+            .iter()
+            .position(|mount| mount.termbase_id == termbase_id)
+            .expect("mount just resolved");
+        let to = (position as usize).min(ordered.len().saturating_sub(1));
+        let moved = ordered.remove(from);
+        ordered.insert(to, moved);
+        let mut changed = Vec::new();
+        for (index, mount) in ordered.into_iter().enumerate() {
+            let priority = index as u32;
+            if mount.priority != priority {
+                mount.priority = priority;
+                mount.revision += 1;
+                mount.updated_at_ms = now;
+                changed.push(mount.clone());
+            }
+        }
+        changed
     }
 
     fn require_termbase(&self, termbase_id: &str) -> Result<&Termbase, EngineError> {

@@ -100,14 +100,14 @@ export interface RpcError {
  * the test below keeps them honest.
  */
 export interface RpcMethodCatalog {
-  "ai.agent.cancel": MethodContract56;
-  "ai.agent.start": MethodContract54;
-  "ai.agent.status": MethodContract55;
-  "ai.assist.cancel": MethodContract53;
-  "ai.assist.start": MethodContract51;
-  "ai.assist.status": MethodContract52;
-  "ai.configure": MethodContract49;
-  "ai.status": MethodContract50;
+  "ai.agent.cancel": MethodContract57;
+  "ai.agent.start": MethodContract55;
+  "ai.agent.status": MethodContract56;
+  "ai.assist.cancel": MethodContract54;
+  "ai.assist.start": MethodContract52;
+  "ai.assist.status": MethodContract53;
+  "ai.configure": MethodContract50;
+  "ai.status": MethodContract51;
   "document.export": MethodContract11;
   "document.import": MethodContract8;
   "document.list": MethodContract9;
@@ -126,29 +126,30 @@ export interface RpcMethodCatalog {
   "project.get": MethodContract5;
   "project.list": MethodContract4;
   "project.update": MethodContract6;
-  "qa.fix.apply": MethodContract46;
-  "qa.fix.list": MethodContract45;
-  "qa.list": MethodContract43;
-  "qa.profile.get": MethodContract47;
-  "qa.profile.update": MethodContract48;
-  "qa.run": MethodContract42;
-  "qa.waive": MethodContract44;
+  "qa.fix.apply": MethodContract47;
+  "qa.fix.list": MethodContract46;
+  "qa.list": MethodContract44;
+  "qa.profile.get": MethodContract48;
+  "qa.profile.update": MethodContract49;
+  "qa.run": MethodContract43;
+  "qa.waive": MethodContract45;
   "segment.confirm": MethodContract15;
   "segment.list": MethodContract12;
   "segment.lock": MethodContract16;
   "segment.replace": MethodContract14;
   "segment.update": MethodContract13;
-  "term.add": MethodContract37;
-  "term.delete": MethodContract39;
-  "term.list": MethodContract40;
-  "term.lookup": MethodContract41;
-  "term.update": MethodContract38;
+  "term.add": MethodContract38;
+  "term.delete": MethodContract40;
+  "term.list": MethodContract41;
+  "term.lookup": MethodContract42;
+  "term.update": MethodContract39;
   "termbase.attach": MethodContract33;
   "termbase.create": MethodContract31;
   "termbase.detach": MethodContract34;
-  "termbase.export": MethodContract36;
-  "termbase.import": MethodContract35;
+  "termbase.export": MethodContract37;
+  "termbase.import": MethodContract36;
   "termbase.list": MethodContract32;
+  "termbase.update": MethodContract35;
   "tm.delete": MethodContract20;
   "tm.export": MethodContract22;
   "tm.import": MethodContract21;
@@ -160,7 +161,7 @@ export interface RpcMethodCatalog {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract56 {
+export interface MethodContract57 {
   params: AgentCancelParams;
   result: AgentRunView;
 }
@@ -200,7 +201,7 @@ export interface AgentStep {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract54 {
+export interface MethodContract55 {
   params: AgentStartParams;
   result: AgentRunView;
 }
@@ -216,7 +217,7 @@ export interface AgentStartParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract55 {
+export interface MethodContract56 {
   params: AgentStatusParams;
   result: AgentRunView;
 }
@@ -227,7 +228,7 @@ export interface AgentStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract53 {
+export interface MethodContract54 {
   params: AiAssistCancelParams;
   result: AiAssistRunView;
 }
@@ -276,7 +277,7 @@ export interface TagIntegrityReport {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract51 {
+export interface MethodContract52 {
   params: AiAssistParams;
   result: AiAssistRunView;
 }
@@ -289,7 +290,7 @@ export interface AiAssistParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract52 {
+export interface MethodContract53 {
   params: AiAssistStatusParams;
   result: AiAssistRunView;
 }
@@ -300,7 +301,7 @@ export interface AiAssistStatusParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract49 {
+export interface MethodContract50 {
   params: AiConfigureParams;
   result: AiStatusResult;
 }
@@ -327,7 +328,7 @@ export interface AiStatusResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract50 {
+export interface MethodContract51 {
   params: AiStatusParams;
   result: AiStatusResult;
 }
@@ -1002,7 +1003,7 @@ export interface ProjectUpdateParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract46 {
+export interface MethodContract47 {
   params: QaFixApplyParams;
   result: QaFixApplyResult;
 }
@@ -1125,7 +1126,7 @@ export interface SegmentOrigin {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract45 {
+export interface MethodContract46 {
   params: QaFixListParams;
   result: QaFixListResult;
 }
@@ -1181,7 +1182,7 @@ export interface QaFix {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract43 {
+export interface MethodContract44 {
   params: QaListParams;
   result: QaListResult;
 }
@@ -1214,7 +1215,7 @@ export interface QaListResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract47 {
+export interface MethodContract48 {
   params: QaProfileGetParams;
   result: QaProfileView;
 }
@@ -1241,6 +1242,14 @@ export interface QaProfileView {
    * exist. Off by default.
    */
   blockExportOnError: boolean;
+  /**
+   * The static rule ids the compiled profile runs, in lexicographic
+   * order — the rows a severity table can offer. Parameterized families
+   * (`qa.term-required:<id>`, `qa.term-forbidden:<id>`, `qa.regex:<id>`,
+   * and the `qa.tag` family marker behind the concrete `qa.tag-*` ids)
+   * exist per term/regex definition and are not listed.
+   */
+  enabledRuleIds: string[];
   /**
    * Project revision, for `qa.profile.update` optimistic concurrency.
    */
@@ -1273,7 +1282,7 @@ export interface QaRuleSettings1 {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract48 {
+export interface MethodContract49 {
   params: QaProfileUpdateParams;
   result: QaProfileView;
 }
@@ -1318,7 +1327,7 @@ export interface QaProfileUpdateParams {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract42 {
+export interface MethodContract43 {
   params: QaRunParams;
   result: QaRunResult;
 }
@@ -1335,7 +1344,7 @@ export interface QaRunResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract44 {
+export interface MethodContract45 {
   params: QaWaiveParams;
   result: QaWaiveResult;
 }
@@ -1590,7 +1599,7 @@ export interface SegmentUpdateResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract37 {
+export interface MethodContract38 {
   params: TermAddParams;
   result: TermAddResult;
 }
@@ -1641,7 +1650,7 @@ export interface TermTranslation {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract39 {
+export interface MethodContract40 {
   params: TermDeleteParams;
   result: TermDeleteResult;
 }
@@ -1664,7 +1673,7 @@ export interface TermDeleteResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract40 {
+export interface MethodContract41 {
   params: TermListParams;
   result: TermListResult;
 }
@@ -1696,7 +1705,7 @@ export interface TermListResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract41 {
+export interface MethodContract42 {
   params: TermLookupParams;
   result: TermLookupResult;
 }
@@ -1725,7 +1734,7 @@ export interface TermMatch {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract38 {
+export interface MethodContract39 {
   params: TermUpdateParams;
   result: TermUpdateResult;
 }
@@ -1826,7 +1835,7 @@ export interface TermbaseDetachResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract36 {
+export interface MethodContract37 {
   params: TermbaseExportParams;
   result: TermbaseExportResult;
 }
@@ -1851,7 +1860,7 @@ export interface TermbaseExportResult {
 /**
  * A `{ params, result }` pair for one method. Only used for schema export.
  */
-export interface MethodContract35 {
+export interface MethodContract36 {
   params: TermbaseImportParams;
   result: TermbaseImportResult;
 }
@@ -1900,6 +1909,45 @@ export interface TermbaseListParams {
 export interface TermbaseListResult {
   mounts: TermbaseMount[];
   termbases: Termbase[];
+  [k: string]: unknown;
+}
+/**
+ * A `{ params, result }` pair for one method. Only used for schema export.
+ */
+export interface MethodContract35 {
+  params: TermbaseUpdateParams;
+  result: TermbaseUpdateResult;
+}
+/**
+ * `termbase.update` — edit one mount: enable/disable the read path
+ * (`term.lookup` and QA only consult enabled mounts), flip the per-mount
+ * write switch, and/or move the mount to a new priority position. Omitted
+ * fields stay unchanged; an all-omitted update is `invalidParams`.
+ *
+ * Unlike TM mounts there is no single-writable invariant: `termbase.attach`
+ * mounts every termbase writable, several writable mounts are the normal
+ * state, and `writable` here is a per-mount switch. Term additions target
+ * the first writable mount in priority order.
+ */
+export interface TermbaseUpdateParams {
+  enabled?: boolean | null;
+  /**
+   * Target position in the project's mount list (0 = highest priority).
+   * Values past the end clamp to the last position. Sibling mounts are
+   * renumbered to keep priorities contiguous.
+   */
+  priority?: number | null;
+  projectId: string;
+  termbaseId: string;
+  writable?: boolean | null;
+  [k: string]: unknown;
+}
+/**
+ * The project's mounts after the edit, in priority order — a priority
+ * move renumbers siblings, so one mount alone would hide real changes.
+ */
+export interface TermbaseUpdateResult {
+  mounts: TermbaseMount[];
   [k: string]: unknown;
 }
 /**

@@ -363,6 +363,7 @@ impl Engine {
             methods::TERMBASE_LIST => to_value(self.termbase_list(parse(params)?)?),
             methods::TERMBASE_ATTACH => to_value(self.termbase_attach(parse(params)?)?),
             methods::TERMBASE_DETACH => to_value(self.termbase_detach(parse(params)?)?),
+            methods::TERMBASE_UPDATE => to_value(self.termbase_update(parse(params)?)?),
             methods::TERMBASE_IMPORT => to_value(self.termbase_import(parse(params)?)?),
             methods::TERMBASE_EXPORT => to_value(self.termbase_export(parse(params)?)?),
             methods::TERM_ADD => to_value(self.term_add(parse(params)?)?),

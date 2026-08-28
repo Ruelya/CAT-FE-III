@@ -54,6 +54,39 @@ pub struct TermbaseDetachResult {
     pub mount: TermbaseMount,
 }
 
+/// `termbase.update` — edit one mount: enable/disable the read path
+/// (`term.lookup` and QA only consult enabled mounts), flip the per-mount
+/// write switch, and/or move the mount to a new priority position. Omitted
+/// fields stay unchanged; an all-omitted update is `invalidParams`.
+///
+/// Unlike TM mounts there is no single-writable invariant: `termbase.attach`
+/// mounts every termbase writable, several writable mounts are the normal
+/// state, and `writable` here is a per-mount switch. Term additions target
+/// the first writable mount in priority order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseUpdateParams {
+    pub project_id: String,
+    pub termbase_id: String,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub writable: Option<bool>,
+    /// Target position in the project's mount list (0 = highest priority).
+    /// Values past the end clamp to the last position. Sibling mounts are
+    /// renumbered to keep priorities contiguous.
+    #[serde(default)]
+    pub priority: Option<u32>,
+}
+
+/// The project's mounts after the edit, in priority order — a priority
+/// move renumbers siblings, so one mount alone would hide real changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TermbaseUpdateResult {
+    pub mounts: Vec<TermbaseMount>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TermAddParams {
