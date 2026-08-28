@@ -3939,6 +3939,13 @@
         },
         "segmentId": {
           "type": "string"
+        },
+        "skipTmWrite": {
+          "description": "Confirm without touching translation memory: the segment still turns\nconfirmed and confirm-time QA still runs, but no TM entry is written\nand no duplicate propagation happens — the pair spreads nowhere.\nAlso the escape hatch when no writable memory is mounted. Defaults\nto false: the ordinary confirm keeps writing TM.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3968,13 +3975,19 @@
           "$ref": "#/$defs/Segment"
         },
         "tmEntry": {
-          "description": "The translation-memory entry written by the confirmation.",
-          "$ref": "#/$defs/TmEntry"
+          "description": "The translation-memory entry written by the confirmation; absent\nwhen the confirm skipped the TM write.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TmEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "segment",
-        "tmEntry",
         "propagated"
       ]
     },

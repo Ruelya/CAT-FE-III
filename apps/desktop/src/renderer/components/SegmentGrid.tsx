@@ -23,8 +23,14 @@ import { TokenText } from "./TokenText.js";
  * - `nextUnconfirmed`: Ctrl+Enter, advance to the next unconfirmed row.
  * - `nextAny`: Ctrl+Alt+Enter, advance to the next row regardless of state.
  * - `stay`: Ctrl+Alt+Shift+Enter, no navigation.
+ * - `nextUnconfirmedSkipTm`: Ctrl+Shift+Enter, confirm without the TM write
+ *   (and without propagation), then advance to the next unconfirmed row.
  */
-export type ConfirmMode = "nextUnconfirmed" | "nextAny" | "stay";
+export type ConfirmMode =
+  | "nextUnconfirmed"
+  | "nextAny"
+  | "stay"
+  | "nextUnconfirmedSkipTm";
 
 /** Open placeholder QA evidence for one segment (from qa.tag-placeholder_*). */
 export interface PlaceholderAlert {
@@ -205,9 +211,8 @@ function confirmModeForKey(event: {
     return event.shiftKey ? "stay" : "nextAny";
   }
   if (event.shiftKey) {
-    // Ctrl+Shift+Enter is reserved for confirm-without-TM (an engine
-    // contract extension); the chord stays vacant until that exists.
-    return null;
+    // Confirm without the TM write — segment.confirm with skipTmWrite.
+    return "nextUnconfirmedSkipTm";
   }
   return "nextUnconfirmed";
 }

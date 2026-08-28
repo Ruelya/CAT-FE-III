@@ -115,14 +115,23 @@ pub struct SegmentLockResult {
 pub struct SegmentConfirmParams {
     pub segment_id: String,
     pub base_revision: u64,
+    /// Confirm without touching translation memory: the segment still turns
+    /// confirmed and confirm-time QA still runs, but no TM entry is written
+    /// and no duplicate propagation happens — the pair spreads nowhere.
+    /// Also the escape hatch when no writable memory is mounted. Defaults
+    /// to false: the ordinary confirm keeps writing TM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_tm_write: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentConfirmResult {
     pub segment: Segment,
-    /// The translation-memory entry written by the confirmation.
-    pub tm_entry: TmEntry,
+    /// The translation-memory entry written by the confirmation; absent
+    /// when the confirm skipped the TM write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tm_entry: Option<TmEntry>,
     /// Sibling segments auto-filled from the confirmed translation.
     pub propagated: Vec<Segment>,
     /// Confirm-time QA: every persisted issue of the confirmed segment

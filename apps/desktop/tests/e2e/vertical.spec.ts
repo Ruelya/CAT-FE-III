@@ -510,11 +510,22 @@ test("workbench intel: filter, concordance, preview, and settings", async () => 
   await expect(page.locator(".match-card")).toHaveCount(2);
   await shot("11b-term-hit.png");
 
-  // Pretranslation runs against the project TM and reports honestly.
-  await page.getByRole("button", { name: "预翻译" }).click();
+  // Pretranslation runs against the project TM and reports honestly, with
+  // the threshold dialog defaulting to the engine's 75.
+  await runPretranslate();
   await expect(page.locator(".app-statusbar")).toContainText("预翻译完成");
   await shot("11c-pretranslate.png");
 });
+
+// Pretranslation goes through the threshold dialog: assert the engine's
+// default 75 is pre-filled, then start the run.
+async function runPretranslate() {
+  await page.getByRole("button", { name: "预翻译" }).click();
+  const dialog = page.locator(".tl-dialog");
+  await expect(dialog.getByLabel("模糊匹配阈值（%）")).toHaveValue("75");
+  await dialog.getByRole("button", { name: "开始预翻译" }).click();
+  await expect(page.locator(".tl-dialog")).toHaveCount(0);
+}
 
 // Drives the import dialog end to end: re-point the source-file seam, pick
 // the file, optionally flip segmentation or attach an SRX ruleset, submit.
@@ -685,7 +696,7 @@ test("persisted origin chips and the engine word count stay honest", async () =>
 
   // Pretranslate fills row 1 from the TM and stamps the real grade and
   // score as its persisted origin.
-  await page.getByRole("button", { name: "预翻译" }).click();
+  await runPretranslate();
   await expect(page.locator(".app-statusbar")).toContainText("预翻译完成");
   await expect(rows.first()).toContainText("按月计费。");
 
@@ -809,7 +820,7 @@ test("confirm refreshes QA and locked segments stay read-only", async () => {
   await expect(page.getByLabel("句段 3 译文")).toHaveCount(0);
 
   // Pretranslate leaves the locked untranslated row alone and says so.
-  await page.getByRole("button", { name: "预翻译" }).click();
+  await runPretranslate();
   await expect(page.locator(".app-statusbar")).toContainText(
     "跳过 1 个已锁定句段",
   );

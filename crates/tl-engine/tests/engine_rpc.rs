@@ -3693,6 +3693,158 @@ fn confirming_an_unedited_fuzzy_match_opens_a_behavioral_warning() {
     );
 }
 
+/// The explicit no-TM confirm variant: `skipTmWrite: true` confirms the
+/// segment and runs confirm-time QA, but writes no TM entry and propagates
+/// to no duplicate — the pair spreads nowhere. It also works with no
+/// writable memory mounted, which the ordinary confirm honestly refuses.
+#[test]
+fn confirm_with_skip_tm_write_confirms_without_tm_or_propagation() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    // Two identical sources: the ordinary confirm would propagate.
+    let document_id = harness.import_txt(
+        &project_id,
+        "skip.txt",
+        "Rinse the tank.\n\nRinse the tank.\n",
+    );
+    let segment = harness.segments(&document_id)[0].clone();
+    let updated = harness.set_target(&segment, "冲洗水箱");
+
+    let confirmed = harness.call(
+        "segment.confirm",
+        json!({
+            "segmentId": updated["id"],
+            "baseRevision": updated["revision"],
+            "skipTmWrite": true,
+        }),
+    );
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert!(
+        confirmed.get("tmEntry").is_none(),
+        "no TM entry travels when the write was skipped"
+    );
+    assert_eq!(
+        confirmed["propagated"].as_array().expect("propagated").len(),
+        0,
+        "the skipped confirm spreads nowhere"
+    );
+    // Confirm-time QA still ran: the zh-CN target misses its final
+    // punctuation, so the segment-scoped rules report it.
+    assert!(
+        confirmed["qaIssues"]
+            .as_array()
+            .expect("qa issues")
+            .iter()
+            .any(|issue| issue["ruleId"] == "qa.missing-final-punctuation"),
+        "confirm-time QA runs on the no-TM path too"
+    );
+
+    // The TM answers nothing for that source, and the duplicate stays open.
+    let lookup = harness.call(
+        "tm.lookup",
+        json!({ "projectId": project_id, "sourceText": "Rinse the tank." }),
+    );
+    assert_eq!(lookup["matches"].as_array().expect("matches").len(), 0);
+    let rows = harness.segments(&document_id);
+    assert_eq!(rows[1]["state"], "untranslated");
+    assert_eq!(rows[1]["targetText"], "");
+
+    // With every mount read-only the ordinary confirm refuses, while the
+    // no-TM variant still confirms.
+    let listed = harness.call("memory.list", json!({ "projectId": project_id }));
+    let working = listed["mounts"]
+        .as_array()
+        .expect("mounts")
+        .iter()
+        .find(|mount| mount["writable"] == json!(true))
+        .expect("writable mount")
+        .clone();
+    harness.call(
+        "memory.update",
+        json!({
+            "projectId": project_id,
+            "memoryId": working["memoryId"],
+            "writable": false,
+        }),
+    );
+    let duplicate = harness.segments(&document_id)[1].clone();
+    let duplicate = harness.set_target(&duplicate, "冲洗水箱。");
+    assert_eq!(
+        harness.call_err(
+            "segment.confirm",
+            json!({
+                "segmentId": duplicate["id"],
+                "baseRevision": duplicate["revision"],
+            }),
+        ),
+        "conflict",
+        "the ordinary confirm still requires a writable memory"
+    );
+    let confirmed = harness.call(
+        "segment.confirm",
+        json!({
+            "segmentId": duplicate["id"],
+            "baseRevision": duplicate["revision"],
+            "skipTmWrite": true,
+        }),
+    );
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+}
+
+/// The AI twin of the fuzzy behavioral check: confirming an applied AI
+/// draft without editing it opens `qa.unedited-ai-draft` at confirm time
+/// (warning, model in params), the confirm and its TM write still go
+/// through, and editing before re-confirming resolves it.
+#[test]
+fn confirming_an_unedited_ai_draft_opens_a_behavioral_warning() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(&project_id, "draft.txt", "Send the report.\n");
+    let segment = harness.segments(&document_id)[0].clone();
+
+    // Apply an AI draft: the write stamps aiDraft with the real model.
+    let applied = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": segment["id"],
+            "targetText": "发送报告。",
+            "baseRevision": segment["revision"],
+            "origin": { "kind": "aiDraft", "model": "fixture-model" },
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(applied["origin"]["edited"], false);
+
+    // Confirm without touching the text: warning opens, confirm not blocked.
+    let confirmed = harness.confirm(&applied);
+    assert_eq!(confirmed["segment"]["state"], "confirmed");
+    assert_eq!(
+        confirmed["tmEntry"]["targetText"], "发送报告。",
+        "the behavioral warning never blocks the confirm or its TM write"
+    );
+    let issues = confirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = issues
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-ai-draft")
+        .expect("unedited-ai-draft issue");
+    assert_eq!(behavioral["status"], "open");
+    assert_eq!(behavioral["severity"], "warning");
+    assert_eq!(behavioral["params"]["model"], "fixture-model");
+
+    // Editing the target marks the origin edited; re-confirming resolves
+    // the behavioral issue in the same transaction.
+    let current = harness.segments(&document_id)[0].clone();
+    let edited = harness.set_target(&current, "发送该报告。");
+    assert_eq!(edited["origin"]["edited"], true);
+    let reconfirmed = harness.confirm(&edited);
+    let refreshed = reconfirmed["qaIssues"].as_array().expect("qa issues");
+    let behavioral = refreshed
+        .iter()
+        .find(|issue| issue["ruleId"] == "qa.unedited-ai-draft")
+        .expect("behavioral row is kept, resolved");
+    assert_eq!(behavioral["status"], "resolved");
+}
+
 /// qa.profile.get/update: the project layer clones and overrides the
 /// built-in profile — severity remaps flow into qa.run results, settings
 /// that cannot compile are refused instead of stored, stale revisions

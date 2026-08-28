@@ -10,6 +10,7 @@ const SHORTCUTS: ReadonlyArray<[string, string]> = [
   ["确认当前句段", "Ctrl+Enter"],
   ["确认并到下一句段", "Ctrl+Alt+Enter"],
   ["确认并停留", "Ctrl+Alt+Shift+Enter"],
+  ["确认但跳过 TM 写入", "Ctrl+Shift+Enter"],
   ["锁定/解锁句段", "Ctrl+L"],
   ["上一句段 / 下一句段", "Alt+↑ / Alt+↓"],
   ["应用第 n 条记忆匹配（编辑器内）", "Ctrl+1…9"],

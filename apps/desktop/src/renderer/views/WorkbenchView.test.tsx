@@ -1115,6 +1115,45 @@ describe("WorkbenchView Trados-style editor flow", () => {
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
   });
 
+  it("confirms without the TM write on Ctrl+Shift+Enter", async () => {
+    const handlers = baseHandlers();
+    const confirmCalls: unknown[] = [];
+    handlers["segment.confirm"] = (params) => {
+      confirmCalls.push(params);
+      return {
+        segment: { ...SEGMENT, state: "confirmed", revision: 2 },
+        propagated: [],
+      };
+    };
+    installBridge(handlers);
+    const onStatusMessage = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={onStatusMessage}
+      />,
+    );
+    const editor =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    await waitFor(() => {
+      expect(editor.value).toBe("文件的为 30 天。");
+    });
+
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(confirmCalls).toHaveLength(1);
+    });
+    expect(confirmCalls[0]).toMatchObject({
+      segmentId: "s1",
+      baseRevision: 1,
+      skipTmWrite: true,
+    });
+    expect(onStatusMessage).toHaveBeenCalledWith(
+      "句段 #1 已确认，跳过 TM 写入",
+    );
+  });
+
   it("refuses to confirm an empty target with an honest message", async () => {
     const handlers = baseHandlers();
     handlers["segment.list"] = () => ({
@@ -1682,17 +1721,21 @@ describe("WorkbenchView segment lock", () => {
     expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
   });
 
-  it("pretranslate reports the locked rows it skipped", async () => {
+  it("pretranslate offers the threshold dialog and reports skipped locked rows", async () => {
     const handlers = baseHandlers();
-    handlers["tm.pretranslate"] = () => ({
-      documentId: "d1",
-      checked: 1,
-      pretranslated: 0,
-      exact: 0,
-      fuzzy: 0,
-      skippedLocked: 2,
-      segments: [],
-    });
+    const pretranslateCalls: unknown[] = [];
+    handlers["tm.pretranslate"] = (params) => {
+      pretranslateCalls.push(params);
+      return {
+        documentId: "d1",
+        checked: 1,
+        pretranslated: 0,
+        exact: 0,
+        fuzzy: 0,
+        skippedLocked: 2,
+        segments: [],
+      };
+    };
     installBridge(handlers);
     const onStatusMessage = vi.fn();
     render(
@@ -1704,13 +1747,30 @@ describe("WorkbenchView segment lock", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    // The ribbon button opens the options dialog with the engine's default
+    // threshold (75) pre-filled; the chosen value rides to the engine.
     await userEvent.click(screen.getByRole("button", { name: "预翻译" }));
+    const dialog = within(
+      screen.getByRole("dialog", { name: "预翻译（TM）" }),
+    );
+    const threshold = dialog.getByLabelText("模糊匹配阈值（%）");
+    expect(threshold).toHaveValue(75);
+    await userEvent.clear(threshold);
+    await userEvent.type(threshold, "90");
+    await userEvent.click(dialog.getByRole("button", { name: "开始预翻译" }));
 
     await waitFor(() => {
       expect(onStatusMessage).toHaveBeenCalledWith(
-        "预翻译完成：检查 1 个未译句段，填充 0 个（精确 0 / 模糊 0），跳过 2 个已锁定句段",
+        "预翻译完成（阈值 90%）：检查 1 个未译句段，填充 0 个（精确 0 / 模糊 0），跳过 2 个已锁定句段",
       );
     });
+    expect(pretranslateCalls[0]).toMatchObject({
+      documentId: "d1",
+      minScore: 90,
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "预翻译（TM）" }),
+    ).not.toBeInTheDocument();
   });
 });
 

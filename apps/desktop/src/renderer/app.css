@@ -2057,6 +2057,13 @@ button.app-statusbar__jump:hover {
   color: var(--tl-color-text-faint);
 }
 
+/* Fuzzy source diff inside a match card: inline, reusing the ai-diff
+   character tones (ins = active-only, del = TM-entry-only). */
+.match-card__diff {
+  line-height: 1.6;
+  color: var(--tl-color-text-muted);
+}
+
 .issue-card[data-resolved="true"] {
   opacity: 0.55;
 }

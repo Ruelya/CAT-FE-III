@@ -708,7 +708,7 @@ describe("SegmentGrid", () => {
     ]);
   });
 
-  it("leaves Ctrl+Shift+Enter vacant (reserved for confirm-without-TM)", () => {
+  it("maps Ctrl+Shift+Enter to the confirm-without-TM mode", () => {
     const onConfirm = vi.fn();
     render(
       <SegmentGrid
@@ -725,7 +725,8 @@ describe("SegmentGrid", () => {
       ctrlKey: true,
       shiftKey: true,
     });
-    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0]![2]).toBe("nextUnconfirmedSkipTm");
   });
 
   it("confirms with an explicit mode through the imperative handle", () => {

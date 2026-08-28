@@ -66,6 +66,13 @@ const COMMAND_ITEMS: Array<{
     needs: "document",
   },
   {
+    label: "确认但跳过 TM 写入",
+    command: "confirm-segment-skip-tm",
+    accelerator: "CmdOrCtrl+Shift+Enter",
+    rendererOwned: true,
+    needs: "document",
+  },
+  {
     label: "锁定/解锁句段",
     command: "toggle-lock-segment",
     accelerator: "CmdOrCtrl+L",

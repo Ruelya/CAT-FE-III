@@ -131,7 +131,9 @@ Agent 侧同理：`ai.agent.start` 新可选 `profileId`，一次 run 用一个�
   需要显式 `replaceDrafts` 语义，本轮不顺手做。
 - **7 项目级默认指令持久化到引擎**（LATER）：需要 `Project.configuration` 动存储。
 - `build_grounded_prompt` 全量接入（TM 例句 / corpus / 上下文分节）：本轮只接术语
-  分节语义，全量 grounding 等独立切片。
+  分节语义。**后续 `gf-tm-context` 轮已落地** TM 例句 + 邻句窗 + 同文档已确认句
+  抽样的统一 grounding（assist/agent 同一条路），详见 `docs/research/tm-ai.md` §6；
+  corpus 分节仍未接。
 - NEVER-FAKE 全清单照旧：自动导出、假完成态、QE/置信度、云队列、多人审校。
 
 ## 5. 契约增量一览

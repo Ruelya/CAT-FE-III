@@ -63,6 +63,15 @@ pub use store::{DocumentRecord, EngineState};
 use store::StateDelta;
 
 const AGENT_DEFAULT_MAX_SEGMENTS: u32 = 50;
+/// Neighbour radius (in ordinals) injected as document context around the
+/// active segment in drafting prompts. Matches the default
+/// `GroundingOptions` window of two segments each side.
+const GROUNDING_CONTEXT_RADIUS: u32 = 2;
+/// Upper bound on real TM examples injected into one drafting prompt.
+const GROUNDING_TM_LIMIT: usize = 5;
+/// Upper bound on confirmed same-document pairs sampled into one drafting
+/// prompt — the document-level signal beyond the neighbour window.
+const GROUNDING_DOCUMENT_SAMPLE_LIMIT: usize = 8;
 /// Upper bound on in-memory provider profiles. Each profile can hold one
 /// assist call in flight per segment (the multi-candidate fan-out), so this
 /// cap bounds parallel provider load. Hitting it is an honest Conflict.
@@ -1242,28 +1251,42 @@ impl Engine {
             })?;
         let project = self.require_project(&project_id)?.clone();
 
+        // The explicit no-TM variant: skip both the TM upsert and the
+        // duplicate propagation — the confirmed pair spreads nowhere. QA
+        // still runs below; the confirm itself works even when no writable
+        // memory is mounted.
+        let skip_tm_write = params.skip_tm_write.unwrap_or(false);
+
         // Confirm-time TM write goes to the project's single writable mount
         // (the working memory). With none — every mount demoted or detached
         // — the confirm fails honestly instead of picking a memory itself.
-        let memory_id = self.working_memory_id(&project_id)?;
-        let (tm_entry, _) = self.upsert_tm_entry(
-            &mut BTreeMap::new(),
-            &memory_id,
-            &project_id,
-            &confirmed.source_text,
-            &confirmed.target_text,
-            &confirmed.source_hash,
-            &confirmed.document_id,
-            &confirmed.id,
-            now,
-        )?;
+        let tm_entry = if skip_tm_write {
+            None
+        } else {
+            let memory_id = self.working_memory_id(&project_id)?;
+            let (entry, _) = self.upsert_tm_entry(
+                &mut BTreeMap::new(),
+                &memory_id,
+                &project_id,
+                &confirmed.source_text,
+                &confirmed.target_text,
+                &confirmed.source_hash,
+                &confirmed.document_id,
+                &confirmed.id,
+                now,
+            )?;
+            Some(entry)
+        };
 
         // Propagate to untranslated duplicates across the project as drafts.
         // The source-hash index narrows this to the matching rows; the old
         // code scanned every segment of every document in RAM.
-        let mut propagated =
+        let mut propagated = if skip_tm_write {
+            Vec::new()
+        } else {
             self.store
-                .untranslated_siblings(&project_id, &confirmed.source_hash, &confirmed.id)?;
+                .untranslated_siblings(&project_id, &confirmed.source_hash, &confirmed.id)?
+        };
         // SQL filtered on state; whitespace-only targets are a Rust-side
         // check so the trim semantics stay identical to the editor's.
         propagated.retain(|sibling| sibling.target_text.trim().is_empty());
@@ -1290,7 +1313,7 @@ impl Engine {
         let (changed_issues, qa_issues) = self.refresh_segment_qa(&project, &confirmed)?;
         let mut delta = StateDelta {
             segments: vec![confirmed.clone()],
-            tm_entries: vec![tm_entry.clone()],
+            tm_entries: tm_entry.iter().cloned().collect(),
             qa_issues: changed_issues,
             ..Default::default()
         };
@@ -1509,6 +1532,93 @@ impl Engine {
         terms
     }
 
+    /// Real grounding for one segment's drafting prompt, resolved on the
+    /// engine thread. TM examples reuse the mounted-memory recall behind
+    /// `tm.lookup` (enabled mounts only, score + grade + memory name);
+    /// neighbours and confirmed pairs come from the segment's own document
+    /// via SQL. Empty sources stay empty — the prompt builder then omits
+    /// those sections instead of inventing content.
+    fn prompt_grounding_for(
+        &self,
+        project: &Project,
+        segment: &Segment,
+    ) -> Result<aiops::SegmentGrounding, EngineError> {
+        let (matches, _) = self.tm_matches_mounted(
+            &project.id,
+            &segment.source_text,
+            tl_protocol::TM_LOOKUP_DEFAULT_MIN_SCORE,
+            GROUNDING_TM_LIMIT,
+        )?;
+        let tm_matches = matches
+            .into_iter()
+            .map(|item| {
+                let grade = match item.grade {
+                    tl_protocol::TmMatchGrade::Exact => "exact",
+                    tl_protocol::TmMatchGrade::Fuzzy => "fuzzy",
+                    tl_protocol::TmMatchGrade::InContext => "inContext",
+                };
+                tl_ai::GroundingTmMatch {
+                    source: item.entry.source_text,
+                    target: item.entry.target_text,
+                    score: item.score,
+                    provenance: match item.memory_name {
+                        Some(name) => format!("{name} · {grade}"),
+                        None => grade.to_string(),
+                    },
+                }
+            })
+            .collect();
+
+        let low = segment.ordinal.saturating_sub(GROUNDING_CONTEXT_RADIUS);
+        let high = segment.ordinal.saturating_add(GROUNDING_CONTEXT_RADIUS);
+        let window = self
+            .store
+            .segments_by_ordinal_range(&segment.document_id, low, high)?;
+        let mut window_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut context = Vec::new();
+        if let Some(active_index) = window.iter().position(|row| row.id == segment.id) {
+            for (index, row) in window.iter().enumerate() {
+                window_ids.insert(row.id.clone());
+                if index == active_index {
+                    continue;
+                }
+                let Ok(relative) = i8::try_from(index as i64 - active_index as i64) else {
+                    continue;
+                };
+                context.push(tl_ai::GroundingContextSegment {
+                    relative,
+                    source: row.source_text.clone(),
+                    target: row.target_text.clone(),
+                });
+            }
+        }
+
+        let confirmed = self
+            .store
+            .confirmed_document_segments(&segment.document_id)?;
+        let pool: Vec<&Segment> = confirmed
+            .iter()
+            .filter(|row| row.id != segment.id && !window_ids.contains(&row.id))
+            .filter(|row| !row.target_text.trim().is_empty())
+            .collect();
+        let sample_len = pool.len().min(GROUNDING_DOCUMENT_SAMPLE_LIMIT);
+        let mut document_sample = Vec::with_capacity(sample_len);
+        for index in 0..sample_len {
+            // Even spread across the document, deterministic and duplicate
+            // free because sample_len <= pool.len().
+            let row = pool[index * pool.len() / sample_len];
+            document_sample.push(tl_ai::GroundingDocumentPair {
+                source: row.source_text.clone(),
+                target: row.target_text.clone(),
+            });
+        }
+        Ok(aiops::SegmentGrounding {
+            tm_matches,
+            context,
+            document_sample,
+        })
+    }
+
     /// Start an assist request: validate on the RPC thread, then hand the
     /// slow provider call to a worker thread. Returns the running view
     /// immediately; clients poll [`Engine::ai_assist_status`] until the run
@@ -1560,7 +1670,8 @@ impl Engine {
         let term_entries = self.attached_term_entries(&project.id)?;
         let terms =
             Self::prompt_terms_for(&term_entries, &project.target_locale, &segment.source_text);
-        let messages = aiops::assist_messages(
+        let grounding = self.prompt_grounding_for(&project, &segment)?;
+        let messages = aiops::grounded_messages(
             params.action,
             params.instruction.as_deref(),
             &project.source_locale,
@@ -1568,7 +1679,9 @@ impl Engine {
             &segment.source_text,
             &segment.target_text,
             &terms,
-        );
+            grounding,
+        )
+        .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
         let now = now_ms();
         let view = AiAssistRunView {
             assist_id: new_id(),
@@ -1821,15 +1934,34 @@ impl Engine {
                         "复用精确 TM 匹配，落为草稿".to_string(),
                     );
                 }
-                _ => misses.push(agent::AgentWorkItem {
-                    segment_id: segment.id.clone(),
-                    source_text: segment.source_text.clone(),
-                    terms: Self::prompt_terms_for(
+                _ => {
+                    // The full grounded prompt is built here at plan time —
+                    // the worker owns no engine state, so every TM example,
+                    // neighbour, and document pair is resolved from real
+                    // rows before the job leaves the engine thread.
+                    let terms = Self::prompt_terms_for(
                         &term_entries,
                         &project.target_locale,
                         &segment.source_text,
-                    ),
-                }),
+                    );
+                    let grounding = self.prompt_grounding_for(&project, &segment)?;
+                    let messages = aiops::grounded_messages(
+                        AiAssistAction::Translate,
+                        params.instruction.as_deref(),
+                        &project.source_locale,
+                        &project.target_locale,
+                        &segment.source_text,
+                        "",
+                        &terms,
+                        grounding,
+                    )
+                    .map_err(|error| EngineError::InvalidParams(error.to_string()))?;
+                    misses.push(agent::AgentWorkItem {
+                        segment_id: segment.id.clone(),
+                        source_text: segment.source_text.clone(),
+                        messages,
+                    });
+                }
             }
         }
         let tm_applied_ids: Vec<String> = tm_applied_segments
@@ -1855,7 +1987,6 @@ impl Engine {
         agent::spawn_worker(agent::AgentJob {
             run_id: view.run_id.clone(),
             items: misses,
-            instruction: params.instruction.clone(),
             source_locale: project.source_locale.clone(),
             target_locale: project.target_locale.clone(),
             profile,
@@ -1916,6 +2047,7 @@ impl Engine {
         match self.segment_confirm(SegmentConfirmParams {
             segment_id: segment_id.to_string(),
             base_revision: segment.revision,
+            skip_tm_write: None,
         }) {
             Ok(_) => {
                 view.auto_confirmed += 1;

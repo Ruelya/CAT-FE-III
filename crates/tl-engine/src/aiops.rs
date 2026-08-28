@@ -3,8 +3,10 @@
 use std::sync::atomic::AtomicBool;
 
 use tl_ai::{
-    AiCoreError, AiEventSink, AiMessage, AiMessageRole, AiProviderProfile, ProviderCompletion,
-    ProviderRequest, SecretString, provider_descriptor,
+    AiCoreError, AiEventSink, AiMessage, AiProviderProfile, GroundingContextSegment,
+    GroundingDocumentPair, GroundingInput, GroundingOptions, GroundingTerm, GroundingTmMatch,
+    ProviderCompletion, ProviderRequest, SecretString, build_grounded_prompt,
+    provider_descriptor,
 };
 use tl_protocol::{AiAssistAction, AiConfigureParams};
 
@@ -76,7 +78,29 @@ pub fn build_profile_runtime(
     })
 }
 
-pub fn assist_messages(
+/// Real per-segment grounding resolved on the engine thread. Every item is
+/// engine truth: TM matches come from the project's enabled mounts, context
+/// and document pairs from the segment's own document. Empty vectors stay
+/// empty — the prompt builder omits those sections instead of inventing them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SegmentGrounding {
+    pub tm_matches: Vec<GroundingTmMatch>,
+    pub context: Vec<GroundingContextSegment>,
+    pub document_sample: Vec<GroundingDocumentPair>,
+}
+
+/// The shared translator persona for assist and agent drafting — one set of
+/// copy, rendered by [`build_grounded_prompt`] into the style section.
+const DRAFTING_SYSTEM_INSTRUCTION: &str =
+    "You are a precise professional translator working inside a CAT tool. \
+     Preserve numbers, placeholders, and inline markers exactly. \
+     Output only the target-language text with no commentary.";
+
+/// The one prompt path for assist and agent drafting: everything flows
+/// through [`tl_ai::build_grounded_prompt`], so both features share the same
+/// sections (task, tags, terms, TM examples, style, neighbours, document
+/// pairs, active segment) and the same honest `max_chars` truncation.
+pub fn grounded_messages(
     action: AiAssistAction,
     instruction: Option<&str>,
     source_locale: &str,
@@ -84,54 +108,42 @@ pub fn assist_messages(
     source_text: &str,
     current_target: &str,
     terms: &[PromptTerm],
-) -> Vec<AiMessage> {
-    let mut system = String::from(
-        "You are a precise professional translator working inside a CAT tool. \
-         Preserve numbers, placeholders, and inline markers exactly. \
-         Output only the target-language text with no commentary.",
-    );
-    if let Some(instruction) = instruction.map(str::trim).filter(|value| !value.is_empty()) {
-        system.push_str("\nProject instruction: ");
-        system.push_str(instruction);
-    }
-    if !terms.is_empty() {
-        system.push_str(
-            "\nTerminology from the project termbase (authoritative; never invent terms):",
-        );
-        for term in terms {
-            if term.forbidden {
-                system.push_str(&format!(
-                    "\n- \"{}\": never translate as \"{}\" (forbidden)",
-                    term.source, term.target
-                ));
-            } else {
-                system.push_str(&format!(
-                    "\n- \"{}\" must be translated as \"{}\"",
-                    term.source, term.target
-                ));
-            }
-        }
-    }
-    let user = match action {
-        AiAssistAction::Translate => format!(
-            "Translate the following {source_locale} text into {target_locale}:\n\n{source_text}"
-        ),
-        AiAssistAction::Refine => format!(
-            "Improve the following {target_locale} translation of a {source_locale} source.\n\
-             Source:\n{source_text}\n\nCurrent translation:\n{current_target}\n\n\
-             Return only the improved translation."
-        ),
+    grounding: SegmentGrounding,
+) -> Result<Vec<AiMessage>, AiCoreError> {
+    let input = GroundingInput {
+        source_locale: source_locale.to_string(),
+        target_locale: target_locale.to_string(),
+        source_text: source_text.to_string(),
+        current_target: current_target.to_string(),
+        action: match action {
+            AiAssistAction::Translate => "translate".to_string(),
+            AiAssistAction::Refine => "refine".to_string(),
+        },
+        freeform_prompt: instruction
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_default()
+            .to_string(),
+        tag_skeleton: tl_ai::placeholder_tokens(source_text),
+        terms: terms
+            .iter()
+            .map(|term| GroundingTerm {
+                source: term.source.clone(),
+                target: term.target.clone(),
+                preferred: !term.forbidden,
+                forbidden: term.forbidden,
+            })
+            .collect(),
+        tm_matches: grounding.tm_matches,
+        corpus_matches: Vec::new(),
+        context: grounding.context,
+        document_sample: grounding.document_sample,
     };
-    vec![
-        AiMessage {
-            role: AiMessageRole::System,
-            text: system,
-        },
-        AiMessage {
-            role: AiMessageRole::User,
-            text: user,
-        },
-    ]
+    let options = GroundingOptions {
+        system_instruction: DRAFTING_SYSTEM_INSTRUCTION.to_string(),
+        ..GroundingOptions::default()
+    };
+    Ok(build_grounded_prompt(&input, &options)?.messages)
 }
 
 struct DiscardSink;
@@ -166,8 +178,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn translate_prompt_carries_locales_and_source() {
-        let messages = assist_messages(
+    fn translate_prompt_carries_locales_source_and_instruction() {
+        let messages = grounded_messages(
             AiAssistAction::Translate,
             Some("Keep brand names in English."),
             "en-US",
@@ -175,18 +187,19 @@ mod tests {
             "Hello world.",
             "",
             &[],
-        );
+            SegmentGrounding::default(),
+        )
+        .expect("build grounded prompt");
         assert_eq!(messages.len(), 2);
-        assert!(messages[0].text.contains("Keep brand names in English."));
-        assert!(!messages[0].text.contains("Terminology"));
-        assert!(messages[1].text.contains("en-US"));
-        assert!(messages[1].text.contains("zh-CN"));
+        assert!(messages[0].text.contains("en-US"));
+        assert!(messages[0].text.contains("zh-CN"));
         assert!(messages[1].text.contains("Hello world."));
+        assert!(messages[1].text.contains("Keep brand names in English."));
     }
 
     #[test]
     fn prompt_injects_only_real_termbase_hits() {
-        let messages = assist_messages(
+        let messages = grounded_messages(
             AiAssistAction::Translate,
             None,
             "en-US",
@@ -205,11 +218,82 @@ mod tests {
                     forbidden: true,
                 },
             ],
-        );
+            SegmentGrounding::default(),
+        )
+        .expect("build grounded prompt");
         let system = &messages[0].text;
-        assert!(system.contains("\"server\" must be translated as \"服务器\""));
-        assert!(system.contains("never translate as \"伺服器\" (forbidden)"));
-        assert!(system.contains("never invent terms"));
+        assert!(system.contains("Terminology"));
+        assert!(system.contains("服务器"));
+        assert!(system.contains("伺服器"));
+        assert!(system.contains("\"forbidden\":true"));
+    }
+
+    #[test]
+    fn prompt_carries_real_tm_context_and_document_pairs() {
+        let grounding = SegmentGrounding {
+            tm_matches: vec![GroundingTmMatch {
+                source: "Close the valve.".to_string(),
+                target: "关闭阀门。".to_string(),
+                score: 88,
+                provenance: "主记忆库 · fuzzy".to_string(),
+            }],
+            context: vec![
+                GroundingContextSegment {
+                    relative: -1,
+                    source: "Open the panel.".to_string(),
+                    target: "打开面板。".to_string(),
+                },
+                GroundingContextSegment {
+                    relative: 1,
+                    source: "Restart the pump.".to_string(),
+                    target: String::new(),
+                },
+            ],
+            document_sample: vec![GroundingDocumentPair {
+                source: "Check the seal.".to_string(),
+                target: "检查密封件。".to_string(),
+            }],
+        };
+        let messages = grounded_messages(
+            AiAssistAction::Translate,
+            None,
+            "en-US",
+            "zh-CN",
+            "Close the main valve.",
+            "",
+            &[],
+            grounding,
+        )
+        .expect("build grounded prompt");
+        let system = &messages[0].text;
+        assert!(system.contains("Translation memory examples"));
+        assert!(system.contains("关闭阀门。"));
+        assert!(system.contains("主记忆库 · fuzzy"));
+        assert!(system.contains("Document context"));
+        assert!(system.contains("打开面板。"));
+        assert!(system.contains("Restart the pump."));
+        assert!(system.contains("Confirmed pairs from this document"));
+        assert!(system.contains("检查密封件。"));
+    }
+
+    #[test]
+    fn empty_grounding_never_fabricates_sections() {
+        let messages = grounded_messages(
+            AiAssistAction::Translate,
+            None,
+            "en-US",
+            "zh-CN",
+            "Hello world.",
+            "",
+            &[],
+            SegmentGrounding::default(),
+        )
+        .expect("build grounded prompt");
+        let system = &messages[0].text;
+        assert!(!system.contains("Translation memory examples"));
+        assert!(!system.contains("Document context"));
+        assert!(!system.contains("Confirmed pairs from this document"));
+        assert!(!system.contains("Terminology"));
     }
 
     #[test]
