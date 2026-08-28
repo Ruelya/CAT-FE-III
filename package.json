@@ -12,6 +12,7 @@
     "build:desktop": "pnpm --filter @translunar/desktop build",
     "dev:desktop": "pnpm --filter @translunar/desktop dev",
     "package:dir": "cargo build -p tl-engine --release && pnpm --filter @translunar/desktop package:dir && pnpm --filter @translunar/desktop package:check",
+    "package:win": "cargo build -p tl-engine --release && pnpm --filter @translunar/desktop package:win && pnpm --filter @translunar/desktop package:check",
     "test:package-scripts": "node --test scripts/desktop-package-win-semantics.test.mjs",
     "test:engine": "cargo test --workspace",
     "lint:engine": "cargo clippy --workspace --all-targets -- -D warnings",
@@ -30,6 +31,7 @@
     "format:check": "prettier --check . && cargo fmt --all -- --check"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@eslint/js": "10.0.1",
     "eslint": "10.7.0",
     "prettier": "3.9.5",
