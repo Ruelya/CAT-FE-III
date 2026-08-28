@@ -62,8 +62,9 @@ function hasPlaceholderTokens(segment: Segment): boolean {
  * segments carried in `qaSegmentIds` (open issues); other states match
  * `segment.state`. `hasTerms` keeps only segments in `termSegmentIds`
  * (engine `term.lookup` hits, resolved by the caller); while that set is
- * still null (lookups in flight) the channel hides nothing yet — rows
- * narrow when the engine has answered, never on a client-side guess.
+ * still null (lookups in flight, nothing converged yet) the channel hides
+ * every row — the grid never flashes the unfiltered document while the
+ * engine is still answering, and never narrows on a client-side guess.
  */
 export function filterSegments(
   segments: readonly Segment[],
@@ -83,7 +84,10 @@ export function filterSegments(
     if (filter.locked && segment.locked !== true) {
       return false;
     }
-    if (filter.hasTerms && termSegmentIds && !termSegmentIds.has(segment.id)) {
+    if (
+      filter.hasTerms &&
+      (termSegmentIds === null || !termSegmentIds.has(segment.id))
+    ) {
       return false;
     }
     if (filter.hasTags && !hasPlaceholderTokens(segment)) {

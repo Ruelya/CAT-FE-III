@@ -128,6 +128,12 @@ export interface WorkbenchViewProps {
   onOpenTmManage?: () => void;
   /** Returns to the projects list (same path as the menu command). */
   onCloseProject?: () => void;
+  /** 文件 ▸ 新建项目…: back to the list with the create form focused. */
+  onNewProject?: () => void;
+  /** Opens the shortcuts dialog (帮助 ▸ 键盘快捷键…, owned by the shell). */
+  onOpenShortcuts?: () => void;
+  /** Opens the about dialog (帮助 ▸ 关于, owned by the shell). */
+  onOpenAbout?: () => void;
   /**
    * Reports the stored QA export gate (`qa.profile.get`'s
    * blockExportOnError) so the shell can mirror it into the menu's
@@ -288,6 +294,9 @@ export function WorkbenchView({
   onOpenAppearance,
   onOpenTmManage,
   onCloseProject,
+  onNewProject,
+  onOpenShortcuts,
+  onOpenAbout,
   onExportGateChange,
 }: WorkbenchViewProps) {
   const themeState = useTheme();
@@ -386,8 +395,11 @@ export function WorkbenchView({
   // through onExportGateChange and is toggled by the QA menu item.
   const [qaProfile, setQaProfile] = useState<QaProfileView | null>(null);
   // 有术语 filter channel: segment ids whose sourceText has engine
-  // terminology hits. Null while lookups are in flight (the channel hides
-  // nothing yet) or while the chip is off.
+  // terminology hits. Null while the chip is off or before the first
+  // lookup converges — with the chip on, a null set hides every row so
+  // the grid never flashes the unfiltered document. While a re-run is in
+  // flight (segments changed with the chip on) the previous converged set
+  // keeps filtering until the new one resolves.
   const [termSegmentIds, setTermSegmentIds] =
     useState<ReadonlySet<string> | null>(null);
   // term.lookup results per sourceText — repeated sources ask the engine
@@ -505,8 +517,9 @@ export function WorkbenchView({
 
   // 有术语 chip: resolve terminology hits through the engine's own
   // term.lookup — one call per distinct sourceText, cached while the chip
-  // stays on. The channel narrows only after the engine has answered;
-  // no client-side matcher ever guesses.
+  // stays on. Until the first answer converges the grid shows no rows
+  // (null set); no client-side matcher ever guesses and the unfiltered
+  // document never flashes through.
   useEffect(() => {
     if (!filter.hasTerms) {
       setTermSegmentIds(null);
@@ -2556,6 +2569,20 @@ export function WorkbenchView({
       run: () => handleMenuCommand(id),
     });
     return [
+      // Shell chrome rows run the handlers the shell handed down — the
+      // same functions its menu-command branch calls, so Ctrl+K and the
+      // application menu stay one path. 新建项目… sits with the file verbs
+      // to mirror the 文件 menu's order.
+      ...(onNewProject
+        ? [
+            {
+              id: "new-project",
+              label: "新建项目…",
+              enabled: true,
+              run: onNewProject,
+            },
+          ]
+        : []),
       command("import-document", "导入文档…", !busy, "Ctrl+O"),
       command("export-document", "导出译文…", documentOpen && !busy, "Ctrl+E"),
       ...(onOpenSettings
@@ -2652,6 +2679,28 @@ export function WorkbenchView({
       command("show-dock-qa", "QA 面板", true, "Ctrl+3"),
       command("show-dock-ai", "AI 面板", true, "Ctrl+4"),
       ...themeEntries,
+      // 帮助 rows close the catalog like the 帮助 menu closes the menubar;
+      // the about label matches the menu's 关于 + app name wording.
+      ...(onOpenShortcuts
+        ? [
+            {
+              id: "help-keys",
+              label: "键盘快捷键…",
+              enabled: true,
+              run: onOpenShortcuts,
+            },
+          ]
+        : []),
+      ...(onOpenAbout
+        ? [
+            {
+              id: "about",
+              label: "关于 Translunar CAT",
+              enabled: true,
+              run: onOpenAbout,
+            },
+          ]
+        : []),
       ...documents.map((document): PaletteEntry => ({
         id: `open-document:${document.id}`,
         label: `打开文档：${document.name}`,
@@ -2680,7 +2729,10 @@ export function WorkbenchView({
     themeState,
     loadDocument,
     onCloseProject,
+    onNewProject,
+    onOpenAbout,
     onOpenSettings,
+    onOpenShortcuts,
     onOpenTmManage,
     onStatusMessage,
   ]);

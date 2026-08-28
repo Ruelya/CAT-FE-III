@@ -369,11 +369,27 @@ impl Engine {
     fn profile_view(project: &Project) -> Result<QaProfileView, EngineError> {
         let definition = Self::effective_profile_definition(project)?;
         let overrides = project.configuration.qa_profile.clone().unwrap_or_default();
+        // The severity table's rows: every static rule id the compiled
+        // profile runs. Family markers stand for parameterized findings
+        // (`qa.term-*:<id>`, `qa.regex:<id>`, and the `qa.tag` marker
+        // behind the concrete `qa.tag-*` ids) and get no static row.
+        let enabled_rule_ids = definition
+            .enabled_rule_ids
+            .iter()
+            .filter(|rule_id| {
+                !matches!(
+                    rule_id.as_str(),
+                    "qa.tag" | "qa.term-required" | "qa.term-forbidden" | "qa.regex"
+                )
+            })
+            .cloned()
+            .collect();
         Ok(QaProfileView {
             // The merged definition keeps the base id; report that as base.
             base_profile_id: definition.id,
             severity_overrides: definition.severity_overrides,
             settings: definition.settings,
+            enabled_rule_ids,
             block_export_on_error: overrides.block_export_on_error,
             revision: project.revision,
         })

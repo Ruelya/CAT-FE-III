@@ -128,6 +128,19 @@ export function App() {
       : `${project.name} ${langs}`;
   }, [project, workbenchStats?.documentName]);
 
+  // Shell actions shared by the application menu and the workbench command
+  // palette: one handler each so both surfaces run the identical path.
+  const handleNewProject = useCallback(() => {
+    // Back to the list with the create form's name field focused —
+    // the list's own form is the only create UI.
+    setSettingsOpen(false);
+    setTmManageOpen(false);
+    setProject(null);
+    setFocusCreate(true);
+  }, []);
+  const handleOpenShortcuts = useCallback(() => setHelpDialog("keys"), []);
+  const handleOpenAbout = useCallback(() => setHelpDialog("about"), []);
+
   // Shell-level menu commands; workbench-level ones are handled inside
   // WorkbenchView. Both go through the same actions as the ribbon buttons.
   // The menu disables these without a project, but guard anyway so a stray
@@ -142,19 +155,14 @@ export function App() {
         setSettingsOpen(false);
         setProject(null);
       } else if (command === "new-project") {
-        // Back to the list with the create form's name field focused —
-        // the list's own form is the only create UI.
-        setSettingsOpen(false);
-        setTmManageOpen(false);
-        setProject(null);
-        setFocusCreate(true);
+        handleNewProject();
       } else if (command === "help-keys") {
-        setHelpDialog("keys");
+        handleOpenShortcuts();
       } else if (command === "about") {
-        setHelpDialog("about");
+        handleOpenAbout();
       }
     });
-  }, [project]);
+  }, [project, handleNewProject, handleOpenShortcuts, handleOpenAbout]);
 
   const handleStatusMessage = useCallback((message: string) => {
     setStatusMessage(message);
@@ -203,6 +211,9 @@ export function App() {
             onOpenAppearance={handleOpenAppearance}
             onOpenTmManage={handleOpenTmManage}
             onCloseProject={handleCloseProject}
+            onNewProject={handleNewProject}
+            onOpenShortcuts={handleOpenShortcuts}
+            onOpenAbout={handleOpenAbout}
             onExportGateChange={setExportGate}
           />
         ) : (

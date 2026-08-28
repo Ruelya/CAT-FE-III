@@ -1561,6 +1561,141 @@ fn termbase_lifecycle_hits_and_csv_tbx_roundtrip() {
     assert_eq!(overwritten["exported"], 1);
 }
 
+/// `termbase.update` edits one mount the way `memory.update` does — minus
+/// the single-writable invariant, which termbase mounts never had: a
+/// priority move renumbers siblings and reorders the mount list, `enabled:
+/// false` removes the termbase from `term.lookup`, `writable` flips freely
+/// on any mount, and the edits survive a reopen. Empty updates and
+/// unattached termbases refuse honestly.
+#[test]
+fn termbase_update_moves_priority_and_gates_lookup() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let mut termbase_ids = Vec::new();
+    for (name, target) in [("主库", "执行器"), ("参考库", "作动器")] {
+        let termbase = harness.call(
+            "termbase.create",
+            json!({ "name": name, "sourceLocale": "en-US" }),
+        );
+        let termbase_id = termbase["id"].as_str().expect("termbase id").to_string();
+        harness.call(
+            "termbase.attach",
+            json!({ "projectId": project_id, "termbaseId": termbase_id }),
+        );
+        harness.call(
+            "term.add",
+            json!({
+                "termbaseId": termbase_id,
+                "sourceTerm": "actuator",
+                "targetTerm": target,
+                "targetLocale": "zh-CN",
+            }),
+        );
+        termbase_ids.push(termbase_id);
+    }
+    let (main_id, reference_id) = (termbase_ids[0].clone(), termbase_ids[1].clone());
+
+    // Both attached mounts are writable — multi-writable is the termbase
+    // norm, never a conflict.
+    let listed = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = listed["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts.len(), 2);
+    assert!(mounts.iter().all(|mount| mount["writable"] == true));
+    assert_eq!(mounts[0]["termbaseId"], json!(main_id));
+    assert_eq!(mounts[0]["priority"], 0);
+    assert_eq!(mounts[1]["termbaseId"], json!(reference_id));
+    assert_eq!(mounts[1]["priority"], 1);
+
+    // Guards: an empty update and an unattached termbase refuse.
+    assert_eq!(
+        harness.call_err(
+            "termbase.update",
+            json!({ "projectId": project_id, "termbaseId": main_id }),
+        ),
+        "invalidParams"
+    );
+    let unattached = harness.call(
+        "termbase.create",
+        json!({ "name": "闲置库", "sourceLocale": "en-US" }),
+    );
+    assert_eq!(
+        harness.call_err(
+            "termbase.update",
+            json!({
+                "projectId": project_id,
+                "termbaseId": unattached["id"],
+                "enabled": false,
+            }),
+        ),
+        "notFound"
+    );
+
+    // Move the reference termbase to priority 0: the returned table is the
+    // whole renumbered mount list, and termbase.list agrees.
+    let moved = harness.call(
+        "termbase.update",
+        json!({ "projectId": project_id, "termbaseId": reference_id, "priority": 0 }),
+    );
+    let mounts = moved["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts[0]["termbaseId"], json!(reference_id));
+    assert_eq!(mounts[0]["priority"], 0);
+    assert_eq!(mounts[1]["termbaseId"], json!(main_id));
+    assert_eq!(mounts[1]["priority"], 1);
+    let relisted = harness.call("termbase.list", json!({ "projectId": project_id }));
+    assert_eq!(relisted["mounts"][0]["termbaseId"], json!(reference_id));
+
+    // A past-the-end position clamps to the last slot.
+    let clamped = harness.call(
+        "termbase.update",
+        json!({ "projectId": project_id, "termbaseId": reference_id, "priority": 99 }),
+    );
+    let mounts = clamped["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts[0]["termbaseId"], json!(main_id));
+    assert_eq!(mounts[1]["termbaseId"], json!(reference_id));
+    assert_eq!(mounts[1]["priority"], 1);
+
+    // Disable the reference mount: its hits leave term.lookup (the same
+    // enabled-mount read path QA uses); re-enabling restores them.
+    let lookup_params =
+        json!({ "projectId": project_id, "sourceText": "Install the actuator now." });
+    let both = harness.call("term.lookup", lookup_params.clone());
+    assert_eq!(both["matches"].as_array().expect("matches").len(), 2);
+    harness.call(
+        "termbase.update",
+        json!({ "projectId": project_id, "termbaseId": reference_id, "enabled": false }),
+    );
+    let gated = harness.call("term.lookup", lookup_params.clone());
+    let matches = gated["matches"].as_array().expect("matches");
+    assert_eq!(matches.len(), 1, "disabled mounts leave the read path");
+    assert_eq!(matches[0]["termbaseId"], json!(main_id));
+
+    // The writable switch flips per mount with no cross-mount conflict,
+    // and the whole edited state survives a reopen.
+    let demoted = harness.call(
+        "termbase.update",
+        json!({ "projectId": project_id, "termbaseId": main_id, "writable": false }),
+    );
+    let mounts = demoted["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts[0]["writable"], false);
+    assert_eq!(mounts[1]["writable"], true);
+    harness.reopen();
+    let reloaded = harness.call("termbase.list", json!({ "projectId": project_id }));
+    let mounts = reloaded["mounts"].as_array().expect("mounts");
+    assert_eq!(mounts[0]["termbaseId"], json!(main_id));
+    assert_eq!(mounts[0]["writable"], false);
+    assert_eq!(mounts[0]["enabled"], true);
+    assert_eq!(mounts[1]["termbaseId"], json!(reference_id));
+    assert_eq!(mounts[1]["enabled"], false);
+    let still_gated = harness.call("term.lookup", lookup_params.clone());
+    assert_eq!(still_gated["matches"].as_array().expect("matches").len(), 1);
+    harness.call(
+        "termbase.update",
+        json!({ "projectId": project_id, "termbaseId": reference_id, "enabled": true }),
+    );
+    let restored = harness.call("term.lookup", lookup_params);
+    assert_eq!(restored["matches"].as_array().expect("matches").len(), 2);
+}
+
 #[test]
 fn term_update_and_delete_manage_a_mounted_termbase() {
     let mut harness = Harness::new();
@@ -3576,6 +3711,31 @@ fn qa_profile_overrides_remap_severity_and_guard_updates() {
     assert_eq!(view["severityOverrides"], json!({}));
     assert_eq!(view["blockExportOnError"], false);
     assert_eq!(view["settings"]["minLengthRatioPercent"], 35);
+    // The static rule ids the compiled profile runs — the severity table's
+    // rows. Concrete ids are listed (including the CJK family on a zh-CN
+    // project); parameterized family markers are not rows.
+    let rule_ids: Vec<&str> = view["enabledRuleIds"]
+        .as_array()
+        .expect("enabledRuleIds")
+        .iter()
+        .map(|value| value.as_str().expect("rule id"))
+        .collect();
+    for expected in [
+        "qa.empty-target",
+        "qa.number-mismatch",
+        "qa.tag-tag_missing",
+        "qa.tag-placeholder_extra",
+        "qa.cjk-latin-spacing",
+        "qa.unedited-fuzzy",
+    ] {
+        assert!(rule_ids.contains(&expected), "missing static id {expected}");
+    }
+    for family in ["qa.tag", "qa.term-required", "qa.term-forbidden", "qa.regex"] {
+        assert!(
+            !rule_ids.contains(&family),
+            "family marker {family} is not a static row"
+        );
+    }
     let revision = view["revision"].as_u64().expect("revision");
 
     // Guards: stale revision, non-rule keys, uncompilable settings, and

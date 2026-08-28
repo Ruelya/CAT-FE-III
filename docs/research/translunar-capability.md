@@ -8,7 +8,7 @@
 
 ## 一、引擎 RPC 契约清单
 
-来源：`packages/contracts/src/protocol.generated.ts`（由 Rust `tl-protocol` schema 生成）与 `crates/tl-engine/src/*`。共 **41 个方法 + 2 个通知帧**。引擎为单进程单线程 stdio JSONL 服务；AI 调用在 worker 线程执行，事件回流主循环。
+来源：`packages/contracts/src/protocol.generated.ts`（由 Rust `tl-protocol` schema 生成）与 `crates/tl-engine/src/*`。共 **57 个方法 + 2 个通知帧**。引擎为单进程单线程 stdio JSONL 服务；AI 调用在 worker 线程执行，事件回流主循环。
 
 ### 1.1 握手与生命周期（engine.*）
 

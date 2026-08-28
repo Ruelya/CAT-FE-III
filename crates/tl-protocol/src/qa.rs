@@ -187,6 +187,12 @@ pub struct QaProfileView {
     /// Effective settings: the project replacement when one is stored,
     /// otherwise the base profile's own values.
     pub settings: QaRuleSettings,
+    /// The static rule ids the compiled profile runs, in lexicographic
+    /// order — the rows a severity table can offer. Parameterized families
+    /// (`qa.term-required:<id>`, `qa.term-forbidden:<id>`, `qa.regex:<id>`,
+    /// and the `qa.tag` family marker behind the concrete `qa.tag-*` ids)
+    /// exist per term/regex definition and are not listed.
+    pub enabled_rule_ids: Vec<String>,
     /// Whether `document.export` refuses while error-severity open issues
     /// exist. Off by default.
     pub block_export_on_error: bool,
