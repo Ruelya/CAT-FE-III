@@ -4,10 +4,10 @@
 
 Packaging produces an **unsigned, unpackaged directory** via electron-builder's
 `dir` target. There are no installers (NSIS / DMG), no code signing, no Apple
-notarization, no auto-update wiring, and no store releases. Only Linux
-packaging has been exercised; the `win` / `mac` sections in
-`apps/desktop/electron-builder.yml` are config-only (also `dir` targets) and
-have never been run on their native platforms.
+notarization, no auto-update wiring, and no store releases. Linux and Windows
+packaging both run natively in CI (`.github/workflows/package.yml`); the `mac`
+section in `apps/desktop/electron-builder.yml` is config-only (also a `dir`
+target) and has never been run on a macOS host.
 
 ## Producing the artifact
 
@@ -25,9 +25,9 @@ The root script runs, in order:
 3. `pnpm --filter @translunar/desktop package:check` — fails unless the
    packaged engine contract below holds
 
-Output lands in `apps/desktop/release/linux-unpacked/` (`win-unpacked/` or
-`mac*/` on those hosts — untested). Configuration lives in
-`apps/desktop/electron-builder.yml`.
+Output lands in `apps/desktop/release/linux-unpacked/` on Linux and
+`apps/desktop/release/win-unpacked/` on Windows (`mac*/` on macOS — untested).
+Configuration lives in `apps/desktop/electron-builder.yml`.
 
 ## Engine binary contract
 
@@ -50,22 +50,41 @@ The packager honors that contract in two steps:
 
 ## CI
 
-Packaging is deliberately not part of PR CI. The two lanes are:
+Packaging is deliberately kept out of PR CI. The lanes are:
 
 - `.github/workflows/ci.yml` runs on every PR: `cargo fmt` / `clippy` /
   `cargo test` in the rust lane, and `pnpm contracts:check`, `pnpm lint`,
   `pnpm typecheck`, the desktop unit tests, `pnpm test:e2e:engine`, and the
   Playwright desktop E2E (`scripts/linux-display.sh pnpm test:e2e:desktop`)
   in the node lane on Node 22.17.0 and 24. It never invokes electron-builder.
-- `.github/workflows/package.yml` is a manual (`workflow_dispatch`) job that
-  runs `pnpm package:dir` on `ubuntu-latest` and uploads
-  `apps/desktop/release/linux-unpacked/`, so packaging breakage can never
-  block PR CI.
+- `.github/workflows/package.yml` is a manual (`workflow_dispatch`) workflow —
+  one dispatch runs both packaging jobs, and packaging breakage stays out of
+  PR CI:
+  - `package-linux-dir` runs `pnpm package:dir` on `ubuntu-latest` and uploads
+    `apps/desktop/release/linux-unpacked/` as `translunar-cat-linux-unpacked`.
+  - `package-windows-dir` compiles natively on `windows-latest`: stable Rust
+    (the default MSVC host toolchain) builds the release `tl-engine.exe`, the
+    same `pnpm package:dir` chain stages it and packages the `dir` target,
+    `package:check` asserts `win-unpacked/resources/app.asar` plus
+    `resources/engine/tl-engine.exe`, a smoke step runs the packaged
+    `tl-engine.exe --version`, and the job uploads
+    `apps/desktop/release/win-unpacked/` as `translunar-cat-windows-unpacked`.
+    Cargo and pnpm caches (`Swatinem/rust-cache`, `actions/setup-node` with
+    `cache: pnpm`) keep the lane inside its 90-minute timeout.
+
+Both packaging jobs first run `pnpm test:package-scripts`
+(`scripts/desktop-package-win-semantics.test.mjs`), which pins the Windows
+semantics of the packaging chain on any host: the `tl-engine.exe` staging
+branch (including the `TL_ENGINE_BIN` override), the `win-unpacked` layout the
+package check enforces, the win32-only skip of the POSIX executable-bit check,
+and the relative `extraResources` mapping plus `dir`-only `win.target` in
+`electron-builder.yml`.
 
 The previous `package-windows.yml` / `package-macos.yml` workflows referenced
 scripts that no longer exist (`package:win`, `release:package:check`,
-`electron:install:check`) and have been removed rather than left broken; real
-installer lanes belong to a future native-runner packaging task.
+`electron:install:check`) and were removed; the `package-windows-dir` job
+replaces the Windows one through the maintained `package:dir` contract. Real
+installer lanes (NSIS / DMG, signing, auto-update) remain future work.
 
 ## Size controls
 
