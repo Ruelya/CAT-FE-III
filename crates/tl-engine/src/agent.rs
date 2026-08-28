@@ -35,11 +35,13 @@ use crate::events::{AgentDraft, EngineEvent};
 /// provider or spawning an unbounded thread herd.
 pub const AGENT_SEGMENT_WORKERS: usize = 4;
 
-/// One TM-missed segment the worker must draft.
+/// One TM-missed segment the worker must draft. `terms` are the segment's
+/// real termbase hits, resolved on the engine thread at plan time.
 #[derive(Debug, Clone)]
 pub struct AgentWorkItem {
     pub segment_id: String,
     pub source_text: String,
+    pub terms: Vec<aiops::PromptTerm>,
 }
 
 pub struct AgentJob {
@@ -132,6 +134,7 @@ fn drain_queue(context: WorkerContext) {
             &context.target_locale,
             &item.source_text,
             "",
+            &item.terms,
         );
         let outcome = aiops::run_completion(
             &context.profile,

@@ -824,7 +824,7 @@ fn sort_issues(issues: &mut [QaIssue]) {
     });
 }
 
-fn same_language(left: &str, right: &str) -> bool {
+pub(crate) fn same_language(left: &str, right: &str) -> bool {
     primary_subtag(left).eq_ignore_ascii_case(&primary_subtag(right))
 }
 
