@@ -1,7 +1,9 @@
 /* Application shell: light professional workspace.
-   Pane map (matches the reference layout): native menu row above the web
-   contents, then ribbon toolbar / left project explorer / center bilingual
-   grid / right resource rail / bottom status bar. */
+   Pane map (matches the reference layout): integrated titlebar strip
+   (Windows/Linux — brand, the seven menus, title, native window buttons),
+   then ribbon toolbar / left project explorer / center bilingual grid /
+   right resource rail / bottom status bar. macOS keeps the system title
+   bar and menu bar, so its shell starts at the ribbon. */
 
 * {
   box-sizing: border-box;
