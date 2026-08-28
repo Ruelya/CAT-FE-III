@@ -1721,17 +1721,21 @@ describe("WorkbenchView segment lock", () => {
     expect(await screen.findByLabelText("句段 3 译文")).toBeInTheDocument();
   });
 
-  it("pretranslate reports the locked rows it skipped", async () => {
+  it("pretranslate offers the threshold dialog and reports skipped locked rows", async () => {
     const handlers = baseHandlers();
-    handlers["tm.pretranslate"] = () => ({
-      documentId: "d1",
-      checked: 1,
-      pretranslated: 0,
-      exact: 0,
-      fuzzy: 0,
-      skippedLocked: 2,
-      segments: [],
-    });
+    const pretranslateCalls: unknown[] = [];
+    handlers["tm.pretranslate"] = (params) => {
+      pretranslateCalls.push(params);
+      return {
+        documentId: "d1",
+        checked: 1,
+        pretranslated: 0,
+        exact: 0,
+        fuzzy: 0,
+        skippedLocked: 2,
+        segments: [],
+      };
+    };
     installBridge(handlers);
     const onStatusMessage = vi.fn();
     render(
@@ -1743,13 +1747,30 @@ describe("WorkbenchView segment lock", () => {
     );
     await screen.findByLabelText("句段 1 译文");
 
+    // The ribbon button opens the options dialog with the engine's default
+    // threshold (75) pre-filled; the chosen value rides to the engine.
     await userEvent.click(screen.getByRole("button", { name: "预翻译" }));
+    const dialog = within(
+      screen.getByRole("dialog", { name: "预翻译（TM）" }),
+    );
+    const threshold = dialog.getByLabelText("模糊匹配阈值（%）");
+    expect(threshold).toHaveValue(75);
+    await userEvent.clear(threshold);
+    await userEvent.type(threshold, "90");
+    await userEvent.click(dialog.getByRole("button", { name: "开始预翻译" }));
 
     await waitFor(() => {
       expect(onStatusMessage).toHaveBeenCalledWith(
-        "预翻译完成：检查 1 个未译句段，填充 0 个（精确 0 / 模糊 0），跳过 2 个已锁定句段",
+        "预翻译完成（阈值 90%）：检查 1 个未译句段，填充 0 个（精确 0 / 模糊 0），跳过 2 个已锁定句段",
       );
     });
+    expect(pretranslateCalls[0]).toMatchObject({
+      documentId: "d1",
+      minScore: 90,
+    });
+    expect(
+      screen.queryByRole("dialog", { name: "预翻译（TM）" }),
+    ).not.toBeInTheDocument();
   });
 });
 

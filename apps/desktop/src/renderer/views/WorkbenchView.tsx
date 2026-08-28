@@ -79,6 +79,7 @@ import { useTheme } from "../lib/theme.js";
 import type { PaletteEntry } from "../components/CommandPalette.js";
 import { FindWidget } from "../components/FindWidget.js";
 import { ImportDocumentDialog } from "../components/ImportDocumentDialog.js";
+import { PretranslateDialog } from "../components/PretranslateDialog.js";
 import { Ribbon } from "../components/Ribbon.js";
 import { SegmentGrid } from "../components/SegmentGrid.js";
 import type {
@@ -1312,29 +1313,39 @@ export function WorkbenchView({
     [activeSegment, saveDraft],
   );
 
-  const pretranslate = useCallback(async () => {
-    if (!activeDocumentId) {
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await callEngine("tm.pretranslate", {
-        documentId: activeDocumentId,
-      });
-      applySegments(result.segments);
-      const lockedNote =
-        (result.skippedLocked ?? 0) > 0
-          ? `，跳过 ${result.skippedLocked} 个已锁定句段`
-          : "";
-      onStatusMessage(
-        `预翻译完成：检查 ${result.checked} 个未译句段，填充 ${result.pretranslated} 个（精确 ${result.exact} / 模糊 ${result.fuzzy}）${lockedNote}`,
-      );
-    } catch (error) {
-      onStatusMessage(`预翻译失败：${describeError(error)}`);
-    } finally {
-      setBusy(false);
-    }
-  }, [activeDocumentId, applySegments, onStatusMessage]);
+  // Pretranslation opens as a small dialog so the fuzzy threshold is a
+  // real choice; the engine's default (75) pre-fills it.
+  const [pretranslateOpen, setPretranslateOpen] = useState(false);
+
+  const pretranslate = useCallback(
+    async (minScore: number) => {
+      if (!activeDocumentId) {
+        return;
+      }
+      setBusy(true);
+      try {
+        const result = await callEngine("tm.pretranslate", {
+          documentId: activeDocumentId,
+          minScore,
+        });
+        setPretranslateOpen(false);
+        applySegments(result.segments);
+        const lockedNote =
+          (result.skippedLocked ?? 0) > 0
+            ? `，跳过 ${result.skippedLocked} 个已锁定句段`
+            : "";
+        onStatusMessage(
+          `预翻译完成（阈值 ${minScore}%）：检查 ${result.checked} 个未译句段，填充 ${result.pretranslated} 个（精确 ${result.exact} / 模糊 ${result.fuzzy}）${lockedNote}`,
+        );
+      } catch (error) {
+        setPretranslateOpen(false);
+        onStatusMessage(`预翻译失败：${describeError(error)}`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [activeDocumentId, applySegments, onStatusMessage],
+  );
 
   const runQa = useCallback(async () => {
     if (!activeDocumentId) {
@@ -2398,7 +2409,7 @@ export function WorkbenchView({
         }
         case "pretranslate":
           if (activeDocument && !busy) {
-            void pretranslate();
+            setPretranslateOpen(true);
           }
           break;
         case "insert-tm":
@@ -2503,7 +2514,6 @@ export function WorkbenchView({
       project.lifecycle,
       copySourceToTarget,
       clearTargetText,
-      pretranslate,
       insertFirstTmMatch,
       insertFirstTerm,
       runQa,
@@ -2793,7 +2803,7 @@ export function WorkbenchView({
           }}
           onInsertTm={insertFirstTmMatch}
           onInsertTerm={() => void insertFirstTerm()}
-          onPretranslate={() => void pretranslate()}
+          onPretranslate={() => setPretranslateOpen(true)}
           onOpenFind={() => openFind("find")}
           onOpenReplace={() => openFind("replace")}
           onFindNext={() => findMatch("next")}
@@ -3518,6 +3528,13 @@ export function WorkbenchView({
           onClose={() => setImportOpen(false)}
           onImported={(result) => void handleImported(result)}
           onProjectUpdated={onProjectUpdated}
+        />
+
+        <PretranslateDialog
+          open={pretranslateOpen}
+          busy={busy}
+          onClose={() => setPretranslateOpen(false)}
+          onRun={(minScore) => void pretranslate(minScore)}
         />
 
         {/* 归档项目 (menu) archives only after this explicit confirm; the
