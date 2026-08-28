@@ -1,0 +1,6 @@
+# Keep working-tree line endings as LF on Windows runners so scripts and
+# YAML contracts do not depend on core.autocrlf.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.woff2 binary

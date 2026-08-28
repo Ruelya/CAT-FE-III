@@ -197,10 +197,12 @@ describe("desktop-check-package.mjs on win32", () => {
 });
 
 describe("electron-builder.yml Windows contract", () => {
+  // Windows runners check out with CRLF; normalize so the contract regexes
+  // pin YAML structure rather than the host's line endings.
   const config = readFileSync(
     join(repoRoot, "apps", "desktop", "electron-builder.yml"),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
 
   it("maps a relative staging dir to resources/engine", () => {
     const match = config.match(
@@ -216,5 +218,7 @@ describe("electron-builder.yml Windows contract", () => {
 
   it("keeps the win target on dir (unsigned unpacked output)", () => {
     assert.match(config, /^win:\n\s+target:\n\s+- dir$/m);
+    const crlfCheckout = config.replace(/\n/g, "\r\n");
+    assert.match(crlfCheckout.replace(/\r\n/g, "\n"), /^win:\n\s+target:\n\s+- dir$/m);
   });
 });
