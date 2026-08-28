@@ -1,8 +1,10 @@
 name: package
 
-# Manual packaging lanes: each produces an unsigned, unpackaged directory
-# artifact and verifies it carries the engine binary where packaged Electron
-# main looks (resources/engine/tl-engine, tl-engine.exe on Windows).
+# Manual packaging lanes. Linux produces an unsigned, unpackaged directory
+# artifact; Windows produces the user deliverable, an unsigned NSIS installer
+# exe. Both verify the packaged-main engine contract
+# (resources/engine/tl-engine, tl-engine.exe on Windows) and that the asar
+# carries bundled main/preload with no bare @translunar/* import left inside.
 # Deliberately workflow_dispatch-only so packaging can never break PR CI.
 # One dispatch runs both the Linux and the native Windows lane; macOS stays
 # config-only. See docs/packaging.md.
@@ -26,9 +28,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Packaging-script Windows semantics tests
         run: pnpm test:package-scripts
-      # Builds the release engine, the renderer + electron main/preload,
+      # Builds the release engine, the renderer + bundled electron main/preload,
       # stages the engine binary, packages the dir target, and fails unless
-      # the artifact contains resources/engine/tl-engine.
+      # the artifact contains resources/engine/tl-engine and an asar free of
+      # bare @translunar/* imports.
       - name: Package unpackaged directory
         run: pnpm package:dir
       - name: Upload artifact
@@ -39,13 +42,16 @@ jobs:
           if-no-files-found: error
 
   # Native Windows packaging on windows-latest (MSVC host toolchain): builds
-  # the release tl-engine.exe with stable Rust, then reuses the exact same
-  # `pnpm package:dir` contract as Linux (clean dist -> build -> stage engine
-  # -> electron-builder --dir -> package:check). package:check fails the job
-  # unless win-unpacked/ contains resources/app.asar and
-  # resources/engine/tl-engine.exe; the smoke-run step proves the packaged
-  # engine actually executes on Windows.
-  package-windows-dir:
+  # the release tl-engine.exe with stable Rust, then runs the root
+  # `pnpm package:win` contract (clean dist -> build -> stage engine ->
+  # electron-builder --win nsis -> package:check). package:check fails the
+  # job unless win-unpacked/ contains resources/app.asar (bundled, with no
+  # bare @translunar/* import) plus resources/engine/tl-engine.exe, and a
+  # translunar-cat-setup-*.exe installer sits next to win-unpacked/. The
+  # smoke-run step proves the packaged engine actually executes on Windows.
+  # win-unpacked/ is a build intermediate; the uploaded artifact is the
+  # NSIS installer exe.
+  package-windows-nsis:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
@@ -63,13 +69,13 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Packaging-script Windows semantics tests
         run: pnpm test:package-scripts
-      - name: Package unpackaged directory
-        run: pnpm package:dir
+      - name: Package NSIS installer
+        run: pnpm package:win
       - name: Smoke-run packaged engine
         run: ./apps/desktop/release/win-unpacked/resources/engine/tl-engine.exe --version
-      - name: Upload artifact
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: translunar-cat-windows-unpacked
-          path: apps/desktop/release/win-unpacked/
+          name: translunar-cat-windows-installer
+          path: apps/desktop/release/translunar-cat-setup-*.exe
           if-no-files-found: error

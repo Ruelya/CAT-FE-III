@@ -1,13 +1,18 @@
-# Minimal packaging: an unsigned, unpackaged directory artifact that honors
-# the packaged-main engine contract (process.resourcesPath/engine/tl-engine).
-# No installers, no code signing, no notarization, no auto-update.
+# Minimal packaging: unsigned artifacts that honor the packaged-main engine
+# contract (process.resourcesPath/engine/tl-engine). Windows ships an NSIS
+# installer; Linux stays an unpackaged directory. No code signing, no
+# notarization, no auto-update, no store releases.
 appId: app.translunar.cat
 productName: Translunar CAT
 copyright: Copyright © Translunar contributors
 directories:
   output: release
-# The renderer bundle inlines every production dependency and main/preload
-# import only electron + node builtins, so node_modules stays out of the asar.
+# The renderer bundle inlines every production dependency (vite), and
+# esbuild.electron.mjs bundles main/preload into self-contained files that
+# inline @translunar/contracts and every other workspace runtime dependency,
+# leaving only electron + node builtins external. That keeps node_modules out
+# of the asar; scripts/desktop-check-package.mjs fails the build if a bare
+# @translunar/* import ever reappears inside the archive.
 files:
   - dist/**/*
   - package.json
@@ -32,13 +37,21 @@ linux:
   artifactName: translunar-cat-${version}-linux-${arch}.${ext}
 # The win section runs natively on the windows-latest lane of
 # .github/workflows/package.yml; scripts/desktop-package-win-semantics.test.mjs
-# pins its dir target and the relative extraResources mapping. The mac section
-# is config-only: this repository has no macOS lane. Both stay on the honest
-# `dir` target until a packaging task proves out real installers.
+# pins the nsis target and the relative extraResources mapping. The user
+# deliverable is the NSIS installer exe; win-unpacked/ remains a build
+# intermediate that package:check inspects. The mac section is config-only:
+# this repository has no macOS lane, so it keeps the plain `dir` target.
 win:
   target:
-    - dir
-  artifactName: translunar-cat-${version}-win-${arch}.${ext}
+    - nsis
+  artifactName: translunar-cat-setup-${version}-${arch}.${ext}
+# Assisted (multi-page) installer so the user can pick the install directory.
+# electron-builder's NSIS is unicode by default and auto-selects the installer
+# language from the OS, zh-CN included. Unsigned, per-user, no license page.
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
 mac:
   target:
     - dir
