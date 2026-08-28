@@ -138,16 +138,17 @@ describe("filterSegments", () => {
     expect(isFilterActive({ ...EMPTY_FILTER, hasTerms: true })).toBe(true);
   });
 
-  it("hides nothing on 有术语 while the lookup set is still null", () => {
-    // Lookups in flight: the channel waits for the engine instead of
-    // guessing; rows narrow only once the set exists.
+  it("hides every row on 有术语 while the lookup set is still null", () => {
+    // Lookups in flight with nothing converged yet: the channel shows no
+    // rows rather than flashing the unfiltered document; rows appear once
+    // the engine has answered.
     const result = filterSegments(
       SEGMENTS,
       { ...EMPTY_FILTER, hasTerms: true },
       new Set(),
       null,
     );
-    expect(result).toHaveLength(3);
+    expect(result).toHaveLength(0);
   });
 
   it("ANDs the new channels with state and query", () => {

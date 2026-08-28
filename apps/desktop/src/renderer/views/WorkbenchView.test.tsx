@@ -1004,6 +1004,43 @@ describe("WorkbenchView command palette", () => {
     await userEvent.click(screen.getByRole("option", { name: "展开左栏" }));
     expect(explorer).not.toHaveAttribute("data-collapsed");
   });
+
+  it("lists the shell rows (新建项目/快捷键/关于) and runs the shell handlers", async () => {
+    installBridge(baseHandlers());
+    const onNewProject = vi.fn();
+    const onOpenShortcuts = vi.fn();
+    const onOpenAbout = vi.fn();
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+        onNewProject={onNewProject}
+        onOpenShortcuts={onOpenShortcuts}
+        onOpenAbout={onOpenAbout}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    // All three shell rows are listed together; each click lands on the
+    // exact handler the application menu branch calls.
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(
+      screen.getByRole("option", { name: "键盘快捷键…" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "关于 Translunar CAT" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: "新建项目…" }));
+    expect(onNewProject).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    await userEvent.click(screen.getByRole("option", { name: "键盘快捷键…" }));
+    expect(onOpenShortcuts).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    await userEvent.click(
+      screen.getByRole("option", { name: "关于 Translunar CAT" }),
+    );
+    expect(onOpenAbout).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("WorkbenchView Trados-style editor flow", () => {
@@ -2250,6 +2287,44 @@ describe("WorkbenchView boolean filter chips", () => {
     await userEvent.click(toggle);
     expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("4/4");
     expect(termLookupCalls(bridge)).toHaveLength(3);
+  });
+
+  it("有术语 shows no rows while the lookup is still in flight", async () => {
+    // Lookups resolve only when the test releases the gate — the window
+    // between the chip click and convergence, where the grid previously
+    // flashed the unfiltered document.
+    let releaseLookups!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseLookups = resolve;
+    });
+    installBoolBridge((params) => {
+      const { sourceText } = params as { sourceText: string };
+      return gate.then(() =>
+        sourceText === SEGMENT.sourceText
+          ? { matches: [TERM_MATCH] }
+          : { matches: [] },
+      );
+    });
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("句段 1 译文");
+    await userEvent.click(screen.getByRole("button", { name: "有术语" }));
+    // Nothing has converged: the grid hides every row instead of showing
+    // the full document, with only the standard empty-filter line.
+    expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("0/4");
+    expect(screen.getByText("没有符合筛选条件的句段")).toBeInTheDocument();
+    // Once the engine answers, the rows narrow to the converged hits.
+    act(() => {
+      releaseLookups();
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("可见句段/总句段")).toHaveTextContent("2/4");
+    });
   });
 
   it("有术语 with no hits anywhere empties the grid honestly", async () => {
