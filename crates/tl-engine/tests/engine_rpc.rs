@@ -3730,7 +3730,12 @@ fn qa_profile_overrides_remap_severity_and_guard_updates() {
     ] {
         assert!(rule_ids.contains(&expected), "missing static id {expected}");
     }
-    for family in ["qa.tag", "qa.term-required", "qa.term-forbidden", "qa.regex"] {
+    for family in [
+        "qa.tag",
+        "qa.term-required",
+        "qa.term-forbidden",
+        "qa.regex",
+    ] {
         assert!(
             !rule_ids.contains(&family),
             "family marker {family} is not a static row"
