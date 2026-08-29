@@ -176,6 +176,7 @@ function installBridge(
     // mount; the tests never emit any.
     onNotification: () => () => {},
     setMenuContext: vi.fn(),
+    popupSegmentMenu: vi.fn().mockResolvedValue(undefined),
   };
   Object.defineProperty(window, "tl", {
     value: api,
@@ -1115,6 +1116,49 @@ describe("WorkbenchView Trados-style editor flow", () => {
     expect(onStatusMessage).toHaveBeenCalledWith("句段 #1 已确认并写入 TM");
   });
 
+  it("persists source edits through segment.update without a TM write", async () => {
+    const handlers = baseHandlers();
+    const updateCalls: unknown[] = [];
+    handlers["segment.update"] = (params) => {
+      updateCalls.push(params);
+      const typed = params as { sourceText?: string; targetText: string };
+      return {
+        segment: {
+          ...SEGMENT,
+          sourceText: typed.sourceText ?? SEGMENT.sourceText,
+          targetText: typed.targetText,
+          state: "draft",
+          revision: 2,
+        },
+      };
+    };
+    installBridge(handlers);
+    render(
+      <WorkbenchView
+        project={PROJECT}
+        engineState="ready"
+        onStatusMessage={vi.fn()}
+      />,
+    );
+    const source =
+      await screen.findByLabelText<HTMLTextAreaElement>("句段 1 源文");
+    fireEvent.change(source, {
+      target: { value: "The retention period is 45 days." },
+    });
+    await waitFor(
+      () => {
+        expect(updateCalls).toHaveLength(1);
+      },
+      { timeout: 4000 },
+    );
+    expect(updateCalls[0]).toMatchObject({
+      segmentId: "s1",
+      sourceText: "The retention period is 45 days.",
+      targetText: SEGMENT.targetText,
+      baseRevision: 1,
+    });
+  });
+
   it("confirms without the TM write on Ctrl+Shift+Enter", async () => {
     const handlers = baseHandlers();
     const confirmCalls: unknown[] = [];
@@ -1232,7 +1276,9 @@ describe("WorkbenchView find next/prev", () => {
     );
     // The find widget navigates only; unlike the filter it hides no rows.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
-    expect(screen.getByText("First day of work.")).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 1 源文")).toHaveValue(
+      "First day of work.",
+    );
 
     // F4 skips the non-matching s2 and lands on s3 (no wrap, no status).
     fireEvent.keyDown(window, { key: "F4" });
@@ -1259,6 +1305,7 @@ describe("WorkbenchView find next/prev", () => {
 
     // Every row is still rendered; find never engaged the hide-filter.
     expect(screen.getByText("Nothing to see here.")).toBeInTheDocument();
+    expect(screen.getByLabelText("句段 3 源文")).toBeInTheDocument();
     expect(screen.getByText("First day of work.")).toBeInTheDocument();
   });
 

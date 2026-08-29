@@ -1045,6 +1045,48 @@ export function WorkbenchView({
     }
   }, [activeDocumentId, recordSegments, onStatusMessage]);
 
+  // Persists sourceText through the same segment.update as a target
+  // draft. The engine demotes a confirmed row and never rewrites TM.
+  const saveSource = useCallback(
+    (segment: Segment, sourceText: string): Promise<boolean> =>
+      enqueueSegmentWrite(async () => {
+        const latest = latestSegmentsRef.current.get(segment.id) ?? segment;
+        if (latest.sourceText === sourceText) {
+          return true;
+        }
+        try {
+          const result = await callEngine("segment.update", {
+            segmentId: segment.id,
+            targetText: latest.targetText,
+            sourceText,
+            baseRevision: latest.revision,
+          });
+          applySegments([result.segment]);
+          setUnackedWrite((current) =>
+            current?.segmentId === segment.id ? null : current,
+          );
+          return true;
+        } catch (error) {
+          if (isEngineUnavailable(error)) {
+            setUnackedWrite({
+              segmentId: segment.id,
+              ordinal: segment.ordinal,
+              kind: "draft",
+              message: describeError(error),
+            });
+            onStatusMessage(
+              `句段 #${segment.ordinal + 1} 源文未保存：引擎未确认写入`,
+            );
+            return false;
+          }
+          onStatusMessage(`保存源文失败：${describeError(error)}`);
+          await reloadSegments();
+          return false;
+        }
+      }),
+    [enqueueSegmentWrite, applySegments, onStatusMessage, reloadSegments],
+  );
+
   // Persists targetText as the segment's draft. Trados-style typing
   // auto-saves pass quiet=true: success shows through the row's 草稿 badge
   // instead of a statusbar line per pause; failures always surface.
@@ -3323,12 +3365,10 @@ export function WorkbenchView({
                   onSaveDraft={(segment, text) =>
                     saveDraft(segment, text, { quiet: true })
                   }
+                  onSaveSource={(segment, text) => saveSource(segment, text)}
                   onConfirm={(segment, text, mode) =>
                     void confirmSegment(segment, text, mode)
                   }
-                  onCopySource={copySourceToTarget}
-                  onClearTarget={clearTargetText}
-                  onToggleLock={(segment) => void toggleLockSegment(segment)}
                   onCaretChange={setCaret}
                 />
               )}

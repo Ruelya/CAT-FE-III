@@ -95,13 +95,7 @@ export type MenuCommand =
  * menu buttons, so the strip can never drift from the template.
  */
 export type MenuBarItemId =
-  | "file"
-  | "edit"
-  | "view"
-  | "project"
-  | "translate"
-  | "qa"
-  | "help";
+  "file" | "edit" | "view" | "project" | "translate" | "qa" | "help";
 
 export interface MenuBarItem {
   id: MenuBarItemId;
@@ -131,6 +125,12 @@ export interface MenuContext {
    * this persisted value. False whenever no project is open.
    */
   exportGate: boolean;
+}
+
+/** Per-row enablement for the native segment context menu. */
+export interface SegmentMenuContext {
+  locked: boolean;
+  emptyTarget: boolean;
 }
 
 /**
@@ -194,6 +194,16 @@ export interface DesktopApi {
    * menu bar uses) at window coordinates; resolves when the menu closes.
    */
   popupAppMenu(menuId: MenuBarItemId, x: number, y: number): Promise<void>;
+  /**
+   * Native row menu at window coordinates. Items are the existing
+   * copy-source / clear-target / toggle-lock-segment commands; enablement
+   * follows the row (locked, empty target). Resolves when the menu closes.
+   */
+  popupSegmentMenu(
+    x: number,
+    y: number,
+    context: SegmentMenuContext,
+  ): Promise<void>;
   /** Repaint the native window-button overlay to match the active theme. */
   setTitlebarOverlay(colors: TitlebarOverlayColors): void;
 }
@@ -215,6 +225,7 @@ export const IPC_CHANNELS = {
   menuCommand: "tl:menu:command",
   menuContext: "tl:menu:context",
   menuPopup: "tl:menu:popup",
+  menuSegmentPopup: "tl:menu:segment-popup",
   nativeScheme: "tl:window:native-scheme",
   titlebarOverlay: "tl:window:titlebar-overlay",
 } as const;

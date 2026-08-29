@@ -13,8 +13,16 @@
 import { BrowserWindow, Menu, app, ipcMain } from "electron";
 
 import { IPC_CHANNELS } from "../shared/desktop-api.js";
-import type { MenuCommand, MenuContext } from "../shared/desktop-api.js";
-import { buildMenuTemplate, menuBarSubmenu } from "./menu-template.js";
+import type {
+  MenuCommand,
+  MenuContext,
+  SegmentMenuContext,
+} from "../shared/desktop-api.js";
+import {
+  buildMenuTemplate,
+  buildSegmentContextMenu,
+  menuBarSubmenu,
+} from "./menu-template.js";
 
 /** The renderer payload crosses a trust boundary; coerce to plain booleans. */
 function normalizeContext(raw: unknown): MenuContext {
@@ -26,6 +34,17 @@ function normalizeContext(raw: unknown): MenuContext {
     projectOpen: record.projectOpen === true,
     documentOpen: record.documentOpen === true,
     exportGate: record.exportGate === true,
+  };
+}
+
+function normalizeSegmentMenuContext(raw: unknown): SegmentMenuContext {
+  const record =
+    typeof raw === "object" && raw !== null
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    locked: record.locked === true,
+    emptyTarget: record.emptyTarget === true,
   };
 }
 
@@ -91,6 +110,32 @@ export function installApplicationMenu(): void {
         return Promise.resolve();
       }
       const menu = Menu.buildFromTemplate(submenu);
+      return new Promise((resolve) => {
+        menu.popup({
+          window,
+          x: typeof x === "number" && Number.isFinite(x) ? Math.round(x) : 0,
+          y: typeof y === "number" && Number.isFinite(y) ? Math.round(y) : 0,
+          callback: resolve,
+        });
+      });
+    },
+  );
+
+  // Grid row menu: the three existing translate commands, enabled for
+  // this row. Same dispatch path as the application menu.
+  ipcMain.handle(
+    IPC_CHANNELS.menuSegmentPopup,
+    (event, x: unknown, y: unknown, raw: unknown): Promise<void> => {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) {
+        return Promise.resolve();
+      }
+      const menu = Menu.buildFromTemplate(
+        buildSegmentContextMenu({
+          onCommand: dispatch,
+          context: normalizeSegmentMenuContext(raw),
+        }),
+      );
       return new Promise((resolve) => {
         menu.popup({
           window,

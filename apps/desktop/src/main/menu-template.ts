@@ -24,6 +24,7 @@ import type {
   MenuBarItemId,
   MenuCommand,
   MenuContext,
+  SegmentMenuContext,
 } from "../shared/desktop-api.js";
 
 export interface MenuTemplateOptions {
@@ -249,6 +250,19 @@ export function buildMenuTemplate(
       SEPARATOR,
       { role: "resetZoom", label: "实际大小" },
       { role: "zoomIn", label: "放大" },
+      // Windows/Linux: role zoomIn binds Ctrl++ (Plus) only. Ctrl+= is
+      // the unshifted sibling on the same key and must be registered too.
+      // macOS already binds both on the role item.
+      ...(isMac
+        ? []
+        : [
+            {
+              role: "zoomIn" as const,
+              accelerator: "CmdOrCtrl+=",
+              visible: false,
+              label: "放大",
+            },
+          ]),
       { role: "zoomOut", label: "缩小" },
       SEPARATOR,
       { role: "togglefullscreen", label: "切换全屏" },
@@ -410,4 +424,33 @@ export function menuBarSubmenu(
   const top = template[options.platform === "darwin" ? index + 1 : index];
   const submenu = top?.submenu;
   return Array.isArray(submenu) ? submenu : null;
+}
+
+/**
+ * Native context menu for one grid row. Items dispatch the same
+ * `MenuCommand` values the 翻译 menu already owns — no new commands.
+ */
+export function buildSegmentContextMenu(options: {
+  onCommand: (command: MenuCommand) => void;
+  context: SegmentMenuContext;
+}): MenuItemConstructorOptions[] {
+  const { onCommand, context } = options;
+  const writable = !context.locked;
+  return [
+    {
+      label: "复制源文",
+      enabled: writable,
+      click: () => onCommand("copy-source"),
+    },
+    {
+      label: "清空译文",
+      enabled: writable && !context.emptyTarget,
+      click: () => onCommand("clear-target"),
+    },
+    SEPARATOR,
+    {
+      label: context.locked ? "解锁" : "锁定",
+      click: () => onCommand("toggle-lock-segment"),
+    },
+  ];
 }
