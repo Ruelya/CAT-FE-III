@@ -33,6 +33,14 @@ pub struct SegmentUpdateParams {
     pub target_text: String,
     /// Optimistic concurrency: must match the segment's current revision.
     pub base_revision: u64,
+    /// Optional source rewrite. Omitted on ordinary target typing so
+    /// existing clients stay valid. When present, the engine replaces
+    /// `sourceText` and re-keys `sourceHash` / `contextHash` from
+    /// neighbours. A confirmed row returns to draft; the TM is left
+    /// untouched (this is a draft write, not a confirm). Empty or
+    /// whitespace-only source is rejected. Locked rows still conflict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_text: Option<String>,
     /// Where `targetText` came from, for writes that apply stored material
     /// (TM match apply → `tmExact`/`tmFuzzy` with the real lookup score, AI
     /// draft apply → `aiDraft` with the provider model). The kinds are the

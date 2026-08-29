@@ -1809,6 +1809,15 @@ export interface SegmentUpdateParams {
    */
   origin?: SegmentOrigin | null;
   segmentId: string;
+  /**
+   * Optional source rewrite. Omitted on ordinary target typing so
+   * existing clients stay valid. When present, the engine replaces
+   * `sourceText` and re-keys `sourceHash` / `contextHash` from
+   * neighbours. A confirmed row returns to draft; the TM is left
+   * untouched (this is a draft write, not a confirm). Empty or
+   * whitespace-only source is rejected. Locked rows still conflict.
+   */
+  sourceText?: string | null;
   targetText: string;
   [k: string]: unknown;
 }

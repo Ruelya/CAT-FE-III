@@ -4283,6 +4283,13 @@
         "segmentId": {
           "type": "string"
         },
+        "sourceText": {
+          "description": "Optional source rewrite. Omitted on ordinary target typing so\nexisting clients stay valid. When present, the engine replaces\n`sourceText` and re-keys `sourceHash` / `contextHash` from\nneighbours. A confirmed row returns to draft; the TM is left\nuntouched (this is a draft write, not a confirm). Empty or\nwhitespace-only source is rejected. Locked rows still conflict.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "targetText": {
           "type": "string"
         }
