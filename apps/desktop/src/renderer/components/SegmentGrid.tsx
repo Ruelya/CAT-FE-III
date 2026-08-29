@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, Ref } from "react";
 
-import { IconDots, IconLock, IconLockOpen } from "@tabler/icons-react";
+import { IconDots, IconLock } from "@tabler/icons-react";
 
 import type { Segment, SegmentState, TmMatchItem } from "@translunar/contracts";
 import { MatchBadge } from "@translunar/ui";
@@ -106,17 +106,16 @@ export interface SegmentGridProps {
     segment: Segment,
     targetText: string,
   ) => void | boolean | Promise<void | boolean>;
-  onConfirm: (segment: Segment, targetText: string, mode: ConfirmMode) => void;
-  /** Row menu 复制源文 — segment.update with the source text. */
-  onCopySource?: (segment: Segment) => void;
-  /** Row menu 清空译文 — segment.update with an empty string. */
-  onClearTarget?: (segment: Segment) => void;
   /**
-   * Row menu 锁定/解锁 — segment.lock with the opposite of the stored
-   * state. The engine owns the flag; the grid only reflects Segment.locked
-   * (glyph in the status column, editor never mounts on a locked row).
+   * Persists a source rewrite through segment.update (`sourceText`). Same
+   * debounce/flush rules as `onSaveDraft`. Locked rows never mount this
+   * editor; the engine still rejects a locked write.
    */
-  onToggleLock?: (segment: Segment) => void;
+  onSaveSource?: (
+    segment: Segment,
+    sourceText: string,
+  ) => void | boolean | Promise<void | boolean>;
+  onConfirm: (segment: Segment, targetText: string, mode: ConfirmMode) => void;
   /**
    * Status-bar caret readout: reports the caret's line/column inside the
    * mounted target editor, and null whenever no editor is mounted. Editor
@@ -214,6 +213,21 @@ function confirmModeForKey(event: {
   return "nextUnconfirmed";
 }
 
+/**
+ * First-paint value for the active editor. A shared draft must not paint
+ * the previous segment: when the owner id does not match the selection,
+ * show the committed text of the newly selected row (empty B never shows
+ * A's "240").
+ */
+export function editorValueForActive(
+  activeId: string | null,
+  ownerId: string | null,
+  draft: string,
+  committed: string,
+): string {
+  return ownerId === activeId ? draft : committed;
+}
+
 /** 1-based line/column of `index` inside `value` (newline-separated). */
 function caretPosition(value: string, index: number): EditorCaret {
   const before = value.slice(0, index);
@@ -237,15 +251,18 @@ export function SegmentGrid({
   placeholderAlerts,
   onSelect,
   onSaveDraft,
+  onSaveSource,
   onConfirm,
-  onCopySource,
-  onClearTarget,
-  onToggleLock,
   onCaretChange,
   autoSaveDelayMs = AUTO_SAVE_DELAY_MS,
   ref,
 }: SegmentGridProps) {
-  const [draft, setDraft] = useState("");
+  const [targetDraft, setTargetDraft] = useState("");
+  const [sourceDraft, setSourceDraft] = useState("");
+  // Which segment the draft state belongs to. First paint after a
+  // selection change uses committed text until this catches up, so the
+  // newly selected editor never flashes the previous row's draft.
+  const [draftOwnerId, setDraftOwnerId] = useState<string | null>(null);
   // Selection and editing are separate states (Trados grid model): the
   // selected row is the query pivot, editing mounts the target editor.
   // Editing starts on (selection lands in the editor so the type→confirm
@@ -262,6 +279,7 @@ export function SegmentGrid({
   // input, so inserts requested while composing are queued and flushed on
   // compositionend.
   const composingRef = useRef(false);
+  const sourceComposingRef = useRef(false);
   const pendingInsertRef = useRef("");
   const pendingCaretRef = useRef<number | null>(null);
   const heightsRef = useRef(new Map<string, number>());
@@ -280,72 +298,132 @@ export function SegmentGrid({
   // after a short pause and flushed when the selection leaves the segment.
   // These mirrors let the flush/debounce callbacks (which outlive renders)
   // read the live values without re-subscribing.
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
+  const targetDraftRef = useRef(targetDraft);
+  targetDraftRef.current = targetDraft;
+  const sourceDraftRef = useRef(sourceDraft);
+  sourceDraftRef.current = sourceDraft;
   const onSaveDraftRef = useRef(onSaveDraft);
   onSaveDraftRef.current = onSaveDraft;
+  const onSaveSourceRef = useRef(onSaveSource);
+  onSaveSourceRef.current = onSaveSource;
   // The last text handed off for persistence (or seeded from the committed
-  // target). Anything newer than this is "unsaved typing".
-  const savedTextRef = useRef("");
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // field). Anything newer than this is "unsaved typing".
+  const savedTargetRef = useRef("");
+  const savedSourceRef = useRef("");
+  const targetSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sourceSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bumped to re-arm the debounce when no draft change occurs (IME commit).
-  const [saveTick, setSaveTick] = useState(0);
+  const [targetSaveTick, setTargetSaveTick] = useState(0);
+  const [sourceSaveTick, setSourceSaveTick] = useState(0);
   // Latest object for the selected segment (fresh revision after saves);
   // set by an effect below AFTER the segment-switch flush has run, so a
   // flush always targets the segment the text belongs to.
   const flushSegmentRef = useRef<Segment | null>(null);
 
-  // Persist the pending draft now (leave-segment flush and timer body).
-  const commitDraftSave = useCallback(() => {
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
+  const committedTarget = activeSegment?.targetText ?? "";
+  const committedSource = activeSegment?.sourceText ?? "";
+  const paintedTarget = editorValueForActive(
+    activeSegmentId,
+    draftOwnerId,
+    targetDraft,
+    committedTarget,
+  );
+  const paintedSource = editorValueForActive(
+    activeSegmentId,
+    draftOwnerId,
+    sourceDraft,
+    committedSource,
+  );
+
+  const handOffField = (
+    timerRef: { current: ReturnType<typeof setTimeout> | null },
+    savedRef: { current: string },
+    text: string,
+    save: (
+      segment: Segment,
+      next: string,
+    ) => void | boolean | Promise<void | boolean>,
+    fallback: string,
+  ) => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
     const segment = flushSegmentRef.current;
-    if (!segment) {
+    if (!segment || text === savedRef.current) {
       return;
     }
-    const text = draftRef.current;
-    if (text === savedTextRef.current) {
-      return;
-    }
-    savedTextRef.current = text;
-    const outcome = onSaveDraftRef.current(segment, text);
+    savedRef.current = text;
+    const outcome = save(segment, text);
     if (
       outcome &&
       typeof (outcome as Promise<void | boolean>).then === "function"
     ) {
       void (outcome as Promise<void | boolean>).then((acked) => {
-        // The engine never acked this write: forget the hand-off (unless
-        // newer text was handed off meanwhile) so the next flush retries
-        // the same text instead of silently dropping it.
-        if (acked === false && savedTextRef.current === text) {
-          savedTextRef.current = segment.targetText;
+        if (acked === false && savedRef.current === text) {
+          savedRef.current = fallback;
         }
       });
     }
+  };
+
+  // Persist the pending target draft now (leave-segment flush and timer).
+  const commitDraftSave = useCallback(() => {
+    handOffField(
+      targetSaveTimerRef,
+      savedTargetRef,
+      targetDraftRef.current,
+      onSaveDraftRef.current,
+      flushSegmentRef.current?.targetText ?? "",
+    );
+  }, []);
+
+  const commitSourceSave = useCallback(() => {
+    const save = onSaveSourceRef.current;
+    if (!save) {
+      if (sourceSaveTimerRef.current !== null) {
+        clearTimeout(sourceSaveTimerRef.current);
+        sourceSaveTimerRef.current = null;
+      }
+      return;
+    }
+    handOffField(
+      sourceSaveTimerRef,
+      savedSourceRef,
+      sourceDraftRef.current,
+      save,
+      flushSegmentRef.current?.sourceText ?? "",
+    );
   }, []);
 
   // Confirm persists the exact editor text itself; drop any pending
   // auto-save so the same write is never sent twice.
   const handOffToConfirm = useCallback((text: string) => {
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
+    if (targetSaveTimerRef.current !== null) {
+      clearTimeout(targetSaveTimerRef.current);
+      targetSaveTimerRef.current = null;
     }
-    savedTextRef.current = text;
+    savedTargetRef.current = text;
   }, []);
 
   // Selection moved to another segment: leaving never confirms (Studio
   // semantics), but unsaved typing is flushed as a draft first. Then the
   // editor re-seeds from the newly selected segment; any in-flight
-  // composition or queued insert belonged to the old text.
-  useEffect(() => {
+  // composition or queued insert belonged to the old text. Layout so the
+  // owner id updates before paint when possible; first render already
+  // paints committed text via editorValueForActive.
+  useLayoutEffect(() => {
     commitDraftSave();
-    const seeded = activeSegment?.targetText ?? "";
-    setDraft(seeded);
-    savedTextRef.current = seeded;
+    commitSourceSave();
+    const seededTarget = activeSegment?.targetText ?? "";
+    const seededSource = activeSegment?.sourceText ?? "";
+    setTargetDraft(seededTarget);
+    setSourceDraft(seededSource);
+    setDraftOwnerId(activeSegmentId);
+    savedTargetRef.current = seededTarget;
+    savedSourceRef.current = seededSource;
     composingRef.current = false;
+    sourceComposingRef.current = false;
     pendingInsertRef.current = "";
     pendingCaretRef.current = null;
   }, [activeSegment?.id]);
@@ -359,15 +437,34 @@ export function SegmentGrid({
       return;
     }
     const target = activeSegment.targetText;
-    if (target === draftRef.current || target === savedTextRef.current) {
+    if (
+      target === targetDraftRef.current ||
+      target === savedTargetRef.current
+    ) {
       return;
     }
-    setDraft(target);
-    savedTextRef.current = target;
+    setTargetDraft(target);
+    savedTargetRef.current = target;
     composingRef.current = false;
     pendingInsertRef.current = "";
     pendingCaretRef.current = null;
   }, [activeSegment?.targetText]);
+
+  useEffect(() => {
+    if (!activeSegment) {
+      return;
+    }
+    const source = activeSegment.sourceText;
+    if (
+      source === sourceDraftRef.current ||
+      source === savedSourceRef.current
+    ) {
+      return;
+    }
+    setSourceDraft(source);
+    savedSourceRef.current = source;
+    sourceComposingRef.current = false;
+  }, [activeSegment?.sourceText]);
 
   // Runs after the two effects above, so the segment-switch flush still
   // saw the previous segment while this keeps revisions fresh in between.
@@ -376,36 +473,76 @@ export function SegmentGrid({
   });
 
   // Debounced auto-save: re-armed on every keystroke, quiet during IME
-  // composition (compositionend bumps saveTick to re-arm).
+  // composition (compositionend bumps the field's save tick to re-arm).
   useEffect(() => {
     if (!activeSegment || composingRef.current) {
       return;
     }
-    if (draft === savedTextRef.current) {
+    if (targetDraft === savedTargetRef.current) {
       return;
     }
     const timer = setTimeout(() => {
-      if (saveTimerRef.current === timer) {
-        saveTimerRef.current = null;
+      if (targetSaveTimerRef.current === timer) {
+        targetSaveTimerRef.current = null;
       }
       if (!composingRef.current) {
         commitDraftSave();
       }
     }, autoSaveDelayMs);
-    saveTimerRef.current = timer;
+    targetSaveTimerRef.current = timer;
     return () => {
       clearTimeout(timer);
-      if (saveTimerRef.current === timer) {
-        saveTimerRef.current = null;
+      if (targetSaveTimerRef.current === timer) {
+        targetSaveTimerRef.current = null;
       }
     };
-  }, [draft, saveTick, activeSegment?.id, autoSaveDelayMs, commitDraftSave]);
+  }, [
+    targetDraft,
+    targetSaveTick,
+    activeSegment?.id,
+    autoSaveDelayMs,
+    commitDraftSave,
+  ]);
+
+  useEffect(() => {
+    if (!activeSegment || sourceComposingRef.current || !onSaveSource) {
+      return;
+    }
+    if (sourceDraft === savedSourceRef.current) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (sourceSaveTimerRef.current === timer) {
+        sourceSaveTimerRef.current = null;
+      }
+      if (!sourceComposingRef.current) {
+        commitSourceSave();
+      }
+    }, autoSaveDelayMs);
+    sourceSaveTimerRef.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (sourceSaveTimerRef.current === timer) {
+        sourceSaveTimerRef.current = null;
+      }
+    };
+  }, [
+    sourceDraft,
+    sourceSaveTick,
+    activeSegment?.id,
+    autoSaveDelayMs,
+    commitSourceSave,
+    onSaveSource,
+  ]);
 
   // The editor can unmount with pending text (filter hides the row, the
   // document or project closes): flush it, exactly like leaving a segment.
   useEffect(() => {
-    return () => commitDraftSave();
-  }, [commitDraftSave]);
+    return () => {
+      commitDraftSave();
+      commitSourceSave();
+    };
+  }, [commitDraftSave, commitSourceSave]);
 
   const spliceIntoEditor = useCallback(
     (textarea: HTMLTextAreaElement, text: string) => {
@@ -413,7 +550,7 @@ export function SegmentGrid({
       const start = textarea.selectionStart ?? value.length;
       const end = textarea.selectionEnd ?? start;
       pendingCaretRef.current = start + text.length;
-      setDraft(value.slice(0, start) + text + value.slice(end));
+      setTargetDraft(value.slice(0, start) + text + value.slice(end));
     },
     [],
   );
@@ -430,7 +567,7 @@ export function SegmentGrid({
     pendingCaretRef.current = null;
     textarea.focus();
     textarea.setSelectionRange(caret, caret);
-  }, [draft]);
+  }, [targetDraft]);
 
   /** Reads the caret straight off the mounted textarea (never guessed). */
   const reportCaret = useCallback(() => {
@@ -484,8 +621,9 @@ export function SegmentGrid({
         if (!textareaRef.current || !activeSegment || composingRef.current) {
           return false;
         }
-        handOffToConfirm(draft);
-        onConfirm(activeSegment, draft, mode);
+        commitSourceSave();
+        handOffToConfirm(paintedTarget);
+        onConfirm(activeSegment, paintedTarget, mode);
         return true;
       },
       focusActive: () => {
@@ -503,16 +641,20 @@ export function SegmentGrid({
         }
         return false;
       },
-      flushDraft: () => commitDraftSave(),
+      flushDraft: () => {
+        commitSourceSave();
+        commitDraftSave();
+      },
     }),
     [
       spliceIntoEditor,
       activeSegment,
       activeSegmentId,
-      draft,
+      paintedTarget,
       onConfirm,
       handOffToConfirm,
       commitDraftSave,
+      commitSourceSave,
     ],
   );
 
@@ -552,6 +694,27 @@ export function SegmentGrid({
     [segments, activeSegmentId, onSelect],
   );
 
+  const openRowMenu = useCallback(
+    async (segment: Segment, x: number, y: number) => {
+      onSelect(segment.id);
+      setMenuSegmentId(segment.id);
+      const popup = window.tl && window.tl.popupSegmentMenu;
+      if (typeof popup !== "function") {
+        setMenuSegmentId(null);
+        return;
+      }
+      try {
+        await popup(Math.round(x), Math.round(y), {
+          locked: segment.locked === true,
+          emptyTarget: segment.targetText.length === 0,
+        });
+      } finally {
+        setMenuSegmentId(null);
+      }
+    },
+    [onSelect],
+  );
+
   const handleRowKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLTableRowElement>, segment: Segment) => {
       // Keys typed inside the editor belong to the editor.
@@ -577,41 +740,13 @@ export function SegmentGrid({
         (event.shiftKey && event.key === "F10")
       ) {
         event.preventDefault();
-        setMenuSegmentId(segment.id);
+        const row = event.currentTarget;
+        const rect = row.getBoundingClientRect();
+        void openRowMenu(segment, rect.left, rect.bottom);
       }
     },
-    [moveSelection],
+    [moveSelection, openRowMenu],
   );
-
-  // The row menu closes on outside pointer or Escape, like a native menu.
-  useEffect(() => {
-    if (!menuSegmentId) {
-      return;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        !target.closest(".segment-grid__menu-wrap")
-      ) {
-        setMenuSegmentId(null);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        // Mark the event consumed so workbench-level Escape fallbacks
-        // (clear the display filter) don't also fire on the same press.
-        event.preventDefault();
-        setMenuSegmentId(null);
-      }
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuSegmentId]);
 
   const virtualized = segments.length > VIRTUAL_THRESHOLD;
 
@@ -815,27 +950,67 @@ export function SegmentGrid({
                 onKeyDown={(event) => handleRowKeyDown(event, segment)}
                 onContextMenu={(event) => {
                   event.preventDefault();
-                  onSelect(segment.id);
-                  setMenuSegmentId(segment.id);
+                  void openRowMenu(segment, event.clientX, event.clientY);
                 }}
               >
                 <td className="segment-grid__ordinal">{segment.ordinal + 1}</td>
                 <td className="segment-grid__source">
-                  <TokenText
-                    text={segment.sourceText}
-                    dangerTokens={alert?.missing}
-                  />
+                  {isEditing ? (
+                    <div className="segment-grid__cell-editor">
+                      <textarea
+                        aria-label={`句段 ${segment.ordinal + 1} 源文`}
+                        key={`${segment.id}-source`}
+                        value={paintedSource}
+                        onChange={(event) => {
+                          setSourceDraft(event.target.value);
+                        }}
+                        onCompositionStart={() => {
+                          sourceComposingRef.current = true;
+                        }}
+                        onCompositionEnd={() => {
+                          sourceComposingRef.current = false;
+                          setSourceSaveTick((tick) => tick + 1);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.nativeEvent.isComposing) {
+                            return;
+                          }
+                          const mode = confirmModeForKey(event);
+                          if (mode) {
+                            event.preventDefault();
+                            commitSourceSave();
+                            handOffToConfirm(paintedTarget);
+                            onConfirm(segment, paintedTarget, mode);
+                            return;
+                          }
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            commitSourceSave();
+                            commitDraftSave();
+                            pendingRowFocusRef.current = true;
+                            setEditing(false);
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <TokenText
+                      text={segment.sourceText}
+                      dangerTokens={alert?.missing}
+                    />
+                  )}
                 </td>
                 <td className="segment-grid__target">
                   {isEditing ? (
-                    <div className="segment-grid__target-editor">
+                    <div className="segment-grid__cell-editor">
                       <textarea
                         aria-label={`句段 ${segment.ordinal + 1} 译文`}
+                        key={`${segment.id}-target`}
                         ref={textareaRef}
-                        value={draft}
+                        value={paintedTarget}
                         autoFocus
                         onChange={(event) => {
-                          setDraft(event.target.value);
+                          setTargetDraft(event.target.value);
                           reportCaret();
                         }}
                         // Fires on every caret move (keyboard or mouse), so
@@ -854,7 +1029,7 @@ export function SegmentGrid({
                           // Text committed by the IME must reach the
                           // debounced draft save even when no further
                           // input follows.
-                          setSaveTick((tick) => tick + 1);
+                          setTargetSaveTick((tick) => tick + 1);
                         }}
                         onKeyDown={(event) => {
                           if (event.nativeEvent.isComposing) {
@@ -866,8 +1041,9 @@ export function SegmentGrid({
                           const mode = confirmModeForKey(event);
                           if (mode) {
                             event.preventDefault();
-                            handOffToConfirm(draft);
-                            onConfirm(segment, draft, mode);
+                            commitSourceSave();
+                            handOffToConfirm(paintedTarget);
+                            onConfirm(segment, paintedTarget, mode);
                             return;
                           }
                           if (event.key === "Escape") {
@@ -937,85 +1113,23 @@ export function SegmentGrid({
                         title={`TM 最佳匹配 ${activeMatch.score}%`}
                       />
                     ) : null}
-                    {onCopySource || onClearTarget || onToggleLock ? (
-                      <span className="segment-grid__menu-wrap">
-                        <button
-                          type="button"
-                          className="segment-grid__menu-button"
-                          aria-label={`句段 ${segment.ordinal + 1} 菜单`}
-                          aria-haspopup="menu"
-                          aria-expanded={menuSegmentId === segment.id}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setMenuSegmentId((current) =>
-                              current === segment.id ? null : segment.id,
-                            );
-                          }}
-                        >
-                          <IconDots size={14} stroke={1.75} aria-hidden />
-                        </button>
-                        {menuSegmentId === segment.id ? (
-                          <span className="segment-grid__menu" role="menu">
-                            {onCopySource ? (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="segment-grid__menu-item"
-                                disabled={locked}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setMenuSegmentId(null);
-                                  onCopySource(segment);
-                                }}
-                              >
-                                复制源文
-                              </button>
-                            ) : null}
-                            {onClearTarget ? (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="segment-grid__menu-item"
-                                disabled={
-                                  locked || segment.targetText.length === 0
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setMenuSegmentId(null);
-                                  onClearTarget(segment);
-                                }}
-                              >
-                                清空译文
-                              </button>
-                            ) : null}
-                            {onToggleLock ? (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="segment-grid__menu-item"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setMenuSegmentId(null);
-                                  onToggleLock(segment);
-                                }}
-                              >
-                                <span
-                                  className="segment-grid__menu-icon"
-                                  aria-hidden="true"
-                                >
-                                  {locked ? (
-                                    <IconLockOpen size={13} stroke={1.75} />
-                                  ) : (
-                                    <IconLock size={13} stroke={1.75} />
-                                  )}
-                                </span>
-                                {locked ? "解锁" : "锁定"}
-                              </button>
-                            ) : null}
-                          </span>
-                        ) : null}
-                      </span>
-                    ) : null}
+                    <span className="segment-grid__menu-wrap">
+                      <button
+                        type="button"
+                        className="segment-grid__menu-button"
+                        aria-label={`句段 ${segment.ordinal + 1} 菜单`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuSegmentId === segment.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          void openRowMenu(segment, rect.left, rect.bottom);
+                        }}
+                      >
+                        <IconDots size={14} stroke={1.75} aria-hidden />
+                      </button>
+                    </span>
                   </span>
                 </td>
               </tr>

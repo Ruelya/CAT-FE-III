@@ -7,11 +7,12 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Segment } from "@translunar/contracts";
+import type { SegmentMenuContext } from "../../shared/desktop-api.js";
 
-import { SegmentGrid } from "./SegmentGrid.js";
+import { editorValueForActive, SegmentGrid } from "./SegmentGrid.js";
 import type { SegmentGridHandle } from "./SegmentGrid.js";
 
 function segment(
@@ -35,7 +36,31 @@ function segment(
   };
 }
 
+function installPopup() {
+  const popupSegmentMenu = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(window, "tl", {
+    value: { popupSegmentMenu },
+    configurable: true,
+  });
+  return popupSegmentMenu;
+}
+
+describe("editorValueForActive", () => {
+  it("never paints the previous draft on an empty newly selected row", () => {
+    expect(editorValueForActive("s2", "s1", "240", "")).toBe("");
+    expect(editorValueForActive("s1", "s1", "240", "")).toBe("240");
+    expect(editorValueForActive("s2", "s2", "", "")).toBe("");
+  });
+});
+
 describe("SegmentGrid", () => {
+  beforeEach(() => {
+    installPopup();
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(window, "tl");
+  });
+
   it("renders rows and selects a segment on click", async () => {
     const onSelect = vi.fn();
     render(
@@ -556,6 +581,66 @@ describe("SegmentGrid", () => {
     ).toBe("");
   });
 
+  it("never paints the previous target on an empty newly selected row", () => {
+    const onSaveDraft = vi.fn();
+    const segments = [
+      segment("s1", 0, "Alpha.", "240"),
+      segment("s2", 1, "Beta."),
+    ];
+    const view = render(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    const first = screen.getByLabelText<HTMLTextAreaElement>("句段 1 译文");
+    expect(first.value).toBe("240");
+    fireEvent.change(first, { target: { value: "240" } });
+    view.rerender(
+      <SegmentGrid
+        segments={segments}
+        activeSegmentId="s2"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={onSaveDraft}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={60_000}
+      />,
+    );
+    const second = screen.getByLabelText<HTMLTextAreaElement>("句段 2 译文");
+    expect(second.value).toBe("");
+    expect(second.value).not.toBe("240");
+    expect(screen.queryByDisplayValue("240")).not.toBeInTheDocument();
+  });
+
+  it("edits source text and hands it to onSaveSource", async () => {
+    const onSaveSource = vi.fn();
+    render(
+      <SegmentGrid
+        segments={[segment("s1", 0, "Hello.", "你好。")]}
+        activeSegmentId="s1"
+        qaSegmentIds={new Set()}
+        onSelect={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSaveSource={onSaveSource}
+        onConfirm={vi.fn()}
+        autoSaveDelayMs={20}
+      />,
+    );
+    const source = screen.getByLabelText<HTMLTextAreaElement>("句段 1 源文");
+    expect(source.value).toBe("Hello.");
+    fireEvent.change(source, { target: { value: "Hello there." } });
+    await waitFor(() => {
+      expect(onSaveSource).toHaveBeenCalledTimes(1);
+    });
+    expect(onSaveSource.mock.calls[0]?.[1]).toBe("Hello there.");
+  });
+
   it("saves nothing when the editor text matches the committed target", () => {
     const onSaveDraft = vi.fn();
     const { unmount } = render(
@@ -882,9 +967,8 @@ describe("SegmentGrid", () => {
     );
   });
 
-  it("offers 复制源文 and 清空译文 in the row menu", async () => {
-    const onCopySource = vi.fn();
-    const onClearTarget = vi.fn();
+  it("pops the native row menu from the dots with existing-command flags", async () => {
+    const popup = window.tl.popupSegmentMenu as ReturnType<typeof vi.fn>;
     render(
       <SegmentGrid
         segments={[segment("s1", 0, "Hello.", "你好。")]}
@@ -893,24 +977,17 @@ describe("SegmentGrid", () => {
         onSelect={vi.fn()}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
-        onCopySource={onCopySource}
-        onClearTarget={onClearTarget}
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "复制源文" }));
-    expect(onCopySource).toHaveBeenCalledTimes(1);
-    expect((onCopySource.mock.calls[0]?.[0] as Segment).id).toBe("s1");
-    // The menu offers no confirm action — confirming is a keyboard act.
-    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
-    expect(
-      screen.queryByRole("menuitem", { name: /确认/ }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("menuitem", { name: "清空译文" }));
-    expect(onClearTarget).toHaveBeenCalledTimes(1);
+    expect(popup).toHaveBeenCalledTimes(1);
+    const context = popup.mock.calls[0]?.[2] as SegmentMenuContext;
+    expect(context).toEqual({ locked: false, emptyTarget: false });
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("disables 清空译文 when the target is already empty", async () => {
+  it("marks the native row menu emptyTarget when the target is empty", async () => {
+    const popup = window.tl.popupSegmentMenu as ReturnType<typeof vi.fn>;
     render(
       <SegmentGrid
         segments={[segment("s1", 0, "Hello.")]}
@@ -919,15 +996,16 @@ describe("SegmentGrid", () => {
         onSelect={vi.fn()}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
-        onCopySource={vi.fn()}
-        onClearTarget={vi.fn()}
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
-    expect(screen.getByRole("menuitem", { name: "清空译文" })).toBeDisabled();
+    const context = popup.mock.calls[0]?.[2] as SegmentMenuContext;
+    expect(context.emptyTarget).toBe(true);
+    expect(context.locked).toBe(false);
   });
 
-  it("opens the row menu from a right-click and selects the row", () => {
+  it("opens the native row menu from a right-click and selects the row", () => {
+    const popup = window.tl.popupSegmentMenu as ReturnType<typeof vi.fn>;
     const onSelect = vi.fn();
     const { container } = render(
       <SegmentGrid
@@ -937,13 +1015,12 @@ describe("SegmentGrid", () => {
         onSelect={onSelect}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
-        onCopySource={vi.fn()}
-        onClearTarget={vi.fn()}
       />,
     );
     fireEvent.contextMenu(container.querySelector('tr[data-segment-id="s2"]')!);
     expect(onSelect).toHaveBeenCalledWith("s2");
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(popup).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("locked rows show the lock glyph and never mount the editor", () => {
@@ -979,8 +1056,8 @@ describe("SegmentGrid", () => {
     ).not.toHaveAttribute("data-locked");
   });
 
-  it("row menu on a locked row offers 解锁 and disables the write actions", async () => {
-    const onToggleLock = vi.fn();
+  it("native row menu on a locked row reports locked so write actions disable", async () => {
+    const popup = window.tl.popupSegmentMenu as ReturnType<typeof vi.fn>;
     render(
       <SegmentGrid
         segments={[{ ...segment("s1", 0, "Hello.", "你好。"), locked: true }]}
@@ -989,37 +1066,26 @@ describe("SegmentGrid", () => {
         onSelect={vi.fn()}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
-        onCopySource={vi.fn()}
-        onClearTarget={vi.fn()}
-        onToggleLock={onToggleLock}
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
-    // Both write actions would conflict against the engine's lock guard,
-    // so they disable instead of pretending.
-    expect(screen.getByRole("menuitem", { name: "复制源文" })).toBeDisabled();
-    expect(screen.getByRole("menuitem", { name: "清空译文" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("menuitem", { name: "解锁" }));
-    expect(onToggleLock).toHaveBeenCalledTimes(1);
-    expect((onToggleLock.mock.calls[0]?.[0] as Segment).id).toBe("s1");
+    const context = popup.mock.calls[0]?.[2] as SegmentMenuContext;
+    expect(context).toEqual({ locked: true, emptyTarget: false });
   });
 
-  it("row menu on an unlocked row offers 锁定", async () => {
-    const onToggleLock = vi.fn();
+  it("does not mount a source editor on a locked row", () => {
     render(
       <SegmentGrid
-        segments={[segment("s1", 0, "Hello.", "你好。")]}
-        activeSegmentId={null}
+        segments={[{ ...segment("s1", 0, "Hello.", "你好。"), locked: true }]}
+        activeSegmentId="s1"
         qaSegmentIds={new Set()}
         onSelect={vi.fn()}
         onSaveDraft={vi.fn()}
         onConfirm={vi.fn()}
-        onToggleLock={onToggleLock}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "句段 1 菜单" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "锁定" }));
-    expect(onToggleLock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("句段 1 源文")).not.toBeInTheDocument();
+    expect(screen.getByText("Hello.")).toBeInTheDocument();
   });
 
   it("flushDraft persists pending typing without waiting for the debounce", async () => {

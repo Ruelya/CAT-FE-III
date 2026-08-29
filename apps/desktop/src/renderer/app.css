@@ -1778,13 +1778,14 @@ button.app-statusbar__jump:hover {
 /* Geometry-stable inline editing: the textarea sits in the exact text box
    of the cell (same font, same line-height, zero chrome), so entering edit
    mode never changes the row box. Height follows content only; the row's
-   1px accent perimeter carries the editing signal. */
-.segment-grid__target-editor {
+   1px accent perimeter carries the editing signal. Source and target
+   share the same editor chrome. */
+.segment-grid__cell-editor {
   display: flex;
   flex-direction: column;
 }
 
-.segment-grid__target-editor textarea {
+.segment-grid__cell-editor textarea {
   display: block;
   width: 100%;
   font: inherit;
@@ -1887,8 +1888,8 @@ button.app-statusbar__jump:hover {
   color: var(--tl-status-danger);
 }
 
-/* Row ⋯ menu (right-click / status-cell dots): copy source, clear target.
-   No confirm in the menu — confirming stays a keyboard/editor act. */
+/* Row ⋯ button: opens the native segment menu (copy / clear / lock).
+   No HTML dropdown — Menu.popup owns the items. */
 .segment-grid__menu-wrap {
   position: relative;
   display: inline-flex;
@@ -1916,50 +1917,6 @@ button.app-statusbar__jump:hover {
 .segment-grid__menu-button:focus-visible {
   outline: 2px solid var(--tl-color-accent);
   outline-offset: 1px;
-}
-
-.segment-grid__menu {
-  position: absolute;
-  top: calc(100% + 2px);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  min-width: 112px;
-  padding: var(--tl-space-1);
-  border: 1px solid var(--tl-color-border-strong);
-  border-radius: var(--tl-radius-md);
-  background: var(--tl-color-surface-raised);
-  box-shadow: var(--tl-shadow-pop);
-}
-
-.segment-grid__menu-item {
-  display: block;
-  width: 100%;
-  padding: 4px var(--tl-space-2);
-  border: none;
-  border-radius: var(--tl-radius-sm);
-  background: transparent;
-  color: var(--tl-color-text);
-  font-size: var(--tl-text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.segment-grid__menu-item:hover:not(:disabled) {
-  background: var(--tl-color-sunken);
-}
-
-.segment-grid__menu-item:disabled {
-  color: var(--tl-color-text-faint);
-  cursor: default;
-}
-
-.segment-grid__menu-icon {
-  display: inline-flex;
-  align-items: center;
-  margin-right: var(--tl-space-1);
-  vertical-align: -2px;
 }
 
 /* Locked rows: the glyph is the signal (its own icon before the state

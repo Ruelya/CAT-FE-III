@@ -3083,6 +3083,89 @@ fn segment_lock_toggles_and_guards_update_and_confirm() {
     assert_eq!(confirmed["segment"]["state"], "confirmed");
 }
 
+/// `sourceText` on segment.update is optional. When present it rewrites the
+/// source and re-keys hashes; a confirmed row demotes to draft and the TM
+/// entry written at confirm time is left untouched. Locked rows and empty
+/// source fail honestly. Omitting the field keeps the target-only path.
+#[test]
+fn segment_update_source_text_demotes_confirmed_without_rewriting_tm() {
+    let mut harness = Harness::new();
+    let project_id = harness.create_project();
+    let document_id = harness.import_txt(
+        &project_id,
+        "source-edit.txt",
+        "First line.\n\nSecond line.\n",
+    );
+    let segments = harness.segments(&document_id);
+    let drafted = harness.set_target(&segments[0], "第一行。");
+    let confirmed = harness.confirm(&drafted)["segment"].clone();
+    assert_eq!(confirmed["state"], "confirmed");
+    let tm_before = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm_before["total"], 1);
+    assert_eq!(tm_before["entries"][0]["sourceText"], "First line.");
+    assert_eq!(tm_before["entries"][0]["targetText"], "第一行。");
+    let tm_id = tm_before["entries"][0]["id"].clone();
+    let old_hash = confirmed["sourceHash"].clone();
+
+    // Locked: source rewrite is the same conflict as a target write.
+    let locked = harness.lock(&confirmed, true);
+    assert_eq!(
+        harness.call_err(
+            "segment.update",
+            json!({
+                "segmentId": locked["id"],
+                "targetText": locked["targetText"],
+                "sourceText": "First line (locked).",
+                "baseRevision": locked["revision"],
+            }),
+        ),
+        "conflict"
+    );
+    let unlocked = harness.lock(&locked, false);
+
+    assert_eq!(
+        harness.call_err(
+            "segment.update",
+            json!({
+                "segmentId": unlocked["id"],
+                "targetText": unlocked["targetText"],
+                "sourceText": "   ",
+                "baseRevision": unlocked["revision"],
+            }),
+        ),
+        "invalidParams"
+    );
+
+    let rewritten = harness.call(
+        "segment.update",
+        json!({
+            "segmentId": unlocked["id"],
+            "targetText": unlocked["targetText"],
+            "sourceText": "First line (edited).",
+            "baseRevision": unlocked["revision"],
+        }),
+    )["segment"]
+        .clone();
+    assert_eq!(rewritten["sourceText"], "First line (edited).");
+    assert_eq!(rewritten["targetText"], "第一行。");
+    assert_eq!(rewritten["state"], "draft", "confirmed source edit demotes");
+    assert_ne!(rewritten["sourceHash"], old_hash);
+
+    let tm_after = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm_after["total"], 1, "source edit does not write TM");
+    assert_eq!(tm_after["entries"][0]["id"], tm_id);
+    assert_eq!(tm_after["entries"][0]["sourceText"], "First line.");
+    assert_eq!(tm_after["entries"][0]["targetText"], "第一行。");
+
+    harness.reopen();
+    let persisted = harness.segments(&document_id);
+    assert_eq!(persisted[0]["sourceText"], "First line (edited).");
+    assert_eq!(persisted[0]["state"], "draft");
+    assert_eq!(persisted[0]["sourceHash"], rewritten["sourceHash"]);
+    let tm_persisted = harness.call("tm.list", json!({ "projectId": project_id }));
+    assert_eq!(tm_persisted["entries"][0]["sourceText"], "First line.");
+}
+
 /// Locked rows are read-only for every bulk write: replace skips and counts
 /// them (even with includeConfirmed), pretranslate sets them aside, and
 /// confirm-time propagation never fills them.

@@ -241,6 +241,7 @@ describe("App window chrome", () => {
     installBridge(READY, {
       windowChrome: "integrated",
       popupAppMenu: vi.fn().mockResolvedValue(undefined),
+      popupSegmentMenu: vi.fn().mockResolvedValue(undefined),
       setTitlebarOverlay: vi.fn(),
     });
     render(<App />);

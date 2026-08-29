@@ -7,6 +7,7 @@ import type { MenuCommand, MenuContext } from "../shared/desktop-api.js";
 import {
   RENDERER_OWNED_ACCELERATORS,
   buildMenuTemplate,
+  buildSegmentContextMenu,
   menuBarSubmenu,
 } from "./menu-template.js";
 import type { MenuTemplateOptions } from "./menu-template.js";
@@ -448,9 +449,7 @@ describe("menuBarSubmenu (integrated titlebar popups)", () => {
       onCommand,
     };
     const submenu = menuBarSubmenu(options, "file");
-    expect(
-      submenu?.some((entry) => entry.label === "新建项目…"),
-    ).toBe(true);
+    expect(submenu?.some((entry) => entry.label === "新建项目…")).toBe(true);
   });
 
   it("returns null for an unknown menu id", () => {
@@ -523,5 +522,66 @@ describe("buildMenuTemplate keymap (single owner per chord)", () => {
       .map((item) => item.accelerator)
       .filter((accelerator): accelerator is string => Boolean(accelerator));
     expect(new Set(accelerators).size).toBe(accelerators.length);
+  });
+
+  it("registers Ctrl+= as a hidden zoomIn sibling on Windows and Linux", () => {
+    for (const platform of ["win32", "linux"] as const) {
+      const { template } = build(DOCUMENT_OPEN, { platform });
+      const zoomIns = flatten(template).filter(
+        (item) => item.role === "zoomIn",
+      );
+      expect(zoomIns.some((item) => item.visible !== false)).toBe(true);
+      const extra = zoomIns.find((item) => item.accelerator === "CmdOrCtrl+=");
+      expect(extra, platform).toBeDefined();
+      expect(extra?.visible).toBe(false);
+    }
+  });
+
+  it("does not add a hidden Ctrl+= zoomIn on macOS (role already binds it)", () => {
+    const { template } = build(DOCUMENT_OPEN, { platform: "darwin" });
+    const extras = flatten(template).filter(
+      (item) => item.role === "zoomIn" && item.accelerator === "CmdOrCtrl+=",
+    );
+    expect(extras).toHaveLength(0);
+  });
+});
+
+describe("buildSegmentContextMenu (native row menu)", () => {
+  it("dispatches only the existing copy/clear/lock commands", () => {
+    const onCommand = vi.fn();
+    const items = buildSegmentContextMenu({
+      onCommand,
+      context: { locked: false, emptyTarget: false },
+    });
+    const labels = items.map((item) => item.label);
+    expect(labels).toEqual(["复制源文", "清空译文", undefined, "锁定"]);
+    click(items[0]!);
+    click(items[1]!);
+    click(items[3]!);
+    expect(onCommand.mock.calls.map((call) => call[0])).toEqual([
+      "copy-source",
+      "clear-target",
+      "toggle-lock-segment",
+    ]);
+  });
+
+  it("disables write actions on a locked row and offers 解锁", () => {
+    const items = buildSegmentContextMenu({
+      onCommand: vi.fn(),
+      context: { locked: true, emptyTarget: false },
+    });
+    expect(items[0]?.enabled).toBe(false);
+    expect(items[1]?.enabled).toBe(false);
+    expect(items[3]?.label).toBe("解锁");
+    expect(items[3]?.enabled).not.toBe(false);
+  });
+
+  it("disables 清空译文 when the target is already empty", () => {
+    const items = buildSegmentContextMenu({
+      onCommand: vi.fn(),
+      context: { locked: false, emptyTarget: true },
+    });
+    expect(items[0]?.enabled).toBe(true);
+    expect(items[1]?.enabled).toBe(false);
   });
 });

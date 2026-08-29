@@ -33,7 +33,7 @@ use tl_ai::check_tag_integrity;
 use tl_asset::TmIndex;
 use tl_domain::{
     Document, DocumentStatus, Project, ProjectLifecycle, ProjectSegmentation, Segment,
-    SegmentOrigin, SegmentOriginKind, SegmentState, new_id, sha256_hex,
+    SegmentOrigin, SegmentOriginKind, SegmentState, new_id, segment_hashes, sha256_hex,
 };
 use tl_filter_core::{
     DocumentFilter, FilterError, FilterRegistry, ImportRequest, collect_imported_document,
@@ -1115,14 +1115,54 @@ impl Engine {
                 "segment is locked; unlock it before editing".to_string(),
             ));
         }
+        let source_changed = if let Some(source_text) = params.source_text {
+            if source_text.trim().is_empty() {
+                return Err(EngineError::InvalidParams(
+                    "source text must not be empty".to_string(),
+                ));
+            }
+            if source_text == segment.source_text {
+                false
+            } else {
+                let min_ordinal = segment.ordinal.saturating_sub(1);
+                let max_ordinal = segment.ordinal.saturating_add(1);
+                let neighbors = self.store.segments_by_ordinal_range(
+                    &segment.document_id,
+                    min_ordinal,
+                    max_ordinal,
+                )?;
+                let previous = neighbors
+                    .iter()
+                    .find(|row| row.ordinal < segment.ordinal)
+                    .map(|row| row.source_text.as_str());
+                let next = neighbors
+                    .iter()
+                    .find(|row| row.ordinal > segment.ordinal)
+                    .map(|row| row.source_text.as_str());
+                let (source_hash, context_hash) = segment_hashes(&source_text, previous, next);
+                segment.source_text = source_text;
+                segment.source_hash = source_hash;
+                segment.context_hash = context_hash;
+                true
+            }
+        } else {
+            false
+        };
         let target_changed = segment.target_text != params.target_text;
         segment.target_text = params.target_text;
+        // Confirmed rows always demote: the confirmation covered the old
+        // pair. Empty target returns to untranslated. The TM is never
+        // rewritten here — only segment.confirm writes memory.
         segment.state = if segment.target_text.trim().is_empty() {
             SegmentState::Untranslated
         } else {
             SegmentState::Draft
         };
-        apply_origin_rules(&mut segment, params.origin, target_changed);
+        apply_origin_rules(
+            &mut segment,
+            params.origin,
+            target_changed || source_changed,
+        );
         segment.revision += 1;
         segment.updated_at_ms = now;
         self.store.apply(&StateDelta {
@@ -2570,8 +2610,8 @@ impl Engine {
     }
 }
 
-/// Origin rules shared by every target-text write (`segment.update`,
-/// `segment.replace`). Call after the new target and state are set:
+/// Origin rules shared by every pair write (`segment.update`,
+/// `segment.replace`). Call after the new target/source and state are set:
 ///
 /// - an empty target (untranslated) has no origin — clear it;
 /// - a write carrying a stamp records it with `edited: false` (`edited` is

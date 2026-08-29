@@ -1414,10 +1414,9 @@ fn upsert_document(conn: &Connection, record: &DocumentRecord) -> io::Result<()>
     Ok(())
 }
 
-/// Source-side columns and `leading` are immutable once a segment exists;
-/// updates only touch the translation-side columns (target, state,
-/// revision, timestamps, origin — origin describes the target — and the
-/// lock flag).
+/// `leading`, `ordinal`, and `structural_path` stay import-owned.
+/// `source_text` / hashes may change when `segment.update` carries
+/// `sourceText`; target-side columns change on every draft write.
 fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Result<()> {
     let mut statement = conn
         .prepare_cached(
@@ -1426,6 +1425,9 @@ fn upsert_segment(conn: &Connection, segment: &Segment, leading: &str) -> io::Re
                origin_kind, origin_score, origin_model, origin_edited, locked)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
              ON CONFLICT(id) DO UPDATE SET
+               source_text = excluded.source_text,
+               source_hash = excluded.source_hash,
+               context_hash = excluded.context_hash,
                target_text = excluded.target_text,
                state = excluded.state,
                revision = excluded.revision,
