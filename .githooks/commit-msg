@@ -1,0 +1,3 @@
+#!/bin/sh
+# Reject forbidden identities and Co-author trailers at commit time.
+exec node scripts/check-commit-identity.mjs --message-file "$1" --check-ident

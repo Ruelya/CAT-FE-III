@@ -5,6 +5,21 @@ in `apps/desktop` talking JSON-RPC 2.0 over stdio to a headless Rust engine
 (`crates/tl-engine`). Read `docs/architecture.md` before changing either side
 of that boundary, and `docs/contributing.md` for the full quality gate.
 
+## Git identity (mandatory)
+
+The default integration branch is `main`. Open every pull request against `main`.
+
+Every commit's **author and committer** must be exactly:
+
+`Ruelya <239264465+Ruelya@users.noreply.github.com>`
+
+(`Ruelya@users.noreply.github.com` is also accepted.)
+
+Do not use `Cursor Agent`, `cursoragent@cursor.com`, `ruelya.miko@gmail.com`,
+or any other name/email. Do not add `Co-authored-by` / `Co-author` trailers.
+Override the environment git config when it is `Cursor Agent`. Local hook:
+`.githooks/commit-msg`. CI: `.github/workflows/commit-identity.yml`.
+
 ## Hard boundaries
 
 - The Rust engine owns every domain rule, state transition, and persistent

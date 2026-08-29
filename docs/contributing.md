@@ -61,6 +61,24 @@ Governance: [`LICENSE`](../LICENSE), [`SECURITY.md`](../SECURITY.md), and
 
 ## Pull requests
 
+Target `main`. That branch matches the published product tree and is the only
+merge destination for development branches.
+
+### Commit identity
+
+Author and committer on every commit must be:
+
+`Ruelya <239264465+Ruelya@users.noreply.github.com>`
+
+The account-name noreply `Ruelya@users.noreply.github.com` is accepted.
+`ruelya.miko@gmail.com`, `Cursor Agent <cursoragent@cursor.com>`, and any
+other identity are rejected. Do not write `Co-authored-by` or `Co-author`
+trailers, even when the extra name is Ruelya.
+
+`pnpm install` sets `core.hooksPath` to `.githooks`. The `commit-msg` hook
+and `.github/workflows/commit-identity.yml` both run
+`scripts/check-commit-identity.mjs`.
+
 - Keep changes scoped; avoid unrelated toolchain noise.
 - Add or update focused tests for new engine methods, filters, or renderer
   flows.
